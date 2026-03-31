@@ -1,0 +1,143 @@
+import { useEffect } from 'react';
+import { RouterProvider } from 'react-router';
+import { ErrorBoundary, router } from './routes';
+import { AuthProvider } from './context/AuthContext';
+import { ThemeProvider } from './context/ThemeContext';
+import { DeployUpdateNotifier } from './components/DeployUpdateNotifier';
+import { installVisibilityRefetchBroadcast } from './utils/visibilityRefetch';
+import { Toaster } from 'sonner';
+
+export default function App() {
+  // PWA: Register Service Worker
+  useEffect(() => {
+    // Set viewport meta tag for PWA
+    const setViewport = () => {
+      let viewport = document.querySelector('meta[name="viewport"]');
+      if (!viewport) {
+        viewport = document.createElement('meta');
+        viewport.setAttribute('name', 'viewport');
+        document.head.appendChild(viewport);
+      }
+      viewport.setAttribute(
+        'content',
+        'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover'
+      );
+    };
+
+    // Set theme-color meta tag
+    const setThemeColor = () => {
+      let themeColor = document.querySelector('meta[name="theme-color"]');
+      if (!themeColor) {
+        themeColor = document.createElement('meta');
+        themeColor.setAttribute('name', 'theme-color');
+        document.head.appendChild(themeColor);
+      }
+      themeColor.setAttribute('content', '#14b8a6');
+    };
+
+    // Set apple-mobile-web-app-capable
+    const setAppleMeta = () => {
+      let appleMeta = document.querySelector('meta[name="apple-mobile-web-app-capable"]');
+      if (!appleMeta) {
+        appleMeta = document.createElement('meta');
+        appleMeta.setAttribute('name', 'apple-mobile-web-app-capable');
+        document.head.appendChild(appleMeta);
+      }
+      appleMeta.setAttribute('content', 'yes');
+
+      let appleStatus = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+      if (!appleStatus) {
+        appleStatus = document.createElement('meta');
+        appleStatus.setAttribute('name', 'apple-mobile-web-app-status-bar-style');
+        document.head.appendChild(appleStatus);
+      }
+      appleStatus.setAttribute('content', 'black-translucent');
+    };
+
+    // Link manifest
+    const linkManifest = () => {
+      let manifestLink = document.querySelector('link[rel="manifest"]');
+      if (!manifestLink) {
+        manifestLink = document.createElement('link');
+        manifestLink.setAttribute('rel', 'manifest');
+        document.head.appendChild(manifestLink);
+      }
+      manifestLink.setAttribute('href', '/manifest.json');
+    };
+
+    setViewport();
+    setThemeColor();
+    setAppleMeta();
+    linkManifest();
+
+    // Register Service Worker
+    if ('serviceWorker' in navigator) {
+      window.addEventListener('load', () => {
+        navigator.serviceWorker
+          .register('/sw.js')
+          .then((registration) => {
+            console.log('✅ PWA: Service Worker registered successfully:', registration.scope);
+          })
+          .catch((error) => {
+            console.error('❌ PWA: Service Worker registration failed:', error);
+          });
+      });
+    }
+
+    // Prevent zoom on double tap (but allow scrolling)
+    let lastTouchEnd = 0;
+    const preventZoom = (e: TouchEvent) => {
+      const now = Date.now();
+      const timeSinceLastTouch = now - lastTouchEnd;
+      
+      // Only prevent if double-tap detected (within 300ms)
+      if (timeSinceLastTouch > 0 && timeSinceLastTouch <= 300 && e.cancelable) {
+        e.preventDefault();
+      }
+      lastTouchEnd = now;
+    };
+
+    // Prevent pinch zoom (2+ fingers)
+    const preventPinchZoom = (e: TouchEvent) => {
+      if (e.touches.length > 1 && e.cancelable) {
+        e.preventDefault();
+      }
+    };
+
+    // Add event listeners with proper options
+    document.addEventListener('touchend', preventZoom, { passive: false });
+    document.addEventListener('touchmove', preventPinchZoom, { passive: false });
+
+    // Cleanup
+    return () => {
+      document.removeEventListener('touchend', preventZoom);
+      document.removeEventListener('touchmove', preventPinchZoom);
+    };
+  }, []);
+
+  useEffect(() => {
+    return installVisibilityRefetchBroadcast(12_000);
+  }, []);
+
+  // Auth + Theme must wrap RouterProvider so barcha marshrutlar bitta React context bilan ishlaydi
+  // (aks holda ayrim chunk/HMR holatlarida useTheme / useAuth "provider yo‘q" deb qulashi mumkin).
+  return (
+    <>
+      <DeployUpdateNotifier />
+      <ErrorBoundary>
+        <AuthProvider>
+          <ThemeProvider>
+            <RouterProvider router={router} />
+          </ThemeProvider>
+        </AuthProvider>
+      </ErrorBoundary>
+      <Toaster 
+        position="top-center"
+        expand={true}
+        richColors
+        closeButton
+        duration={3000}
+      />
+    </>
+  );
+}

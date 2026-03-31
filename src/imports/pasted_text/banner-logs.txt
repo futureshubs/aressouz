@@ -1,0 +1,60 @@
+🎨 ===== END LOADING BANNERS =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'shop', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'shop', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useEffect triggered: {category: 'shop', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== LOADING BANNERS =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Category: shop
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Region: andijon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 District: shahrixon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/banners?category=shop
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔄 Loading shops... {region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/shops?region=andijon&district=shahrixon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔄 Loading all products... {region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/products?region=andijon&district=shahrixon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'shop', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'shop', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useEffect triggered: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== LOADING BANNERS =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Category: market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Region: andijon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 District: shahrixon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/banners?category=market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Response ok: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Backend response: {success: true, data: Array(0)}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Total banners from backend: 0
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 All banners: []
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Filtered banners count: 0
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Filtered banners: []
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== END LOADING BANNERS =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Response ok: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Backend response: {success: true, data: Array(4)}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Total banners from backend: 4
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 All banners: (4) [{…}, {…}, {…}, {…}]
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: sdasdada {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: false, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: wreewrew {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: false, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: ;lk;kkl; {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: false, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: 121212 {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: false, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Filtered banners count: 0
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Filtered banners: []
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== END LOADING BANNERS =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 Shops loaded: {success: true, shops: Array(1)}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Shops set: 1 ta
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 All products loaded: {success: true, products: Array(1)}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 First product sample: {id: 'shop_product-1773388235924-wegl2nw08', name: '12312312', variants: Array(2), hasVariants: true, variantsLength: 2}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ All products set: 1 ta
+vendor-core-ade2edecaf4781c7.min.js.br:54 [Livegraph] Connection closed. Code: 1006, reason: 

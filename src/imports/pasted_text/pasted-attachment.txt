@@ -1,0 +1,216 @@
+✅ All products set: 0 ta
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Test ma'lumotlar yuklandi: {success: true, message: "Test do'konlar va mahsulotlar yaratildi!", shopsCreated: 3, productsCreated: 11, shops: Array(3)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔄 Loading shops... {region: 'andijon', district: "oltinko'l"}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/shops?region=andijon&district=oltinko%27l
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Shops loaded: {success: true, shops: Array(0)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Do'konlar yo'q, test ma'lumotlar yuklanmoqda...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Test ma'lumotlar yuklandi: {success: true, message: "Test do'konlar va mahsulotlar yaratildi!", shopsCreated: 3, productsCreated: 11, shops: Array(3)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔄 Loading shops... {region: 'andijon', district: "oltinko'l"}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/shops?region=andijon&district=oltinko%27l
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Shops loaded: {success: true, shops: Array(0)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Do'konlar yo'q, test ma'lumotlar yuklanmoqda...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Test ma'lumotlar yuklandi: {success: true, message: "Test do'konlar va mahsulotlar yaratildi!", shopsCreated: 3, productsCreated: 11, shops: Array(3)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔄 Loading shops... {region: 'andijon', district: "oltinko'l"}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/shops?region=andijon&district=oltinko%27l
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Shops loaded: {success: true, shops: Array(0)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Do'konlar yo'q, test ma'lumotlar yuklanmoqda...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Test ma'lumotlar yuklandi: {success: true, message: "Test do'konlar va mahsulotlar yaratildi!", shopsCreated: 3, productsCreated: 11, shops: Array(3)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔄 Loading shops... {region: 'andijon', district: "oltinko'l"}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/shops?region=andijon&district=oltinko%27l
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Shops loaded: {success: true, shops: Array(0)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Do'konlar yo'q, test ma'lumotlar yuklanmoqda...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Test ma'lumotlar yuklandi: {success: true, message: "Test do'konlar va mahsulotlar yaratildi!", shopsCreated: 3, productsCreated: 11, shops: Array(3)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔄 Loading shops... {region: 'andijon', district: "oltinko'l"}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/shops?region=andijon&district=oltinko%27l
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Test ma'lumotlar yuklandi: {success: true, message: "Test do'konlar va mahsulotlar yaratildi!", shopsCreated: 3, productsCreated: 11, shops: Array(3)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Shops loaded: {success: true, shops: Array(0)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Do'konlar yo'q, test ma'lumotlar yuklanmoqda...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔄 Loading shops... {region: 'andijon', district: "oltinko'l"}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/shops?region=andijon&district=oltinko%27l
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Shops loaded: {success: true, shops: Array(0)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Do'konlar yo'q, test ma'lumotlar yuklanmoqda...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 Test ma'lumotlar yuklashda xatolik: TypeError: Failed to fetch
+    at code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90:9794
+    at loadShops (app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:76:40)
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+r @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:17
+error @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ OnlineShops.tsx:105
+await in loadShops
+(anonymous) @ OnlineShops.tsx:98
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+setTimeout
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ OnlineShops.tsx:98
+await in loadShops
+(anonymous) @ OnlineShops.tsx:98
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+setTimeout
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ OnlineShops.tsx:98
+await in loadShops
+(anonymous) @ OnlineShops.tsx:98
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+setTimeout
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ OnlineShops.tsx:98
+await in loadShops
+(anonymous) @ OnlineShops.tsx:43
+TN @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+T8 @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+T7 @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+T6 @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+T4 @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+S1 @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+SQ @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+SJ @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+SZ @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+SO @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+pC @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37Understand this error
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Shops set: 0 ta
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 Test ma'lumotlar yuklashda xatolik: TypeError: Failed to fetch
+    at code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90:9794
+    at loadShops (app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:76:40)
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+r @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:17
+error @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:100
+await in loadShops
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+setTimeout
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+await in loadShops
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+setTimeout
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+await in loadShops
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+setTimeout
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+await in loadShops
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+setTimeout
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+await in loadShops
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+setTimeout
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+await in loadShops
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+setTimeout
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+loadShops @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:93
+await in loadShops
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx?t=1773344525576:49
+TN @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+T8 @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+T7 @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+T6 @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+T4 @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+S1 @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+SQ @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+SJ @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+SZ @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+SO @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+pC @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+SL @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+IO @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:37
+r.scheduleRefresh @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:17
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@react-refresh:228
+performReactRefresh @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@react-refresh:217
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@react-refresh:608
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+setTimeout
+(anonymous) @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@react-refresh:598
+validateRefreshBoundaryAndEnqueueUpdate @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@react-refresh:648
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/src/app/components/OnlineShops.tsx:2831
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:34
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:213
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:186
+queueUpdate @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:186
+await in queueUpdate
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:930
+handleMessage @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:928
+await in handleMessage
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:490
+dequeue @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:516
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:504
+enqueue @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:498
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:490
+onMessage @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:309
+(anonymous) @ app-smign34qmpbhrhwn2f3nt2eqjazossm2i5mowztl27mc5yvrwscq.makeproxy-c.figma.site/@vite/client:439
+i @ code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90Understand this error
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Shops set: 0 ta
+vendor-core-ade2edecaf4781c7.min.js.br:54 [Livegraph] Connection closed. Code: 4001, reason: connection_lifetime
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📱 Using device ID: device-1773343874213-8fh5hcd31al
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🧪 Testing backend health...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔵 Header: isLocationOpen changed: false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🟡 BottomNav: isMenuOpen state changed: false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🟣 BottomNav: locationModalOpen changed: false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 BottomNav: menuCloseRef is undefined
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📡 Fetching branches from Supabase...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 Loading products for: {selectedRegion: '', selectedDistrict: '', branchCount: 0}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ⚠️ No region/district selected or no branches loaded
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ⚙️ Loading settings from Supabase for user: device-1773343874213-8fh5hcd31al
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 💾 localStorage check: {sms_user: null, sms_session: null}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 ===== RESTORING SESSION FROM LOCALSTORAGE =====
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 storedUser: NULL
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 storedSession: NULL
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ℹ️ No stored session found
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 ===== SESSION RESTORATION COMPLETE =====
+
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📱 Using device ID: device-1773343874213-8fh5hcd31al
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 Loading products for: {selectedRegion: 'andijon', selectedDistrict: "oltinko'l", branchCount: 0}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ⚠️ No region/district selected or no branches loaded
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Settings loaded from Supabase: {theme: 'dark', language: 'uz', accentColor: 'red', soundEnabled: true, notifications: true}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 💾 Saving settings to Supabase: {theme: 'dark', language: 'uz', notifications: true, soundEnabled: true, accentColor: 'red'}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 💾 Saving settings to Supabase: {theme: 'dark', language: 'uz', notifications: true, soundEnabled: true, accentColor: 'red'}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 💾 Saving settings to Supabase: {theme: 'dark', language: 'uz', notifications: true, soundEnabled: true, accentColor: 'red'}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 💾 Saving settings to Supabase: {theme: 'dark', language: 'uz', notifications: true, soundEnabled: true, accentColor: 'red'}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 💾 Saving settings to Supabase: {theme: 'dark', language: 'uz', notifications: true, soundEnabled: true, accentColor: 'red'}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📊 Health check response status: 200
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📊 Health check response ok: true
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Backend is healthy! {status: 'ok', timestamp: '2026-03-12T19:43:38.326Z', message: 'Server ishlamoqda', r2: {…}}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Branches loaded from Supabase: 2
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 Loading products for: {selectedRegion: 'andijon', selectedDistrict: "oltinko'l", branchCount: 2}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🏢 Local branches found: 0 []
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ⚠️ No branches in this location
+4code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Settings saved to Supabase
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔄 Loading shops... {region: 'andijon', district: "oltinko'l"}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/shops?region=andijon&district=oltinko%27l
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔄 Loading all products... {region: 'andijon', district: "oltinko'l"}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/products?region=andijon&district=oltinko%27l
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Settings saved to Supabase
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Shops loaded: {success: true, shops: Array(0)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Do'konlar yo'q, test ma'lumotlar yuklanmoqda...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 All products loaded: {success: true, products: Array(0)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ All products set: 0 ta
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Test ma'lumotlar yuklandi: {success: true, message: "Test do'konlar va mahsulotlar yaratildi!", shopsCreated: 3, productsCreated: 11, shops: Array(3)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔄 Loading shops... {region: 'andijon', district: "oltinko'l"}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/shops?region=andijon&district=oltinko%27l
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Shops loaded: {success: true, shops: Array(0)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Do'konlar yo'q, test ma'lumotlar yuklanmoqda...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Test ma'lumotlar yuklandi: {success: true, message: "Test do'konlar va mahsulotlar yaratildi!", shopsCreated: 3, productsCreated: 11, shops: Array(3)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔄 Loading shops... {region: 'andijon', district: "oltinko'l"}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📍 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/shops?region=andijon&district=oltinko%27l
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Shops loaded: {success: true, shops: Array(0)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Do'konlar yo'q, test ma'lumotlar yuklanmoqda...

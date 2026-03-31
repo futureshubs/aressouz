@@ -1,0 +1,145 @@
+📤 Starting image upload: Gemini_Generated_Image_9pb4b59pb4b59pb4.png
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 File size: 1362034 bytes
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Token being used: seller-1773259777651-de4rm7uzt...
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Token full length: 30
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 publicAnonKey: eyJhbGciOiJIUzI1NiIsInR5cCI6Ik...
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/seller/upload-media
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Request headers: {X-Seller-Token: 'seller-1773259777651-de4rm7uzt...'}
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 8:17:48 PM [vite] (client) hmr update /src/app/components/seller/AddProductModal.tsx, /src/styles/index.css
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28  POST https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/seller/upload-media?token=seller-1773259777651-de4rm7uzt 401 (Unauthorized)
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+(anonymous) @ AddProductModal.tsx?t=1773260085680:113
+handleImageUpload @ AddProductModal.tsx?t=1773260085680:97
+onChange @ AddProductModal.tsx?t=1773260085680:926
+y @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+ik @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+ij @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+iz @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+dP @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dM @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dG @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dk @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+iR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+d$ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+lO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lv @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📥 ===== UPLOAD RESPONSE =====
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📥 Response status: 401
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📥 Response ok: false
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📥 Response headers: {content-length: '73', content-type: 'application/json'}
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ❌ ===== UPLOAD FAILED =====
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+r @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:69
+error @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+(anonymous) @ AddProductModal.tsx?t=1773260085680:126
+await in (anonymous)
+handleImageUpload @ AddProductModal.tsx?t=1773260085680:97
+onChange @ AddProductModal.tsx?t=1773260085680:926
+y @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+ik @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+ij @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+iz @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+dP @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dM @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dG @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dk @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+iR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+d$ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+lO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lv @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ❌ Upload response error: {code: 401, message: 'Missing authorization header'}
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+r @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:69
+error @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+(anonymous) @ AddProductModal.tsx?t=1773260085680:127
+await in (anonymous)
+handleImageUpload @ AddProductModal.tsx?t=1773260085680:97
+onChange @ AddProductModal.tsx?t=1773260085680:926
+y @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+ik @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+ij @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+iz @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+dP @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dM @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dG @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dk @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+iR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+d$ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+lO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lv @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ❌ Full error object: {
+  "code": 401,
+  "message": "Missing authorization header"
+}
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+r @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:69
+error @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+(anonymous) @ AddProductModal.tsx?t=1773260085680:128
+await in (anonymous)
+handleImageUpload @ AddProductModal.tsx?t=1773260085680:97
+onChange @ AddProductModal.tsx?t=1773260085680:926
+y @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+ik @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+ij @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+iz @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+dP @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dM @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dG @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dk @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+iR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+d$ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+lO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lv @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ❌ Upload error: Error: Rasm yuklanmadi
+    at AddProductModal.tsx?t=1773260085680:129:17
+    at async Promise.all (659e6485-810f-4d52-8c27-5ed4c1aa8c97-v2-figmaiframepreview.figma.site/seller/index 0)
+    at async handleImageUpload (AddProductModal.tsx?t=1773260085680:136:28)
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+r @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:69
+error @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+handleImageUpload @ AddProductModal.tsx?t=1773260085680:144
+await in handleImageUpload
+onChange @ AddProductModal.tsx?t=1773260085680:926
+y @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+ik @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+ij @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+iz @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+dP @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dM @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dG @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dk @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+iR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+d$ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+lO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lv @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060

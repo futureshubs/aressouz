@@ -1,0 +1,398 @@
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: Object
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📱 Using device ID: device-1773558180700-toslyyh9p8m
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 Loading branch info from Supabase: branch_1773383925094
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 💾 localStorage check: Object
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== RESTORING SESSION FROM LOCALSTORAGE =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedUser: EXISTS
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedSession: EXISTS
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Parsed user: Object
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Parsed session: Object
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔑 access_token from session: 2bad2861-de46-40ab-88e1-c609ff1c5344-1773593384130-yd49k4tp9
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Token validation:
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Token preview: 2bad2861-de46-40ab-88e1-c609ff1c5344-1773593384130...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Is JWT: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Is Custom Token: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Restored session from localStorage: Object
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Token format: Custom
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== SESSION RESTORATION COMPLETE =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 👤 Using authenticated user ID: 2bad2861-de46-40ab-88e1-c609ff1c5344
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Branch info updated: Object
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Settings loaded from Supabase: Object
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Settings loaded from Supabase: Object
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🏠 Loading properties for branch: Object
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔗 Fetching from: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/branch-properties?region=andijon&district=shahrixon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 Properties loaded: 0
+vendor-core-ade2edecaf4781c7.min.js.br:54 [Livegraph] Connection closed. Code: 4001, reason: connection_lifetime
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📱 Using device ID: device-1773558180700-toslyyh9p8m
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🧪 Testing backend health...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔵 Header: isLocationOpen changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🟡 BottomNav: isMenuOpen state changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🟣 BottomNav: locationModalOpen changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 BottomNav: menuCloseRef is undefined
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📍 AppContent Location: {selectedRegion: '', selectedDistrict: ''}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📡 Fetching branches from Supabase...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 💾 localStorage check: {sms_user: 'EXISTS', sms_session: 'EXISTS'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== RESTORING SESSION FROM LOCALSTORAGE =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedUser: EXISTS
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedSession: EXISTS
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Parsed user: {id: '2bad2861-de46-40ab-88e1-c609ff1c5344', email: '998200232525@aresso.app', phone: '998200232525', gender: 'male', lastName: 'Oripov', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Parsed session: {access_token: '2bad2861-de46-40ab-88e1-c609ff1c5344-1773593384130-yd49k4tp9', expires_at: 1776185384522}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔑 access_token from session: 2bad2861-de46-40ab-88e1-c609ff1c5344-1773593384130-yd49k4tp9
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Token validation:
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Token preview: 2bad2861-de46-40ab-88e1-c609ff1c5344-1773593384130...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Is JWT: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Is Custom Token: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Restored session from localStorage: {id: '2bad2861-de46-40ab-88e1-c609ff1c5344', email: '998200232525@aresso.app', phone: '998200232525', gender: 'male', lastName: 'Oripov', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Token format: Custom
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== SESSION RESTORATION COMPLETE =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 👤 Using authenticated user ID: 2bad2861-de46-40ab-88e1-c609ff1c5344
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useEffect triggered: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== LOADING BANNERS =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Category: market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Region: andijon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 District: shahrixon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/banners?category=market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📍 AppContent Location: {selectedRegion: 'andijon', selectedDistrict: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ❌ Load banners error: TypeError: Failed to fetch
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90:9794
+    at loadBanners (useBanners.ts:28:32)
+    at useBanners.ts:79:5
+    at TN (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:138396)
+    at T8 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151856)
+    at T7 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151634)
+    at T6 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151542)
+    at T4 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151420)
+    at S1 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163585)
+    at SQ (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163247)
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:162379
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65:74721
+    at V (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1842)
+    at B (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1559)
+    at MessagePort.eo (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:3433)
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+loadBanners @ useBanners.ts:68
+await in loadBanners
+(anonymous) @ useBanners.ts:79
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ❌ This might be because:
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+loadBanners @ useBanners.ts:69
+await in loadBanners
+(anonymous) @ useBanners.ts:79
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90    1. Backend server is not running
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+loadBanners @ useBanners.ts:70
+await in loadBanners
+(anonymous) @ useBanners.ts:79
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90    2. Network connection issue
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+loadBanners @ useBanners.ts:71
+await in loadBanners
+(anonymous) @ useBanners.ts:79
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90    3. CORS configuration problem
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+loadBanners @ useBanners.ts:72
+await in loadBanners
+(anonymous) @ useBanners.ts:79
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ❌ Expected URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/banners
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+loadBanners @ useBanners.ts:73
+await in loadBanners
+(anonymous) @ useBanners.ts:79
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ❌ Error loading branches: TypeError: Failed to fetch
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90:9794
+    at loadBranches (AppContent.tsx?t=1773595419583:85:32)
+    at AppContent.tsx?t=1773595419583:124:5
+    at TN (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:138396)
+    at T8 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151856)
+    at T7 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151634)
+    at T6 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151542)
+    at T4 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151420)
+    at S1 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163585)
+    at SQ (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163247)
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:162379
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65:74721
+    at V (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1842)
+    at B (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1559)
+    at MessagePort.eo (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:3433)
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+loadBranches @ AppContent.tsx?t=1773595419583:113
+await in loadBranches
+(anonymous) @ AppContent.tsx?t=1773595419583:124
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ⚠️ Using cached branches from localStorage
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ❌ Backend connection error: TypeError: Failed to fetch
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90:9794
+    at testBackend (test-backend.tsx:25:32)
+    at test-backend.tsx:46:5
+    at TN (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:138396)
+    at T8 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151856)
+    at T7 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151634)
+    at T6 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151542)
+    at T4 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151420)
+    at S1 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163585)
+    at SQ (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163247)
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:162379
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65:74721
+    at V (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1842)
+    at B (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1559)
+    at MessagePort.eo (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:3433)
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+testBackend @ test-backend.tsx:43
+await in testBackend
+(anonymous) @ test-backend.tsx:46
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 5:50:21 PM [vite] (client) hmr update /src/app/components/branch/PropertiesManagement.tsx, /src/styles/index.css
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🏠 Loading properties for branch: {branchId: 'branch_1773383925094', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔗 Fetching from: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/branch-properties?branchId=branch_1773383925094&region=andijon&district=shahrixon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 Properties loaded: 0
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📱 Using device ID: device-1773558180700-toslyyh9p8m
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🧪 Testing backend health...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔵 Header: isLocationOpen changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🟡 BottomNav: isMenuOpen state changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🟣 BottomNav: locationModalOpen changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 BottomNav: menuCloseRef is undefined
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📍 AppContent Location: {selectedRegion: '', selectedDistrict: ''}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📡 Fetching branches from Supabase...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 💾 localStorage check: {sms_user: 'EXISTS', sms_session: 'EXISTS'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== RESTORING SESSION FROM LOCALSTORAGE =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedUser: EXISTS
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedSession: EXISTS
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Parsed user: {id: '2bad2861-de46-40ab-88e1-c609ff1c5344', email: '998200232525@aresso.app', phone: '998200232525', gender: 'male', lastName: 'Oripov', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Parsed session: {access_token: '2bad2861-de46-40ab-88e1-c609ff1c5344-1773593384130-yd49k4tp9', expires_at: 1776185384522}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔑 access_token from session: 2bad2861-de46-40ab-88e1-c609ff1c5344-1773593384130-yd49k4tp9
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Token validation:
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Token preview: 2bad2861-de46-40ab-88e1-c609ff1c5344-1773593384130...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Is JWT: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Is Custom Token: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Restored session from localStorage: {id: '2bad2861-de46-40ab-88e1-c609ff1c5344', email: '998200232525@aresso.app', phone: '998200232525', gender: 'male', lastName: 'Oripov', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Token format: Custom
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== SESSION RESTORATION COMPLETE =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 👤 Using authenticated user ID: 2bad2861-de46-40ab-88e1-c609ff1c5344
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useEffect triggered: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== LOADING BANNERS =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Category: market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Region: andijon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 District: shahrixon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/banners?category=market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📍 AppContent Location: {selectedRegion: 'andijon', selectedDistrict: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📊 Health check response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📊 Health check response ok: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Backend is healthy! {status: 'ok', timestamp: '2026-03-15T17:50:31.027Z', message: 'Server ishlamoqda', r2: {…}, features: {…}}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Branches loaded from Supabase: 2
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🏢 Local branches: 1
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Settings loaded from Supabase: {theme: 'dark', language: 'uz', accentColor: 'teal', soundEnabled: true, notifications: true}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Response ok: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Backend response: {success: true, data: Array(4)}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Total banners from backend: 4
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 All banners: (4) [{…}, {…}, {…}, {…}]
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: sdasdada {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: true, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: wreewrew {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: true, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: ;lk;kkl; {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: true, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: 121212 {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: true, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Filtered banners count: 4
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Filtered banners: (4) [{…}, {…}, {…}, {…}]
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== END LOADING BANNERS =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Settings loaded from Supabase: {theme: 'dark', language: 'uz', accentColor: 'teal', soundEnabled: true, notifications: true}
+(index):1 Access to fetch at 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773512548511-qcwjhkty0.jpg' from origin 'https://9833845a-4d7c-4cc0-9c38-d1f9219ac856-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.
+(index):1 Access to fetch at 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773512548511-qcwjhkty0.jpg' from origin 'https://9833845a-4d7c-4cc0-9c38-d1f9219ac856-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90  GET https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773512548511-qcwjhkty0.jpg net::ERR_FAILED
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+R @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+A @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+A @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+await in A
+A @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+await in A
+A @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+await in A
+A @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+await in A
+A @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+await in A
+A @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+await in A
+A @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+await in A
+I @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+await in I
+b @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:135
+await in b
+F @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:117
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:117
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773512548511-qcwjhkty0.jpg:1  Failed to load resource: net::ERR_FAILED
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ❌ Error loading products: TypeError: Failed to fetch
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90:9794
+    at loadProducts (AppContent.tsx?t=1773595419583:144:32)
+    at AppContent.tsx?t=1773595419583:283:5
+    at TN (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:138396)
+    at T8 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151856)
+    at T7 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151634)
+    at T6 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151542)
+    at T4 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151420)
+    at S1 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163585)
+    at SQ (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163247)
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:162379
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65:74721
+    at V (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1842)
+    at B (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1559)
+    at MessagePort.eo (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:3433)
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+loadProducts @ AppContent.tsx:353
+await in loadProducts
+(anonymous) @ AppContent.tsx:421
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ⚠️ Using cached products from localStorage

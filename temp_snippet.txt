@@ -1,0 +1,8 @@
+Lines to remove: 78-109
+
+Line 76-77:
+        // Don't auto-initialize test data - let user create shops via branch panel
+        
+Line 110-112:
+        setShops(data.shops || []);
+        console.log('✅ Shops set:', data.shops?.length || 0, 'ta');

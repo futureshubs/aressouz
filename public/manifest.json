@@ -1,0 +1,67 @@
+{
+  "name": "Online Do'kon - Zamonaviy Market",
+  "short_name": "Do'kon",
+  "description": "Zamonaviy online do'kon - mahsulotlar, xizmatlar, taomlar va ko'plab imkoniyatlar",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#000000",
+  "theme_color": "#14b8a6",
+  "orientation": "portrait",
+  "icons": [
+    {
+      "src": "/icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["shopping", "lifestyle", "business"],
+  "screenshots": [
+    {
+      "src": "/screenshot-mobile.png",
+      "sizes": "390x844",
+      "type": "image/png",
+      "form_factor": "narrow"
+    },
+    {
+      "src": "/screenshot-desktop.png",
+      "sizes": "1920x1080",
+      "type": "image/png",
+      "form_factor": "wide"
+    }
+  ],
+  "shortcuts": [
+    {
+      "name": "Market",
+      "short_name": "Market",
+      "description": "Bosh sahifa",
+      "url": "/?tab=market",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Do'kon",
+      "short_name": "Do'kon",
+      "description": "Mahsulotlar",
+      "url": "/?tab=dokon",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Taomlar",
+      "short_name": "Taomlar",
+      "description": "Restoran va taomlar",
+      "url": "/?tab=taomlar",
+      "icons": [{ "src": "/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "prefer_related_applications": false,
+  "related_applications": [],
+  "scope": "/",
+  "lang": "uz",
+  "dir": "ltr"
+}

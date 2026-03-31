@@ -1,0 +1,57 @@
+🛒 Final add to cart clicked: {product: {…}, quantity: 1, variantId: '1773383937497', variantName: '258/8gb'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 💳 Initiating payment: {amount: 1500000, orderId: 'ORDER-1773500272498'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 💳 Creating payment: {amount: 1500000, orderId: 'ORDER-1773500272498', description: '1 ta mahsulot', returnUrl: 'https://993cf500-8de4-4451-83df-55311cb1210d-v2-fi…paymentId={paymentId}&orderId=ORDER-1773500272498', userId: undefined, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Payment created: {success: true, paymentId: 'DEMO_PAY_1773500276609', paymentUrl: 'https://demo-payment.aresso.uz/pay/DEMO_PAY_1773500276609', message: "Demo to'lov yaratildi (haqiqiy pul yechilmaydi)"}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Payment created, opening window: https://demo-payment.aresso.uz/pay/DEMO_PAY_1773500276609
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎭 DEMO MODE: Simulating instant payment success
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📱 Using device ID: device-1773499369016-8hugn8bmf8
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Checking payment status: DEMO_PAY_1773500276609
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ⚙️ Loading settings from Supabase for user: device-1773499369016-8hugn8bmf8
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 💾 localStorage check: {sms_user: null, sms_session: null}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== RESTORING SESSION FROM LOCALSTORAGE =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedUser: NULL
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedSession: NULL
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ℹ️ No stored session found
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== SESSION RESTORATION COMPLETE =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📱 Using device ID: device-1773499369016-8hugn8bmf8
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 💾 Saving settings to Supabase: {theme: 'dark', language: 'uz', notifications: true, soundEnabled: true, accentColor: 'teal'}
+vendor-core-ade2edecaf4781c7.min.js.br:54 [MultiplayerSession] connecting to wss://www.figma.com/api/multiplayer/pTJpBWu7pBpefItylQ8lXm?role=editor&tracking_session_id=cbV5oFkXae1EWeUL&version=151&recentReload=0&file-load-streaming-compression=&user-id=1609486687017306551&client_release=107bbd51e86fce9a104f472597b3e63a6aa8ffa6&clientID=1179092536ba489abbbac9435f25d7e8&reconnect-key=1517082cf61b3addb5e05f651f8bc234f6adaf26&reconnect-sequence-number=10543&initialFileVersion=106&previousLoadMode=full&incremental-loading-validation=0
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Settings loaded from Supabase: {theme: 'dark', language: 'uz', accentColor: 'teal', soundEnabled: true, notifications: true}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📱 Using device ID: device-1773499369016-8hugn8bmf8
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Payment status: {success: true, paymentId: 'DEMO_PAY_1773500276609', status: 'paid', paidAt: '2026-03-14T14:58:05.142Z', message: "Demo to'lov muvaffaqiyatli yakunlandi"}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Settings saved to Supabase
+vendor-core-ade2edecaf4781c7.min.js.br:54 [MultiplayerSession] Joining file version 106 (skip_reload reconnect)
+Online-store-design?p=f&viewport=270%2C25%2C0.7&t=stEf6CW2YMQh3OV5-0&preview-route=%2Forders%2FORDE…:1 Access to image at 'https://www.gravatar.com/avatar/37c1180b31576a3730feacece3393fab?size=240&default=https%3A%2F%2Fs3-alpha.figma.com%2Fstatic%2Fuser_a_v2.png?c=1' from origin 'https://www.figma.com' has been blocked by CORS policy: No 'Access-Control-Allow-Origin' header is present on the requested resource.
+www.gravatar.com/avatar/37c1180b31576a3730feacece3393fab?size=240&default=https%3A%2F%2Fs3-alpha.figma.com%2Fstatic%2Fuser_a_v2.png?c=1:1  GET https://www.gravatar.com/avatar/37c1180b31576a3730feacece3393fab?size=240&default=https%3A%2F%2Fs3-alpha.figma.com%2Fstatic%2Fuser_a_v2.png?c=1 net::ERR_FAILED
+Image
+(anonymous) @ figma_app-726b2563eb8cdce8.min.js.br:41
+U @ figma_app-726b2563eb8cdce8.min.js.br:41
+g @ figma_app-726b2563eb8cdce8.min.js.br:222
+(anonymous) @ figma_app-726b2563eb8cdce8.min.js.br:222
+(anonymous) @ figma_app-726b2563eb8cdce8.min.js.br:222
+aB @ vendor-core-ade2edecaf4781c7.min.js.br:11
+oD @ vendor-core-ade2edecaf4781c7.min.js.br:11
+(anonymous) @ vendor-core-ade2edecaf4781c7.min.js.br:11
+oB @ vendor-core-ade2edecaf4781c7.min.js.br:11
+oL @ vendor-core-ade2edecaf4781c7.min.js.br:11
+f5 @ vendor-core-ade2edecaf4781c7.min.js.br:11
+(anonymous) @ vendor-core-ade2edecaf4781c7.min.js.br:11
+requestAnimationFrame
+(anonymous) @ vendor-core-ade2edecaf4781c7.min.js.br:63
+gX @ 4239-c4c06d09094e9c07.min.js.br:188
+s @ 4239-c4c06d09094e9c07.min.js.br:386
+requestAnimationFrame @ 4239-c4c06d09094e9c07.min.js.br:191
+_Async_requestAnimationFrame @ compiled_wasm.js.br:2
+$wasm-function[1878] @ compiled_wasm.wasm.br:0x3f2f3
+$wasm-function[2236] @ compiled_wasm.wasm.br:0x66aa4
+$wasm-function[5026] @ compiled_wasm.wasm.br:0x27d5ed
+$wasm-function[40511] @ compiled_wasm.wasm.br:0x2108804
+$wasm-function[16882] @ compiled_wasm.wasm.br:0xe4d53f
+$wasm-function[38261] @ compiled_wasm.wasm.br:0x1ebf891
+(anonymous) @ compiled_wasm.js.br:2
+(anonymous) @ compiled_wasm.js.br:2
+_wrapCppCall @ compiled_wasm.js.br:2
+(anonymous) @ compiled_wasm.js.br:2
+b @ 8245-61d61b2c2a415443.min.js.br:3
+g.onmessage @ 8245-61d61b2c2a415443.min.js.br:3

@@ -1,0 +1,153 @@
+because isOpen is false
+ 🔴 MenuModal: isOpen prop = true
+ 🔴 MenuModal: Rendering modal...
+ 🟡 BottomNav: isMenuOpen state changed: true
+ 🟣 BottomNav: locationModalOpen changed: false
+ 🔴 MenuModal: isOpen prop = false
+ 🔴 MenuModal: Returning null because isOpen is false
+ 🔄 ===== BONUS LOAD START =====
+ 👤 User ID: 41f3bd1d-e39b-4156-9a8d-1162d554dcb1
+ 🔑 Access Token (first 50): 41f3bd1d-e39b-4156-9a8d-1162d554dcb1-1773508448555...
+ 🔑 Token length: 60
+ 🔑 Token type: Custom
+ 📡 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/bonus
+ 📡 Request headers (publicAnonKey + custom token)
+ 🟡 BottomNav: isMenuOpen state changed: false
+ 🟣 BottomNav: locationModalOpen changed: false
+ 📥 Response status: 200
+ 📥 Response ok: true
+ 📥 Response text: {"success":true,"bonus":{"userId":"41f3bd1d-e39b-4156-9a8d-1162d554dcb1","balance":14,"bonusTaps":0,"createdAt":"2026-03-14T17:57:46.884Z","dailyTaps":14,"updatedAt":"2026-03-14T18:00:19.059Z","totalEarned":14,"lastResetDate":"2026-03-14"}}
+ ✅ Parsed data: {success: true, bonus: {…}}
+ ✅ Bonus data loaded successfully
+ 🔄 ===== BONUS LOAD END =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📱 Using device ID: device-1773508405429-j1egtmc26n
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🧪 Testing backend health...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔵 Header: isLocationOpen changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🟡 BottomNav: isMenuOpen state changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🟣 BottomNav: locationModalOpen changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 BottomNav: menuCloseRef is undefined
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📡 Fetching branches from Supabase...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ⚙️ Loading settings from Supabase for user: device-1773508405429-j1egtmc26n
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 💾 localStorage check: {sms_user: 'EXISTS', sms_session: 'EXISTS'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== RESTORING SESSION FROM LOCALSTORAGE =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedUser: EXISTS
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedSession: EXISTS
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Parsed user: {id: '41f3bd1d-e39b-4156-9a8d-1162d554dcb1', email: '998954721414@aresso.app', phone: '998954721414', gender: 'male', lastName: 'Oirpov', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Parsed session: {access_token: '41f3bd1d-e39b-4156-9a8d-1162d554dcb1-1773508448555-654wcfciz', expires_at: 1776100448932}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔑 access_token from session: 41f3bd1d-e39b-4156-9a8d-1162d554dcb1-1773508448555-654wcfciz
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Token validation:
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Token preview: 41f3bd1d-e39b-4156-9a8d-1162d554dcb1-1773508448555...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Is JWT: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Is Custom Token: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Restored session from localStorage: {id: '41f3bd1d-e39b-4156-9a8d-1162d554dcb1', email: '998954721414@aresso.app', phone: '998954721414', gender: 'male', lastName: 'Oirpov', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Token format: Custom
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== SESSION RESTORATION COMPLETE =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 👤 Using authenticated user ID: 41f3bd1d-e39b-4156-9a8d-1162d554dcb1
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ⚙️ Loading settings from Supabase for user: 41f3bd1d-e39b-4156-9a8d-1162d554dcb1
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ❌ Error loading branches: TypeError: Failed to fetch
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90:9794
+    at loadBranches (app-jeqhar4szecgy7cdlikqjm7pqcfasr77p3xhor5inpagi466julq.makeproxy-c.figma.site/src/app/AppContent.tsx?t=1773511064794:82:32)
+    at app-jeqhar4szecgy7cdlikqjm7pqcfasr77p3xhor5inpagi466julq.makeproxy-c.figma.site/src/app/AppContent.tsx?t=1773511064794:121:5
+    at TN (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:138396)
+    at T8 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151856)
+    at T7 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151634)
+    at T6 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151542)
+    at T4 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151420)
+    at S1 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163585)
+    at SQ (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163247)
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:162379
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65:74721
+    at V (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1842)
+    at B (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1559)
+    at MessagePort.eo (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:3433)
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+loadBranches @ AppContent.tsx:209
+await in loadBranches
+(anonymous) @ AppContent.tsx:223
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ⚠️ Using cached branches from localStorage
+2code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ❌ Error loading settings from Supabase: TypeError: Failed to fetch
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90:9794
+    at loadSettings (ThemeContext.tsx?t=1773510106044:85:32)
+    at ThemeContext.tsx?t=1773510106044:115:5
+    at TN (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:138396)
+    at T8 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151856)
+    at T7 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151634)
+    at T6 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151542)
+    at T4 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151420)
+    at S1 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163585)
+    at SQ (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163247)
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:162379
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65:74721
+    at V (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1842)
+    at B (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1559)
+    at MessagePort.eo (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:3433)
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+loadSettings @ ThemeContext.tsx?t=1773510106044:112
+await in loadSettings
+(anonymous) @ ThemeContext.tsx?t=1773510106044:115
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ❌ Backend connection error: TypeError: Failed to fetch
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90:9794
+    at testBackend (app-jeqhar4szecgy7cdlikqjm7pqcfasr77p3xhor5inpagi466julq.makeproxy-c.figma.site/src/app/test-backend.tsx:25:32)
+    at app-jeqhar4szecgy7cdlikqjm7pqcfasr77p3xhor5inpagi466julq.makeproxy-c.figma.site/src/app/test-backend.tsx:46:5
+    at TN (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:138396)
+    at T8 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151856)
+    at T7 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151634)
+    at T6 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151542)
+    at T4 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:151420)
+    at S1 (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163585)
+    at SQ (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:163247)
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37:162379
+    at code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65:74721
+    at V (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1842)
+    at B (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:1559)
+    at MessagePort.eo (code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61:3433)
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90
+r @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:17
+testBackend @ app-jeqhar4szecgy7cdlikqjm7pqcfasr77p3xhor5inpagi466julq.makeproxy-c.figma.site/src/app/test-backend.tsx:43
+await in testBackend
+(anonymous) @ app-jeqhar4szecgy7cdlikqjm7pqcfasr77p3xhor5inpagi466julq.makeproxy-c.figma.site/src/app/test-backend.tsx:46
+TN @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T8 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T7 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T6 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+T4 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+S1 @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+SQ @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:37
+(anonymous) @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:65
+V @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+B @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+eo @ code_components_preview_iframe-f4fd20809e153e7b.min.js.br:61
+ 🔴 MenuModal: isOpen prop = false
+ 🔴 MenuModal: Returning null because isOpen is false

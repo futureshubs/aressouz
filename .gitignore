@@ -1,1 +1,82 @@
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build
+dist/
+dist-ssr/
+build/
+*.local
+
+# Vite
+vite.config.ts.timestamp-*
+
+# Environment / secrets (namuna fayllarni commit qiling: .env.example)
+.env
+.env.*
+!.env.example
+!.env*.example
+
+# Logs
+logs/
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+Desktop.ini
+
+# IDE / editor
+.idea/
+*.swp
+*.swo
+*~
+
+# Cursor / VS Code (sozlamalarni jamoa bilan ulashsangiz, .vscode dan ayrim qatorlarni olib tashlang)
+.vscode/*
+!.vscode/extensions.json
+!.vscode/settings.json.example
+
+# Supabase CLI (mahalliy)
+.supabase/
+
+# Test / coverage
+coverage/
+.nyc_output/
+
+# TypeScript
+*.tsbuildinfo
+
+# Deno (keraksiz cache — lock faylni odatda saqlash mumkin)
+.deno/
+
+# Vaqtinchalik
+tmp/
+temp/
+*.tmp
+*.temp
+*.backup
+
+# Local History (kengaytma)
+.history/
+
+# Expo / React Native (mobil loyiha ichida)
+mobile-android/.expo/
+mobile-android/dist/
+mobile-android/web-build/
+mobile-android/android/app/build/
+mobile-android/android/.gradle/
+mobile-android/android/local.properties
+mobile-android/ios/Pods/
+mobile-android/ios/build/
+mobile-android/*.jks
+mobile-android/*.keystore
+mobile-android/.env
+mobile-android/.env.*
+
+# Mobil loyiha butunlay repodan tashqarida bo‘lsa, quyidagi qatorni yoqing:
 /mobile-android

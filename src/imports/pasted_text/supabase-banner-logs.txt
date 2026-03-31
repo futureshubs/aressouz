@@ -1,0 +1,135 @@
+✅ Settings saved to Supabase
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 ===== LOADING BANNERS =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/banners?branchId=branch_1773383925094
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 branchId: branch_1773383925094
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 selectedCategory: all
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Response result: {success: true, data: Array(3)}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Banners loaded: 3 items
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Banners data: (3) [{…}, {…}, {…}]
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 ===== END LOADING BANNERS =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useEffect triggered: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ⚠️ useBanners: No region/district selected
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 ===== LOADING BANNERS =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/banners?branchId=branch_1773383925094&category=market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 branchId: branch_1773383925094
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 selectedCategory: market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Response result: {success: true, data: Array(3)}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Banners loaded: 3 items
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Banners data: (3) [{…}, {…}, {…}]
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 ===== END LOADING BANNERS =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== CREATE BANNER REQUEST =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Payload: {category: 'market', name: '121212', image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773515697025-0tsc46quw.jpg', description: '121212121', link: '', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 branchId: branch_1773383925094
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Response result: {success: true, data: {…}}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ✅ Banner created successfully: {id: '1773515707892_mfxor9ufi', branchId: 'branch_1773383925094', category: 'market', name: '121212', image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773515697025-0tsc46quw.jpg', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 ===== LOADING BANNERS =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/banners?branchId=branch_1773383925094&category=market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 branchId: branch_1773383925094
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 selectedCategory: market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== END CREATE BANNER =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Response result: {success: true, data: Array(4)}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Banners loaded: 4 items
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Banners data: (4) [{…}, {…}, {…}, {…}]
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 ===== END LOADING BANNERS =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: undefined, region: undefined, district: undefined}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📱 Using device ID: device-1773508405429-j1egtmc26n
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🧪 Testing backend health...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔵 Header: isLocationOpen changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🟡 BottomNav: isMenuOpen state changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🟣 BottomNav: locationModalOpen changed: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 BottomNav: menuCloseRef is undefined
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📍 AppContent Location: {selectedRegion: '', selectedDistrict: ''}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📡 Fetching branches from Supabase...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ⚙️ Loading settings from Supabase for user: device-1773508405429-j1egtmc26n
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 💾 localStorage check: {sms_user: 'EXISTS', sms_session: 'EXISTS'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== RESTORING SESSION FROM LOCALSTORAGE =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedUser: EXISTS
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 storedSession: EXISTS
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Parsed user: {id: '41f3bd1d-e39b-4156-9a8d-1162d554dcb1', email: '998954721414@aresso.app', phone: '998954721414', gender: 'male', lastName: 'Oirpov', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Parsed session: {access_token: '41f3bd1d-e39b-4156-9a8d-1162d554dcb1-1773508448555-654wcfciz', expires_at: 1776100448932}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔑 access_token from session: 41f3bd1d-e39b-4156-9a8d-1162d554dcb1-1773508448555-654wcfciz
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Token validation:
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Token preview: 41f3bd1d-e39b-4156-9a8d-1162d554dcb1-1773508448555...
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Is JWT: false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90   - Is Custom Token: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Restored session from localStorage: {id: '41f3bd1d-e39b-4156-9a8d-1162d554dcb1', email: '998954721414@aresso.app', phone: '998954721414', gender: 'male', lastName: 'Oirpov', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Token format: Custom
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 ===== SESSION RESTORATION COMPLETE =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 👤 Using authenticated user ID: 41f3bd1d-e39b-4156-9a8d-1162d554dcb1
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useEffect triggered: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== LOADING BANNERS =====
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Category: market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Region: andijon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 District: shahrixon
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/banners?category=market
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📍 AppContent Location: {selectedRegion: 'andijon', selectedDistrict: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ⚙️ Loading settings from Supabase for user: 41f3bd1d-e39b-4156-9a8d-1162d554dcb1
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 💾 Saving settings to Supabase: {theme: 'dark', language: 'uz', notifications: true, soundEnabled: true, accentColor: 'teal'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📊 Health check response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📊 Health check response ok: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Backend is healthy! {status: 'ok', timestamp: '2026-03-14T19:15:32.975Z', message: 'Server ishlamoqda', r2: {…}}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Settings loaded from Supabase: {theme: 'dark', language: 'uz', accentColor: 'teal', soundEnabled: true, notifications: true}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Response ok: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Settings loaded from Supabase: {theme: 'dark', language: 'uz', accentColor: 'teal', soundEnabled: true, notifications: true}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Backend response: {success: true, data: Array(4)}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 Total banners from backend: 4
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 All banners: (4) [{…}, {…}, {…}, {…}]
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: sdasdada {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: false, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: wreewrew {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: false, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: ;lk;kkl; {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: false, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🔍 Banner: 121212 {bannerRegion: 'Andijon', bannerDistrict: 'Shahrixon', filterRegion: 'andijon', filterDistrict: 'shahrixon', regionMatch: false, …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Filtered banners count: 0
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Filtered banners: []
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 ===== END LOADING BANNERS =====
+
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Branches loaded from Supabase: 2
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🏢 Local branches: 1
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Settings saved to Supabase
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📊 Response status: 200
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📊 Response ok: true
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 Response data: {products: Array(1)}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📦 Total products from Supabase: 1
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 ✅ Filtered products for local branches: 1
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎯 Final display products: 1
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📋 Sample product with variants: {id: 248978653, name: 'Iphone 15 Pro Max', price: 1500000, image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773383983015-rf15w355g.jpg', categoryId: 'beef', …}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 📢 BannerCarousel render: {category: 'market', region: 'andijon', district: 'shahrixon'}
+code_components_preview_iframe-f4fd20809e153e7b.min.js.br:90 🎨 useBanners hook called: {category: 'market', region: 'andijon', district: 'shahrixon'}

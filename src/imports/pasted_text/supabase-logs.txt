@@ -1,0 +1,94 @@
+Settings saved to Supabase
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🚀 Form submission started
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📋 Form data: {name: 'Avto mobile ', catalog: 'transport', category: 'Yengil avtomobillar', region: 'Andijon', district: 'Shahrixon', …}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📤 Sending request to: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/branch_1773383925094_1773469162146_awghhsti1
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Payload: {
+  "name": "Avto mobile ",
+  "catalog": "transport",
+  "category": "Yengil avtomobillar",
+  "region": "Andijon",
+  "district": "Shahrixon",
+  "images": [
+    "https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773469096441-kdu1cx84u.jpg",
+    "https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773469096375-25ygr4ow9.jpg",
+    "https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773469096318-uayn8dz6k.jpg"
+  ],
+  "tariff": "prooo",
+  "features": [
+    "zor",
+    "muamo",
+    "yo"
+  ],
+  "deposit": "100000",
+  "minDuration": "10 Soat",
+  "durations": {
+    "daily": {
+      "price": "100000",
+      "enabled": true
+    },
+    "hourly": {
+      "price": "50000",
+      "enabled": true
+    },
+    "weekly": {
+      "price": "200000",
+      "enabled": true
+    },
+    "monthly": {
+      "price": "2000000",
+      "enabled": true
+    }
+  },
+  "quantity": 11,
+  "description": "sdasdsdsd",
+  "branchId": "branch_1773383925094"
+}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📥 Response: {success: true, product: {…}}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📱 Using device ID: device-1773376954922-wiiyn1r89f
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🧪 Testing backend health...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔵 Header: isLocationOpen changed: false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🟡 BottomNav: isMenuOpen state changed: false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🟣 BottomNav: locationModalOpen changed: false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 BottomNav: menuCloseRef is undefined
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📡 Fetching branches from Supabase...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ⚙️ Loading settings from Supabase for user: device-1773376954922-wiiyn1r89f
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 💾 localStorage check: {sms_user: null, sms_session: null}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 ===== RESTORING SESSION FROM LOCALSTORAGE =====
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 storedUser: NULL
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 storedSession: NULL
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ℹ️ No stored session found
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 ===== SESSION RESTORATION COMPLETE =====
+
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📱 Using device ID: device-1773376954922-wiiyn1r89f
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📊 Health check response status: 200
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📊 Health check response ok: true
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Backend is healthy! {status: 'ok', timestamp: '2026-03-14T06:29:23.299Z', message: 'Server ishlamoqda', r2: {…}}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 💾 Saving settings to Supabase: {theme: 'dark', language: 'uz', notifications: true, soundEnabled: true, accentColor: 'rose'}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Settings loaded from Supabase: {theme: 'dark', language: 'uz', accentColor: 'rose', soundEnabled: true, notifications: true}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Branches loaded from Supabase: 1
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🏢 Local branches: 1
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 Filter Debug: {selectedRegion: 'andijon', selectedDistrict: 'shahrixon', totalProducts: 0, filteredProducts: 0, sampleProduct: undefined, …}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 Loading rental products from all branches...
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 Filter Debug: {selectedRegion: 'andijon', selectedDistrict: 'shahrixon', totalProducts: 0, filteredProducts: 0, sampleProduct: undefined, …}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Settings saved to Supabase
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Branches loaded: {branches: Array(1)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 Filter Debug: {selectedRegion: 'andijon', selectedDistrict: 'shahrixon', totalProducts: 0, filteredProducts: 0, sampleProduct: undefined, …}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📊 Response status: 200
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📊 Response ok: true
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Response data: {products: Array(1)}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📦 Total products from Supabase: 1
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 ✅ Filtered products for local branches: 1
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🎯 Final display products: 1
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📋 Sample product with variants: {id: 248978653, name: 'Iphone 15 Pro Max', price: 1500000, image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/public-1773383983015-rf15w355g.jpg', categoryId: 'beef', …}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 Filter Debug: {selectedRegion: 'andijon', selectedDistrict: 'shahrixon', totalProducts: 0, filteredProducts: 0, sampleProduct: undefined, …}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 📱 Using device ID: device-1773376954922-wiiyn1r89f
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 Filter Debug: {selectedRegion: 'andijon', selectedDistrict: 'shahrixon', totalProducts: 0, filteredProducts: 0, sampleProduct: undefined, …}
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: isOpen prop = false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔴 MenuModal: Returning null because isOpen is false
+code_components_preview_iframe-94f0c6d3bc79708f.min.js.br:90 🔍 Filter Debug: {selectedRegion: 'andijon', selectedDistrict: 'shahrixon', totalProducts: 0, filteredProducts: 0, sampleProduct: undefined, …}

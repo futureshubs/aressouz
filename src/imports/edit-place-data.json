@@ -1,0 +1,79 @@
+🔍 ===== SESSION RESTORATION COMPLETE =====
+
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 🔄 ===== EDIT PLACE START =====
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 📍 Place ID: place-1773098221896-8qwrwmq
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 🔐 Security Code: 1
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 🖼️ Image file: Yes
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 📍 Coordinates:  
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 📸 Converting image to base64...
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 ✅ Image converted to base64, size: 3241494
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 ✅ Server will upload to R2 automatically
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 📦 Update data: {
+  "name": "sdfsdf",
+  "categoryId": "cinema",
+  "category": "Kino",
+  "phone": "124124",
+  "address": "dsfsfd",
+  "region": "navoiy",
+  "district": "konimex",
+  "latitude": "",
+  "longitude": "",
+  "openingHours": "15:00-22:00",
+  "description": "124",
+  "services": [
+    "124"
+  ],
+  "workingDays": [
+    "monday",
+    "friday"
+  ],
+  "instagram": "",
+  "youtube": "",
+  "telegram": "",
+  "image": "data:image/png;base64,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
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 🌐 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/places/place-1773098221896-8qwrwmq
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 📡 Response status: 200
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 📡 Response status text: 
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 📡 Response ok: true
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 📦 Response data: {
+  "success": true,
+  "place": {
+    "id": "place-1773098221896-8qwrwmq",
+    "name": "sdfsdf",
+    "image": "https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/places/place-1773098429247-r59o3cr.png",
+    "phone": "124124",
+    "isOpen": true,
+    "rating": 4.5,
+    "region": "navoiy",
+    "address": "dsfsfd",
+    "reviews": 88,
+    "youtube": "",
+    "category": "Kino",
+    "distance": "0 km",
+    "district": "konimex",
+    "location": "Navoiy Konimex",
+    "services": [
+      "124"
+    ],
+    "telegram": "",
+    "createdAt": "2026-03-09T23:17:01.896Z",
+    "instagram": "",
+    "updatedAt": "2026-03-09T23:20:35.560Z",
+    "categoryId": "cinema",
+    "coordinates": [
+      34234,
+      3424123
+    ],
+    "description": "124",
+    "workingDays": [
+      "monday",
+      "friday"
+    ],
+    "openingHours": "15:00-22:00",
+    "latitude": "",
+    "longitude": ""
+  },
+  "message": "Joy yangilandi"
+}
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 ✅ Place updated successfully
+code_components_preview_iframe-c7239de3eebdcfa0.min.js.br:28 🔄 ===== EDIT PLACE END (SUCCESS) =====

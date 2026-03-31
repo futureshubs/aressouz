@@ -1,0 +1,102 @@
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ✅ Settings saved to Supabase
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📱 Using device ID: device-1773235473944-susjllnmt3h
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📱 Using device ID: device-1773235473944-susjllnmt3h
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ✅ Settings saved to Supabase
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📱 Using device ID: device-1773235473944-susjllnmt3h
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 🔐 Checking seller session: {token: 'seller-shop-1773255314437-t1bfgk3f0-1773257415018-wg1onf5vd', shopId: 'shop-1773255314437-t1bfgk3f0', shopName: 'ARESSO ', branchId: 'branch_1773176332822'}
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 🔑 Token format: seller-shop-1773255314437-t1bf...
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28  GET https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/seller/products 401 (Unauthorized)
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+loadData @ SellerDashboard.tsx:84
+(anonymous) @ SellerDashboard.tsx:49
+TN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T7 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T8 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T6 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T4 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+S1 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SQ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SJ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SZ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+pC @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Starting image upload: Gemini_Generated_Image_9pb4b59pb4b59pb4.png
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 File size: 1362034 bytes
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Token being used: seller-shop-17732553...
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28  POST https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/seller/upload-media 401 (Unauthorized)
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+(anonymous) @ AddProductModal.tsx:126
+handleImageUpload @ AddProductModal.tsx:112
+onChange @ AddProductModal.tsx:577
+y @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+ik @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+ij @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+iz @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+dP @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dM @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dG @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dk @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+iR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+d$ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+lO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lv @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Upload response status: 401
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Upload response ok: false
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ❌ Upload response error: {code: 401, message: 'Invalid JWT'}
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+r @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:69
+error @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+(anonymous) @ AddProductModal.tsx:142
+await in (anonymous)
+handleImageUpload @ AddProductModal.tsx:112
+onChange @ AddProductModal.tsx:577
+y @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+ik @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+ij @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+iz @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+dP @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dM @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dG @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dk @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+iR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+d$ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+lO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lv @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ❌ Upload error: Error: Rasm yuklanmadi
+    at AddProductModal.tsx:143:17
+    at async Promise.all (659e6485-810f-4d52-8c27-5ed4c1aa8c97-v2-figmaiframepreview.figma.site/index 0)
+    at async handleImageUpload (AddProductModal.tsx:151:28)
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+r @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:69
+error @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+handleImageUpload @ AddProductModal.tsx:161
+await in handleImageUpload
+onChange @ AddProductModal.tsx:577
+y @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+ik @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+ij @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+iz @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+dP @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dM @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dG @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dk @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+iR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+d$ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+lO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lv @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28

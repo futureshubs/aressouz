@@ -1,0 +1,33 @@
+{
+  "compilerOptions": {
+    "allowJs": true,
+    "lib": ["deno.window"],
+    "strict": true,
+    "target": "ES2022",
+    "module": "ES2022",
+    "moduleResolution": "node"
+  },
+  "lint": {
+    "rules": {
+      "tags": ["recommended"]
+    }
+  },
+  "fmt": {
+    "files": {
+      "include": ["src/", "tests/"]
+    }
+  },
+  "tasks": {
+    "dev": "deno run --allow-net --allow-env --allow-read src/index.ts",
+    "test": "deno test --allow-net --allow-env tests/",
+    "lint": "deno lint",
+    "fmt": "deno fmt",
+    "check": "deno check src/index.ts"
+  },
+  "imports": {
+    "hono": "npm:hono",
+    "hono/cors": "npm:hono/cors",
+    "hono/logger": "npm:hono/logger",
+    "@supabase/supabase-js": "npm:@supabase/supabase-js@2"
+  }
+}

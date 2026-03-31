@@ -1,0 +1,1421 @@
+import { useState, useEffect } from 'react';
+import { useNavigate, useLocation } from 'react-router';
+import { useTheme } from '../context/ThemeContext';
+import { 
+  ShoppingCart, Package, BarChart3, TrendingUp, DollarSign, Power, LogOut, 
+  Bell, Plus, X, Upload, Trash2, Clock, Flame, Star, CheckCircle, XCircle,
+  ChefHat, Users, TrendingDown, Calendar
+} from 'lucide-react';
+import { toast } from 'sonner';
+import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
+import { formatOrderNumber } from '../utils/orderNumber';
+import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+
+const edgeFnHeaders = {
+  Authorization: `Bearer ${publicAnonKey}`,
+  apikey: publicAnonKey,
+};
+
+export default function RestaurantPanel() {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { theme, accentColor } = useTheme();
+  const isDark = theme === 'dark';
+  
+  const [restaurant, setRestaurant] = useState<any>(null);
+  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'dishes' | 'stats' | 'analytics' | 'payment'>('dashboard');
+  const [orders, setOrders] = useState<any[]>([]);
+  const [ordersCategory, setOrdersCategory] = useState<'all' | 'new' | 'accepted' | 'completed' | 'cancelled'>('all');
+  const [dishes, setDishes] = useState<any[]>([]);
+  const [stats, setStats] = useState<any>(null);
+  const [loading, setLoading] = useState(true);
+  
+  // Add Dish Modal
+  const [showAddDish, setShowAddDish] = useState(false);
+  const [newDish, setNewDish] = useState({
+    name: '',
+    image: '',
+    images: [] as string[], // Multiple images
+    kcal: '',
+    description: '',
+    ingredients: '',
+    weight: '',
+    extras: [] as any[],
+    variants: [] as any[],
+    isPopular: false,
+    isNatural: false
+  });
+  const [uploadingImages, setUploadingImages] = useState(false);
+  const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
+
+  // Determine login path based on current URL
+  const loginPath = location.pathname.includes('/taom') ? '/taom' : '/restaurant';
+
+  useEffect(() => {
+    const restaurantSession = localStorage.getItem('restaurantSession');
+    if (!restaurantSession) {
+      navigate(loginPath);
+      return;
+    }
+
+    const restaurantData = JSON.parse(restaurantSession);
+    setRestaurant(restaurantData);
+    loadData(restaurantData.id);
+  }, [navigate, loginPath]);
+
+  const loadData = async (restaurantId: string) => {
+    try {
+      setLoading(true);
+      
+      const rid = encodeURIComponent(restaurantId);
+
+      // Load orders
+      const ordersResponse = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/orders`,
+        { headers: edgeFnHeaders }
+      );
+      const ordersResult = await ordersResponse.json();
+      if (ordersResult.success) setOrders(ordersResult.data || []);
+      else console.error('Restoran buyurtmalari:', ordersResult.error || ordersResponse.status);
+
+      // Load dishes
+      const dishesResponse = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/dishes`,
+        { headers: edgeFnHeaders }
+      );
+      const dishesResult = await dishesResponse.json();
+      if (dishesResult.success) setDishes(dishesResult.data || []);
+
+      // Load stats
+      const statsResponse = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/stats`,
+        { headers: edgeFnHeaders }
+      );
+      const statsResult = await statsResponse.json();
+      if (statsResult.success) setStats(statsResult.data);
+
+    } catch (error) {
+      console.error('Load data error:', error);
+      toast.error('Ma\'lumotlarni yuklashda xatolik!');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useVisibilityRefetch(() => {
+    if (restaurant?.id) void loadData(restaurant.id);
+  });
+
+  const updateOrderStatus = async (orderId: string, status: string) => {
+    if (!restaurant?.id) return;
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(restaurant.id)}/orders/${encodeURIComponent(orderId)}/status`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...edgeFnHeaders,
+          },
+          body: JSON.stringify({ status })
+        }
+      );
+
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success('Status yangilandi!');
+        loadData(restaurant.id);
+      } else {
+        toast.error(result?.error || 'Status yangilanmadi');
+      }
+    } catch (error) {
+      console.error('Update status error:', error);
+      toast.error('Xatolik yuz berdi!');
+    }
+  };
+
+  const toggleDishStatus = async (dishId: string, currentStatus: boolean) => {
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dishes/${encodeURIComponent(dishId)}/status`,
+        {
+          method: 'PATCH',
+          headers: {
+            'Content-Type': 'application/json',
+            ...edgeFnHeaders,
+          },
+          body: JSON.stringify({ isActive: !currentStatus })
+        }
+      );
+
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success(currentStatus ? 'Taom to\'xtatildi' : 'Taom faollashtirildi');
+        loadData(restaurant.id);
+      }
+    } catch (error) {
+      console.error('Toggle status error:', error);
+      toast.error('Xatolik yuz berdi!');
+    }
+  };
+
+  const orderCounts = {
+    all: orders.length,
+    new: orders.filter((o) => o.status === 'pending').length,
+    accepted: orders.filter((o) => o.status === 'accepted' || o.status === 'confirmed').length,
+    completed: orders.filter((o) => o.status === 'delivered').length,
+    cancelled: orders.filter((o) => o.status === 'cancelled' || o.status === 'rejected').length,
+  };
+
+  const filteredOrders = orders.filter((order) => {
+    if (ordersCategory === 'all') return true;
+    if (ordersCategory === 'new') return order.status === 'pending';
+    if (ordersCategory === 'accepted') return order.status === 'accepted' || order.status === 'confirmed';
+    if (ordersCategory === 'completed') return order.status === 'delivered';
+    if (ordersCategory === 'cancelled') return order.status === 'cancelled' || order.status === 'rejected';
+    return true;
+  });
+
+  const addDish = async () => {
+    if (!newDish.name) {
+      toast.error('Taom nomini kiriting!');
+      return;
+    }
+
+    if (newDish.images.length === 0) {
+      toast.error('Kamida 1 ta rasm yuklang!');
+      return;
+    }
+
+    if (newDish.variants.length === 0) {
+      toast.error('Kamida 1 ta variant qo\'shing!');
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(restaurant.id)}/dishes`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...edgeFnHeaders,
+          },
+          body: JSON.stringify({
+            name: newDish.name,
+            images: newDish.images, // Convert to array
+            image: newDish.image, // Also send single image for compatibility
+            kcal: newDish.kcal,
+            description: newDish.description,
+            ingredients: newDish.ingredients,
+            weight: newDish.weight,
+            additionalProducts: newDish.extras,
+            variants: newDish.variants,
+            isPopular: newDish.isPopular,
+            isNatural: newDish.isNatural
+          })
+        }
+      );
+
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success('Taom qo\'shildi!');
+        setShowAddDish(false);
+        setNewDish({
+          name: '',
+          image: '',
+          images: [],
+          kcal: '',
+          description: '',
+          ingredients: '',
+          weight: '',
+          extras: [],
+          variants: [],
+          isPopular: false,
+          isNatural: false
+        });
+        loadData(restaurant.id);
+      } else {
+        toast.error(result.error || 'Xatolik yuz berdi!');
+      }
+    } catch (error) {
+      console.error('Add dish error:', error);
+      toast.error('Xatolik yuz berdi!');
+    }
+  };
+
+  const requestPayment = async () => {
+    if (!stats?.pendingBalance || stats.pendingBalance <= 0) {
+      toast.error('To\'lov uchun mablag\' mavjud emas!');
+      return;
+    }
+
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(restaurant.id)}/payment-request`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            ...edgeFnHeaders,
+          },
+          body: JSON.stringify({ amount: stats.pendingBalance })
+        }
+      );
+
+      const result = await response.json();
+      
+      if (result.success) {
+        toast.success('To\'lov so\'rovi yuborildi! 24 soat ichida tekshiriladi.');
+        loadData(restaurant.id);
+      } else {
+        toast.error(result.error || 'Xatolik yuz berdi!');
+      }
+    } catch (error) {
+      console.error('Payment request error:', error);
+      toast.error('Xatolik yuz berdi!');
+    }
+  };
+
+  const handleLogout = () => {
+    localStorage.removeItem('restaurantSession');
+    navigate(loginPath);
+  };
+
+  // Upload images to R2
+  const uploadImages = async (files: FileList | File[]) => {
+    setUploadingImages(true);
+    const uploadedUrls: string[] = [];
+    
+    try {
+      const filesArray = Array.from(files);
+      
+      for (let i = 0; i < filesArray.length; i++) {
+        const file = filesArray[i];
+        const formData = new FormData();
+        formData.append('file', file);
+        
+        setUploadProgress(prev => ({ ...prev, [file.name]: 0 }));
+        
+        try {
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/public/upload`,
+            {
+              method: 'POST',
+              headers: edgeFnHeaders,
+              body: formData
+            }
+          );
+          
+          const result = await response.json();
+          
+          if (result.success && result.url) {
+            uploadedUrls.push(result.url);
+            setUploadProgress(prev => ({ ...prev, [file.name]: 100 }));
+          } else {
+            toast.error(`${file.name} yuklanmadi: ${result.error || 'Xatolik'}`);
+          }
+        } catch (error) {
+          console.error(`Error uploading ${file.name}:`, error);
+          toast.error(`${file.name} yuklanmadi!`);
+        }
+      }
+      
+      if (uploadedUrls.length > 0) {
+        setNewDish(prev => ({
+          ...prev,
+          images: [...prev.images, ...uploadedUrls],
+          image: prev.image || uploadedUrls[0] // Set first image as main
+        }));
+        toast.success(`${uploadedUrls.length} ta rasm yuklandi!`);
+      }
+    } catch (error) {
+      console.error('Upload error:', error);
+      toast.error('Rasmlarni yuklashda xatolik!');
+    } finally {
+      setUploadingImages(false);
+      setUploadProgress({});
+    }
+  };
+
+  // Upload variant image
+  const uploadVariantImage = async (file: File, variantIndex: number) => {
+    setUploadingImages(true);
+    
+    try {
+      const formData = new FormData();
+      formData.append('file', file);
+      
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/public/upload`,
+        {
+          method: 'POST',
+          headers: edgeFnHeaders,
+          body: formData
+        }
+      );
+      
+      const result = await response.json();
+      
+      if (result.success && result.url) {
+        const updated = [...newDish.variants];
+        updated[variantIndex].image = result.url;
+        setNewDish({ ...newDish, variants: updated });
+        toast.success('Variant rasmi yuklandi!');
+      } else {
+        toast.error(result.error || 'Rasm yuklanmadi!');
+      }
+    } catch (error) {
+      console.error('Upload variant image error:', error);
+      toast.error('Rasmni yuklashda xatolik!');
+    } finally {
+      setUploadingImages(false);
+    }
+  };
+
+  if (loading || !restaurant) {
+    return (
+      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? '#000000' : '#f9fafb' }}>
+        <div className="text-center">
+          <div className="inline-block w-12 h-12 border-4 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: `${accentColor.color}40`, borderTopColor: accentColor.color }} />
+          <p>Yuklanmoqda...</p>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="min-h-screen" style={{ background: isDark ? '#000000' : '#f9fafb', color: isDark ? '#ffffff' : '#111827' }}>
+      {/* Header */}
+      <header 
+        className="border-b sticky top-0 z-40"
+        style={{
+          background: isDark ? '#0a0a0a' : '#ffffff',
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+        }}
+      >
+        <div className="max-w-7xl mx-auto px-4 py-4">
+          <div className="flex items-center justify-between">
+            <div>
+              <h1 className="text-2xl font-bold">{restaurant.name}</h1>
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                {restaurant.type} • {restaurant.region}
+              </p>
+            </div>
+            <button
+              onClick={handleLogout}
+              className="px-4 py-2 rounded-xl font-bold flex items-center gap-2"
+              style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
+            >
+              <LogOut className="w-4 h-4" />
+              Chiqish
+            </button>
+          </div>
+        </div>
+      </header>
+
+      {/* Tabs */}
+      <div className="max-w-7xl mx-auto px-4 pt-6">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2">
+          {[
+            { id: 'dashboard', label: 'Dashboard', icon: Package },
+            { id: 'orders', label: 'Buyurtmalar', icon: ShoppingCart },
+            { id: 'dishes', label: 'Taomlar', icon: ChefHat },
+            { id: 'stats', label: 'Statistika', icon: BarChart3 },
+            { id: 'analytics', label: 'Data Analitika', icon: TrendingUp },
+            { id: 'payment', label: 'To\'lov qabul qilish', icon: DollarSign },
+          ].map(tab => {
+            const Icon = tab.icon;
+            return (
+              <button
+                key={tab.id}
+                onClick={() => setActiveTab(tab.id as any)}
+                className="px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap"
+                style={{
+                  background: activeTab === tab.id ? accentColor.color : (isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'),
+                  color: activeTab === tab.id ? '#ffffff' : 'inherit'
+                }}
+              >
+                <Icon className="w-4 h-4" />
+                {tab.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* Content */}
+      <div className="max-w-7xl mx-auto px-4 py-6">
+        {/* DASHBOARD */}
+        {activeTab === 'dashboard' && (
+          <div className="space-y-6">
+            {/* Stats Grid */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {[
+                { label: 'Bugungi buyurtmalar', value: stats?.todayOrders || 0, color: '#14b8a6', icon: ShoppingCart },
+                { label: 'Kutilayotgan', value: stats?.pendingOrders || 0, color: '#f59e0b', icon: Clock },
+                { label: 'Bajarilgan', value: stats?.completedOrders || 0, color: '#10b981', icon: CheckCircle },
+                { label: 'Bugungi daromad', value: (stats?.todayRevenue || 0).toLocaleString() + ' so\'m', color: '#3b82f6', icon: DollarSign },
+              ].map((stat, idx) => {
+                const Icon = stat.icon;
+                return (
+                  <div
+                    key={idx}
+                    className="p-6 rounded-2xl"
+                    style={{
+                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                      border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                    }}
+                  >
+                    <div className="flex items-center justify-between mb-3">
+                      <Icon className="w-6 h-6" style={{ color: stat.color }} />
+                    </div>
+                    <p className="text-sm mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                      {stat.label}
+                    </p>
+                    <p className="text-3xl font-bold" style={{ color: stat.color }}>{stat.value}</p>
+                  </div>
+                );
+              })}
+            </div>
+
+            {/* Quick Actions */}
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <button
+                onClick={() => setActiveTab('orders')}
+                className="p-6 rounded-2xl text-left"
+                style={{
+                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                  border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                }}
+              >
+                <ShoppingCart className="w-8 h-8 mb-3" style={{ color: accentColor.color }} />
+                <h3 className="font-bold text-lg mb-1">Buyurtmalarni ko'rish</h3>
+                <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                  {stats?.pendingOrders || 0} ta kutilayotgan
+                </p>
+              </button>
+              
+              <button
+                onClick={() => setShowAddDish(true)}
+                className="p-6 rounded-2xl text-left"
+                style={{
+                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                  border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                }}
+              >
+                <Plus className="w-8 h-8 mb-3" style={{ color: accentColor.color }} />
+                <h3 className="font-bold text-lg mb-1">Taom qo'shish</h3>
+                <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                  Yangi taom yaratish
+                </p>
+              </button>
+              
+              <button
+                onClick={() => setActiveTab('payment')}
+                className="p-6 rounded-2xl text-left"
+                style={{
+                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                  border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                }}
+              >
+                <DollarSign className="w-8 h-8 mb-3" style={{ color: accentColor.color }} />
+                <h3 className="font-bold text-lg mb-1">Pul talab qilish</h3>
+                <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                  {(stats?.pendingBalance || 0).toLocaleString()} so'm
+                </p>
+              </button>
+            </div>
+          </div>
+        )}
+
+        {/* BUYURTMALAR */}
+        {activeTab === 'orders' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold">Buyurtmalar</h2>
+              <div className="flex items-center gap-2">
+                <Bell className="w-5 h-5" style={{ color: accentColor.color }} />
+                <span className="font-bold">{orders.filter(o => o.status === 'pending').length} yangi</span>
+              </div>
+            </div>
+
+            <div className="flex flex-wrap gap-2">
+              {[
+                { key: 'all', label: 'Barchasi', count: orderCounts.all },
+                { key: 'new', label: 'Yangi', count: orderCounts.new },
+                { key: 'accepted', label: 'Qabul qilingan', count: orderCounts.accepted },
+                { key: 'completed', label: 'Tugallangan', count: orderCounts.completed },
+                { key: 'cancelled', label: 'Bekor qilingan', count: orderCounts.cancelled },
+              ].map((cat) => {
+                const active = ordersCategory === cat.key;
+                return (
+                  <button
+                    key={cat.key}
+                    onClick={() => setOrdersCategory(cat.key as typeof ordersCategory)}
+                    className="px-3 py-1.5 rounded-xl text-sm font-semibold border transition-all"
+                    style={{
+                      background: active ? `${accentColor.color}22` : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'),
+                      color: active ? accentColor.color : (isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.75)'),
+                      borderColor: active ? `${accentColor.color}66` : (isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'),
+                    }}
+                  >
+                    {cat.label} ({cat.count})
+                  </button>
+                );
+              })}
+            </div>
+            
+            {filteredOrders.length === 0 ? (
+              <div className="text-center py-12 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff' }}>
+                <ShoppingCart className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
+                <p className="font-bold">Bu kategoriyada buyurtma yo'q</p>
+              </div>
+            ) : (
+              <div className="grid gap-4">
+                {filteredOrders.map(order => (
+                  <div
+                    key={order.id}
+                    className="p-6 rounded-2xl"
+                    style={{
+                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                      border: `2px solid ${
+                        order.status === 'pending' ? '#f59e0b' :
+                        order.status === 'delivered' ? '#10b981' : 
+                        isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+                      }`
+                    }}
+                  >
+                    <div className="flex items-start justify-between mb-4">
+                      <div>
+                        <h3 className="font-bold text-lg">Buyurtma {formatOrderNumber(order.orderNumber, order.id)}</h3>
+                        <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                          {new Date(order.createdAt).toLocaleString('uz-UZ')}
+                        </p>
+                      </div>
+                      <span
+                        className="px-3 py-1 rounded-lg text-sm font-bold"
+                        style={{
+                          background: order.status === 'pending' ? 'rgba(245, 158, 11, 0.2)' :
+                                     order.status === 'delivered' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)',
+                          color: order.status === 'pending' ? '#f59e0b' :
+                                 order.status === 'delivered' ? '#10b981' : '#3b82f6'
+                        }}
+                      >
+                        {order.status === 'pending' ? 'Yangi' :
+                         order.status === 'accepted' || order.status === 'confirmed' ? 'Qabul qilindi' :
+                         order.status === 'delivered' ? 'Yetkazildi' : order.status}
+                      </span>
+                    </div>
+
+                    {/* Customer Info */}
+                    <div className="mb-4 p-4 rounded-xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)' }}>
+                      <h4 className="font-bold mb-2">Mijoz ma'lumotlari:</h4>
+                      <p className="text-sm"><strong>Ismi:</strong> {order.customerName}</p>
+                      <p className="text-sm"><strong>Telefon:</strong> {order.customerPhone}</p>
+                      <p className="text-sm"><strong>Manzil:</strong> {order.customerAddress}</p>
+                    </div>
+
+                    {/* Items */}
+                    <div className="space-y-2 mb-4">
+                      <h4 className="font-bold">Taomlar:</h4>
+                      {order.items?.map((item: any, idx: number) => (
+                        <div key={idx} className="text-sm p-2 rounded-lg" style={{ background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)' }}>
+                          <div className="flex items-center justify-between">
+                            <span>{item.dishName} {item.variantName ? `(${item.variantName})` : ''} x{item.quantity}</span>
+                            <span className="font-bold">{item.price.toLocaleString()} so'm</span>
+                          </div>
+                          {(Array.isArray(item.additionalProducts) || Array.isArray(item.addons)) && ((item.additionalProducts || item.addons || []).length > 0) && (
+                            <div className="mt-2 pl-3 border-l" style={{ borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.15)' }}>
+                              <p className="text-xs font-semibold mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)' }}>
+                                Qo'shimchalar:
+                              </p>
+                              <div className="space-y-1">
+                                {(item.additionalProducts || item.addons || []).map((addon: any, addonIdx: number) => (
+                                  <div key={addonIdx} className="flex items-center justify-between text-xs">
+                                    <span>+ {addon?.name || 'Qo\'shimcha'} x{Number(addon?.quantity || 1)}</span>
+                                    <span>{Number(addon?.price || 0).toLocaleString()} so'm</span>
+                                  </div>
+                                ))}
+                              </div>
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
+
+                    <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }}>
+                      <div>
+                        <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                          To'lov: {order.paymentMethod === 'cash' ? 'Naqd pul' : 'Karta'}
+                        </p>
+                        <p className="font-bold text-xl" style={{ color: accentColor.color }}>
+                          {order.totalPrice.toLocaleString()} so'm
+                        </p>
+                      </div>
+                      
+                      {order.status === 'pending' && (
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => updateOrderStatus(order.id, 'rejected')}
+                            className="px-4 py-2 rounded-xl font-bold flex items-center gap-2"
+                            style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
+                          >
+                            <XCircle className="w-4 h-4" />
+                            Bekor qilish
+                          </button>
+                          <button
+                            onClick={() => updateOrderStatus(order.id, 'accepted')}
+                            className="px-4 py-2 rounded-xl font-bold flex items-center gap-2"
+                            style={{ background: accentColor.color, color: '#ffffff' }}
+                          >
+                            <CheckCircle className="w-4 h-4" />
+                            Qabul qilish
+                          </button>
+                        </div>
+                      )}
+                      
+                      {(order.status === 'accepted' || order.status === 'confirmed') && (
+                        <div
+                          className="px-4 py-2 rounded-xl font-bold"
+                          style={{
+                            background: 'rgba(59, 130, 246, 0.2)',
+                            color: '#3b82f6',
+                          }}
+                        >
+                          Qabul qilindi
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        )}
+
+        {/* TAOMLAR */}
+        {activeTab === 'dishes' && (
+          <div className="space-y-4">
+            <div className="flex items-center justify-between">
+              <h2 className="text-2xl font-bold">Taomlar</h2>
+              <button
+                onClick={() => setShowAddDish(true)}
+                className="px-4 py-2 rounded-xl font-bold flex items-center gap-2"
+                style={{ background: accentColor.color, color: '#ffffff' }}
+              >
+                <Plus className="w-4 h-4" />
+                Taom qo'shish
+              </button>
+            </div>
+            
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+              {dishes.map(dish => (
+                <div
+                  key={dish.id}
+                  className="rounded-2xl overflow-hidden"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+                    opacity: dish.isActive ? 1 : 0.5
+                  }}
+                >
+                  <div className="relative h-48">
+                    <img src={dish.image} alt={dish.name} className="w-full h-full object-cover" />
+                    <div className="absolute top-2 right-2 flex items-center gap-2">
+                      {dish.isPopular && (
+                        <span className="px-2 py-1 rounded-lg text-xs font-bold" style={{ background: '#f59e0b', color: '#ffffff' }}>
+                          <Star className="w-3 h-3 inline mr-1" />
+                          Mashhur
+                        </span>
+                      )}
+                      {dish.isNatural && (
+                        <span className="px-2 py-1 rounded-lg text-xs font-bold" style={{ background: '#10b981', color: '#ffffff' }}>
+                          <Flame className="w-3 h-3 inline mr-1" />
+                          Tabiiy
+                        </span>
+                      )}
+                    </div>
+                  </div>
+                  <div className="p-4">
+                    <h3 className="font-bold text-lg mb-2">{dish.name}</h3>
+                    {dish.kcal && (
+                      <p className="text-sm mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                        🔥 {dish.kcal} kcal
+                      </p>
+                    )}
+                    <button
+                      onClick={() => toggleDishStatus(dish.id, dish.isActive)}
+                      className="w-full px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2"
+                      style={{
+                        background: dish.isActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                        color: dish.isActive ? '#ef4444' : '#10b981'
+                      }}
+                    >
+                      <Power className="w-4 h-4" />
+                      {dish.isActive ? 'Stop' : 'Faol'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
+        {/* STATISTIKA */}
+        {activeTab === 'stats' && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold">Statistika</h2>
+            
+            {/* Main Stats */}
+            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+              {[
+                { label: 'Jami buyurtmalar', value: stats?.totalOrders || 0, color: '#14b8a6' },
+                { label: 'Topshirilgan', value: stats?.completedOrders || 0, color: '#10b981' },
+                { label: 'Bekor qilingan', value: stats?.rejectedOrders || 0, color: '#ef4444' },
+                { label: 'Jami daromad', value: (stats?.totalRevenue || 0).toLocaleString() + ' so\'m', color: '#3b82f6' },
+              ].map((stat, idx) => (
+                <div
+                  key={idx}
+                  className="p-6 rounded-2xl"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                  }}
+                >
+                  <p className="text-sm mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                    {stat.label}
+                  </p>
+                  <p className="text-3xl font-bold" style={{ color: stat.color }}>{stat.value}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Payment Status */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+                <h3 className="font-bold text-lg mb-4">Pul holati</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span>Kutilayotgan:</span>
+                    <span className="font-bold" style={{ color: '#f59e0b' }}>{(stats?.pendingBalance || 0).toLocaleString()} so'm</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>To'langan:</span>
+                    <span className="font-bold" style={{ color: '#10b981' }}>{(stats?.paidBalance || 0).toLocaleString()} so'm</span>
+                  </div>
+                  <div className="h-px" style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }} />
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold">Jami:</span>
+                    <span className="font-bold text-xl" style={{ color: accentColor.color }}>{(stats?.totalRevenue || 0).toLocaleString()} so'm</span>
+                  </div>
+                </div>
+              </div>
+
+              <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+                <h3 className="font-bold text-lg mb-4">Buyurtma statistikasi</h3>
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <span>Bugungi:</span>
+                    <span className="font-bold">{stats?.todayOrders || 0} ta</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Kutilayotgan:</span>
+                    <span className="font-bold" style={{ color: '#f59e0b' }}>{stats?.pendingOrders || 0} ta</span>
+                  </div>
+                  <div className="flex items-center justify-between">
+                    <span>Topshirilgan:</span>
+                    <span className="font-bold" style={{ color: '#10b981' }}>{stats?.completedOrders || 0} ta</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* DATA ANALITIKA */}
+        {activeTab === 'analytics' && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold">Data Analitika</h2>
+            
+            {/* Charts */}
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+              {/* Revenue Chart */}
+              <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+                <h3 className="font-bold text-lg mb-4">Haftalik daromad</h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <LineChart data={stats?.weeklyRevenue || []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'} />
+                    <XAxis dataKey="day" stroke={isDark ? '#fff' : '#000'} />
+                    <YAxis stroke={isDark ? '#fff' : '#000'} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        background: isDark ? '#1a1a1a' : '#ffffff',
+                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                        borderRadius: '12px'
+                      }}
+                    />
+                    <Line type="monotone" dataKey="revenue" stroke={accentColor.color} strokeWidth={3} />
+                  </LineChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Orders Chart */}
+              <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+                <h3 className="font-bold text-lg mb-4">Haftalik buyurtmalar</h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <BarChart data={stats?.weeklyOrders || []}>
+                    <CartesianGrid strokeDasharray="3 3" stroke={isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'} />
+                    <XAxis dataKey="day" stroke={isDark ? '#fff' : '#000'} />
+                    <YAxis stroke={isDark ? '#fff' : '#000'} />
+                    <Tooltip 
+                      contentStyle={{ 
+                        background: isDark ? '#1a1a1a' : '#ffffff',
+                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                        borderRadius: '12px'
+                      }}
+                    />
+                    <Bar dataKey="orders" fill={accentColor.color} />
+                  </BarChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Status Distribution */}
+              <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+                <h3 className="font-bold text-lg mb-4">Buyurtma statuslari</h3>
+                <ResponsiveContainer width="100%" height={250}>
+                  <PieChart>
+                    <Pie
+                      data={[
+                        { name: 'Topshirilgan', value: stats?.completedOrders || 0, id: 'completed' },
+                        { name: 'Kutilayotgan', value: stats?.pendingOrders || 0, id: 'pending' },
+                        { name: 'Bekor qilingan', value: stats?.rejectedOrders || 0, id: 'rejected' },
+                      ]}
+                      cx="50%"
+                      cy="50%"
+                      labelLine={false}
+                      label={(entry) => `${entry.name}: ${entry.value}`}
+                      outerRadius={80}
+                      fill="#8884d8"
+                      dataKey="value"
+                    >
+                      <Cell key="cell-completed" fill="#10b981" />
+                      <Cell key="cell-pending" fill="#f59e0b" />
+                      <Cell key="cell-rejected" fill="#ef4444" />
+                    </Pie>
+                    <Tooltip />
+                  </PieChart>
+                </ResponsiveContainer>
+              </div>
+
+              {/* Top Dishes */}
+              <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+                <h3 className="font-bold text-lg mb-4">Top taomlar</h3>
+                <div className="space-y-3">
+                  {(stats?.topDishes || []).slice(0, 5).map((dish: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between">
+                      <div className="flex items-center gap-3">
+                        <span className="font-bold text-xl" style={{ color: accentColor.color }}>#{idx + 1}</span>
+                        <span>{dish.name}</span>
+                      </div>
+                      <span className="font-bold">{dish.orders} ta</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* TO'LOV QABUL QILISH */}
+        {activeTab === 'payment' && (
+          <div className="space-y-6">
+            <h2 className="text-2xl font-bold">To'lov qabul qilish</h2>
+            
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+                <p className="text-sm mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>Kutilayotgan to'lov</p>
+                <p className="text-3xl font-bold" style={{ color: '#f59e0b' }}>{(stats?.pendingBalance || 0).toLocaleString()} so'm</p>
+              </div>
+              <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+                <p className="text-sm mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>To'langan</p>
+                <p className="text-3xl font-bold" style={{ color: '#10b981' }}>{(stats?.paidBalance || 0).toLocaleString()} so'm</p>
+              </div>
+              <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+                <p className="text-sm mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>Jami daromad</p>
+                <p className="text-3xl font-bold" style={{ color: accentColor.color }}>{(stats?.totalRevenue || 0).toLocaleString()} so'm</p>
+              </div>
+            </div>
+
+            {/* Payment Request Info */}
+            <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+              <h3 className="font-bold text-lg mb-4">To'lov so'rovi yuborish</h3>
+              <p className="mb-4" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
+                Siz har 24 soatda bir marta pul talab qilishingiz mumkin. To'lov so'rovi yuborilgandan so'ng, 
+                admin tekshiradi va kartangizga pul o'tkazadi yoki kasser orqali naqd pul topshiradi.
+              </p>
+              <div className="flex items-center gap-4">
+                <button
+                  onClick={requestPayment}
+                  disabled={!stats?.pendingBalance || stats.pendingBalance <= 0}
+                  className="px-6 py-3 rounded-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{ background: accentColor.color, color: '#ffffff' }}
+                >
+                  Pul talab qilish ({(stats?.pendingBalance || 0).toLocaleString()} so'm)
+                </button>
+                {stats?.lastPaymentRequest && (
+                  <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                    Oxirgi so'rov: {new Date(stats.lastPaymentRequest).toLocaleString('uz-UZ')}
+                  </p>
+                )}
+              </div>
+            </div>
+
+            {/* Payment History */}
+            <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff', border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
+              <h3 className="font-bold text-lg mb-4">To'lov tarixi</h3>
+              {(stats?.paymentHistory || []).length === 0 ? (
+                <p className="text-center py-8" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                  Hali to'lovlar yo'q
+                </p>
+              ) : (
+                <div className="space-y-3">
+                  {(stats?.paymentHistory || []).map((payment: any, idx: number) => (
+                    <div key={idx} className="flex items-center justify-between p-4 rounded-xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)' }}>
+                      <div>
+                        <p className="font-bold">{payment.amount.toLocaleString()} so'm</p>
+                        <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                          {new Date(payment.date).toLocaleString('uz-UZ')}
+                        </p>
+                      </div>
+                      <span
+                        className="px-3 py-1 rounded-lg text-sm font-bold"
+                        style={{
+                          background: payment.status === 'paid' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(245, 158, 11, 0.2)',
+                          color: payment.status === 'paid' ? '#10b981' : '#f59e0b'
+                        }}
+                      >
+                        {payment.status === 'paid' ? 'To\'landi' : 'Kutilmoqda'}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+      </div>
+
+      {/* Add Dish Modal */}
+      {showAddDish && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0, 0, 0, 0.7)' }}>
+          <div 
+            className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6"
+            style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
+          >
+            <div className="flex items-center justify-between mb-6">
+              <h2 className="text-2xl font-bold">Taom qo'shish</h2>
+              <button onClick={() => setShowAddDish(false)}>
+                <X className="w-6 h-6" />
+              </button>
+            </div>
+
+            <div className="space-y-4">
+              {/* Name */}
+              <div>
+                <label className="block font-bold mb-2">Taom nomi *</label>
+                <input
+                  type="text"
+                  value={newDish.name}
+                  onChange={(e) => setNewDish({ ...newDish, name: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                  }}
+                  placeholder="Masalan: Osh"
+                />
+              </div>
+
+              {/* Images Upload */}
+              <div>
+                <label className="block font-bold mb-2">Rasmlar * (2-6 ta)</label>
+                
+                {/* Upload Button */}
+                <label className="w-full px-4 py-3 rounded-xl cursor-pointer flex items-center justify-center gap-2 border-2 border-dashed transition-all hover:border-opacity-80"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)',
+                    borderColor: uploadingImages ? accentColor.color : (isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)')
+                  }}
+                >
+                  <input
+                    type="file"
+                    accept="image/*"
+                    multiple
+                    max={6}
+                    className="hidden"
+                    disabled={uploadingImages || newDish.images.length >= 6}
+                    onChange={(e) => {
+                      if (e.target.files && e.target.files.length > 0) {
+                        const remainingSlots = 6 - newDish.images.length;
+                        if (e.target.files.length > remainingSlots) {
+                          toast.error(`Maksimal ${remainingSlots} ta rasm qo'shishingiz mumkin!`);
+                          return;
+                        }
+                        uploadImages(e.target.files);
+                      }
+                    }}
+                  />
+                  {uploadingImages ? (
+                    <>
+                      <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: accentColor.color, borderTopColor: 'transparent' }} />
+                      <span>Yuklanmoqda...</span>
+                    </>
+                  ) : (
+                    <>
+                      <Upload className="w-5 h-5" style={{ color: accentColor.color }} />
+                      <span>Rasmlarni yuklash ({newDish.images.length}/6)</span>
+                    </>
+                  )}
+                </label>
+
+                {/* Image Previews */}
+                {newDish.images.length > 0 && (
+                  <div className="grid grid-cols-3 gap-3 mt-3">
+                    {newDish.images.map((url, idx) => (
+                      <div
+                        key={idx}
+                        className="relative rounded-xl overflow-hidden"
+                        style={{
+                          background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                          border: `2px solid ${newDish.image === url ? accentColor.color : 'transparent'}`
+                        }}
+                      >
+                        <img src={url} alt={`Rasm ${idx + 1}`} className="w-full h-24 object-cover" />
+                        <button
+                          onClick={() => {
+                            const filtered = newDish.images.filter((_, i) => i !== idx);
+                            setNewDish({
+                              ...newDish,
+                              images: filtered,
+                              image: filtered.length > 0 ? (newDish.image === url ? filtered[0] : newDish.image) : ''
+                            });
+                          }}
+                          className="absolute top-1 right-1 w-6 h-6 rounded-full flex items-center justify-center"
+                          style={{ background: 'rgba(239, 68, 68, 0.9)', color: '#ffffff' }}
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => setNewDish({ ...newDish, image: url })}
+                          className="absolute bottom-1 left-1 right-1 px-2 py-1 text-xs font-bold rounded"
+                          style={{
+                            background: newDish.image === url ? accentColor.color : 'rgba(0, 0, 0, 0.5)',
+                            color: '#ffffff'
+                          }}
+                        >
+                          {newDish.image === url ? '✓ Asosiy' : 'Asosiy qilish'}
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                <p className="text-xs mt-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
+                  Rasmlarni yuklang (JPEG, PNG). Birinchi rasm asosiy rasm bo'ladi.
+                </p>
+              </div>
+
+              {/* Kcal & Weight */}
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className="block font-bold mb-2">Kaloriya (kcal)</label>
+                  <input
+                    type="text"
+                    value={newDish.kcal}
+                    onChange={(e) => setNewDish({ ...newDish, kcal: e.target.value })}
+                    className="w-full px-4 py-3 rounded-xl"
+                    style={{
+                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                      border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                    }}
+                    placeholder="500"
+                  />
+                </div>
+                <div>
+                  <label className="block font-bold mb-2">Vazn (gr)</label>
+                  <input
+                    type="text"
+                    value={newDish.weight}
+                    onChange={(e) => setNewDish({ ...newDish, weight: e.target.value })}
+                    className="w-full px-4 py-3 rounded-xl"
+                    style={{
+                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                      border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                    }}
+                    placeholder="350"
+                  />
+                </div>
+              </div>
+
+              {/* Description */}
+              <div>
+                <label className="block font-bold mb-2">Tavsif</label>
+                <textarea
+                  value={newDish.description}
+                  onChange={(e) => setNewDish({ ...newDish, description: e.target.value })}
+                  rows={3}
+                  className="w-full px-4 py-3 rounded-xl"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                  }}
+                  placeholder="Mazali va shirin taom..."
+                />
+              </div>
+
+              {/* Ingredients */}
+              <div>
+                <label className="block font-bold mb-2">Tarkib</label>
+                <textarea
+                  value={newDish.ingredients}
+                  onChange={(e) => setNewDish({ ...newDish, ingredients: e.target.value })}
+                  rows={2}
+                  className="w-full px-4 py-3 rounded-xl"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                  }}
+                  placeholder="Guruch, go'sht, sabzi, piyoz..."
+                />
+              </div>
+
+              {/* Flags */}
+              <div className="flex items-center gap-4">
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newDish.isPopular}
+                    onChange={(e) => setNewDish({ ...newDish, isPopular: e.target.checked })}
+                    className="w-5 h-5"
+                  />
+                  <Star className="w-5 h-5" style={{ color: '#f59e0b' }} />
+                  <span>Mashhur</span>
+                </label>
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={newDish.isNatural}
+                    onChange={(e) => setNewDish({ ...newDish, isNatural: e.target.checked })}
+                    className="w-5 h-5"
+                  />
+                  <Flame className="w-5 h-5" style={{ color: '#10b981' }} />
+                  <span>Tabiiy</span>
+                </label>
+              </div>
+
+              {/* Variants */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="font-bold">Variantlar *</label>
+                  <button
+                    onClick={() => setNewDish({
+                      ...newDish,
+                      variants: [...newDish.variants, { name: '', image: '', price: '', prepTime: '' }]
+                    })}
+                    className="px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 text-sm"
+                    style={{ background: accentColor.color, color: '#ffffff' }}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Variant
+                  </button>
+                </div>
+                <div className="space-y-3">
+                  {newDish.variants.map((variant, idx) => (
+                    <div key={idx} className="p-4 rounded-xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)' }}>
+                      <div className="flex items-center justify-between mb-3">
+                        <span className="font-bold">Variant #{idx + 1}</span>
+                        <button
+                          onClick={() => setNewDish({ ...newDish, variants: newDish.variants.filter((_, i) => i !== idx) })}
+                        >
+                          <Trash2 className="w-4 h-4" style={{ color: '#ef4444' }} />
+                        </button>
+                      </div>
+                      <div className="grid grid-cols-2 gap-3">
+                        <input
+                          type="text"
+                          value={variant.name}
+                          onChange={(e) => {
+                            const updated = [...newDish.variants];
+                            updated[idx].name = e.target.value;
+                            setNewDish({ ...newDish, variants: updated });
+                          }}
+                          className="px-3 py-2 rounded-lg"
+                          style={{
+                            background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                          }}
+                          placeholder="Kichik / O'rta / Katta"
+                        />
+                        <input
+                          type="text"
+                          value={variant.price}
+                          onChange={(e) => {
+                            const updated = [...newDish.variants];
+                            updated[idx].price = e.target.value;
+                            setNewDish({ ...newDish, variants: updated });
+                          }}
+                          className="px-3 py-2 rounded-lg"
+                          style={{
+                            background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                          }}
+                          placeholder="Narx (25000)"
+                        />
+                        <div className="col-span-2">
+                          {variant.image ? (
+                            <div className="flex items-center gap-2">
+                              <img src={variant.image} alt="Variant" className="w-12 h-12 object-cover rounded" />
+                              <button
+                                onClick={() => {
+                                  const updated = [...newDish.variants];
+                                  updated[idx].image = '';
+                                  setNewDish({ ...newDish, variants: updated });
+                                }}
+                                className="px-2 py-1 rounded text-sm"
+                                style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
+                              >
+                                O'chirish
+                              </button>
+                            </div>
+                          ) : (
+                            <label className="px-3 py-2 rounded-lg cursor-pointer flex items-center justify-center gap-2 border"
+                              style={{
+                                background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)',
+                                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'
+                              }}
+                            >
+                              <input
+                                type="file"
+                                accept="image/*"
+                                className="hidden"
+                                disabled={uploadingImages}
+                                onChange={(e) => {
+                                  if (e.target.files && e.target.files[0]) {
+                                    uploadVariantImage(e.target.files[0], idx);
+                                  }
+                                }}
+                              />
+                              <Upload className="w-4 h-4" style={{ color: accentColor.color }} />
+                              <span className="text-sm">Rasm yuklash</span>
+                            </label>
+                          )}
+                        </div>
+                        <input
+                          type="text"
+                          value={variant.prepTime}
+                          onChange={(e) => {
+                            const updated = [...newDish.variants];
+                            updated[idx].prepTime = e.target.value;
+                            setNewDish({ ...newDish, variants: updated });
+                          }}
+                          className="px-3 py-2 rounded-lg col-span-2"
+                          style={{
+                            background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                          }}
+                          placeholder="Tayyorlash vaqti (20-30 daqiqa)"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Extras */}
+              <div>
+                <div className="flex items-center justify-between mb-3">
+                  <label className="font-bold">Qo'shimcha mahsulotlar</label>
+                  <button
+                    onClick={() => setNewDish({
+                      ...newDish,
+                      extras: [...newDish.extras, { name: '', price: '' }]
+                    })}
+                    className="px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 text-sm"
+                    style={{ background: accentColor.color, color: '#ffffff' }}
+                  >
+                    <Plus className="w-4 h-4" />
+                    Qo'shimcha
+                  </button>
+                </div>
+                <div className="space-y-2">
+                  {newDish.extras.map((extra, idx) => (
+                    <div key={idx} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={extra.name}
+                        onChange={(e) => {
+                          const updated = [...newDish.extras];
+                          updated[idx].name = e.target.value;
+                          setNewDish({ ...newDish, extras: updated });
+                        }}
+                        className="flex-1 px-3 py-2 rounded-lg"
+                        style={{
+                          background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                          border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                        }}
+                        placeholder="Nomi (Achchiq sous)"
+                      />
+                      <input
+                        type="text"
+                        value={extra.price}
+                        onChange={(e) => {
+                          const updated = [...newDish.extras];
+                          updated[idx].price = e.target.value;
+                          setNewDish({ ...newDish, extras: updated });
+                        }}
+                        className="w-32 px-3 py-2 rounded-lg"
+                        style={{
+                          background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                          border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                        }}
+                        placeholder="Narx"
+                      />
+                      <button onClick={() => setNewDish({ ...newDish, extras: newDish.extras.filter((_, i) => i !== idx) })}>
+                        <Trash2 className="w-4 h-4" style={{ color: '#ef4444' }} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex items-center gap-3 pt-4">
+                <button
+                  onClick={() => setShowAddDish(false)}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'
+                  }}
+                >
+                  Bekor qilish
+                </button>
+                <button
+                  onClick={addDish}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold"
+                  style={{ background: accentColor.color, color: '#ffffff' }}
+                >
+                  Saqlash
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}

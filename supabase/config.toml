@@ -1,0 +1,6 @@
+# Supabase CLI: https://supabase.com/docs/guides/cli/config
+#
+# Click PREPARE/COMPLETE tashqi serverdan POST qiladi — ularda Supabase JWT bo‘lmaydi.
+# Shuning uchun JWT tekshiruvi o‘chirilgan bo‘lishi kerak; himoya Hono ichidagi route auth da.
+[functions.make-server-27d0d16c]
+verify_jwt = false

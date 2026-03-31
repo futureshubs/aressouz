@@ -1,0 +1,178 @@
+✅ Login successful!
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 🔑 Token received: seller-1773259777651-de4rm7uzt
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 🔑 Token format check: seller-1773259777651-de4rm7uzt...
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 🔑 Shop ID: shop-1773255314437-t1bfgk3f0
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 🔑 Shop Name: ARESSO 
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ✅ Token format validation PASSED
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 💾 Saving to localStorage...
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ✅ Session saved to localStorage
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 🔑 ===== SELLER LOGIN COMPLETE =====
+
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📱 Using device ID: device-1773235473944-susjllnmt3h
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 🔐 Checking seller session: {token: 'seller-1773259777651-de4rm7uzt', shopId: 'shop-1773255314437-t1bfgk3f0', shopName: 'ARESSO ', branchId: 'branch_1773176332822'}
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 🔑 Token format: seller-1773259777651-de4rm7uzt...
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ✅ Token validation passed
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+659e6485-810f-4d52-8c27-5ed4c1aa8c97-v2-figmaiframepreview.figma.site/seller/dashboard:1 Access to fetch at 'https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/seller/products' from origin 'https://659e6485-810f-4d52-8c27-5ed4c1aa8c97-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Request header field x-seller-token is not allowed by Access-Control-Allow-Headers in preflight response.
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28  GET https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/seller/products net::ERR_FAILED
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+loadData @ SellerDashboard.tsx:97
+(anonymous) @ SellerDashboard.tsx:49
+TN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T7 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T8 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T6 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T4 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+S1 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SQ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SJ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SZ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+pC @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 Error loading data: TypeError: Failed to fetch
+    at code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28:9794
+    at loadData (SellerDashboard.tsx:97:32)
+    at SellerDashboard.tsx:49:7
+    at TN (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:138396)
+    at T7 (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:151856)
+    at T8 (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:151634)
+    at T6 (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:151542)
+    at T4 (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:151420)
+    at S1 (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:163585)
+    at SQ (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:163247)
+    at SJ (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:163060)
+    at SZ (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:161662)
+    at SO (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:158427)
+    at pC (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:36290)
+    at code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:155938
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+r @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:69
+error @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+loadData @ SellerDashboard.tsx:154
+await in loadData
+(anonymous) @ SellerDashboard.tsx:49
+TN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T7 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T8 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T6 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+T4 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+S1 @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SQ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SJ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SZ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+pC @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Starting image upload: Gemini_Generated_Image_9pb4b59pb4b59pb4.png
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 File size: 1362034 bytes
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Token being used: seller-1773259777651-de4rm7uzt...
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Token full length: 30
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 publicAnonKey: eyJhbGciOiJIUzI1NiIsInR5cCI6Ik...
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Request URL: https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/seller/upload-media
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 📤 Request headers: {X-Seller-Token: 'seller-1773259777651-de4rm7uzt...'}
+659e6485-810f-4d52-8c27-5ed4c1aa8c97-v2-figmaiframepreview.figma.site/seller/dashboard:1 Access to fetch at 'https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/seller/upload-media' from origin 'https://659e6485-810f-4d52-8c27-5ed4c1aa8c97-v2-figmaiframepreview.figma.site' has been blocked by CORS policy: Request header field x-seller-token is not allowed by Access-Control-Allow-Headers in preflight response.
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28  POST https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/seller/upload-media net::ERR_FAILED
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+(anonymous) @ AddProductModal.tsx:133
+handleImageUpload @ AddProductModal.tsx:112
+onChange @ AddProductModal.tsx:589
+y @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+ik @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+ij @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+iz @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+dP @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dM @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dG @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dk @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+iR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+d$ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+lO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lv @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28 ❌ Upload error: TypeError: Failed to fetch
+    at code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28:9794
+    at AddProductModal.tsx:133:32
+    at Array.map (<anonymous>)
+    at handleImageUpload (AddProductModal.tsx:112:48)
+    at onChange (AddProductModal.tsx:589:40)
+    at HTMLUnknownElement.y (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77:54006)
+    at HTMLUnknownElement.i (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28:4861)
+    at Object.ik (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77:54331)
+    at ij (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77:55284)
+    at iz (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77:55341)
+    at dP (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:10702)
+    at dM (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:11042)
+    at dG (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:11125)
+    at dk (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:11212)
+    at code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:12595
+    at SR (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:158583)
+    at iR (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77:51978)
+    at d$ (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89:12574)
+    at lO (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77:72034)
+    at lN (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77:71970)
+    at lv (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77:71781)
+    at HTMLDivElement.i (code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28:4861)
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+r @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:69
+error @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+handleImageUpload @ AddProductModal.tsx:173
+await in handleImageUpload
+onChange @ AddProductModal.tsx:589
+y @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+ik @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+ij @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+iz @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+dP @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dM @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dG @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+dk @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+(anonymous) @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+SR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+iR @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+d$ @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:89
+lO @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lN @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+lv @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:77
+i @ code_components_preview_iframe-1e875785bc0d6c5a.min.js.br:28
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error during WebSocket handshake: Unexpected response code: 404
+ping @ client:1035
+waitForSuccessfulPing @ client:1060
+client:1035 WebSocket connection to 'wss://app-mkuv3ovlqnmcmapcihftg5mnxkadxvwxzip7qyslkgaje6n32xta.makeproxy-c.figma.site/' failed: Error du
