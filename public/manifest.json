@@ -8,8 +8,8 @@
   "display": "standalone",
   "display_override": [
     "tabbed",
-    "window-controls-overlay",
     "standalone",
+    "window-controls-overlay",
     "browser"
   ],
   "launch_handler": {
@@ -152,8 +152,8 @@
       "description": "Market va xizmatlarga tezkor havola (Windows vidjetlari)",
       "tag": "aressouz-quick",
       "template": "aressouz-quick",
-      "ms_ac_template": "/widgets/ares-template.json",
-      "data": "/widgets/ares-data.json",
+      "ms_ac_template": "widgets/ares-template.json",
+      "data": "widgets/ares-data.json",
       "type": "application/json",
       "icons": [
         {

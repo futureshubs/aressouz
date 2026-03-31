@@ -1,9 +1,9 @@
-/* ARESSO PWA — precache shell + runtime cache + offline */
-const VERSION = 'aressouz-sw-6';
+/* ARESSO PWA — precache shell + build assets + runtime cache + offline support */
+const VERSION = 'aressouz-sw-7';
 const PRECACHE = `precache-${VERSION}`;
 const RUNTIME = `runtime-${VERSION}`;
 
-/** Must be same-origin; keep small. app-version.json — buildda dist ga yoziladi */
+/** Doimiy statik yo‘llar (dev: faqat shular; prod: vite closeBundle to‘ldiradi) */
 const PRECACHE_URLS = [
   '/',
   '/index.html',
@@ -14,6 +14,9 @@ const PRECACHE_URLS = [
   '/widgets/ares-template.json',
   '/widgets/ares-data.json',
 ];
+
+/** Production build: barcha dist assetlari (JS/CSS/HTML, …) — oflayn ilova po‘shog‘i */
+const BUILD_PRECACHE_URLS = []; // AUTO-PRECACHE-DIST-ASSETS
 
 function sameOrigin(url) {
   try {
@@ -27,10 +30,11 @@ self.addEventListener('install', (event) => {
   event.waitUntil(
     (async () => {
       const cache = await caches.open(PRECACHE);
+      const allPrecache = [...new Set([...PRECACHE_URLS, ...BUILD_PRECACHE_URLS])];
       await Promise.all(
-        PRECACHE_URLS.map((url) =>
+        allPrecache.map((url) =>
           cache.add(url).catch(() => {
-            /* dev: index.html / app-version yo‘q bo‘lishi mumkin */
+            /* dev / eski kesh */
           }),
         ),
       );
@@ -76,19 +80,32 @@ self.addEventListener('message', (event) => {
   }
 });
 
-/** Navigatsiya: tarmoq → keshdagi / → offline.html */
+/**
+ * Navigatsiya: onlayn — tarmoqdan olib RUNTIME ga yozamiz; oflayn — keshdan (offline support).
+ * SPA: har qanday marshrut uchun index.html po‘shog‘i.
+ */
 async function handleNavigation(request) {
   try {
     const networkResponse = await fetch(request);
     if (networkResponse && networkResponse.ok) {
       const cache = await caches.open(RUNTIME);
       cache.put(request, networkResponse.clone()).catch(() => {});
+      const precache = await caches.open(PRECACHE);
+      const url = new URL(request.url);
+      if (url.pathname === '/' || url.pathname === '/index.html') {
+        precache.put('/index.html', networkResponse.clone()).catch(() => {});
+      }
     }
     return networkResponse;
   } catch {
-    const cached = await caches.match(request, { ignoreSearch: false });
-    if (cached) return cached;
-    const shell = (await caches.match('/')) || (await caches.match('/index.html'));
+    const fromNetworkFail = await caches.match(request, { ignoreSearch: false });
+    if (fromNetworkFail) return fromNetworkFail;
+    const ignoreQuery = await caches.match(request, { ignoreSearch: true });
+    if (ignoreQuery) return ignoreQuery;
+    const shell =
+      (await caches.match('/index.html')) ||
+      (await caches.match('/')) ||
+      (await caches.match(new Request('/index.html')));
     if (shell) return shell;
     const offline = await caches.match('/offline.html');
     if (offline) return offline;
@@ -149,13 +166,31 @@ self.addEventListener('fetch', (event) => {
     url.includes('/assets/')
   ) {
     event.respondWith(
-      handleAsset(request).then((r) => r || fetch(request)),
+      handleAsset(request).then(async (r) => {
+        if (r) return r;
+        const precache = await caches.open(PRECACHE);
+        const p = await precache.match(request);
+        if (p) return p;
+        return fetch(request);
+      }),
     );
     return;
   }
 
   event.respondWith(
-    fetch(request).catch(() => caches.match(request)),
+    (async () => {
+      try {
+        return await fetch(request);
+      } catch {
+        const runtime = await caches.open(RUNTIME);
+        const r1 = await runtime.match(request);
+        if (r1) return r1;
+        const precache = await caches.open(PRECACHE);
+        const r2 = await precache.match(request);
+        if (r2) return r2;
+        return caches.match(request);
+      }
+    })(),
   );
 });
 
