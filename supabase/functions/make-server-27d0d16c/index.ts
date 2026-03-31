@@ -437,7 +437,9 @@ const listingContactPhoneForLimit = (listing: any): string => {
   return normalizeListingPhoneForLimit(raw);
 };
 
-const MAX_ACTIVE_LISTINGS_PER_PHONE = 2;
+/** Bitta telefon bo‘yicha bepul e’lonlar soni; undan keyin har biri uchun LISTING_FEE_UZS. */
+const FREE_LISTINGS_PER_PHONE = 2;
+const LISTING_FEE_UZS = 10_000;
 
 /**
  * Profil (`listing:`), katalog (`house:` / `car:`) va yashirin yo‘llar (`POST /houses`, `/cars`)
@@ -478,6 +480,65 @@ async function countUniqueListingsWithPhone(phoneNormalized: string): Promise<nu
   }
 
   return seen.size;
+}
+
+type ListingFeeGateResult =
+  | { ok: true; consumeId: string | null }
+  | { ok: false; status: number; error: string; code: string };
+
+async function gateListingByPhoneAndFee(
+  authUserId: string,
+  ownerPhoneNorm: string,
+  listingFeeTransactionId: unknown,
+  phoneListingCount: number,
+): Promise<ListingFeeGateResult> {
+  if (phoneListingCount < FREE_LISTINGS_PER_PHONE) {
+    return { ok: true, consumeId: null };
+  }
+  const tid = String(listingFeeTransactionId ?? "").trim();
+  if (!tid) {
+    return {
+      ok: false,
+      status: 400,
+      code: "LISTING_FEE_REQUIRED",
+      error:
+        `Bu telefon raqami bo‘yicha ${FREE_LISTINGS_PER_PHONE} tadan ortiq bepul e‘lon joylashtirish mumkin emas. Keyingi har bir e‘lon uchun ${LISTING_FEE_UZS.toLocaleString("uz-UZ")} so‘m to‘lang (Click).`,
+    };
+  }
+  const credit = (await kv.get(`listing_fee_credit:${tid}`)) as {
+    userId?: string;
+    phoneNorm?: string;
+    amount?: number;
+  } | null;
+  if (!credit || String(credit.userId) !== String(authUserId)) {
+    return {
+      ok: false,
+      status: 400,
+      code: "LISTING_FEE_INVALID",
+      error:
+        "To‘lov tasdiqlanmagan yoki bu akkauntga tegishli emas. Click orqali qayta to‘lang.",
+    };
+  }
+  const creditAmt = Number(credit.amount);
+  if (!Number.isFinite(creditAmt) || creditAmt !== LISTING_FEE_UZS) {
+    return {
+      ok: false,
+      status: 400,
+      code: "LISTING_FEE_AMOUNT",
+      error: "To‘lov summasi noto‘g‘ri",
+    };
+  }
+  const cPhone = String(credit.phoneNorm || "").trim();
+  if (!cPhone || cPhone !== ownerPhoneNorm) {
+    return {
+      ok: false,
+      status: 400,
+      code: "LISTING_FEE_PHONE_MISMATCH",
+      error:
+        "To‘lov boshqa telefon raqami uchun. E‘londagi aloqa telefoni bilan mos kelishi kerak.",
+    };
+  }
+  return { ok: true, consumeId: tid };
 }
 
 const getConfiguredAdminCodes = () => {
@@ -3969,33 +4030,129 @@ app.delete("/make-server-27d0d16c/services/portfolio/:id/projects/:projectId", a
 
 // ==================== LISTING ROUTES (HOUSE & CAR) ====================
 
-// Check if user can create listing (first free, then paid)
+// Telefon bo‘yicha bepul limit va keyingi e‘lon uchun to‘lov kerakligi
 app.get("/make-server-27d0d16c/check-listing-quota", async (c) => {
   try {
     const auth = await validateAccessToken(c);
-    
+
     if (!auth.success) {
       return c.json({ error: auth.error }, 401);
     }
 
-    // Get all user's listings
-    const userListings = await kv.getByPrefix(`listing:${auth.userId}:`);
-    
-    // First listing is free
-    const canPostFree = userListings.length === 0;
-    const requiresPayment = userListings.length > 0;
+    const phoneRaw = c.req.query("phone") || c.req.query("ownerPhone");
+    const phoneNorm = normalizeListingPhoneForLimit(phoneRaw);
+    if (!phoneNorm) {
+      return c.json(
+        { error: "So‘rovda telefon raqami (phone) kiriting", code: "PHONE_REQUIRED" },
+        400,
+      );
+    }
+
+    const phoneListingCount = await countUniqueListingsWithPhone(phoneNorm);
+    const requiresFeeForNext = phoneListingCount >= FREE_LISTINGS_PER_PHONE;
+    const remainingFreeSlots = Math.max(0, FREE_LISTINGS_PER_PHONE - phoneListingCount);
 
     return c.json({
-      totalListings: userListings.length,
-      canPostFree,
-      requiresPayment,
-      message: requiresPayment 
-        ? 'Keyingi e\'lonlar uchun to\'lov kerak' 
-        : 'Birinchi e\'lon bepul'
+      phoneListingCount,
+      freeLimit: FREE_LISTINGS_PER_PHONE,
+      feeAmountUzs: LISTING_FEE_UZS,
+      requiresFeeForNext,
+      remainingFreeSlots,
+      canPostWithoutFee: !requiresFeeForNext,
+      message: requiresFeeForNext
+        ? `Keyingi har bir e‘lon uchun ${LISTING_FEE_UZS.toLocaleString("uz-UZ")} so‘m (Click).`
+        : `Bepul qolgan joylar: ${remainingFreeSlots}.`,
     });
   } catch (error: any) {
-    console.error('Check listing quota error:', error);
-    return c.json({ error: 'Tekshirishda xatolik' }, 500);
+    console.error("Check listing quota error:", error);
+    return c.json({ error: "Tekshirishda xatolik" }, 500);
+  }
+});
+
+// E‘lon uchun Click hisob-faktura (10 000 so‘m) — to‘lovdan keyin `listing_fee_credit` COMPLETE da yoziladi
+app.post("/make-server-27d0d16c/listings/fee/click-create", async (c) => {
+  try {
+    const auth = await validateAccessToken(c);
+    if (!auth.success) {
+      return c.json({ error: auth.error }, 401);
+    }
+
+    const body = await c.req.json();
+    const phoneNorm = normalizeListingPhoneForLimit(body.phone ?? body.ownerPhone);
+    if (!phoneNorm) {
+      return c.json({ error: "Telefon raqami kiriting", code: "PHONE_REQUIRED" }, 400);
+    }
+
+    const clickConfig = await kv.get("payment_method:click");
+    if (!clickConfig || !clickConfig.enabled) {
+      return c.json({ error: "Click to‘lov usuli faol emas", code: "CLICK_DISABLED" }, 400);
+    }
+
+    const cfg = (clickConfig as any).config || {};
+    const serviceId = String(cfg.serviceId ?? "").trim();
+    const merchantId = String(cfg.merchantId ?? "").trim();
+    const merchantUserId = String(cfg.merchantUserId ?? cfg.merchant_user_id ?? "").trim();
+
+    if (!serviceId || !merchantId || !merchantUserId) {
+      return c.json(
+        {
+          error:
+            "Click konfiguratsiyasi to‘liq emas. Admin: serviceId, merchantId, merchantUserId.",
+          code: "CLICK_CONFIG_INCOMPLETE",
+        },
+        400,
+      );
+    }
+
+    const transactionId = `click_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const clickIsTest =
+      coerceKvTestMode((clickConfig as { isTestMode?: unknown }).isTestMode) === true;
+
+    const transaction = {
+      id: transactionId,
+      orderId: transactionId,
+      userId: auth.userId,
+      amount: LISTING_FEE_UZS,
+      method: "click",
+      purpose: "listing_fee",
+      status: "pending",
+      listingFeePhoneNorm: phoneNorm,
+      isTestMode: clickIsTest,
+      createdAt: new Date().toISOString(),
+    };
+
+    await kv.set(`transaction:${transactionId}`, transaction);
+    await kv.set(`click_order:${transactionId}`, {
+      orderId: transactionId,
+      amount: LISTING_FEE_UZS,
+      phone: "",
+      status: "pending",
+      createdAt: new Date().toISOString(),
+      purpose: "listing_fee",
+      listingFeeUserId: auth.userId,
+      listingFeePhoneNorm: phoneNorm,
+    });
+
+    const basePay = clickIsTest
+      ? "https://test.click.uz/services/pay"
+      : "https://my.click.uz/services/pay";
+    const payUrl = new URL(basePay);
+    payUrl.searchParams.set("service_id", serviceId);
+    payUrl.searchParams.set("merchant_id", merchantId);
+    payUrl.searchParams.set("merchant_user_id", merchantUserId);
+    payUrl.searchParams.set("amount", String(LISTING_FEE_UZS));
+    payUrl.searchParams.set("transaction_param", transactionId);
+
+    return c.json({
+      success: true,
+      transaction,
+      listingFeeTransactionId: transactionId,
+      paymentUrl: payUrl.toString(),
+      feeAmountUzs: LISTING_FEE_UZS,
+    });
+  } catch (error: any) {
+    console.error("Listing fee Click create error:", error);
+    return c.json({ error: "Click hisob-fakturasini yaratishda xatolik" }, 500);
   }
 });
 
@@ -4134,20 +4291,14 @@ app.post("/make-server-27d0d16c/create-house", async (c) => {
       return c.json({ error: 'Aloqa uchun telefon raqami kiriting' }, 400);
     }
     const phoneListingCount = await countUniqueListingsWithPhone(ownerPhoneNorm);
-    if (phoneListingCount >= MAX_ACTIVE_LISTINGS_PER_PHONE) {
-      return c.json({
-        error:
-          "Bitta telefon raqami bilan faqat 2 ta e'lon joylashtirish mumkin. Ortiqchasini joylashtirish uchun avval mavjud e'lonlardan birini o'chiring yoki boshqa raqamdan foydalaning.",
-        code: 'LISTING_PHONE_LIMIT',
-      }, 400);
-    }
-
-    // Check if user can post (first free, then paid)
-    const userListings = await kv.getByPrefix(`listing:${auth.userId}:`);
-    if (userListings.length > 0) {
-      // TODO: Check payment status
-      // For now, allow posting but mark as requires payment
-      console.log('⚠️ User has existing listings, should require payment');
+    const feeGateHouse = await gateListingByPhoneAndFee(
+      auth.userId,
+      ownerPhoneNorm,
+      data.listingFeeTransactionId,
+      phoneListingCount,
+    );
+    if (!feeGateHouse.ok) {
+      return c.json({ error: feeGateHouse.error, code: feeGateHouse.code }, feeGateHouse.status);
     }
 
     const houseId = `house-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -4185,11 +4336,14 @@ app.post("/make-server-27d0d16c/create-house", async (c) => {
       ownerPhone: data.ownerPhone,
       createdAt: new Date().toISOString(),
       status: 'active',
-      isPaid: userListings.length === 0, // First listing is free
+      isPaid: phoneListingCount >= FREE_LISTINGS_PER_PHONE,
     };
 
     await kv.set(`listing:${auth.userId}:${houseId}`, house);
     await kv.set(`house:${houseId}`, house);
+    if (feeGateHouse.consumeId) {
+      await kv.del(`listing_fee_credit:${feeGateHouse.consumeId}`);
+    }
 
     return c.json({ success: true, house, message: 'Uy e\'loni joylashtirildi' });
   } catch (error: any) {
@@ -4229,18 +4383,14 @@ app.post("/make-server-27d0d16c/create-car", async (c) => {
       return c.json({ error: 'Aloqa uchun telefon raqami kiriting' }, 400);
     }
     const phoneListingCountCar = await countUniqueListingsWithPhone(ownerPhoneNormCar);
-    if (phoneListingCountCar >= MAX_ACTIVE_LISTINGS_PER_PHONE) {
-      return c.json({
-        error:
-          "Bitta telefon raqami bilan faqat 2 ta e'lon joylashtirish mumkin. Ortiqchasini joylashtirish uchun avval mavjud e'lonlardan birini o'chiring yoki boshqa raqamdan foydalaning.",
-        code: 'LISTING_PHONE_LIMIT',
-      }, 400);
-    }
-
-    // Check if user can post (first free, then paid)
-    const userListings = await kv.getByPrefix(`listing:${auth.userId}:`);
-    if (userListings.length > 0) {
-      console.log('⚠️ User has existing listings, should require payment');
+    const feeGateCar = await gateListingByPhoneAndFee(
+      auth.userId,
+      ownerPhoneNormCar,
+      data.listingFeeTransactionId,
+      phoneListingCountCar,
+    );
+    if (!feeGateCar.ok) {
+      return c.json({ error: feeGateCar.error, code: feeGateCar.code }, feeGateCar.status);
     }
 
     const carId = `car-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -4335,7 +4485,7 @@ app.post("/make-server-27d0d16c/create-car", async (c) => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: 'active',
-      isPaid: userListings.length === 0,
+      isPaid: phoneListingCountCar >= FREE_LISTINGS_PER_PHONE,
     };
 
     // Handle panorama scenes if provided
@@ -4372,6 +4522,9 @@ app.post("/make-server-27d0d16c/create-car", async (c) => {
 
     await kv.set(`listing:${auth.userId}:${carId}`, car);
     await kv.set(`car:${carId}`, car);
+    if (feeGateCar.consumeId) {
+      await kv.del(`listing_fee_credit:${feeGateCar.consumeId}`);
+    }
 
     return c.json({ success: true, car, message: 'Moshina e\'loni joylashtirildi' });
   } catch (error: any) {
@@ -4724,12 +4877,15 @@ app.post("/make-server-27d0d16c/houses", async (c) => {
     if (!housePhoneNorm) {
       return c.json({ error: 'Aloqa uchun telefon raqami kiriting' }, 400);
     }
-    if ((await countUniqueListingsWithPhone(housePhoneNorm)) >= MAX_ACTIVE_LISTINGS_PER_PHONE) {
-      return c.json({
-        error:
-          "Bitta telefon raqami bilan faqat 2 ta e'lon joylashtirish mumkin. Ortiqchasini joylashtirish uchun avval mavjud e'lonlardan birini o'chiring yoki boshqa raqamdan foydalaning.",
-        code: 'LISTING_PHONE_LIMIT',
-      }, 400);
+    const housePhoneListingCount = await countUniqueListingsWithPhone(housePhoneNorm);
+    const feeGateHousePost = await gateListingByPhoneAndFee(
+      auth.userId,
+      housePhoneNorm,
+      houseData.listingFeeTransactionId,
+      housePhoneListingCount,
+    );
+    if (!feeGateHousePost.ok) {
+      return c.json({ error: feeGateHousePost.error, code: feeGateHousePost.code }, feeGateHousePost.status);
     }
 
     const houseId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -4742,6 +4898,9 @@ app.post("/make-server-27d0d16c/houses", async (c) => {
     };
 
     await kv.set(`house:${houseId}`, house);
+    if (feeGateHousePost.consumeId) {
+      await kv.del(`listing_fee_credit:${feeGateHousePost.consumeId}`);
+    }
 
     return c.json({ success: true, house, message: 'Uy qo\'shildi' });
   } catch (error: any) {
@@ -4916,12 +5075,15 @@ app.post("/make-server-27d0d16c/cars", async (c) => {
     if (!carPhoneNorm) {
       return c.json({ error: 'Aloqa uchun telefon raqami kiriting' }, 400);
     }
-    if ((await countUniqueListingsWithPhone(carPhoneNorm)) >= MAX_ACTIVE_LISTINGS_PER_PHONE) {
-      return c.json({
-        error:
-          "Bitta telefon raqami bilan faqat 2 ta e'lon joylashtirish mumkin. Ortiqchasini joylashtirish uchun avval mavjud e'lonlardan birini o'chiring yoki boshqa raqamdan foydalaning.",
-        code: 'LISTING_PHONE_LIMIT',
-      }, 400);
+    const carPhoneListingCount = await countUniqueListingsWithPhone(carPhoneNorm);
+    const feeGateCarPost = await gateListingByPhoneAndFee(
+      auth.userId,
+      carPhoneNorm,
+      carData.listingFeeTransactionId,
+      carPhoneListingCount,
+    );
+    if (!feeGateCarPost.ok) {
+      return c.json({ error: feeGateCarPost.error, code: feeGateCarPost.code }, feeGateCarPost.status);
     }
 
     const carId = `car-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
@@ -4935,6 +5097,9 @@ app.post("/make-server-27d0d16c/cars", async (c) => {
     };
 
     await kv.set(`car:${carId}`, newCar);
+    if (feeGateCarPost.consumeId) {
+      await kv.del(`listing_fee_credit:${feeGateCarPost.consumeId}`);
+    }
 
     return c.json({ success: true, car: newCar, message: 'Avtomobil qo\'shildi' });
   } catch (error: any) {

@@ -1,4 +1,4 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { X, Upload, Plus, Trash2, Home, Car, ChevronRight } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { houseCategories } from '../data/houses';
@@ -19,6 +19,20 @@ interface AddListingModalProps {
 }
 
 type ListingType = 'house' | 'car' | null;
+
+const LISTING_FEE_UZS = 10_000;
+
+function normalizeListingPhoneClient(value: string): string {
+  const d = String(value || '').replace(/\D/g, '');
+  if (!d) return '';
+  if (d.length === 9 && d.startsWith('9')) return `998${d}`;
+  if (d.startsWith('998')) return d;
+  return d;
+}
+
+function listingFeeSessionKey(uid: string, phone: string) {
+  return `ares_listing_fee_tx_${uid}_${normalizeListingPhoneClient(phone)}`;
+}
 
 export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, accessToken, onSuccess, defaultType }: AddListingModalProps) {
   const { theme, accentColor } = useTheme();
@@ -85,6 +99,144 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
 
+  const [listingQuota, setListingQuota] = useState<{
+    phoneListingCount: number;
+    requiresFeeForNext: boolean;
+    feeAmountUzs: number;
+    freeLimit: number;
+    remainingFreeSlots: number;
+  } | null>(null);
+  const [quotaLoading, setQuotaLoading] = useState(false);
+  const [listingFeeTransactionId, setListingFeeTransactionId] = useState<string | null>(null);
+  const [feePaymentBusy, setFeePaymentBusy] = useState(false);
+  const [feePolling, setFeePolling] = useState(false);
+
+  const apiBase = useMemo(
+    () => `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`,
+    [],
+  );
+
+  useEffect(() => {
+    if (!isOpen || step !== 'form' || !accessToken?.trim() || !userPhone?.trim()) {
+      return;
+    }
+
+    let cancelled = false;
+    const run = async () => {
+      setQuotaLoading(true);
+      try {
+        const q = encodeURIComponent(userPhone.trim());
+        const res = await fetch(`${apiBase}/check-listing-quota?phone=${q}`, {
+          headers: {
+            Authorization: `Bearer ${publicAnonKey}`,
+            'X-Access-Token': accessToken,
+          },
+        });
+        const data = await res.json().catch(() => ({}));
+        if (cancelled || !res.ok) {
+          if (!cancelled && !res.ok) setListingQuota(null);
+          return;
+        }
+        setListingQuota({
+          phoneListingCount: Number(data.phoneListingCount) || 0,
+          requiresFeeForNext: !!data.requiresFeeForNext,
+          feeAmountUzs: Number(data.feeAmountUzs) || LISTING_FEE_UZS,
+          freeLimit: Number(data.freeLimit) || 2,
+          remainingFreeSlots: Number(data.remainingFreeSlots) ?? 0,
+        });
+
+        const stored = sessionStorage.getItem(listingFeeSessionKey(userId, userPhone));
+        if (stored && data.requiresFeeForNext) {
+          const tr = await fetch(`${apiBase}/payments/transaction/${encodeURIComponent(stored)}`, {
+            headers: {
+              Authorization: `Bearer ${publicAnonKey}`,
+              'X-Access-Token': accessToken,
+            },
+          });
+          const tx = await tr.json().catch(() => ({}));
+          if (
+            !cancelled &&
+            tr.ok &&
+            tx?.transaction?.status === 'paid' &&
+            tx?.transaction?.purpose === 'listing_fee'
+          ) {
+            setListingFeeTransactionId(stored);
+          }
+        }
+      } finally {
+        if (!cancelled) setQuotaLoading(false);
+      }
+    };
+    void run();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, step, accessToken, userPhone, userId, apiBase]);
+
+  useEffect(() => {
+    if (!isOpen) {
+      setListingQuota(null);
+      setListingFeeTransactionId(null);
+      setFeePolling(false);
+      setFeePaymentBusy(false);
+      setQuotaLoading(false);
+    }
+  }, [isOpen]);
+
+  const startListingFeeClick = async () => {
+    if (!accessToken?.trim() || !userPhone?.trim()) {
+      setError('Telefon yoki sessiya yo‘q. Qayta kiring.');
+      return;
+    }
+    setFeePaymentBusy(true);
+    setError('');
+    try {
+      const res = await fetch(`${apiBase}/listings/fee/click-create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${publicAnonKey}`,
+          'X-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ phone: userPhone.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Click hisob-faktura yaratilmadi');
+      const txId = data.listingFeeTransactionId || data.transaction?.id;
+      if (!txId || !data.paymentUrl) throw new Error('Server javobi noto‘g‘ri');
+      sessionStorage.setItem(listingFeeSessionKey(userId, userPhone), txId);
+      setListingFeeTransactionId(null);
+      window.open(data.paymentUrl, '_blank', 'noopener,noreferrer');
+      setFeePaymentBusy(false);
+      setFeePolling(true);
+      const started = Date.now();
+      const pollLoop = async () => {
+        while (Date.now() - started < 5 * 60_000) {
+          await new Promise((r) => setTimeout(r, 2500));
+          const tr = await fetch(`${apiBase}/payments/transaction/${encodeURIComponent(txId)}`, {
+            headers: {
+              Authorization: `Bearer ${publicAnonKey}`,
+              'X-Access-Token': accessToken,
+            },
+          });
+          const tj = await tr.json().catch(() => ({}));
+          if (tr.ok && tj?.transaction?.status === 'paid') {
+            setListingFeeTransactionId(txId);
+            setFeePolling(false);
+            return;
+          }
+        }
+        setFeePolling(false);
+        setError('To‘lov kutilmoqda yoki vaqt tugadi. «Tekshirish» uchun qayta to‘lov tugmasini bosing.');
+      };
+      void pollLoop();
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Click ochilmadi');
+      setFeePaymentBusy(false);
+      setFeePolling(false);
+    }
+  };
+
   const overallUploadPct = useMemo(() => {
     if (!uploadProgress.length) return null;
     const avg = uploadProgress.reduce((s, p) => s + p, 0) / uploadProgress.length;
@@ -120,7 +272,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
           formData.append('accessToken', accessToken);
 
           const { data, status } = await uploadFormDataWithProgress<{ url?: string; error?: string; message?: string }>({
-            url: `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/upload-image`,
+            url: `${apiBase}/upload-image`,
             formData,
             headers: {
               Authorization: `Bearer ${publicAnonKey}`,
@@ -177,6 +329,13 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
 
     if (isUploadingImages) {
       setError('Rasmlar yuklanmoqda, iltimos kuting…');
+      return;
+    }
+
+    if (listingQuota?.requiresFeeForNext && !listingFeeTransactionId?.trim()) {
+      setError(
+        `Bu telefon bo‘yicha ${listingQuota.freeLimit} tadan ortiq e‘lon uchun avval ${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m to‘lang (Click).`,
+      );
       return;
     }
 
@@ -287,6 +446,9 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
           mortgageAvailable,
           paymentType,
         }),
+        ...(listingQuota?.requiresFeeForNext && listingFeeTransactionId
+          ? { listingFeeTransactionId }
+          : {}),
       };
 
       console.log('📤 Sending to server:', {
@@ -297,7 +459,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
       });
 
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c${endpoint}`,
+        `${apiBase}${endpoint}`,
         {
           method: 'POST',
           headers: {
@@ -316,6 +478,11 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
       }
 
       console.log('✅ Listing created successfully');
+      try {
+        sessionStorage.removeItem(listingFeeSessionKey(userId, userPhone));
+      } catch {
+        /* ignore */
+      }
       onSuccess();
       resetForm();
       onClose();
@@ -347,7 +514,6 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
     setPrice('');
     setCurrency('UZS');
     setCategoryId('');
-    setImages([]);
     setImagePreviews([]);
     setRegion('');
     setDistrict('');
@@ -541,6 +707,61 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
               >
                 ← Orqaga
               </button>
+
+              {(quotaLoading || listingQuota) && (
+                <div
+                  className="p-4 rounded-2xl text-sm space-y-2 -mt-2"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
+                    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+                  }}
+                >
+                  {quotaLoading && !listingQuota ? (
+                    <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.65)' }}>
+                      Telefon bo&apos;yicha limit tekshirilmoqda…
+                    </p>
+                  ) : listingQuota ? (
+                    listingQuota.requiresFeeForNext ? (
+                      <>
+                        <p className="font-semibold" style={{ color: isDark ? '#ffffff' : '#111827' }}>
+                          Bu telefon bo&apos;yicha {listingQuota.freeLimit} ta bepul e&apos;lon tugagan.
+                        </p>
+                        <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.7)' }}>
+                          Keyingi har bir e&apos;lon:{' '}
+                          <strong>
+                            {(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so&apos;m
+                          </strong>{' '}
+                          (Click).
+                        </p>
+                        {listingFeeTransactionId ? (
+                          <p className="font-medium" style={{ color: '#10b981' }}>
+                            To&apos;lov qabul qilindi. Endi e&apos;lonni joylashtirishingiz mumkin.
+                          </p>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={startListingFeeClick}
+                            disabled={feePaymentBusy || feePolling}
+                            className="w-full mt-2 py-3 rounded-xl font-semibold text-white disabled:opacity-50"
+                            style={{ backgroundImage: accentColor.gradient }}
+                          >
+                            {feePaymentBusy
+                              ? 'Tayyorlanmoqda…'
+                              : feePolling
+                                ? 'To&apos;lov kutilmoqda…'
+                                : `${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so&apos;m — Click orqali to&apos;lash`}
+                          </button>
+                        )}
+                      </>
+                    ) : (
+                      <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.7)' }}>
+                        Bepul qolgan joylar: <strong>{listingQuota.remainingFreeSlots}</strong> (shu telefon bo&apos;yicha
+                        jami {listingQuota.freeLimit} ta).
+                      </p>
+                    )
+                  ) : null}
+                </div>
+              )}
 
               {/* Category */}
               <div>

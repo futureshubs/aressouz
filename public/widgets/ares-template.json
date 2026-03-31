@@ -1,0 +1,26 @@
+{
+  "type": "AdaptiveCard",
+  "version": "1.5",
+  "body": [
+    {
+      "type": "TextBlock",
+      "text": "ARESSO",
+      "size": "Large",
+      "weight": "Bolder"
+    },
+    {
+      "type": "TextBlock",
+      "text": "${message}",
+      "wrap": true,
+      "spacing": "Medium"
+    }
+  ],
+  "actions": [
+    {
+      "type": "Action.OpenUrl",
+      "title": "Market",
+      "url": "${marketUrl}"
+    }
+  ],
+  "$schema": "http://adaptivecards.io/schemas/adaptive-card.json"
+}

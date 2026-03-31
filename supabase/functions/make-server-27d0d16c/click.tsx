@@ -437,14 +437,40 @@ click.post('/complete', async (c) => {
 
     // Mark as paid
     const merchantConfirmId = newMerchantSideId();
+    const paidAtIso = new Date().toISOString();
     await kv.set(storageKeyC, {
       ...order,
       status: 'paid',
       clickTransId: params.click_trans_id,
       merchantConfirmId,
-      paidAt: new Date().toISOString(),
+      paidAt: paidAtIso,
       error: params.error || 0,
     });
+
+    const txRecord = await kv.get(`transaction:${orderId}`);
+    if (txRecord && typeof txRecord === 'object') {
+      await kv.set(`transaction:${orderId}`, {
+        ...(txRecord as Record<string, unknown>),
+        status: 'paid',
+        paidAt: paidAtIso,
+      });
+    }
+
+    const purpose = String((order as { purpose?: string }).purpose || '');
+    if (purpose === 'listing_fee') {
+      const uId = (order as { listingFeeUserId?: string }).listingFeeUserId;
+      const pNorm = (order as { listingFeePhoneNorm?: string }).listingFeePhoneNorm;
+      const amt = parseFloat(String(order.amount));
+      if (uId && pNorm) {
+        await kv.set(`listing_fee_credit:${orderId}`, {
+          userId: String(uId),
+          phoneNorm: String(pNorm),
+          amount: Number.isFinite(amt) ? amt : 0,
+          paidAt: paidAtIso,
+        });
+        console.log('✅ Listing fee credit granted:', orderId);
+      }
+    }
 
     // Update main order status
     const mainOrder = await kv.get(`order:${orderId}`);
@@ -453,7 +479,7 @@ click.post('/complete', async (c) => {
         ...mainOrder,
         paymentStatus: 'paid',
         clickTransId: params.click_trans_id,
-        paidAt: new Date().toISOString(),
+        paidAt: paidAtIso,
       });
     }
 

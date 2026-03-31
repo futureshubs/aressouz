@@ -1,5 +1,5 @@
 /* ARESSO PWA — precache shell + runtime cache + offline */
-const VERSION = 'aressouz-sw-5';
+const VERSION = 'aressouz-sw-6';
 const PRECACHE = `precache-${VERSION}`;
 const RUNTIME = `runtime-${VERSION}`;
 
@@ -11,6 +11,8 @@ const PRECACHE_URLS = [
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/widgets/ares-template.json',
+  '/widgets/ares-data.json',
 ];
 
 function sameOrigin(url) {
@@ -48,6 +50,22 @@ self.addEventListener('activate', (event) => {
         }),
       );
       await self.clients.claim();
+      try {
+        const api = widgetsApi();
+        if (api?.getByTag && api?.updateByTag) {
+          const w = await api.getByTag('aressouz-quick');
+          const def = w?.definition;
+          if (def) {
+            const tKey = def.msAcTemplate ?? def.ms_ac_template;
+            const dKey = def.data;
+            if (tKey && dKey) {
+              const template = await (await fetch(tKey)).text();
+              const data = await (await fetch(dKey)).text();
+              await api.updateByTag('aressouz-quick', { template, data });
+            }
+          }
+        }
+      } catch (_) {}
     })(),
   );
 });
@@ -138,5 +156,111 @@ self.addEventListener('fetch', (event) => {
 
   event.respondWith(
     fetch(request).catch(() => caches.match(request)),
+  );
+});
+
+// ---------- PWABuilder / ilg‘or PWA: fon sinxroni, push, vidjetlar (Edge) ----------
+function widgetsApi() {
+  return self.widgets;
+}
+
+self.addEventListener('sync', (event) => {
+  if (event.tag === 'ares-background-sync') {
+    event.waitUntil(Promise.resolve());
+  }
+});
+
+self.addEventListener('periodicsync', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const api = widgetsApi();
+        if (!api?.getByTag || !api?.updateByTag) return;
+        const widget = await api.getByTag(event.tag);
+        const def = widget?.definition;
+        if (!def) return;
+        const tKey = def.msAcTemplate ?? def.ms_ac_template;
+        const dKey = def.data;
+        if (!tKey || !dKey) return;
+        const template = await (await fetch(tKey)).text();
+        const data = await (await fetch(dKey)).text();
+        await api.updateByTag(event.tag, { template, data });
+      } catch (_) {
+        /* brauzer ruxsati yoki API yo‘q */
+      }
+    })(),
+  );
+});
+
+self.addEventListener('widgetinstall', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const api = widgetsApi();
+        if (!api?.updateByTag) return;
+        const widget = event.widget;
+        const def = widget?.definition;
+        if (!def) return;
+        const tag = def.tag;
+        if (self.registration.periodicSync?.register && tag && def.update) {
+          const tags = await self.registration.periodicSync.getTags();
+          if (!tags.includes(tag)) {
+            await self.registration.periodicSync.register(tag, {
+              minInterval: def.update,
+            });
+          }
+        }
+        const tKey = def.msAcTemplate ?? def.ms_ac_template;
+        const dKey = def.data;
+        if (!tKey || !dKey) return;
+        const template = await (await fetch(tKey)).text();
+        const data = await (await fetch(dKey)).text();
+        await api.updateByTag(tag, { template, data });
+      } catch (_) {}
+    })(),
+  );
+});
+
+self.addEventListener('widgetuninstall', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const widget = event.widget;
+        const tag = widget?.definition?.tag;
+        if (!tag || !self.registration.periodicSync?.unregister) return;
+        await self.registration.periodicSync.unregister(tag);
+      } catch (_) {}
+    })(),
+  );
+});
+
+self.addEventListener('widgetclick', () => {});
+
+self.addEventListener('push', (event) => {
+  event.waitUntil(
+    (async () => {
+      try {
+        const body = event.data ? event.data.text() : '';
+        await self.registration.showNotification('ARESSO', {
+          body: (body || 'Yangilanish').slice(0, 200),
+          icon: '/icons/icon-192.png',
+          badge: '/icons/icon-192.png',
+        });
+      } catch (_) {}
+    })(),
+  );
+});
+
+self.addEventListener('notificationclick', (event) => {
+  event.notification.close();
+  event.waitUntil(
+    (async () => {
+      const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
+      if (all.length) {
+        all[0].focus();
+        return;
+      }
+      await self.clients.openWindow('/');
+    })(),
   );
 });

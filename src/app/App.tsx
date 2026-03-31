@@ -92,6 +92,25 @@ export default function App() {
     return installVisibilityRefetchBroadcast(12_000);
   }, []);
 
+  useEffect(() => {
+    const w = window as Window & {
+      launchQueue?: { setConsumer: (cb: (params: { targetURL?: string }) => void) => void };
+    };
+    if (!w.launchQueue?.setConsumer) return;
+    w.launchQueue.setConsumer((launchParams) => {
+      try {
+        const url = launchParams?.targetURL;
+        if (!url) return;
+        const u = new URL(url);
+        if (u.origin === window.location.origin) {
+          window.location.href = url;
+        }
+      } catch {
+        /* protocol / launch URL parse */
+      }
+    });
+  }, []);
+
   // Auth + Theme must wrap RouterProvider so barcha marshrutlar bitta React context bilan ishlaydi
   // (aks holda ayrim chunk/HMR holatlarida useTheme / useAuth "provider yo‘q" deb qulashi mumkin).
   return (

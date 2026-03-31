@@ -10,6 +10,8 @@ const SharePlacePage = lazy(() => import('./pages/SharePlacePage').then((m) => (
 const OrderReviewSharePage = lazy(() =>
   import('./pages/OrderReviewSharePage').then((m) => ({ default: m.OrderReviewSharePage })),
 );
+const ShareTargetPage = lazy(() => import('./pages/ShareTargetPage'));
+const OpenFilePage = lazy(() => import('./pages/OpenFilePage'));
 const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
 const BranchLogin = lazy(() => import('./pages/BranchLogin'));
@@ -136,6 +138,14 @@ export const router = createBrowserRouter([
   {
     path: '/order-review/:token',
     element: <ErrorBoundary>{withSuspense(<OrderReviewSharePage />)}</ErrorBoundary>,
+  },
+  {
+    path: '/share-target',
+    element: <AppRoute>{withSuspense(<ShareTargetPage />)}</AppRoute>,
+  },
+  {
+    path: '/open-file',
+    element: <AppRoute>{withSuspense(<OpenFilePage />)}</AppRoute>,
   },
   {
     path: '/admin',
