@@ -1,0 +1,47 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Cache To'liq Tozalash</title>
+</head>
+<body>
+    <h1>Browser Cache To'liq Tozalash</h1>
+    
+    <h2>Chrome uchun:</h2>
+    <ol>
+        <li>F12 bosing</li>
+        <li>Network tabiga o'ting</li>
+        <li>"Disable cache" ✅ qiling</li>
+        <li>Right click → "Clear browser cache"</li>
+        <li>Ctrl + Shift + R bosing</li>
+    </ol>
+    
+    <h2>Firefox uchun:</h2>
+    <ol>
+        <li>F12 bosing</li>
+        <li>Network tabiga o'ting</li>
+        <li>"Disable cache" ✅ qiling</li>
+        <li>Right click → "Clear browser cache"</li>
+        <li>Ctrl + Shift + R bosing</li>
+    </ol>
+    
+    <h2>Qo'shimcha usul:</h2>
+    <ol>
+        <li>Browser ni to'liq yoping</li>
+        <li>Qayta oching</li>
+        <li>Incognito/Private rejimda oching</li>
+    </ol>
+    
+    <script>
+        // Force cache refresh
+        console.log('Cache refresh:', new Date().getTime());
+        if ('caches' in window) {
+            caches.keys().then(function(names) {
+                names.forEach(function(name) {
+                    caches.delete(name);
+                });
+                console.log('All caches cleared');
+            });
+        }
+    </script>
+</body>
+</html>

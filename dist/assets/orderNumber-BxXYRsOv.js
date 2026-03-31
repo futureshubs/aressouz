@@ -1,0 +1,1 @@
+const c=(n,s)=>{const t=String(n||s||"").trim();if(!t)return"#—";const e=t.match(/\d{4,}/g)||[];if(e.length>0){const r=e[e.length-1];return`#${r.length>6?r.slice(-6):r}`}return`#${(t.split(":").filter(Boolean).pop()||t).replace(/^#/,"")}`};export{c as f};

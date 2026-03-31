@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Ijara Debug</title>
+    <style>
+        body { font-family: Arial, sans-serif; padding: 20px; }
+        .test { margin: 10px 0; padding: 10px; border: 1px solid #ccc; }
+        .success { background: #d4edda; }
+        .error { background: #f8d7da; }
+        pre { background: #f8f9fa; padding: 10px; overflow-x: auto; font-size: 12px; }
+        button { padding: 10px 20px; margin: 5px; }
+    </style>
+</head>
+<body>
+    <h1>🔍 Ijara Tizimini Debug Qilish</h1>
+    
+    <div class="test">
+        <h3>1. Health Check</h3>
+        <button onclick="testHealth()">Test Health</button>
+        <pre id="health-result"></pre>
+    </div>
+    
+    <div class="test">
+        <h3>2. Profile Rental Orders</h3>
+        <input type="text" id="phone" value="+998901234567" placeholder="Telefon raqam">
+        <button onclick="testProfileRentals()">Test Profile</button>
+        <pre id="profile-result"></pre>
+    </div>
+    
+    <div class="test">
+        <h3>3. Branch Rental Orders</h3>
+        <input type="text" id="branchId" value="test-branch-id" placeholder="Branch ID">
+        <button onclick="testBranchRentals()">Test Branch</button>
+        <pre id="branch-result"></pre>
+    </div>
+    
+    <div class="test">
+        <h3>4. Create Rental Order</h3>
+        <button onclick="testCreateRental()">Test Create Order</button>
+        <pre id="create-result"></pre>
+    </div>
+    
+    <div class="test">
+        <h3>5. Rental Products</h3>
+        <button onclick="testRentalProducts()">Test Products</button>
+        <pre id="products-result"></pre>
+    </div>
+
+    <script>
+        const API_BASE = 'https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c';
+        const ANON_KEY = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indub25kbXFtdXZqdWdib215b3p6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3MjQxMDYxMTEsImV4cCI6MjAzOTY4MjExMX0.q_J3w2L6XnS6RgZlqUPu1nJz9P6x2g9lFqWkG8Z0D4o';
+        
+        function logResult(elementId, data, isError = false) {
+            const element = document.getElementById(elementId);
+            element.textContent = JSON.stringify(data, null, 2);
+            element.parentElement.className = isError ? 'test error' : 'test success';
+            console.log(`${elementId}:`, data);
+        }
+        
+        async function testHealth() {
+            try {
+                const response = await fetch(`${API_BASE}/health`);
+                const data = await response.json();
+                logResult('health-result', data, !response.ok);
+            } catch (error) {
+                logResult('health-result', { error: error.message }, true);
+            }
+        }
+        
+        async function testProfileRentals() {
+            try {
+                const phone = document.getElementById('phone').value;
+                const response = await fetch(`${API_BASE}/rentals/my-rentals?phone=${encodeURIComponent(phone)}`, {
+                    headers: {
+                        'Authorization': `Bearer ${ANON_KEY}`,
+                        'apikey': ANON_KEY
+                    }
+                });
+                const data = await response.json();
+                logResult('profile-result', data, !response.ok);
+            } catch (error) {
+                logResult('profile-result', { error: error.message }, true);
+            }
+        }
+        
+        async function testBranchRentals() {
+            try {
+                const branchId = document.getElementById('branchId').value;
+                const response = await fetch(`${API_BASE}/rentals/orders/${branchId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${ANON_KEY}`,
+                        'apikey': ANON_KEY
+                    }
+                });
+                const data = await response.json();
+                logResult('branch-result', data, !response.ok);
+            } catch (error) {
+                logResult('branch-result', { error: error.message }, true);
+            }
+        }
+        
+        async function testCreateRental() {
+            try {
+                const orderData = {
+                    branchId: 'test-branch-id',
+                    productId: 'rental_1',
+                    productName: 'Nexia 3 mashinasi',
+                    customerName: 'Test User',
+                    customerPhone: '+998901234567',
+                    customerEmail: 'test@example.com',
+                    passportSeriesNumber: 'AA1234567',
+                    address: 'Toshkent, Chilonzor',
+                    notes: 'Test order',
+                    rentalPeriod: 'daily',
+                    rentalDuration: 3,
+                    pricePerPeriod: 50000,
+                    totalPrice: 150000,
+                    contractStartDate: new Date().toISOString(),
+                    deliveryZoneSummary: 'Test Zone'
+                };
+                
+                const response = await fetch(`${API_BASE}/rentals/orders`, {
+                    method: 'POST',
+                    headers: {
+                        'Authorization': `Bearer ${ANON_KEY}`,
+                        'apikey': ANON_KEY,
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(orderData)
+                });
+                const data = await response.json();
+                logResult('create-result', data, !response.ok);
+            } catch (error) {
+                logResult('create-result', { error: error.message }, true);
+            }
+        }
+        
+        async function testRentalProducts() {
+            try {
+                const branchId = document.getElementById('branchId').value;
+                const response = await fetch(`${API_BASE}/rentals/products/${branchId}`, {
+                    headers: {
+                        'Authorization': `Bearer ${ANON_KEY}`,
+                        'apikey': ANON_KEY
+                    }
+                });
+                const data = await response.json();
+                logResult('products-result', data, !response.ok);
+            } catch (error) {
+                logResult('products-result', { error: error.message }, true);
+            }
+        }
+        
+        // Auto test on load
+        window.onload = function() {
+            console.log('🔍 Starting rental system debug...');
+            setTimeout(testHealth, 500);
+            setTimeout(testProfileRentals, 1000);
+            setTimeout(testBranchRentals, 1500);
+            setTimeout(testCreateRental, 2000);
+            setTimeout(testRentalProducts, 2500);
+        };
+    </script>
+</body>
+</html>
