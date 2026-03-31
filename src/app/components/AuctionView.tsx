@@ -27,6 +27,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { ProductGridSkeleton } from './skeletons';
 import { Header } from './Header';
 import { BottomNav } from './BottomNav';
 import { AuctionDetailModal } from './AuctionDetailModal';
@@ -435,44 +436,11 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
           {viewMode === 'auction' && (
             <>
               {loading ? (
-                <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                  {[1, 2, 3, 4, 5, 6].map((i) => (
-                    <div
-                      key={i}
-                      className="rounded-2xl border overflow-hidden animate-pulse"
-                      style={{
-                        background: isDark
-                          ? 'linear-gradient(145deg, rgba(30, 30, 30, 1), rgba(20, 20, 20, 1))'
-                          : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-                        borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.1)',
-                        boxShadow: isDark 
-                          ? '0 4px 20px rgba(0, 0, 0, 0.4)' 
-                          : '0 4px 20px rgba(0, 0, 0, 0.1)',
-                      }}
-                    >
-                      <div
-                        className="w-full aspect-square"
-                        style={{
-                          background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-                        }}
-                      />
-                      <div className="p-3 space-y-2">
-                        <div
-                          className="h-5 rounded-lg"
-                          style={{
-                            background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                          }}
-                        />
-                        <div
-                          className="h-4 rounded-lg w-2/3"
-                          style={{
-                            background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                          }}
-                        />
-                      </div>
-                    </div>
-                  ))}
-                </div>
+                <ProductGridSkeleton
+                  isDark={isDark}
+                  count={6}
+                  gridClassName="grid grid-cols-2 gap-3 sm:gap-4"
+                />
               ) : auctions.length === 0 ? (
                 <div
                   className="text-center py-20 rounded-3xl border"

@@ -7,6 +7,7 @@ import { useTheme } from '../context/ThemeContext';
 import { regions } from '../data/regions';
 import { API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { ChatMessagesSkeleton, CommunityRoomSkeleton } from './skeletons';
 
 interface CommunityRoom {
   id: string;
@@ -716,11 +717,7 @@ export function CommunityView({ onBack }: CommunityViewProps) {
       </button>
     );
   } else if (loadingRoom) {
-    mainContent = (
-      <div className="flex min-h-0 flex-1 items-center justify-center">
-        <Loader2 className="h-7 w-7 animate-spin" style={{ color: accentColor.color }} />
-      </div>
-    );
+    mainContent = <CommunityRoomSkeleton isDark={isDark} />;
   } else if (room && !joined) {
     mainContent = (
       <div className="flex min-h-0 flex-1 items-center justify-center px-4">
@@ -784,8 +781,8 @@ export function CommunityView({ onBack }: CommunityViewProps) {
             }}
           >
             {loadingMessages ? (
-              <div className="flex min-h-[300px] items-center justify-center">
-                <Loader2 className="h-7 w-7 animate-spin" style={{ color: accentColor.color }} />
+              <div className="min-h-[300px] flex flex-col">
+                <ChatMessagesSkeleton isDark={isDark} />
               </div>
             ) : messages.length === 0 ? (
               <div className="flex min-h-[300px] flex-col items-center justify-center text-center">

@@ -15,6 +15,7 @@ import { toast } from 'sonner';
 import { API_BASE_URL, publicAnonKey } from '../../../../utils/supabase/info';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 import { coerceUiPaymentTestMode } from '../../utils/paymentTestMode';
+import { SkeletonBox } from '../skeletons';
 
 interface PaymentMethod {
   type: string;
@@ -208,8 +209,12 @@ export default function PaymentMethodSelector({
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center py-12">
-        <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} />
+      <div className="space-y-3 py-4" role="status" aria-label="To‘lov usullari yuklanmoqda">
+        <SkeletonBox isDark={isDark} className="h-14 w-full rounded-2xl" />
+        {[1, 2, 3, 4].map((i) => (
+          <SkeletonBox key={i} isDark={isDark} className="h-[72px] w-full rounded-2xl" />
+        ))}
+        <span className="sr-only">Yuklanmoqda</span>
       </div>
     );
   }

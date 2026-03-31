@@ -1,6 +1,7 @@
 import { createBrowserRouter } from 'react-router';
 import { Component, ErrorInfo, ReactNode, Suspense, lazy } from 'react';
 import AppContent from './AppContent';
+import { RouteChunkSkeleton } from './components/skeletons';
 import { LocationProvider } from './context/LocationContext';
 import { FavoritesProvider } from './context/FavoritesContext';
 import { RentalCartProvider } from './context/RentalCartContext';
@@ -30,40 +31,9 @@ const OrdersPage = lazy(() => import('./pages/Orders'));
 const OrderDetailsPage = lazy(() => import('./pages/OrderDetails'));
 const NotFoundPage = lazy(() => import('./pages/NotFound'));
 
-function RouteLoader() {
-  return (
-    <div
-      style={{
-        minHeight: '100vh',
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
-        background: '#000',
-        color: '#fff',
-        fontFamily: 'system-ui, -apple-system, sans-serif',
-        padding: 20,
-      }}
-    >
-      <div style={{ textAlign: 'center' }}>
-        <div
-          style={{
-            width: 44,
-            height: 44,
-            borderRadius: 999,
-            border: '3px solid rgba(255,255,255,0.15)',
-            borderTopColor: 'rgba(20,184,166,0.95)',
-            margin: '0 auto 12px',
-            animation: 'spin 0.9s linear infinite',
-          }}
-        />
-        <div style={{ opacity: 0.7, fontSize: 14 }}>Yuklanmoqda…</div>
-        <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
-      </div>
-    </div>
-  );
-}
-
-const withSuspense = (node: ReactNode) => <Suspense fallback={<RouteLoader />}>{node}</Suspense>;
+const withSuspense = (node: ReactNode) => (
+  <Suspense fallback={<RouteChunkSkeleton />}>{node}</Suspense>
+);
 
 // Error Boundary Component (exported so App.tsx can wrap RouterProvider)
 export class ErrorBoundary extends Component<

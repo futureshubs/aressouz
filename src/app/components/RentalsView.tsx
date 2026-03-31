@@ -12,6 +12,7 @@ import { toast } from 'sonner';
 import { regions as allRegions } from '../data/regions';
 import { BannerCarousel } from './BannerCarousel';
 import { matchesSelectedLocation } from '../utils/locationMatching';
+import { ProductGridSkeleton } from './skeletons';
 
 interface RentalsViewProps {
   platform: Platform;
@@ -278,20 +279,12 @@ export function RentalsView({ platform }: RentalsViewProps) {
           
           {/* Loading state */}
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <div 
-                  className="w-12 h-12 border-4 rounded-full animate-spin mx-auto mb-4"
-                  style={{ 
-                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                    borderTopColor: accentColor.color 
-                  }}
-                />
-                <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-                  Yuklanmoqda...
-                </p>
-              </div>
-            </div>
+            <ProductGridSkeleton
+              isDark={isDark}
+              count={12}
+              gridClassName="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 md:gap-4"
+              imageClassName="aspect-[4/3]"
+            />
           ) : filteredBackendProducts.length > 0 ? (
             /* Backend products */
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 md:gap-4">
@@ -658,20 +651,12 @@ export function RentalsView({ platform }: RentalsViewProps) {
           </h2>
           
           {loading ? (
-            <div className="flex items-center justify-center py-12">
-              <div className="text-center">
-                <div 
-                  className="w-12 h-12 border-4 rounded-full animate-spin mx-auto mb-4"
-                  style={{ 
-                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                    borderTopColor: accentColor.color 
-                  }}
-                />
-                <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-                  Yuklanmoqda...
-                </p>
-              </div>
-            </div>
+            <ProductGridSkeleton
+              isDark={isDark}
+              count={12}
+              gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4"
+              imageClassName="aspect-square"
+            />
           ) : finalCatalogProducts.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4">
               {finalCatalogProducts.map((product) => (

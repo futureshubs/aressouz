@@ -2,6 +2,7 @@ import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { ChevronLeft, ChevronRight, Tag, ExternalLink } from 'lucide-react';
 import { useBanners, Banner } from '../hooks/useBanners';
+import { BannerSkeleton } from './skeletons';
 
 interface BannerCarouselProps {
   category?: Banner['category'];
@@ -62,7 +63,7 @@ export function BannerCarousel({
   };
 
   if (isLoading) {
-    return null; // Don't show loading state for banners
+    return <BannerSkeleton isDark={isDark} />;
   }
 
   if (error || !banners || banners.length === 0) {

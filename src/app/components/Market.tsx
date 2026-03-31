@@ -7,6 +7,7 @@ import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { regions } from '../data/regions';
 import { ProductCard } from './ProductCard';
+import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 
 interface Product {
   id: number;
@@ -62,6 +63,7 @@ export default function Market() {
   const [branches, setBranches] = useState<Branch[]>([]);
   const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [branchProducts, setBranchProducts] = useState<Product[]>([]);
   const [activeTab, setActiveTab] = useState<'products' | 'branches'>('products');
@@ -113,6 +115,7 @@ export default function Market() {
   const loadProducts = async () => {
     if (!selectedRegion || !selectedDistrict || branches.length === 0) {
       setProducts([]);
+      setIsLoadingProducts(false);
       return;
     }
 
@@ -122,10 +125,12 @@ export default function Market() {
 
     if (localBranches.length === 0) {
       setProducts([]);
+      setIsLoadingProducts(false);
       return;
     }
 
     try {
+      setIsLoadingProducts(true);
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch-products?includeSold=false`,
         {
@@ -194,6 +199,8 @@ export default function Market() {
       }
     } catch (error) {
       console.error('Error loading products:', error);
+    } finally {
+      setIsLoadingProducts(false);
     }
   };
 
@@ -343,12 +350,12 @@ export default function Market() {
               </span>
             </div>
 
-            {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" 
-                  style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
-                />
-              </div>
+            {isLoading || isLoadingProducts ? (
+              <ProductGridSkeleton
+                isDark={isDark}
+                count={10}
+                gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4"
+              />
             ) : products.length === 0 ? (
               <div 
                 className="p-12 rounded-3xl text-center"
@@ -394,11 +401,7 @@ export default function Market() {
             </div>
 
             {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" 
-                  style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
-                />
-              </div>
+              <ShopListSkeleton isDark={isDark} rows={6} />
             ) : filteredBranches.length === 0 ? (
               <div 
                 className="p-12 rounded-3xl text-center"

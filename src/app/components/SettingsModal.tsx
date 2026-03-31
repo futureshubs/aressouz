@@ -1,5 +1,5 @@
-import { X, User, Globe, Bell, Shield, HelpCircle, LogOut, ChevronRight, Moon, Sun, Volume2, VolumeX, Palette, Info, FileText, MessageCircle, Star, Share2, Copy, ExternalLink } from 'lucide-react';
-import { useState } from 'react';
+import { X, Globe, Bell, Shield, HelpCircle, LogOut, ChevronRight, Moon, Sun, Volume2, VolumeX, Palette, Info, FileText, MessageCircle, Star, Share2, Copy, ExternalLink } from 'lucide-react';
+import { useState, type ReactNode } from 'react';
 import { Platform } from '../utils/platform';
 import { useTheme, accentColors } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -12,12 +12,171 @@ interface SettingsModalProps {
   platform: Platform;
 }
 
+const PRIVACY_SUPPORT_EMAIL = 'support@aressouz.app';
+
+function LegalPolicyRichContent({
+  isDark,
+  accentHex,
+}: {
+  isDark: boolean;
+  accentHex: string;
+}) {
+  const muted = isDark ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.72)';
+  const heading = isDark ? '#fff' : '#111827';
+  const sub = isDark ? 'rgba(255,255,255,0.88)' : '#1f2937';
+  const li = 'list-disc pl-5 space-y-1.5 mt-2';
+  const sectionTitle = 'text-[15px] font-bold mt-5 mb-2';
+  const block = 'text-[13px] leading-relaxed';
+
+  return (
+    <div className={`space-y-1 ${block}`} style={{ color: muted }}>
+      <section>
+        <h3 className="text-base font-bold mb-2" style={{ color: heading }}>
+          🔐 Maxfiylik siyosati (Privacy Policy)
+        </h3>
+        <p>Biz foydalanuvchilarning shaxsiy ma’lumotlarini hurmat qilamiz va himoya qilamiz.</p>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          1. Yig‘iladigan ma’lumotlar:
+        </h4>
+        <ul className={li}>
+          <li>Ism, familiya</li>
+          <li>Telefon raqami / email</li>
+          <li>To‘lov ma’lumotlari</li>
+          <li>Buyurtma va faoliyat tarixi</li>
+        </ul>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          2. Ma’lumotlardan foydalanish:
+        </h4>
+        <ul className={li}>
+          <li>Buyurtmalarni qayta ishlash</li>
+          <li>To‘lovlarni amalga oshirish</li>
+          <li>Xizmatni yaxshilash</li>
+          <li>Foydalanuvchi bilan bog‘lanish</li>
+        </ul>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          3. Ma’lumotlarni himoya qilish:
+        </h4>
+        <ul className={li}>
+          <li>Barcha ma’lumotlar xavfsiz serverlarda saqlanadi</li>
+          <li>To‘lovlar shifrlangan (SSL) orqali amalga oshiriladi</li>
+        </ul>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          4. Uchinchi tomonlar:
+        </h4>
+        <ul className={li}>
+          <li>Ma’lumotlar faqat xizmatni bajarish uchun (to‘lov tizimlari, yetkazib berish) beriladi</li>
+          <li>
+            <span className="font-semibold" style={{ color: sub }}>
+              Hech qachon sotilmaydi
+            </span>{' '}
+            (ha, bu muhim joy 😏)
+          </li>
+        </ul>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          5. Cookie va tracking:
+        </h4>
+        <p className="mt-2">Sayt ishlashi va analytics uchun cookie ishlatiladi.</p>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          6. Foydalanuvchi huquqlari:
+        </h4>
+        <ul className={li}>
+          <li>O‘z ma’lumotini ko‘rish</li>
+          <li>O‘zgartirish yoki o‘chirishni so‘rash</li>
+        </ul>
+
+        <p className="mt-4 flex flex-wrap items-center gap-1.5">
+          <span>📩 Aloqa:</span>
+          <a
+            href={`mailto:${PRIVACY_SUPPORT_EMAIL}`}
+            className="font-semibold underline underline-offset-2 break-all"
+            style={{ color: accentHex }}
+          >
+            {PRIVACY_SUPPORT_EMAIL}
+          </a>
+        </p>
+      </section>
+
+      <hr
+        className="my-6 border-0 h-px"
+        style={{ background: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }}
+      />
+
+      <section>
+        <h3 className="text-base font-bold mb-2" style={{ color: heading }}>
+          📜 Foydalanish shartlari (Terms & Conditions)
+        </h3>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          1. Umumiy:
+        </h4>
+        <p className="mt-2">Platformadan foydalanish orqali siz barcha shartlarga rozilik bildirasiz.</p>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          2. Hisob (Account):
+        </h4>
+        <ul className={li}>
+          <li>Foydalanuvchi o‘z akkaunti xavfsizligi uchun javobgar</li>
+          <li>Soxta ma’lumot kiritish = block 😎</li>
+        </ul>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          3. Buyurtma va to‘lov:
+        </h4>
+        <ul className={li}>
+          <li>Barcha to‘lovlar oldindan amalga oshiriladi</li>
+          <li>To‘lov tasdiqlanmaguncha buyurtma aktiv emas</li>
+        </ul>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          4. Mahsulotlar (Marketplace uchun muhim!):
+        </h4>
+        <ul className={li}>
+          <li>Sotuvchilar joylagan mahsulotlar uchun o‘zlari javobgar</li>
+          <li>Platforma vositachi (middleman)</li>
+        </ul>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          5. Taqiqlangan narsalar:
+        </h4>
+        <ul className={li}>
+          <li>Firibgarlik</li>
+          <li>Soxta mahsulot</li>
+          <li>Qonunga zid savdo</li>
+        </ul>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          6. Zarar va javobgarlik:
+        </h4>
+        <ul className={li}>
+          <li>Mahsulotga zarar yetkazilsa yoki ruxsatsiz sotilsa — foydalanuvchi to‘liq to‘laydi</li>
+          <li>Platforma ayrim holatlarda javobgar emas</li>
+        </ul>
+
+        <h4 className={sectionTitle} style={{ color: sub }}>
+          7. Bloklash:
+        </h4>
+        <p className="mt-2">Qoidani buzgan user → account yopiladi.</p>
+      </section>
+    </div>
+  );
+}
+
+type SettingsInfoModal =
+  | { title: string; body: string }
+  | { title: string; rich: ReactNode };
+
 export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps) {
   const { theme, toggleTheme, language, setLanguage, notifications, toggleNotifications, soundEnabled, toggleSound, accentColor, setAccentColor, supportChatEnabled, toggleSupportChat } = useTheme();
   const { isAuthenticated, signout } = useAuth();
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
-  const [infoModal, setInfoModal] = useState<null | { title: string; body: string }>(null);
+  const [infoModal, setInfoModal] = useState<SettingsInfoModal | null>(null);
   
   const isIOS = platform === 'ios';
   const isDark = theme === 'dark';
@@ -54,7 +213,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
 
   const APP_VERSION = '1.0.0';
   const APP_YEAR = '2026';
-  const SUPPORT_EMAIL = 'support@aresso.app';
+  const SUPPORT_EMAIL = PRIVACY_SUPPORT_EMAIL;
   const SUPPORT_TELEGRAM = '@aresso_support';
   const SUPPORT_TELEGRAM_URL = 'https://t.me/aresso_support';
   const SUPPORT_PHONE = '+998901234567';
@@ -80,33 +239,16 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
     );
   };
 
-  const handlePrivacyPolicy = () => {
-    openInfo(
-      'Maxfiylik siyosati',
-      [
-        `Sizning maxfiyligingiz biz uchun muhim.`,
-        ``,
-        `- Shaxsiy ma’lumotlar himoyalanadi`,
-        `- To‘lov ma’lumotlari shifrlanadi`,
-        `- Uchinchi shaxslarga uzatilmaydi (qonuniy holatlardan tashqari)`,
-        ``,
-        `Aloqa: ${SUPPORT_EMAIL}`,
-      ].join('\n')
-    );
+  const openLegalDocs = () => {
+    setInfoModal({
+      title: 'Maxfiylik va foydalanish shartlari',
+      rich: <LegalPolicyRichContent isDark={isDark} accentHex={accentColor.color} />,
+    });
   };
 
-  const handleTermsOfService = () => {
-    openInfo(
-      'Foydalanish shartlari',
-      [
-        `1) Yosh: kamida 16`,
-        `2) Hisob: telefon orqali, SMS tasdiqlash`,
-        `3) Xarid: narxlar o‘zgarishi mumkin, yetkazib berish haqqi qo‘shiladi`,
-        `4) To‘lov: tasdiqlanishi kerak`,
-        `5) Taqiqlar: noqonuniy/tan olinmagan mahsulotlar taqiqlanadi`,
-      ].join('\n')
-    );
-  };
+  const handlePrivacyPolicy = () => openLegalDocs();
+
+  const handleTermsOfService = () => openLegalDocs();
 
   const handleHelpCenter = () => {
     openInfo(
@@ -215,8 +357,8 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
       title: 'Yordam va Ma\'lumot',
       items: [
         { icon: Info, label: 'Ilova haqida', subtitle: 'Versiya 1.0.0', action: handleAboutApp },
-        { icon: Shield, label: 'Maxfiylik siyosati', subtitle: 'Ma\'lumotlar himoyasi', action: handlePrivacyPolicy },
-        { icon: FileText, label: 'Foydalanish shartlari', subtitle: 'Qoidalar va shartlar', action: handleTermsOfService },
+        { icon: Shield, label: 'Maxfiylik siyosati', subtitle: 'Shartlar ham shu yerda', action: handlePrivacyPolicy },
+        { icon: FileText, label: 'Foydalanish shartlari', subtitle: 'Bitta oynada to‘liq matn', action: handleTermsOfService },
         { icon: MessageCircle, label: 'Support chat', subtitle: 'Ekranda tugma chiqsin', toggle: true, value: supportChatEnabled, action: toggleSupportChat },
         { icon: MessageCircle, label: 'Aloqa', subtitle: 'Biz bilan bog\'laning', action: handleContactUs },
         { icon: HelpCircle, label: 'Yordam markazi', subtitle: 'Ko\'p so\'raladigan savollar', action: handleHelpCenter },
@@ -241,6 +383,130 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
       ]
     });
   }
+
+  const infoModalLayer = infoModal ? (
+      <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center">
+        <button
+          type="button"
+          className="absolute inset-0"
+          onClick={() => setInfoModal(null)}
+          aria-label="Close info modal"
+          style={{
+            background: isDark ? 'rgba(0,0,0,0.65)' : 'rgba(0,0,0,0.45)',
+            backdropFilter: 'blur(8px)',
+          }}
+        />
+        <div
+          className={`relative w-full rounded-t-3xl sm:rounded-3xl p-5 flex flex-col min-h-0 ${
+            'rich' in infoModal ? 'sm:max-w-xl' : 'sm:max-w-lg'
+          }`}
+          style={{
+            background: isDark
+              ? 'linear-gradient(145deg, rgba(20,20,20,0.98), rgba(10,10,10,0.98))'
+              : 'linear-gradient(145deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98))',
+            border: isDark ? '0.5px solid rgba(255,255,255,0.10)' : '0.5px solid rgba(0,0,0,0.08)',
+            boxShadow: isDark ? '0 24px 80px rgba(0,0,0,0.85)' : '0 24px 70px rgba(0,0,0,0.18)',
+            maxHeight: 'min(88vh, 900px)',
+          }}
+          onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-info-modal-title"
+        >
+          <div className="flex items-start justify-between gap-3 mb-3 shrink-0">
+            <div className="min-w-0 flex-1">
+              <p
+                id="settings-info-modal-title"
+                className="text-base font-bold leading-snug"
+                style={{ color: isDark ? '#fff' : '#111827' }}
+              >
+                {infoModal.title}
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setInfoModal(null)}
+              className="p-2 rounded-xl active:scale-95 transition shrink-0"
+              style={{
+                background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                border: isDark ? '0.5px solid rgba(255,255,255,0.12)' : '0.5px solid rgba(0,0,0,0.08)',
+              }}
+              aria-label="Yopish"
+            >
+              <X className="size-5" style={{ color: isDark ? '#fff' : '#111827' }} />
+            </button>
+          </div>
+
+          {'rich' in infoModal ? (
+            <div
+              className="rounded-2xl p-4 sm:p-5 overflow-y-auto overscroll-y-contain min-h-0 flex-1"
+              style={{
+                background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                border: isDark ? '0.5px solid rgba(255,255,255,0.08)' : '0.5px solid rgba(0,0,0,0.06)',
+                maxHeight: 'min(68vh, 620px)',
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
+              {infoModal.rich}
+            </div>
+          ) : (
+            <div
+              className="rounded-2xl p-4 overflow-y-auto overscroll-y-contain"
+              style={{
+                background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                border: isDark ? '0.5px solid rgba(255,255,255,0.08)' : '0.5px solid rgba(0,0,0,0.06)',
+                maxHeight: '58vh',
+                whiteSpace: 'pre-wrap',
+                color: isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.8)',
+                fontSize: 13,
+                lineHeight: 1.55,
+                WebkitOverflowScrolling: 'touch',
+              }}
+            >
+              {infoModal.body}
+            </div>
+          )}
+
+          {infoModal.title === 'Aloqa' && 'body' in infoModal && (
+            <div className="grid grid-cols-2 gap-2 mt-3 shrink-0">
+              <a
+                className="flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold active:scale-95 transition"
+                href={SUPPORT_TELEGRAM_URL}
+                target="_blank"
+                rel="noreferrer"
+                style={{ background: accentColor.gradient, color: '#fff' }}
+              >
+                <ExternalLink className="size-4" />
+                Telegram
+              </a>
+              <button
+                type="button"
+                className="flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold active:scale-95 transition"
+                onClick={async () => {
+                  if (infoModal.title !== 'Aloqa' || !('body' in infoModal)) return;
+                  try {
+                    await navigator.clipboard.writeText(
+                      `${SUPPORT_EMAIL} | ${SUPPORT_TELEGRAM} | ${SUPPORT_PHONE}`,
+                    );
+                    openInfo('Aloqa', `${infoModal.body}\n\n✅ Nusxalandi`);
+                  } catch {
+                    openInfo('Aloqa', `${infoModal.body}\n\n⚠️ Nusxalab bo‘lmadi`);
+                  }
+                }}
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  border: isDark ? '0.5px solid rgba(255,255,255,0.10)' : '0.5px solid rgba(0,0,0,0.08)',
+                  color: isDark ? '#fff' : '#111827',
+                }}
+              >
+                <Copy className="size-4" />
+                Nusxa
+              </button>
+            </div>
+          )}
+        </div>
+      </div>
+  ) : null;
 
   if (isIOS) {
     return (
@@ -441,101 +707,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
         theme={theme}
       />
 
-      {/* Info modal (replaces alerts) */}
-      {infoModal && (
-        <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center">
-          <button
-            className="absolute inset-0"
-            onClick={() => setInfoModal(null)}
-            aria-label="Close info modal"
-            style={{
-              background: isDark ? 'rgba(0,0,0,0.65)' : 'rgba(0,0,0,0.45)',
-              backdropFilter: 'blur(8px)',
-            }}
-          />
-          <div
-            className="relative w-full sm:max-w-lg rounded-t-3xl sm:rounded-3xl p-5"
-            style={{
-              background: isDark
-                ? 'linear-gradient(145deg, rgba(20,20,20,0.98), rgba(10,10,10,0.98))'
-                : 'linear-gradient(145deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98))',
-              border: isDark ? '0.5px solid rgba(255,255,255,0.10)' : '0.5px solid rgba(0,0,0,0.08)',
-              boxShadow: isDark ? '0 24px 80px rgba(0,0,0,0.85)' : '0 24px 70px rgba(0,0,0,0.18)',
-              maxHeight: '80vh',
-              overflow: 'hidden',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div className="min-w-0">
-                <p className="text-sm font-semibold truncate" style={{ color: isDark ? '#fff' : '#111827' }}>
-                  {infoModal.title}
-                </p>
-              </div>
-              <button
-                onClick={() => setInfoModal(null)}
-                className="p-2 rounded-xl active:scale-95 transition"
-                style={{
-                  background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-                  border: isDark ? '0.5px solid rgba(255,255,255,0.12)' : '0.5px solid rgba(0,0,0,0.08)',
-                }}
-                aria-label="Close"
-              >
-                <X className="size-5" style={{ color: isDark ? '#fff' : '#111827' }} />
-              </button>
-            </div>
-
-            <div
-              className="rounded-2xl p-4 overflow-y-auto"
-              style={{
-                background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
-                border: isDark ? '0.5px solid rgba(255,255,255,0.08)' : '0.5px solid rgba(0,0,0,0.06)',
-                maxHeight: '58vh',
-                whiteSpace: 'pre-wrap',
-                color: isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.8)',
-                fontSize: 13,
-                lineHeight: 1.55,
-              }}
-            >
-              {infoModal.body}
-            </div>
-
-            {infoModal.title === 'Aloqa' && (
-              <div className="grid grid-cols-2 gap-2 mt-3">
-                <a
-                  className="flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold active:scale-95 transition"
-                  href={SUPPORT_TELEGRAM_URL}
-                  target="_blank"
-                  rel="noreferrer"
-                  style={{ background: accentColor.gradient, color: '#fff' }}
-                >
-                  <ExternalLink className="size-4" />
-                  Telegram
-                </a>
-                <button
-                  className="flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold active:scale-95 transition"
-                  onClick={async () => {
-                    try {
-                      await navigator.clipboard.writeText(`${SUPPORT_EMAIL} | ${SUPPORT_TELEGRAM} | ${SUPPORT_PHONE}`);
-                      openInfo('Aloqa', `${infoModal.body}\n\n✅ Nusxalandi`);
-                    } catch {
-                      openInfo('Aloqa', `${infoModal.body}\n\n⚠️ Nusxalab bo‘lmadi`);
-                    }
-                  }}
-                  style={{
-                    background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
-                    border: isDark ? '0.5px solid rgba(255,255,255,0.10)' : '0.5px solid rgba(0,0,0,0.08)',
-                    color: isDark ? '#fff' : '#111827',
-                  }}
-                >
-                  <Copy className="size-4" />
-                  Nusxa
-                </button>
-              </div>
-            )}
-          </div>
-        </div>
-      )}
+      {infoModalLayer}
       </>
     );
   }
@@ -728,6 +900,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
       onColorSelect={setAccentColor}
       theme={theme}
     />
+    {infoModalLayer}
     </>
   );
 }

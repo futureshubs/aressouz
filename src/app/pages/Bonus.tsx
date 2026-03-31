@@ -5,6 +5,7 @@ import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { X, Zap, TrendingUp, Gift, ShoppingBag } from 'lucide-react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { SkeletonBox } from '../components/skeletons';
 
 interface TapAnimation {
   id: number;
@@ -278,18 +279,17 @@ export default function Bonus({ onClose }: BonusProps) {
         <X className="size-6" style={{ color: isDark ? '#ffffff' : '#000000' }} />
       </button>
 
-      {/* Loading State */}
+      {/* Loading State — Uzum-style skelet */}
       {loading && (
-        <div className="h-full flex items-center justify-center">
-          <div className="text-center">
-            <div 
-              className="size-16 rounded-full border-4 border-t-transparent animate-spin mb-4"
-              style={{ borderColor: `${accentColor.color} transparent transparent transparent` }}
-            />
-            <p className="text-lg font-bold" style={{ color: isDark ? '#ffffff' : '#000000' }}>
-              Yuklanmoqda...
-            </p>
-          </div>
+        <div
+          className="h-full flex flex-col items-center justify-center px-6 py-12 w-full max-w-md mx-auto gap-4"
+          role="status"
+          aria-label="Yuklanmoqda"
+        >
+          <SkeletonBox isDark={isDark} className="h-36 w-full rounded-3xl" />
+          <SkeletonBox isDark={isDark} className="h-20 w-full rounded-2xl" />
+          <SkeletonBox isDark={isDark} className="h-14 w-3/4 rounded-2xl" />
+          <span className="sr-only">Yuklanmoqda</span>
         </div>
       )}
 

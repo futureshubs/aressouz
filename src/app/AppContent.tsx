@@ -44,6 +44,10 @@ import { SupportChatWidget } from './components/SupportChatWidget';
 import Checkout from './components/Checkout';
 import { RentalTermsConsentModal } from './components/RentalTermsConsentModal';
 import { useMarketplaceNativeCartBadge } from './hooks/useMarketplaceNativeCartBadge';
+import {
+  ProductGridSkeleton,
+  SectionHeaderSkeleton,
+} from './components/skeletons';
 
 // Main App Component
 interface Product {
@@ -688,6 +692,13 @@ export default function AppContent() {
   const bgColor = isDark ? '#000000' : '#f9fafb';
   const textColor = isDark ? '#ffffff' : '#111827';
 
+  const marketProductsLoading =
+    activeTab === 'market' &&
+    activeView === 'products' &&
+    !!selectedRegion &&
+    !!selectedDistrict &&
+    (isLoadingBranches || isLoadingProducts);
+
   return (
     <CheckoutFlowProvider value={{ openCheckoutFlow }}>
     <div 
@@ -746,21 +757,28 @@ export default function AppContent() {
               <div className="px-5 sm:px-6 md:px-8 lg:px-12 py-6 sm:py-8">
                 <div className="max-w-[1600px] mx-auto">
                   <div className="flex items-center justify-between mb-6 sm:mb-8">
-                    <h2 
-                      className="text-lg sm:text-xl md:text-2xl font-semibold"
-                      style={{ color: isDark ? '#ffffff' : '#111827' }}
-                    >
-                      {selectedCategory 
-                        ? `${selectedCatalog?.name} - ${selectedCategory.name}`
-                        : 'Barcha mahsulotlar'
-                      }
-                    </h2>
-                    <span 
-                      className="text-xs sm:text-sm"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
-                    >
-                      {filteredProducts.length} ta
-                    </span>
+                    {marketProductsLoading ? (
+                      <SectionHeaderSkeleton isDark={isDark} />
+                    ) : (
+                      <>
+                        <h2
+                          className="text-lg sm:text-xl md:text-2xl font-semibold"
+                          style={{ color: isDark ? '#ffffff' : '#111827' }}
+                        >
+                          {selectedCategory
+                            ? `${selectedCatalog?.name} - ${selectedCategory.name}`
+                            : 'Barcha mahsulotlar'}
+                        </h2>
+                        <span
+                          className="text-xs sm:text-sm"
+                          style={{
+                            color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
+                          }}
+                        >
+                          {filteredProducts.length} ta
+                        </span>
+                      </>
+                    )}
                   </div>
 
                   {/* Debug info - location and branch count */}
@@ -805,10 +823,15 @@ export default function AppContent() {
                     </div>
                   )}
 
-                  {/* No branches in location */}
-                  {selectedRegion && selectedDistrict && 
-                   branches.filter(b => b.regionId === selectedRegion && b.districtId === selectedDistrict).length === 0 &&
-                   filteredProducts.length === 0 && (
+                  {/* No branches in location (yuklash tugagach — dastlabki yuklashda skelet ko‘rinadi) */}
+                  {selectedRegion &&
+                    selectedDistrict &&
+                    !isLoadingBranches &&
+                    !isLoadingProducts &&
+                    branches.filter(
+                      (b) => b.regionId === selectedRegion && b.districtId === selectedDistrict,
+                    ).length === 0 &&
+                    filteredProducts.length === 0 && (
                     <div 
                       className="text-center py-16"
                       style={{
@@ -832,8 +855,12 @@ export default function AppContent() {
                     </div>
                   )}
 
+                  {marketProductsLoading && (
+                    <ProductGridSkeleton isDark={isDark} count={10} />
+                  )}
+
                   {/* Products Grid - Only show if there are products */}
-                  {filteredProducts.length > 0 && (
+                  {!marketProductsLoading && filteredProducts.length > 0 && (
                     <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 sm:gap-5 md:gap-6 lg:gap-7 xl:gap-8">
                       {filteredProducts.map((product) => (
                         <ProductCard

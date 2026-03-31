@@ -17,6 +17,7 @@ import { BannerCarousel } from './BannerCarousel';
 import { regions as allRegions } from '../data/regions';
 import { matchesSelectedLocation } from '../utils/locationMatching';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { ProductGridSkeleton } from './skeletons';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -753,8 +754,12 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
               </div>
               <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4">
                 {loadingPortfolios ? (
-                  <div className="col-span-full text-center py-8">
-                    <p className="text-sm font-medium" style={{ color: isDark ? '#ffffff' : '#111827' }}>Portfolio yuklanmoqda...</p>
+                  <div className="col-span-full">
+                    <ProductGridSkeleton
+                      isDark={isDark}
+                      count={8}
+                      gridClassName="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4"
+                    />
                   </div>
                 ) : portfolios.length > 0 ? (
                   portfolios.map((portfolio) => (

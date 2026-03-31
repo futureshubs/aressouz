@@ -10,6 +10,7 @@ import { Platform } from '../utils/platform';
 import { useTheme } from '../context/ThemeContext';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { getEffectiveProductStockQuantity } from '../utils/cartStock';
+import { ProductGridSkeleton } from './skeletons';
 
 interface Product {
   id: number;
@@ -295,8 +296,12 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-4">
                   {isLoadingProducts ? (
-                    <div className="col-span-full text-center">
-                      <p className="text-sm text-gray-500">Mahsulotlar yuklanmoqda...</p>
+                    <div className="col-span-full">
+                      <ProductGridSkeleton
+                        isDark={isDark}
+                        count={10}
+                        gridClassName="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-4"
+                      />
                     </div>
                   ) : (
                     onlineShopProducts.map((product) => (

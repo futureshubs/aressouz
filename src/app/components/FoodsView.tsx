@@ -9,6 +9,7 @@ import { regions as allRegions } from '../data/regions';
 import { matchesSelectedLocation } from '../utils/locationMatching';
 import { getMaxOrderableUnits } from '../utils/cartStock';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 
 interface Restaurant {
   id: string;
@@ -317,11 +318,16 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       </div>
 
       {loading ? (
-        <div className="flex justify-center py-20">
-          <div 
-            className="w-12 h-12 border-4 border-t-transparent rounded-full animate-spin"
-            style={{ borderColor: `${accentColor.color}40`, borderTopColor: accentColor.color }}
-          />
+        <div className="px-4 pb-8">
+          {activeTab === 'dishes' ? (
+            <ProductGridSkeleton
+              isDark={isDark}
+              count={10}
+              gridClassName="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 lg:grid-cols-5"
+            />
+          ) : (
+            <ShopListSkeleton isDark={isDark} rows={5} />
+          )}
         </div>
       ) : (
         <>

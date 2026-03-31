@@ -8,9 +8,8 @@ import { installVisibilityRefetchBroadcast } from './utils/visibilityRefetch';
 import { Toaster } from 'sonner';
 
 export default function App() {
-  // PWA: Register Service Worker
   useEffect(() => {
-    // Set viewport meta tag for PWA
+    // PWA: viewport / theme / Apple meta (manifest + sw — index.html)
     const setViewport = () => {
       let viewport = document.querySelector('meta[name="viewport"]');
       if (!viewport) {
@@ -54,35 +53,9 @@ export default function App() {
       appleStatus.setAttribute('content', 'black-translucent');
     };
 
-    // Link manifest
-    const linkManifest = () => {
-      let manifestLink = document.querySelector('link[rel="manifest"]');
-      if (!manifestLink) {
-        manifestLink = document.createElement('link');
-        manifestLink.setAttribute('rel', 'manifest');
-        document.head.appendChild(manifestLink);
-      }
-      manifestLink.setAttribute('href', '/manifest.json');
-    };
-
     setViewport();
     setThemeColor();
     setAppleMeta();
-    linkManifest();
-
-    // Register Service Worker
-    if ('serviceWorker' in navigator) {
-      window.addEventListener('load', () => {
-        navigator.serviceWorker
-          .register('/sw.js')
-          .then((registration) => {
-            console.log('✅ PWA: Service Worker registered successfully:', registration.scope);
-          })
-          .catch((error) => {
-            console.error('❌ PWA: Service Worker registration failed:', error);
-          });
-      });
-    }
 
     // Prevent zoom on double tap (but allow scrolling)
     let lastTouchEnd = 0;

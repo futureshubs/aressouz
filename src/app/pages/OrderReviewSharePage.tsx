@@ -1,8 +1,10 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { Loader2, Star } from 'lucide-react';
+import { Star } from 'lucide-react';
 import { API_BASE_URL, publicAnonKey } from '/utils/supabase/info';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
+import { useTheme } from '../context/ThemeContext';
+import { OrderReviewPageSkeleton } from '../components/skeletons';
 
 type Payload = {
   rating: number;
@@ -52,14 +54,7 @@ export function OrderReviewSharePage() {
   }, [token, visibilityRefetchTick]);
 
   if (loading) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#0a0a0a]">
-        <div className="text-center">
-          <Loader2 className="mx-auto mb-4 size-12 animate-spin text-[#14b8a6]" />
-          <p className="text-white/60">Yuklanmoqda…</p>
-        </div>
-      </div>
-    );
+    return <OrderReviewPageSkeleton isDark={isDark} />;
   }
 
   if (error || !payload) {

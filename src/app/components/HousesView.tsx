@@ -12,6 +12,7 @@ import { LoginNotification } from './LoginNotification';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { BannerCarousel } from './BannerCarousel';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { ProductGridSkeleton } from './skeletons';
 import { regions as allRegions } from '../data/regions';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
@@ -268,11 +269,11 @@ export function HousesView() {
             Barcha uylar
           </h2>
           {loading ? (
-            <div className="text-center py-8">
-              <p className="text-sm font-medium" style={{ color: isDark ? '#ffffff' : '#111827' }}>
-                Yuklanmoqda...
-              </p>
-            </div>
+            <ProductGridSkeleton
+              isDark={isDark}
+              count={12}
+              gridClassName="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-5"
+            />
           ) : houses.length > 0 ? (
             <div 
               className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-5"

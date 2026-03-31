@@ -2,12 +2,15 @@ import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
 import { PlaceDetailModal } from '../components/PlaceDetailModal';
 import { Place } from '../data/places';
-import { Loader2 } from 'lucide-react';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
+import { useTheme } from '../context/ThemeContext';
+import { PlaceDetailPageSkeleton } from '../components/skeletons';
 
 export function SharePlacePage() {
   const { shareCode } = useParams<{ shareCode: string }>();
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const visibilityRefetchTick = useVisibilityTick();
   const [place, setPlace] = useState<Place | null>(null);
   const [loading, setLoading] = useState(true);
@@ -60,14 +63,7 @@ export function SharePlacePage() {
   };
 
   if (loading) {
-    return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#0a0a0a]">
-        <div className="text-center">
-          <Loader2 className="size-12 text-[#14b8a6] animate-spin mx-auto mb-4" />
-          <p className="text-white/60">Joy yuklanmoqda...</p>
-        </div>
-      </div>
-    );
+    return <PlaceDetailPageSkeleton isDark={isDark} />;
   }
 
   if (error || !place) {

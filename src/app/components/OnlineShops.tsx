@@ -11,6 +11,7 @@ import { BannerCarousel } from './BannerCarousel';
 import { matchesSelectedLocation } from '../utils/locationMatching';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { getEffectiveProductStockQuantity } from '../utils/cartStock';
+import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 
 // Generate unique rating based on shop ID
 const getShopRating = (shopId: string) => {
@@ -449,11 +450,7 @@ export default function OnlineShops({
             </div>
 
             {isLoading ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" 
-                  style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
-                />
-              </div>
+              <ShopListSkeleton isDark={isDark} rows={6} />
             ) : filteredShops.length === 0 ? (
               <div 
                 className="p-12 rounded-3xl text-center"
@@ -592,11 +589,11 @@ export default function OnlineShops({
             </div>
 
             {isLoadingProducts ? (
-              <div className="flex items-center justify-center py-12">
-                <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" 
-                  style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
-                />
-              </div>
+              <ProductGridSkeleton
+                isDark={isDark}
+                count={10}
+                gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6"
+              />
             ) : filteredProducts.length === 0 ? (
               <div 
                 className="p-12 rounded-3xl text-center"
@@ -1246,11 +1243,11 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
               <h3 className="text-xl sm:text-2xl font-bold mb-4 md:mb-6">Mahsulotlar</h3>
               
               {isLoading ? (
-                <div className="flex items-center justify-center py-12">
-                  <div className="animate-spin rounded-full h-10 w-10 md:h-12 md:w-12 border-4 border-t-transparent" 
-                    style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
-                  />
-                </div>
+                <ProductGridSkeleton
+                  isDark={isDark}
+                  count={8}
+                  gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6"
+                />
               ) : products.length === 0 ? (
                 <div 
                   className="p-8 md:p-12 rounded-2xl text-center"

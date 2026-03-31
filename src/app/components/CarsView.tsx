@@ -12,6 +12,7 @@ import { useAuth } from '../context/AuthContext';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { BannerCarousel } from './BannerCarousel';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { CarGridSkeleton } from './skeletons';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -371,9 +372,7 @@ export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsVi
       {activeTab === 'cars' && (
         <div className="px-4 sm:px-6 md:px-8">
           {loading ? (
-            <div className="flex justify-center items-center py-12">
-              <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-teal-500"></div>
-            </div>
+            <CarGridSkeleton isDark={isDark} count={6} />
           ) : filteredCars.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
               {filteredCars.map((car) => (

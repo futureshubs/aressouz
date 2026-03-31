@@ -12,6 +12,7 @@ import { useLocation } from '../context/LocationContext';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { calculateDistance, formatDistance, getUserLocation } from '../utils/distance';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { ProductGridSkeleton } from './skeletons';
 
 interface AroundViewProps {
   platform: Platform;
@@ -314,11 +315,11 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                 )}
 
                 {loading ? (
-                  <div className="flex items-center justify-center py-12 sm:py-20">
-                    <div className="animate-spin rounded-full h-8 w-8 sm:h-12 sm:w-12 border-3 sm:border-4 border-t-transparent"
-                      style={{ borderColor: `${accentColor.color}44`, borderTopColor: 'transparent' }}
-                    />
-                  </div>
+                  <ProductGridSkeleton
+                    isDark={isDark}
+                    count={10}
+                    gridClassName="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4"
+                  />
                 ) : filteredPlaces.length === 0 ? (
                   <div className="text-center py-12 sm:py-20">
                     <MapPin className="size-12 sm:size-16 mx-auto mb-3 sm:mb-4 opacity-30" />
