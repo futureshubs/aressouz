@@ -705,7 +705,7 @@ export default function AppContent() {
       className={
         isCommunityFullscreen
           ? 'h-dvh min-h-dvh overflow-hidden'
-          : 'min-h-dvh pb-24 sm:pb-32 max-[639px]:pb-[max(6rem,calc(6rem+env(safe-area-inset-bottom,0px)))]'
+          : 'min-h-dvh pb-24 sm:pb-32 max-[639px]:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))]'
       }
       style={{ backgroundColor: bgColor, color: textColor }}
     >

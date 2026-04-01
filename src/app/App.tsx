@@ -129,8 +129,8 @@ export default function App() {
         richColors
         closeButton
         duration={3000}
-        offset={{ top: 'max(0.75rem, env(safe-area-inset-top, 0px))' }}
-        mobileOffset={{ top: 'max(0.75rem, env(safe-area-inset-top, 0px))' }}
+        offset={{ top: 'var(--app-safe-top)' }}
+        mobileOffset={{ top: 'var(--app-safe-top)' }}
       />
     </>
   );

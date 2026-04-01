@@ -84,8 +84,9 @@ export const Header = memo(function Header({
   return (
     <>
       <header 
-        className="sticky top-0 z-50 transition-all duration-300"
+        className="sticky z-50 transition-all duration-300"
         style={{
+          top: 'var(--app-safe-top)',
           background: bgGradient,
           backdropFilter: 'blur(20px)',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05)',
