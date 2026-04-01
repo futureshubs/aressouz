@@ -46,19 +46,22 @@
   --app-safe-left: env(safe-area-inset-left, 0px);
 }
 
-/* Mobil brauzer: Android’da env tez-tez 0 — minimal indent */
-@media (pointer: coarse) and (max-width: 1024px) {
+/*
+ * Tor ekran: pointer: coarse ba’zan false (Android WebView) — faqat max-width ishonchliroq.
+ * Chrome Custom Tab / oddiy mobil: display-mode standalone bo‘lmasa ham indent kerak.
+ */
+@media (max-width: 1024px) {
   :root {
-    --app-safe-top: max(2rem, env(safe-area-inset-top, 0px));
-    --app-safe-bottom: max(0.5rem, env(safe-area-inset-bottom, 0px));
+    --app-safe-top: max(3rem, env(safe-area-inset-top, 0px));
+    --app-safe-bottom: max(0.65rem, env(safe-area-inset-bottom, 0px));
   }
 }
 
-/* O‘rnatilgan PWA: status bar + tirqish — katta minimum (screenshot’dagi overlap uchun) */
+/* O‘rnatilgan PWA: status + tirqish + ramka — yanada katta minimum */
 @media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
   :root {
-    --app-safe-top: max(2.75rem, env(safe-area-inset-top, 0px));
-    --app-safe-bottom: max(0.75rem, env(safe-area-inset-bottom, 0px));
+    --app-safe-top: max(3.5rem, env(safe-area-inset-top, 0px));
+    --app-safe-bottom: max(0.85rem, env(safe-area-inset-bottom, 0px));
   }
 }
 
@@ -183,8 +186,8 @@
     min-height: 100%;
     min-height: 100dvh;
     min-height: -webkit-fill-available;
-    /* --app-safe-* :root’da (PWA / mobil uchun katta minimum) */
-    padding-top: var(--app-safe-top);
+    /* Tepa indent #root da — ba’zi Android WebView body padding e’tiborsiz qoldiradi */
+    padding-top: 0;
     padding-bottom: var(--app-safe-bottom);
     padding-left: var(--app-safe-left);
     padding-right: var(--app-safe-right);
@@ -194,6 +197,8 @@
     min-height: 100%;
     min-height: 100dvh;
     min-height: -webkit-fill-available;
+    padding-top: var(--app-safe-top);
+    box-sizing: border-box;
   }
 
   /* Allow text selection in inputs and content areas */
@@ -324,6 +329,11 @@
   body {
     margin: 0;
     padding: 0;
+  }
+
+  #root {
+    padding-top: 0 !important;
+    padding-bottom: 0 !important;
   }
   
   .print\\:hidden {

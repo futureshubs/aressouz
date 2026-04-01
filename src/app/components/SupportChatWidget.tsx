@@ -25,20 +25,26 @@ const shouldShowOnTab = (tab: string) => {
   return t !== 'community';
 };
 
-function layoutBodyInset(side: 'top' | 'bottom'): number {
+/** Tepa: #root.padding-top (body 0). Past: body.padding-bottom */
+function layoutSafeInset(side: 'top' | 'bottom'): number {
   if (typeof document === 'undefined') return 0;
-  const raw =
-    side === 'top'
-      ? getComputedStyle(document.body).paddingTop
-      : getComputedStyle(document.body).paddingBottom;
-  const n = parseFloat(raw);
-  return Number.isFinite(n) ? n : 0;
+  const body = document.body;
+  const root = document.getElementById('root');
+  if (side === 'top') {
+    const r = root ? parseFloat(getComputedStyle(root).paddingTop) : 0;
+    const b = parseFloat(getComputedStyle(body).paddingTop);
+    const top = (Number.isFinite(r) ? r : 0) + (Number.isFinite(b) ? b : 0);
+    return top;
+  }
+  const r = root ? parseFloat(getComputedStyle(root).paddingBottom) : 0;
+  const b = parseFloat(getComputedStyle(body).paddingBottom);
+  return (Number.isFinite(r) ? r : 0) + (Number.isFinite(b) ? b : 0);
 }
 
 function clampPosition(p: Pos): Pos {
   if (typeof window === 'undefined') return p;
-  const insetTop = layoutBodyInset('top');
-  const insetBottom = layoutBodyInset('bottom');
+  const insetTop = layoutSafeInset('top');
+  const insetBottom = layoutSafeInset('bottom');
   const minT = Math.max(MARGIN, insetTop + 4);
   const maxL = window.innerWidth - BTN - MARGIN;
   const maxT = window.innerHeight - BTN - Math.max(MARGIN, insetBottom + 4);
