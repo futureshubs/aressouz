@@ -4156,6 +4156,48 @@ app.post("/make-server-27d0d16c/listings/fee/click-create", async (c) => {
   }
 });
 
+/** Click COMPLETE dan keyin yozilgan `listing_fee_credit` — frontend polling / «Tekshirish» uchun */
+app.get("/make-server-27d0d16c/listings/fee/verify/:transactionId", async (c) => {
+  try {
+    const auth = await validateAccessToken(c);
+    if (!auth.success) {
+      return c.json({ error: auth.error }, 401);
+    }
+
+    const transactionId = String(c.req.param("transactionId") || "").trim();
+    if (!transactionId) {
+      return c.json({ ok: false, code: "MISSING_ID" });
+    }
+
+    const phoneQuery = normalizeListingPhoneForLimit(c.req.query("phone") || "");
+    const credit = (await kv.get(`listing_fee_credit:${transactionId}`)) as {
+      userId?: string;
+      phoneNorm?: string;
+      amount?: number;
+    } | null;
+
+    if (!credit) {
+      return c.json({ ok: false, code: "NO_CREDIT" });
+    }
+    if (String(credit.userId) !== String(auth.userId)) {
+      return c.json({ ok: false, code: "WRONG_USER" });
+    }
+    const creditAmt = Number(credit.amount);
+    if (!Number.isFinite(creditAmt) || creditAmt !== LISTING_FEE_UZS) {
+      return c.json({ ok: false, code: "BAD_AMOUNT" });
+    }
+    const cPhone = String(credit.phoneNorm || "").trim();
+    if (phoneQuery && (!cPhone || cPhone !== phoneQuery)) {
+      return c.json({ ok: false, code: "PHONE_MISMATCH" });
+    }
+
+    return c.json({ ok: true, transactionId, feeAmountUzs: LISTING_FEE_UZS });
+  } catch (error: any) {
+    console.error("Listing fee verify error:", error);
+    return c.json({ error: "Tekshirishda xatolik" }, 500);
+  }
+});
+
 // Upload image for listing (no auth required for places)
 app.post("/make-server-27d0d16c/upload-image", async (c) => {
   console.log('📸 ===== UPLOAD IMAGE ENDPOINT =====');
