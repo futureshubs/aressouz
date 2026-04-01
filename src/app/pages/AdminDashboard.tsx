@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { 
@@ -42,21 +42,8 @@ export default function AdminDashboard() {
     totalRevenue: 0,
   });
 
-  useEffect(() => {
-    // Check admin session
-    const session = localStorage.getItem('adminSession');
-    if (!session) {
-      navigate('/admin');
-      return;
-    }
-
-    // Load stats from Supabase
-    loadStats();
-  }, [navigate]);
-
-  const loadStats = async () => {
+  const loadStats = useCallback(async () => {
     try {
-      // Load from Supabase
       const branchesResponse = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branches`,
         {
@@ -65,7 +52,7 @@ export default function AdminDashboard() {
           }),
         }
       );
-      
+
       const usersResponse = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/admin/users`,
         {
@@ -74,11 +61,10 @@ export default function AdminDashboard() {
           }),
         }
       );
-      
+
       const branches = branchesResponse.ok ? (await branchesResponse.json()).branches : [];
       const users = usersResponse.ok ? (await usersResponse.json()).users : [];
-      
-      // TODO: Load payments from Supabase when endpoint is ready
+
       const payments: any[] = [];
 
       const totalRevenue = payments.reduce(
@@ -95,7 +81,16 @@ export default function AdminDashboard() {
     } catch (error) {
       console.error('Error loading stats:', error);
     }
-  };
+  }, []);
+
+  useEffect(() => {
+    const session = localStorage.getItem('adminSession');
+    if (!session) {
+      navigate('/admin');
+      return;
+    }
+    void loadStats();
+  }, [navigate, loadStats]);
 
   useVisibilityRefetch(() => {
     void loadStats();

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
@@ -321,7 +321,7 @@ export default function Checkout({
     }
   }, [user]);
 
-  // Payment
+  // Payment (market/rental: naqd + onlayn usullar doim ro‘yxatda; server to‘lovni yoqilmagan bo‘lsa xabar beradi)
   const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online' | 'click' | 'click_card' | 'payme' | 'atmos' | 'qr'>('cash');
   const [promoCode, setPromoCode] = useState('');
   const [bonusPoints, setBonusPoints] = useState(0);
@@ -570,26 +570,41 @@ export default function Checkout({
       ];
     }
 
-    const base =
-      cartItems.length > 0
-        ? cartItems.map((item) => ({
-            title: item.name || item.title || 'Mahsulot',
-            price: item.price || 0,
-            count: item.quantity || 1,
-            code: item.ikpu_code || '00000000000000000',
-            units: 2411,
-            vat_percent: 0,
-            package_code: item.package_code || '123456',
-          }))
-        : (rentalLineItems || []).map((line) => ({
-            title: line.item.name || 'Ijara',
-            price: Number(line.totalPrice) || 0,
-            count: 1,
-            code: '00000000000000000',
-            units: 2411,
-            vat_percent: 0,
-            package_code: '123456',
-          }));
+    const base: Array<{
+      title: string;
+      price: number;
+      count: number;
+      code: string;
+      units: number;
+      vat_percent: number;
+      package_code: string;
+    }> = [];
+    if (cartItems.length > 0) {
+      base.push(
+        ...cartItems.map((item) => ({
+          title: item.name || item.title || 'Mahsulot',
+          price: item.price || 0,
+          count: item.quantity || 1,
+          code: item.ikpu_code || '00000000000000000',
+          units: 2411,
+          vat_percent: 0,
+          package_code: item.package_code || '123456',
+        })),
+      );
+    }
+    if (rentalLineItems && rentalLineItems.length > 0) {
+      base.push(
+        ...(rentalLineItems || []).map((line) => ({
+          title: line.item.name || 'Ijara',
+          price: Number(line.totalPrice) || 0,
+          count: 1,
+          code: '00000000000000000',
+          units: 2411,
+          vat_percent: 0,
+          package_code: '123456',
+        })),
+      );
+    }
 
     if (selectedZone && Number(selectedZone.deliveryPrice) > 0) {
       return [
@@ -608,6 +623,11 @@ export default function Checkout({
 
     return base;
   };
+
+  const paymeReceiptItemsStable = useMemo(
+    () => buildPaymeReceiptItems(),
+    [cartItems, rentalLineItems, selectedZone, useBonus, bonusPoints, goodsAndRentalSubtotal],
+  );
 
   // Create order function (called after successful payment for CLICK)
   const createOrder = async () => {
@@ -1202,8 +1222,8 @@ export default function Checkout({
                 : [
                     { id: 'cash' as const, label: 'Naqd to\'lov', icon: Wallet, color: '#10b981' },
                     { id: 'click' as const, label: 'Click', icon: CreditCard, color: '#00a650' },
-                    { id: 'payme' as const, label: 'Payme', icon: CreditCard, color: '#00a650' },
-                    { id: 'atmos' as const, label: 'Atmos', icon: CreditCard, color: '#00a650' },
+                    { id: 'payme' as const, label: 'Payme', icon: CreditCard, color: '#00AACB' },
+                    { id: 'atmos' as const, label: 'Atmos', icon: CreditCard, color: '#1e40af' },
                   ]
               ).map(method => (
                 <button
@@ -1630,7 +1650,7 @@ export default function Checkout({
                     orderId={orderId}
                     amount={calculateTotal()}
                     phone={customerPhone}
-                    items={buildPaymeReceiptItems()}
+                    items={paymeReceiptItemsStable}
                     onSuccess={() => {
                       // Payment successful - create order
                       createOrder();

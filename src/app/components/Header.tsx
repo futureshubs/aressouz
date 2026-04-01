@@ -89,8 +89,6 @@ export const Header = memo(function Header({
           background: bgGradient,
           backdropFilter: 'blur(20px)',
           boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05)',
-          // Safe area padding for iOS
-          paddingTop: 'env(safe-area-inset-top, 0px)',
         }}
       >
         <div className="px-3 sm:px-4 md:px-6 lg:px-8 max-w-[1600px] mx-auto">

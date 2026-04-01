@@ -3,6 +3,7 @@ import { useLocation, useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { toast } from 'sonner';
 import MarketView from '../components/branch/MarketView';
+import { PendingCashMarketBranchPanel } from '../components/branch/PendingCashMarketBranchPanel';
 import { CashierPanel } from '../components/branch/CashierPanel';
 import { OperatorSupportTabs } from '../components/branch/OperatorSupportTabs';
 import { Payments } from '../components/branch/Payments';
@@ -212,7 +213,10 @@ export default function StaffDashboard() {
             </div>
 
             {warehouseTab === 'market' ? (
-              <MarketView branchId={branchId} />
+              <div className="space-y-6">
+                <PendingCashMarketBranchPanel />
+                <MarketView branchId={branchId} />
+              </div>
             ) : (
               <Payments branchId={branchId} branchInfo={branchInfo} />
             )}

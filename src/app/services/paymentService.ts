@@ -165,18 +165,65 @@ export async function cancelPayment(paymentId: string): Promise<{ success: boole
   }
 }
 
+/** payme.uz / Paycom checkout localhost Referer bilan `back=` olib «чек не найден» berishi mumkin */
+function paymentUrlShouldAvoidReferrer(url: string): boolean {
+  try {
+    const h = new URL(url).hostname.toLowerCase();
+    return (
+      h === 'payme.uz' ||
+      h.endsWith('.payme.uz') ||
+      h.includes('paycom.uz')
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Popup ichida navigatsiya — opener allaqachon payme.uz bo‘lgan oynaga location berib
+ * «Unsafe attempt to initiate navigation for frame with origin https://payme.uz from localhost» xatosini bermaydi.
+ * Har safar noyob `target` — bir xil nomdagi eski oyna qayta ishlatilmaydi.
+ */
+function openPaycomCheckoutInPopup(paymentUrl: string, features: string): Window | null {
+  const target = `AressoPay_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+  const w = window.open('about:blank', target, features);
+  if (!w) return null;
+  try {
+    w.opener = null;
+  } catch {
+    /* noop */
+  }
+  const jsUrl = JSON.stringify(paymentUrl);
+  try {
+    const d = w.document;
+    d.open();
+    d.write(
+      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"></head><body><script>location.replace(${jsUrl});<\/script></body></html>`,
+    );
+    d.close();
+  } catch {
+    try {
+      w.location.replace(paymentUrl);
+    } catch {
+      w.location.href = paymentUrl;
+    }
+  }
+  return w;
+}
+
 // Open payment in new window
 export function openPaymentWindow(paymentUrl: string): Window | null {
   const width = 600;
   const height = 700;
   const left = (window.screen.width - width) / 2;
   const top = (window.screen.height - height) / 2;
+  const features = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
 
-  return window.open(
-    paymentUrl,
-    'AressoPayment',
-    `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`
-  );
+  if (paymentUrlShouldAvoidReferrer(paymentUrl)) {
+    return openPaycomCheckoutInPopup(paymentUrl, features);
+  }
+
+  return window.open(paymentUrl, `AressoPayment_${Date.now()}`, features);
 }
 
 // Format amount for display

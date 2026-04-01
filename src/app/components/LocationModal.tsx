@@ -1,8 +1,27 @@
-import { X, MapPin, Navigation, ChevronRight, AlertCircle } from 'lucide-react';
-import { useState } from 'react';
+import { X, MapPin, Navigation, ChevronRight, AlertCircle, Search } from 'lucide-react';
+import { useState, useMemo, useEffect } from 'react';
 import { Platform } from '../utils/platform';
 import { useTheme } from '../context/ThemeContext';
 import { regions } from '../data/regions';
+import { resolveRegionDistrictFromCoords } from '../utils/geolocationDetect';
+
+const normalizeSearch = (s: string) =>
+  String(s || '')
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[''`ʻʼ]/g, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+
+function filterLocations<T extends { name: string; id: string }>(items: T[], query: string): T[] {
+  const q = normalizeSearch(query);
+  if (!q) return items;
+  return items.filter((x) => {
+    const name = normalizeSearch(x.name);
+    const id = normalizeSearch(x.id.replace(/-/g, ' '));
+    return name.includes(q) || id.includes(q) || q.split(' ').every((w) => w && name.includes(w));
+  });
+}
 
 interface LocationModalProps {
   isOpen: boolean;
@@ -25,14 +44,29 @@ export function LocationModal({
   const [step, setStep] = useState<'region' | 'district'>('region');
   const [isDetecting, setIsDetecting] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [regionSearchQuery, setRegionSearchQuery] = useState('');
+  const [districtSearchQuery, setDistrictSearchQuery] = useState('');
   const { theme, accentColor } = useTheme();
   const isIOS = platform === 'ios';
   const isDark = theme === 'dark';
 
-  if (!isOpen) return null;
+  useEffect(() => {
+    if (!isOpen) return;
+    setRegionSearchQuery('');
+    setDistrictSearchQuery('');
+  }, [isOpen]);
 
-  // Get selected region object
   const selectedRegionObj = regions.find(r => r.id === selectedRegion);
+
+  const filteredRegions = useMemo(
+    () => filterLocations(regions, regionSearchQuery),
+    [regionSearchQuery],
+  );
+
+  const filteredDistricts = useMemo(
+    () => filterLocations(selectedRegionObj?.districts ?? [], districtSearchQuery),
+    [selectedRegionObj, districtSearchQuery],
+  );
 
   // Create uzbekistanRegions mapping from regions.ts data
   const uzbekistanRegions: Record<string, string[]> = {};
@@ -42,6 +76,7 @@ export function LocationModal({
 
   const handleRegionSelect = (regionId: string) => {
     setSelectedRegion(regionId);
+    setDistrictSearchQuery('');
     setStep('district');
   };
 
@@ -52,51 +87,7 @@ export function LocationModal({
     }
   };
 
-  // O'zbekiston viloyatlari koordinatalari (ID'lar bilan)
-  const regionCoordinates: Record<string, { lat: number; lng: number }> = {
-    'toshkent-sh': { lat: 41.2995, lng: 69.2401 },
-    'toshkent': { lat: 41.3, lng: 69.5 },
-    'andijon': { lat: 40.7821, lng: 72.3442 },
-    'buxoro': { lat: 39.7747, lng: 64.4286 },
-    'fargona': { lat: 40.3864, lng: 71.7864 },
-    'jizzax': { lat: 40.1158, lng: 67.8422 },
-    'xorazm': { lat: 41.3775, lng: 60.3647 },
-    'namangan': { lat: 40.9983, lng: 71.6726 },
-    'navoiy': { lat: 40.0844, lng: 65.3792 },
-    'qashqadaryo': { lat: 38.8606, lng: 65.7897 },
-    'qoraqalpogiston': { lat: 43.8041, lng: 59.4453 },
-    'samarqand': { lat: 39.6270, lng: 66.9750 },
-    'sirdaryo': { lat: 40.3833, lng: 68.7167 },
-    'surxondaryo': { lat: 37.9403, lng: 67.5781 },
-  };
-
-  // Eng yaqin viloyatni topish (ID qaytaradi)
-  const findNearestRegion = (lat: number, lng: number): string => {
-    let nearestRegionId = 'toshkent-sh';
-    let minDistance = Infinity;
-
-    Object.entries(regionCoordinates).forEach(([regionId, coords]) => {
-      // Haversine formula (masofani hisoblash)
-      const R = 6371; // Yer radiusi (km)
-      const dLat = (coords.lat - lat) * Math.PI / 180;
-      const dLng = (coords.lng - lng) * Math.PI / 180;
-      const a = 
-        Math.sin(dLat / 2) * Math.sin(dLat / 2) +
-        Math.cos(lat * Math.PI / 180) * Math.cos(coords.lat * Math.PI / 180) *
-        Math.sin(dLng / 2) * Math.sin(dLng / 2);
-      const c = 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
-      const distance = R * c;
-      
-      if (distance < minDistance) {
-        minDistance = distance;
-        nearestRegionId = regionId; // ID qaytaradi
-      }
-    });
-
-    return nearestRegionId;
-  };
-
-  // REAL Geolocation API with REVERSE GEOCODING
+  // REAL Geolocation API + reverse geocode (`geolocationDetect.ts`)
   const handleDetectLocation = async () => {
     setIsDetecting(true);
     setErrorMessage(null);
@@ -114,113 +105,20 @@ export function LocationModal({
       navigator.geolocation.getCurrentPosition(
         // SUCCESS callback
         async (position) => {
-          console.log('✅ GPS Success:', position.coords);
-          
           const { latitude, longitude } = position.coords;
-          console.log(`📍 Koordinatalar: ${latitude}, ${longitude}`);
-          
           try {
-            // Reverse Geocoding (Nominatim API - OpenStreetMap)
-            console.log('🌍 Nominatim API ga so\'rov yuborilmoqda...');
-            const response = await fetch(
-              `https://nominatim.openstreetmap.org/reverse?format=json&lat=${latitude}&lon=${longitude}&accept-language=uz`,
-              {
-                headers: {
-                  'User-Agent': 'Uzbekistan-Location-App'
-                }
-              }
+            const { regionId, districtId } = await resolveRegionDistrictFromCoords(
+              latitude,
+              longitude,
             );
-            
-            if (!response.ok) {
-              throw new Error('Nominatim API xatolik berdi');
-            }
-            
-            const data = await response.json();
-            console.log('🗺️ Nominatim natija:', data);
-            
-            // Manzil ma'lumotlarini olish
-            const address = data.address;
-            let detectedRegion = '';
-            let detectedDistrict = '';
-            
-            // Viloyatni aniqlash (state, province, yoki region)
-            const stateFromAPI = address.state || address.province || address.region || '';
-            console.log(`📍 API'dan viloyat: ${stateFromAPI}`);
-            
-            // Tumanni aniqlash (county, city_district, suburb, city, town)
-            const districtFromAPI = address.county || address.city_district || address.suburb || 
-                                   address.city || address.town || address.village || '';
-            console.log(`📍 API'dan tuman: ${districtFromAPI}`);
-            
-            // Viloyatni topish (bizning ro'yxatimizdan)
-            Object.keys(uzbekistanRegions).forEach(region => {
-              const regionLower = region.toLowerCase();
-              const stateLower = stateFromAPI.toLowerCase();
-              
-              // Aniq mos kelish yoki qisman mos kelish
-              if (stateLower.includes(regionLower) || regionLower.includes(stateLower) ||
-                  stateLower.includes(region.replace(/'/g, '').toLowerCase())) {
-                detectedRegion = region;
-              }
-            });
-            
-            // Agar viloyat topilmasa, eng yaqin viloyatni topish
-            if (!detectedRegion) {
-              console.log('⚠️ API viloyatni aniqlay olmadi, masofadan hisoblaymiz...');
-              detectedRegion = findNearestRegion(latitude, longitude);
-            }
-            
-            console.log(`✅ Aniqlangan viloyat: ${detectedRegion}`);
-            
-            // Tumanni topish (agar viloyat topilgan bo'lsa)
-            if (detectedRegion) {
-              const districts = uzbekistanRegions[detectedRegion as keyof typeof uzbekistanRegions];
-              
-              // API'dan kelgan tuman nomini bizning ro'yxatda qidirish
-              if (districtFromAPI) {
-                const districtLower = districtFromAPI.toLowerCase();
-                
-                // Aniq yoki qisman mos keluvchi tumanni topish
-                const matchedDistrict = districts.find(d => {
-                  const dLower = d.toLowerCase();
-                  return dLower.includes(districtLower) || 
-                         districtLower.includes(dLower) ||
-                         districtLower.includes(d.replace(/'/g, '').toLowerCase()) ||
-                         dLower.includes(districtFromAPI.replace(/'/g, '').toLowerCase());
-                });
-                
-                if (matchedDistrict) {
-                  detectedDistrict = matchedDistrict;
-                  console.log(`✅ Aniqlangan tuman: ${detectedDistrict}`);
-                }
-              }
-              
-              // Agar tuman topilmasa, birinchi tumanni tanlash
-              if (!detectedDistrict) {
-                detectedDistrict = districts[0];
-                console.log(`⚠️ Tuman aniqlanmadi, birinchi tuman tanlanadi: ${detectedDistrict}`);
-              }
-            }
-            
-            // Natijani saqlash va modal yopish
-            console.log(`🎯 Final: ${detectedRegion} - ${detectedDistrict}`);
-            onLocationSelect(detectedRegion, detectedDistrict);
+            onLocationSelect(regionId, districtId);
             setIsDetecting(false);
             onClose();
-            
           } catch (geoError) {
-            console.error('❌ Reverse Geocoding xatolik:', geoError);
-            console.log('⚠️ Masofadan hisoblash usuli ishlatiladi...');
-            
-            // Fallback: Eng yaqin viloyatni topish
-            const detectedRegion = findNearestRegion(latitude, longitude);
-            const districts = uzbekistanRegions[detectedRegion as keyof typeof uzbekistanRegions];
-            const firstDistrict = districts[0];
-            
-            console.log(`🎯 Fallback: ${detectedRegion} - ${firstDistrict}`);
-            onLocationSelect(detectedRegion, firstDistrict);
+            console.error('Joylashuvni qayta ishlashda xatolik:', geoError);
             setIsDetecting(false);
-            onClose();
+            setErrorMessage('Manzilni aniqlab bo‘lmadi. Qo‘lda tanlang.');
+            setTimeout(() => setErrorMessage(null), 5000);
           }
         },
         // ERROR callback
@@ -248,9 +146,9 @@ export function LocationModal({
         },
         // OPTIONS
         {
-          enableHighAccuracy: true,  // Yuqori aniqlik
-          timeout: 10000,            // 10 soniya timeout
-          maximumAge: 0              // Keshni ishlatmaslik
+          enableHighAccuracy: true,
+          timeout: 20000,
+          maximumAge: 0,
         }
       );
     } catch (error) {
@@ -263,9 +161,12 @@ export function LocationModal({
 
   const handleBack = () => {
     if (step === 'district') {
+      setDistrictSearchQuery('');
       setStep('region');
     }
   };
+
+  if (!isOpen) return null;
 
   if (isIOS) {
     return (
@@ -386,11 +287,52 @@ export function LocationModal({
             </div>
           )}
 
+          {/* Location search */}
+          <div className="px-4 pb-2">
+            <div
+              className="relative flex items-center rounded-2xl"
+              style={{
+                background: isDark ? 'rgba(255, 255, 255, 0.07)' : 'rgba(0, 0, 0, 0.05)',
+                border: isDark ? '0.5px solid rgba(255, 255, 255, 0.12)' : '0.5px solid rgba(0, 0, 0, 0.08)',
+                boxShadow: isDark
+                  ? 'inset 0 1px 0 rgba(255, 255, 255, 0.06)'
+                  : 'inset 0 1px 0 rgba(255, 255, 255, 0.8)',
+              }}
+            >
+              <Search
+                className="absolute left-3.5 size-5 shrink-0 pointer-events-none opacity-45"
+                style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.45)' }}
+                strokeWidth={2.25}
+                aria-hidden
+              />
+              <input
+                type="search"
+                enterKeyHint="search"
+                placeholder={step === 'region' ? 'Viloyat qidirish...' : 'Tuman qidirish...'}
+                value={step === 'region' ? regionSearchQuery : districtSearchQuery}
+                onChange={(e) =>
+                  step === 'region'
+                    ? setRegionSearchQuery(e.target.value)
+                    : setDistrictSearchQuery(e.target.value)
+                }
+                className="w-full min-h-[48px] py-3 pl-11 pr-3 bg-transparent text-base outline-none"
+                style={{ color: isDark ? '#ffffff' : '#111827' }}
+              />
+            </div>
+          </div>
+
           {/* Content */}
           <div className="px-4 py-3 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(80vh - 140px)' }}>
             {step === 'region' ? (
-              // Regions List
-              regions.map((region) => (
+              filteredRegions.length === 0 ? (
+                <p
+                  className="text-center py-10 px-4 text-sm font-medium"
+                  style={{ color: isDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.45)' }}
+                >
+                  Hech narsa topilmadi
+                </p>
+              ) : (
+              filteredRegions.map((region) => (
                 <button
                   key={region.id}
                   onClick={() => handleRegionSelect(region.id)}
@@ -457,9 +399,17 @@ export function LocationModal({
                   />
                 </button>
               ))
+            )
             ) : (
-              // Districts List
-              selectedRegionObj?.districts.map((district) => (
+              filteredDistricts.length === 0 ? (
+                <p
+                  className="text-center py-10 px-4 text-sm font-medium"
+                  style={{ color: isDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.45)' }}
+                >
+                  Hech narsa topilmadi
+                </p>
+              ) : (
+              filteredDistricts.map((district) => (
                 <button
                   key={district.id}
                   onClick={() => handleDistrictSelect(district.id)}
@@ -510,6 +460,7 @@ export function LocationModal({
                   )}
                 </button>
               ))
+            )
             )}
           </div>
         </div>
@@ -635,11 +586,49 @@ export function LocationModal({
           </div>
         )}
 
+        {/* Location search */}
+        <div className="px-4 pb-2">
+          <div
+            className="relative flex items-center rounded-xl"
+            style={{
+              background: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.05)',
+              border: isDark ? '1px solid rgba(255, 255, 255, 0.08)' : '1px solid rgba(0, 0, 0, 0.08)',
+            }}
+          >
+            <Search
+              className="absolute left-3 size-5 shrink-0 pointer-events-none opacity-45"
+              style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.45)' }}
+              strokeWidth={2}
+              aria-hidden
+            />
+            <input
+              type="search"
+              enterKeyHint="search"
+              placeholder={step === 'region' ? 'Viloyat qidirish...' : 'Tuman qidirish...'}
+              value={step === 'region' ? regionSearchQuery : districtSearchQuery}
+              onChange={(e) =>
+                step === 'region'
+                  ? setRegionSearchQuery(e.target.value)
+                  : setDistrictSearchQuery(e.target.value)
+              }
+              className="w-full min-h-[48px] py-3 pl-10 pr-3 bg-transparent text-base font-bold outline-none"
+              style={{ color: isDark ? '#ffffff' : '#111827' }}
+            />
+          </div>
+        </div>
+
         {/* Content */}
         <div className="px-4 py-3 space-y-2 overflow-y-auto" style={{ maxHeight: 'calc(80vh - 140px)' }}>
           {step === 'region' ? (
-            // Regions List
-            regions.map((region) => (
+            filteredRegions.length === 0 ? (
+              <p
+                className="text-center py-10 px-4 text-sm font-medium"
+                style={{ color: isDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.45)' }}
+              >
+                Hech narsa topilmadi
+              </p>
+            ) : (
+            filteredRegions.map((region) => (
               <button
                 key={region.id}
                 onClick={() => handleRegionSelect(region.id)}
@@ -690,9 +679,17 @@ export function LocationModal({
                 />
               </button>
             ))
+          )
           ) : (
-            // Districts List
-            selectedRegionObj?.districts.map((district) => (
+            filteredDistricts.length === 0 ? (
+              <p
+                className="text-center py-10 px-4 text-sm font-medium"
+                style={{ color: isDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.45)' }}
+              >
+                Hech narsa topilmadi
+              </p>
+            ) : (
+            filteredDistricts.map((district) => (
               <button
                 key={district.id}
                 onClick={() => handleDistrictSelect(district.id)}
@@ -733,6 +730,7 @@ export function LocationModal({
                 )}
               </button>
             ))
+          )
           )}
         </div>
       </div>

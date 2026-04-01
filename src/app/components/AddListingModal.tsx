@@ -7,6 +7,7 @@ import { carCategories } from '../data/cars';
 import { regions } from '../data/regions';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { openPaymentWindow } from '../services/paymentService';
 
 interface AddListingModalProps {
   isOpen: boolean;
@@ -188,6 +189,26 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
     }
   }, [isOpen]);
 
+  const runListingFeePoll = (txId: string) => {
+    setListingFeeTransactionId(null);
+    setFeePolling(true);
+    const started = Date.now();
+    const pollLoop = async () => {
+      while (Date.now() - started < 5 * 60_000) {
+        await new Promise((r) => setTimeout(r, 2500));
+        if (await verifyListingFeeCredit(txId)) {
+          setListingFeeTransactionId(txId);
+          setFeePolling(false);
+          toast.success('To‘lov qabul qilindi — endi e‘lonni to‘ldiring va yuboring.');
+          return;
+        }
+      }
+      setFeePolling(false);
+      setError('To‘lov kutilmoqda yoki vaqt tugadi. «To‘lovni tekshirish» tugmasini bosing.');
+    };
+    void pollLoop();
+  };
+
   const startListingFeeClick = async () => {
     if (!accessToken?.trim() || !userPhone?.trim()) {
       setError('Telefon yoki sessiya yo‘q. Qayta kiring.');
@@ -210,27 +231,44 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
       const txId = data.listingFeeTransactionId || data.transaction?.id;
       if (!txId || !data.paymentUrl) throw new Error('Server javobi noto‘g‘ri');
       sessionStorage.setItem(listingFeeSessionKey(userId, userPhone), txId);
-      setListingFeeTransactionId(null);
       window.open(data.paymentUrl, '_blank', 'noopener,noreferrer');
       setFeePaymentBusy(false);
-      setFeePolling(true);
-      const started = Date.now();
-      const pollLoop = async () => {
-        while (Date.now() - started < 5 * 60_000) {
-          await new Promise((r) => setTimeout(r, 2500));
-          if (await verifyListingFeeCredit(txId)) {
-            setListingFeeTransactionId(txId);
-            setFeePolling(false);
-            toast.success('To‘lov qabul qilindi — endi e‘lonni to‘ldiring va yuboring.');
-            return;
-          }
-        }
-        setFeePolling(false);
-        setError('To‘lov kutilmoqda yoki vaqt tugadi. «To‘lovni tekshirish» tugmasini bosing.');
-      };
-      void pollLoop();
+      runListingFeePoll(txId);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Click ochilmadi');
+      setFeePaymentBusy(false);
+      setFeePolling(false);
+    }
+  };
+
+  const startListingFeePayme = async () => {
+    if (!accessToken?.trim() || !userPhone?.trim()) {
+      setError('Telefon yoki sessiya yo‘q. Qayta kiring.');
+      return;
+    }
+    setFeePaymentBusy(true);
+    setError('');
+    try {
+      const res = await fetch(`${apiBase}/listings/fee/payme-create`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${publicAnonKey}`,
+          'X-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ phone: userPhone.trim() }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(data.error || 'Payme cheki yaratilmadi');
+      const txId = data.listingFeeTransactionId || data.transaction?.id;
+      const payUrl = data.paymentUrl || data.checkoutUrl;
+      if (!txId || !payUrl) throw new Error('Server javobi noto‘g‘ri');
+      sessionStorage.setItem(listingFeeSessionKey(userId, userPhone), txId);
+      openPaymentWindow(String(payUrl));
+      setFeePaymentBusy(false);
+      runListingFeePoll(txId);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Payme ochilmadi');
       setFeePaymentBusy(false);
       setFeePolling(false);
     }
@@ -243,7 +281,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
     }
     const stored = sessionStorage.getItem(listingFeeSessionKey(userId, userPhone));
     if (!stored) {
-      toast.error('Avval «Click orqali to‘lash» ni bosing.');
+      toast.error('Avval «Click» yoki «Payme» orqali to‘lashni boshlang.');
       return;
     }
     setFeePolling(true);
@@ -253,7 +291,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         setListingFeeTransactionId(stored);
         toast.success('To‘lov qabul qilindi.');
       } else {
-        toast.error('To‘lov hali tasdiqlanmagan. Click da to‘lovni yakunlang yoki biroz kuting.');
+        toast.error('To‘lov hali tasdiqlanmagan. To‘lovni yakunlang yoki biroz kuting.');
       }
     } finally {
       setFeePolling(false);
@@ -369,7 +407,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
 
     if (listingQuota?.requiresFeeForNext && !listingFeeTransactionId?.trim()) {
       setError(
-        `Bu telefon bo‘yicha ${listingQuota.freeLimit} tadan ortiq e‘lon uchun avval ${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m to‘lang (Click).`,
+        `Bu telefon bo‘yicha ${listingQuota.freeLimit} tadan ortiq e‘lon uchun avval ${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m to‘lang (Click yoki Payme).`,
       );
       return;
     }
@@ -655,27 +693,44 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                       <strong>
                         {(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so&apos;m
                       </strong>{' '}
-                      (Click). Avval to&apos;lang, keyin turini tanlang va e&apos;lonni yuboring.
+                      (Click yoki Payme). Avval to&apos;lang, keyin turini tanlang va e&apos;lonni yuboring.
                     </p>
                     {listingFeeTransactionId ? (
                       <p className="font-medium" style={{ color: '#10b981' }}>
                         To&apos;lov qabul qilindi. Endi turini tanlab e&apos;lonni joylashtirishingiz mumkin.
                       </p>
                     ) : (
-                      <div className="flex flex-col sm:flex-row gap-2 mt-2">
-                        <button
-                          type="button"
-                          onClick={startListingFeeClick}
-                          disabled={feePaymentBusy || feePolling}
-                          className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50"
-                          style={{ backgroundImage: accentColor.gradient }}
-                        >
-                          {feePaymentBusy
-                            ? 'Tayyorlanmoqda…'
-                            : feePolling
-                              ? 'To&apos;lov kutilmoqda…'
-                              : `${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so&apos;m — Click orqali to&apos;lash`}
-                        </button>
+                      <div className="flex flex-col gap-2 mt-2">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={startListingFeeClick}
+                            disabled={feePaymentBusy || feePolling}
+                            className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50"
+                            style={{ backgroundImage: accentColor.gradient }}
+                          >
+                            {feePaymentBusy
+                              ? 'Tayyorlanmoqda…'
+                              : feePolling
+                                ? 'To‘lov kutilmoqda…'
+                                : `${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m — Click`}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={startListingFeePayme}
+                            disabled={feePaymentBusy || feePolling}
+                            className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50"
+                            style={{
+                              background: 'linear-gradient(135deg, #00AACB 0%, #008BA3 100%)',
+                            }}
+                          >
+                            {feePaymentBusy
+                              ? 'Tayyorlanmoqda…'
+                              : feePolling
+                                ? 'To‘lov kutilmoqda…'
+                                : `${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m — Payme`}
+                          </button>
+                        </div>
                         <button
                           type="button"
                           onClick={checkPaidFeeManually}

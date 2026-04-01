@@ -702,7 +702,11 @@ export default function AppContent() {
   return (
     <CheckoutFlowProvider value={{ openCheckoutFlow }}>
     <div 
-      className={isCommunityFullscreen ? 'h-screen overflow-hidden' : 'min-h-screen pb-24 sm:pb-32'}
+      className={
+        isCommunityFullscreen
+          ? 'h-dvh min-h-dvh overflow-hidden'
+          : 'min-h-dvh pb-24 sm:pb-32 max-[639px]:pb-[max(6rem,calc(6rem+env(safe-area-inset-bottom,0px)))]'
+      }
       style={{ backgroundColor: bgColor, color: textColor }}
     >
       {/* Backend health test - runs on mount */}

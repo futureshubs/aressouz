@@ -548,7 +548,7 @@ export default function BranchDashboard() {
       )}
 
       {/* Main Content */}
-      <main className="lg:ml-64">
+      <main className="lg:ml-64 min-w-0 overflow-x-hidden">
         {/* Header */}
         <header 
           className="border-b sticky top-0 z-40"

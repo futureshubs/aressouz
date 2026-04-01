@@ -21,8 +21,9 @@ import {
   createReceipt as paymeCreateReceipt,
   getReceipt as paymeGetReceipt,
   isPaymeConfiguredForMode,
+  parsePaycomHttpsBackUrl,
   parsePaymeKvCredentials,
-  resolvePaycomUseTest,
+  resolvePaycomUseTestForPayme,
   sendReceipt as paymeSendReceipt,
 } from "./payme.tsx";
 import * as atmos from "./atmos.tsx";
@@ -42,7 +43,7 @@ async function paycomCallOptsForReceiptIdWithKv(receiptId: string) {
   const useTest =
     typeof fromReceipt?.useTest === "boolean"
       ? fromReceipt.useTest
-      : resolvePaycomUseTest((paymeConfig as { isTestMode?: unknown } | null)?.isTestMode);
+      : resolvePaycomUseTestForPayme(paymeConfig);
   return { useTest, kvCredentials };
 }
 
@@ -5987,8 +5988,11 @@ app.post("/make-server-27d0d16c/payments/payme/create", async (c) => {
       return c.json({ error: 'Payme to\'lov usuli faol emas' }, 400);
     }
 
-    const resolvedTest = resolvePaycomUseTest((paymeConfig as { isTestMode?: unknown }).isTestMode);
+    const resolvedTest = resolvePaycomUseTestForPayme(paymeConfig);
     const kvPaymeCreds = parsePaymeKvCredentials(paymeConfig);
+    const checkoutBackPm = parsePaycomHttpsBackUrl(
+      (paymeConfig as { config?: { callbackUrl?: unknown } } | null)?.config?.callbackUrl,
+    );
     if (!isPaymeConfiguredForMode(resolvedTest, kvPaymeCreds)) {
       return c.json(
         {
@@ -6019,6 +6023,7 @@ app.post("/make-server-27d0d16c/payments/payme/create", async (c) => {
     const created = await paymeCreateReceipt(amountNum, oid, items, undefined, `Buyurtma ${oid}`, {
       useTest: resolvedTest,
       kvCredentials: kvPaymeCreds,
+      checkoutBackUrl: checkoutBackPm,
     });
 
     if (!created.success) {
@@ -7835,7 +7840,7 @@ app.route('/make-server-27d0d16c/click', clickRoutes);
 
 const paymeCreateReceiptHandlerV2 = async (c: Context) => {
   try {
-    const { amount, orderId, items, phone } = await c.req.json();
+    const { amount, orderId, items, phone, returnUrl } = await c.req.json();
 
     console.log('💳 Creating Payme receipt:', { amount, orderId, itemsCount: items?.length, phone });
 
@@ -7848,8 +7853,12 @@ const paymeCreateReceiptHandlerV2 = async (c: Context) => {
     }
 
     const paymeConfig = await kv.get('payment_method:payme');
-    const resolvedTest = resolvePaycomUseTest((paymeConfig as { isTestMode?: unknown } | null)?.isTestMode);
+    const resolvedTest = resolvePaycomUseTestForPayme(paymeConfig);
     const kvPaymeCreds = parsePaymeKvCredentials(paymeConfig);
+    const checkoutBackUrl =
+      parsePaycomHttpsBackUrl(
+        (paymeConfig as { config?: { callbackUrl?: unknown } } | null)?.config?.callbackUrl,
+      ) ?? parsePaycomHttpsBackUrl(returnUrl);
 
     console.log('💳 Paycom create-receipt:', resolvedTest ? 'TEST' : 'PROD');
 
@@ -7868,6 +7877,7 @@ const paymeCreateReceiptHandlerV2 = async (c: Context) => {
     const result = await paymeCreateReceipt(amount, orderId, items, phone, undefined, {
       useTest: resolvedTest,
       kvCredentials: kvPaymeCreds,
+      checkoutBackUrl,
     });
 
     if (!result.success) {

@@ -176,13 +176,23 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
 
       if (!response.ok) {
         // If user doesn't exist, switch to signup mode
-        if (data.error?.includes('ro\'yxatdan o\'tmagan')) {
+        const notRegistered =
+          data.code === 'SMS_USER_NOT_REGISTERED' ||
+          String(data.error || '').includes('ro\'yxatdan o\'tmagan') ||
+          String(data.error || '').includes('royxatdan o\'tmagan');
+        if (notRegistered) {
           setIsNewUser(true);
           setStep('details');
           setLoading(false);
           return;
         }
-        throw new Error(data.error || 'Kirishda xatolik');
+        const hint =
+          data.code === 'SMS_CODE_WRONG'
+            ? 'Kod noto‘g‘ri. SMS dagi 6 raqamni tekshiring.'
+            : data.code === 'SMS_CODE_EXPIRED' || data.code === 'SMS_CODE_MISSING'
+              ? 'Kod eskirgan yoki yuborilmagan. «Qayta yuborish» bilan yangi kod oling.'
+              : data.error || 'Kirishda xatolik';
+        throw new Error(hint);
       }
 
       // Sign in successful - show success animation

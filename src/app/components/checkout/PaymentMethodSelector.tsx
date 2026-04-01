@@ -16,6 +16,7 @@ import { API_BASE_URL, publicAnonKey } from '../../../../utils/supabase/info';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 import { coerceUiPaymentTestMode } from '../../utils/paymentTestMode';
 import { SkeletonBox } from '../skeletons';
+import { openPaymentWindow } from '../../services/paymentService';
 
 interface PaymentMethod {
   type: string;
@@ -191,9 +192,8 @@ export default function PaymentMethodSelector({
       
       // Call parent component with transaction details
       onPaymentInitiated(data.transaction.id, data.paymentUrl);
-      
-      // Open payment URL in new window
-      window.open(data.paymentUrl, '_blank');
+
+      openPaymentWindow(data.paymentUrl);
       
     } catch (error) {
       console.error('Payment error:', error);

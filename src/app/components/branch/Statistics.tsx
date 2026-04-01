@@ -1,29 +1,27 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
+import { useNavigate } from 'react-router';
 import { useTheme } from '../../context/ThemeContext';
-import { 
-  TrendingUp, 
-  BarChart3, 
-  PieChart, 
-  Activity, 
-  Users, 
-  ShoppingCart, 
-  DollarSign, 
-  Package, 
+import {
+  TrendingUp,
+  BarChart3,
+  Activity,
+  Users,
+  ShoppingCart,
+  DollarSign,
+  Package,
   Clock,
-  Calendar,
-  Download,
   RefreshCw,
-  Filter,
   ArrowUp,
   ArrowDown,
   Minus,
   Target,
   Zap,
   Award,
-  TrendingDown
 } from 'lucide-react';
+import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import { API_BASE_URL, DEV_API_BASE_URL } from '../../../../utils/supabase/info';
+import { buildBranchHeaders } from '../../utils/requestAuth';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 
 interface StatisticsData {
@@ -73,6 +71,13 @@ interface StatisticsProps {
     district?: string;
     phone?: string;
   };
+}
+
+function branchApiBase(): string {
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return DEV_API_BASE_URL;
+  }
+  return API_BASE_URL;
 }
 
 const createFallbackStatisticsData = (): StatisticsData => ({
@@ -195,36 +200,32 @@ const normalizeStatisticsData = (raw: any): StatisticsData => {
 };
 
 export function Statistics({ branchId, branchInfo }: StatisticsProps) {
+  const navigate = useNavigate();
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
   const [statisticsData, setStatisticsData] = useState<StatisticsData | null>(null);
   const [isLoading, setIsLoading] = useState(true);
-  const [period, setPeriod] = useState('month'); // week, month, quarter, year
-  const [selectedMetric, setSelectedMetric] = useState('revenue');
+  const [period, setPeriod] = useState('month');
   const visibilityRefetchTick = useVisibilityTick();
 
   const loadStatistics = async () => {
     try {
       setIsLoading(true);
       setStatisticsData(null);
-      console.log('📈 Loading statistics for branch:', branchId);
 
-      const params = new URLSearchParams({
-        branchId,
-        period,
-        metric: selectedMetric
+      const params = new URLSearchParams({ period });
+
+      const response = await fetch(`${branchApiBase()}/statistics?${params}`, {
+        headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
       });
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/statistics?${params}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      if (response.status === 401 || response.status === 403) {
+        localStorage.removeItem('branchSession');
+        toast.error('Sessiya tugadi. Qayta kiring.');
+        navigate('/filyal');
+        return;
+      }
 
       if (!response.ok) {
         const errorText = await response.text();
@@ -234,12 +235,11 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
       const data = await response.json();
       if (data.success) {
         setStatisticsData(normalizeStatisticsData(data.data));
-        console.log('✅ Statistics loaded from API');
       } else {
         throw new Error(data.error || 'Statistika ma\'lumotlari olinmadi');
       }
     } catch (error) {
-      console.error('❌ Error loading statistics:', error);
+      console.error('Error loading statistics:', error);
       setStatisticsData(null);
       toast.error('Statistika ma\'lumotlarini yuklashda xatolik');
     } finally {
@@ -248,8 +248,13 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
   };
 
   useEffect(() => {
-    loadStatistics();
-  }, [branchId, period, selectedMetric, visibilityRefetchTick]);
+    void loadStatistics();
+  }, [branchId, period, visibilityRefetchTick]);
+
+  const peakMaxOrders = useMemo(() => {
+    if (!statisticsData?.performance.peakHours.length) return 1;
+    return Math.max(...statisticsData.performance.peakHours.map((h) => h.orders), 1);
+  }, [statisticsData]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('uz-UZ', {
@@ -269,21 +274,19 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
     borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
   };
 
-  const MetricCard = ({ 
-    title, 
-    value, 
-    subtitle, 
-    change, 
-    icon: Icon, 
-    color,
-    format = 'number'
-  }: { 
-    title: string; 
-    value: number; 
-    subtitle?: string; 
-    change?: number; 
-    icon: any; 
-    color: string;
+  const MetricCard = ({
+    title,
+    value,
+    subtitle,
+    change,
+    icon: Icon,
+    format = 'number',
+  }: {
+    title: string;
+    value: number;
+    subtitle?: string;
+    change?: number;
+    icon: LucideIcon;
     format?: 'number' | 'currency' | 'percentage' | 'time';
   }) => {
     let formattedValue: string;
@@ -381,7 +384,8 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
         <div>
           <h1 className="text-3xl font-bold mb-2">Statistika</h1>
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Filialning batafsil statistik ko'rsatkichlari
+            Umumiy ko‘rsatkichlar, soatlar bo‘yicha yuklama va taqqoslash
+            {branchInfo?.region ? ` — ${branchInfo.region}` : ''}
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -424,7 +428,6 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
             value={statisticsData.overview.totalRevenue}
             change={statisticsData.changes.totalRevenue}
             icon={DollarSign}
-            color={accentColor.color}
             format="currency"
           />
           <MetricCard
@@ -432,14 +435,12 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
             value={statisticsData.overview.totalOrders}
             change={statisticsData.changes.totalOrders}
             icon={ShoppingCart}
-            color={accentColor.color}
           />
           <MetricCard
             title="O'rtacha buyurtma qiymati"
             value={statisticsData.overview.averageOrderValue}
             change={statisticsData.changes.averageOrderValue}
             icon={Target}
-            color={accentColor.color}
             format="currency"
           />
           <MetricCard
@@ -447,7 +448,6 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
             value={statisticsData.overview.conversionRate}
             change={statisticsData.changes.conversionRate}
             icon={TrendingUp}
-            color={accentColor.color}
             format="percentage"
           />
         </div>
@@ -465,7 +465,6 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
             value={statisticsData.overview.customerRetention}
             change={statisticsData.changes.customerRetention}
             icon={Users}
-            color={accentColor.color}
             format="percentage"
           />
           <MetricCard
@@ -473,7 +472,6 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
             value={statisticsData.overview.netProfit}
             change={statisticsData.changes.netProfit}
             icon={Zap}
-            color={accentColor.color}
             format="currency"
           />
           <MetricCard
@@ -481,7 +479,6 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
             value={statisticsData.overview.profitMargin}
             change={statisticsData.changes.profitMargin}
             icon={TrendingUp}
-            color={accentColor.color}
             format="percentage"
           />
           <MetricCard
@@ -489,114 +486,110 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
             value={statisticsData.overview.operatingCosts}
             change={statisticsData.changes.operatingCosts}
             icon={Package}
-            color={accentColor.color}
             format="currency"
           />
         </div>
       </div>
 
-      {/* Top Products */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <div 
-          className="p-6 rounded-2xl border"
-          style={surfaceStyle}
-        >
-          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
-            <Target className="w-5 h-5" style={{ color: accentColor.color }} />
-            Eng yaxshi mahsulotlar
-          </h3>
-          <div className="space-y-3">
-            {statisticsData.performance.topProducts.map((product, index) => (
-              <div key={index} className="flex items-center justify-between p-3 rounded-xl"
-                style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <div 
-                    className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
-                    style={{ background: `${accentColor.color}20`, color: accentColor.color }}
-                  >
-                    {index + 1}
-                  </div>
-                  <div>
-                    <p className="font-medium">{product.name}</p>
-                    <div className="flex items-center gap-2 text-sm" style={{ 
-                      color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' 
-                    }}>
-                      <span>{product.orders} ta</span>
-                      <span>⭐ {product.rating}</span>
-                    </div>
-                  </div>
-                </div>
-                <p className="font-semibold">{formatCurrency(product.revenue)}</p>
-              </div>
-            ))}
-          </div>
-        </div>
-
-        {/* Peak Hours */}
-        <div 
-          className="p-6 rounded-2xl border"
-          style={surfaceStyle}
-        >
+        <div className="p-6 rounded-2xl border" style={surfaceStyle}>
           <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
             <Clock className="w-5 h-5" style={{ color: accentColor.color }} />
             Eng gavjim soatlar
           </h3>
-          <div className="space-y-3">
-            {statisticsData.performance.peakHours.map((hour, index) => (
-              <div key={index} className="flex items-center justify-between p-3 rounded-xl"
-                style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
-                }}
-              >
-                <div className="flex items-center gap-3">
-                  <div 
-                    className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold"
-                    style={{ background: `${accentColor.color}20`, color: accentColor.color }}
-                  >
-                    {hour.hour}:00
+          {statisticsData.performance.peakHours.length === 0 ? (
+            <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>Ma’lumot yo‘q</p>
+          ) : (
+            <div className="space-y-3">
+              {statisticsData.performance.peakHours.map((hour, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between p-3 rounded-xl"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                  }}
+                >
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div
+                      className="w-8 h-8 rounded-lg flex items-center justify-center text-sm font-bold shrink-0"
+                      style={{ background: `${accentColor.color}20`, color: accentColor.color }}
+                    >
+                      {hour.hour}:00
+                    </div>
+                    <div className="min-w-0">
+                      <p className="font-medium">{hour.orders} buyurtma</p>
+                      <p
+                        className="text-sm truncate"
+                        style={{
+                          color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)',
+                        }}
+                      >
+                        {formatCurrency(hour.revenue)}
+                      </p>
+                    </div>
                   </div>
-                  <div>
-                    <p className="font-medium">{hour.orders} buyurtma</p>
-                    <p className="text-sm" style={{ 
-                      color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' 
-                    }}>
-                      {formatCurrency(hour.revenue)}
-                    </p>
-                  </div>
-                </div>
-                <div className="flex items-center gap-2">
-                  <div className="w-20 h-2 rounded-full overflow-hidden"
+                  <div className="w-20 h-2 rounded-full overflow-hidden shrink-0 ml-2"
                     style={{
                       background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
                     }}
                   >
-                    <div 
+                    <div
                       className="h-full rounded-full"
                       style={{
-                        width: `${(hour.orders / 100) * 100}%`,
+                        width: `${(hour.orders / peakMaxOrders) * 100}%`,
                         background: accentColor.gradient,
                       }}
                     />
                   </div>
                 </div>
-              </div>
-            ))}
-          </div>
+              ))}
+            </div>
+          )}
+        </div>
+
+        <div className="p-6 rounded-2xl border" style={surfaceStyle}>
+          <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
+            <Package className="w-5 h-5" style={{ color: accentColor.color }} />
+            Yetkazib berish vaqti (o‘rtacha)
+          </h3>
+          {statisticsData.performance.deliveryTimes.length === 0 ? (
+            <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+              Yakunlangan buyurtmalar bo‘yicha vaqt hisobi yo‘q
+            </p>
+          ) : (
+            <div className="space-y-3">
+              {statisticsData.performance.deliveryTimes.map((row, index) => (
+                <div
+                  key={index}
+                  className="flex items-center justify-between p-3 rounded-xl"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                  }}
+                >
+                  <span className="font-medium">{row.period}</span>
+                  <span className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
+                    {formatTime(row.avgTime)}
+                    {row.target != null && row.target !== row.avgTime ? (
+                      <span className="opacity-70"> · oldingi: {formatTime(row.target)}</span>
+                    ) : null}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
         </div>
       </div>
 
-      {/* Customer Satisfaction */}
-      <div 
-        className="p-6 rounded-2xl border"
-        style={surfaceStyle}
-      >
+      <div className="p-6 rounded-2xl border" style={surfaceStyle}>
         <h3 className="text-lg font-semibold mb-4 flex items-center gap-2">
           <Award className="w-5 h-5" style={{ color: accentColor.color }} />
-          Mijozlar qoniqishi
+          Mijozlar qoniqishi (hisoblangan ko‘rsatkichlar)
         </h3>
+        {statisticsData.performance.customerSatisfaction.length === 0 ? (
+          <p className={`text-sm ${isDark ? 'text-gray-500' : 'text-gray-500'}`}>
+            Reyting va takroriy buyurtmalar bo‘yicha ma’lumot yetarli emas
+          </p>
+        ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
           {statisticsData.performance.customerSatisfaction.map((metric, index) => (
             <div key={index} className="text-center p-4 rounded-xl"
@@ -628,6 +621,7 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
             </div>
           ))}
         </div>
+        )}
       </div>
 
       {/* Comparisons */}

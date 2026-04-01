@@ -4,6 +4,10 @@ import { coerceKvTestMode } from './payment-kv-utils.ts';
  * Paycom Subscribe API (Payme Business) — cheklar
  * https://developer.help.paycom.uz/metody-subscribe-api/
  *
+ * Eski Merchant API (CheckPerformTransaction, CreateTransaction, …) — boshqa integratsiya;
+ * Subscribe oqimida ularning vazifalari JSON-RPC orqali: receipts.create, receipts.check,
+ * receipts.get, receipts.cancel (pastda).
+ *
  * Payme bergan uchta qiymat (Supabase Edge Function → Secrets):
  *   PAYCOM_REGISTER_ID   — ID кассы (Subscribe / Business kabinet, eski «Merchant ID» bilan aralashtirmang)
  *   PAYCOM_SECRET_PROD   — prod kalit
@@ -13,9 +17,9 @@ import { coerceKvTestMode } from './payment-kv-utils.ts';
  *   PAYCOM_USE_TEST=true  → test kalit + https://checkout.test.paycom.uz/api
  *   PAYCOM_USE_TEST=false yoki o‘rnatilmasa → prod kalit + https://checkout.paycom.uz/api
  *
- * Admin KV `payment_method:payme` → `config.merchantId` + `config.secretKey` bo‘lsa, ular
- * Supabase Secrets ustidan ustun: X-Auth shu juftlik bilan yuboriladi (admin panel orqali sozlash).
- * `isTestMode` → test/prod API URL (checkout.test vs checkout.paycom).
+ * X-Auth faqat Supabase Secrets: PAYCOM_REGISTER_ID + PAYCOM_SECRET_PROD / PAYCOM_SECRET_TEST.
+ * `payment_method:payme` KV da faqat `enabled` (checkoutda ko‘rsatish) — kalitlar saqlanmaydi.
+ * Test/prod: Secret `PAYCOM_USE_TEST`.
  * Receipt KV da `useTest` saqlanadi — create/check bir xil muhitda bo‘lsin.
  *
  * Orqaga moslik:
@@ -47,6 +51,45 @@ export function paycomDefaultUseTest(): boolean {
   );
 }
 
+function paycomHttpDebug(): boolean {
+  return ['1', 'true', 'yes'].includes(
+    (Deno.env.get('PAYCOM_DEBUG_LOG') || Deno.env.get('PAYME_HTTP_DEBUG') || '')
+      .toLowerCase()
+      .trim(),
+  );
+}
+
+/** Jurnal: detail.items ichidagi uzun matnlarni qisqartiramiz */
+function sanitizePaycomRpcParamsForLog(
+  method: string,
+  params: Record<string, unknown>,
+): Record<string, unknown> {
+  try {
+    const p = JSON.parse(JSON.stringify(params)) as Record<string, unknown>;
+    const det = p.detail;
+    if (det && typeof det === 'object' && det !== null && 'items' in det) {
+      const items = (det as { items?: unknown }).items;
+      if (Array.isArray(items)) {
+        (det as { items: unknown[] }).items = items.map((it: unknown) => {
+          if (!it || typeof it !== 'object') return it;
+          const o = it as Record<string, unknown>;
+          const t = o.title;
+          return {
+            title: typeof t === 'string' ? `${t.slice(0, 64)}${t.length > 64 ? '…' : ''}` : t,
+            price: o.price,
+            count: o.count,
+            code: o.code,
+            units: o.units,
+          };
+        });
+      }
+    }
+    return { method, params: p };
+  } catch {
+    return { method, params: '[serialize-failed]' };
+  }
+}
+
 /** @deprecated nomi; `coerceKvTestMode` bilan bir xil */
 export function coercePaymeKvTestMode(raw: unknown): boolean | null {
   return coerceKvTestMode(raw);
@@ -75,16 +118,17 @@ export function parsePaymeKvCredentials(paymeConfig: unknown): PaymeKvCredential
   return { merchantId, secretKey };
 }
 
+/**
+ * Test/prod faqat Supabase Secret `PAYCOM_USE_TEST` (admin KV endi ishlatilmaydi).
+ */
+export function resolvePaycomUseTestForPayme(_paymeConfig?: unknown): boolean {
+  return paycomDefaultUseTest();
+}
+
 function resolvePaycomAuth(
   useTest: boolean,
-  kvCredentials: PaymeKvCredentials | null | undefined,
+  _kvCredentials: PaymeKvCredentials | null | undefined,
 ): { registerId: string; secret: string } | null {
-  if (kvCredentials?.merchantId && kvCredentials?.secretKey) {
-    return {
-      registerId: kvCredentials.merchantId.trim(),
-      secret: kvCredentials.secretKey.trim(),
-    };
-  }
   const reg = PAYCOM_REGISTER_ID.trim();
   const sec = getPaycomSecretForMode(useTest);
   if (reg && sec) return { registerId: reg, secret: sec };
@@ -98,19 +142,40 @@ function getPaycomSecretForMode(useTest: boolean): string {
   return (PAYCOM_SECRET_PROD || PAYCOM_SECRET_KEY_LEGACY || PAYME_SECRET_KEY_LEGACY).trim();
 }
 
-function paycomApiUrlForMode(useTest: boolean): string {
-  if (PAYCOM_API_URL_ENV) return PAYCOM_API_URL_ENV.replace(/\/$/, '');
-  return useTest ? 'https://checkout.test.paycom.uz/api' : 'https://checkout.paycom.uz/api';
+/** PAYCOM_API_URL ichida test yoki prod API ekanini aniqlash */
+function paycomApiUrlLooksTest(apiUrl: string): boolean {
+  const s = apiUrl.toLowerCase();
+  try {
+    const u = new URL(apiUrl.includes("://") ? apiUrl : `https://${apiUrl}`);
+    return u.hostname.includes("test.paycom");
+  } catch {
+    return s.includes("test.paycom");
+  }
 }
 
-function paycomCheckoutBaseForMode(useTest: boolean): string {
-  if (PAYCOM_API_URL_ENV) {
-    const u = PAYCOM_API_URL_ENV.replace(/\/$/, '');
-    if (u.includes('test.paycom')) return 'https://checkout.test.paycom.uz';
-    return 'https://checkout.paycom.uz';
+/**
+ * JSON-RPC endpoint — `useTest` bilan majburiy moslik.
+ * OLDINGI XATO: PAYCOM_API_URL har doim ishlatilardi → test kalit + prod /api yoki aksincha:
+ * chek bir muhitda yaratiladi, checkout boshqasida ochiladi → «Чек не найден или оплачен».
+ */
+function paycomApiUrlForMode(useTest: boolean): string {
+  const defaultTest = "https://checkout.test.paycom.uz/api";
+  const defaultProd = "https://checkout.paycom.uz/api";
+  if (!PAYCOM_API_URL_ENV) {
+    return useTest ? defaultTest : defaultProd;
   }
-  return useTest ? 'https://checkout.test.paycom.uz' : 'https://checkout.paycom.uz';
+  const custom = PAYCOM_API_URL_ENV.replace(/\/$/, "");
+  const customIsTest = paycomApiUrlLooksTest(custom);
+  if (useTest !== customIsTest) {
+    console.error(
+      "[paycom] ROOT_CAUSE_FIX: PAYCOM_API_URL muhiti useTest bilan zidd — env e’tiborsiz qoldirildi",
+      { useTest, PAYCOM_API_URL: custom, forcedUrl: useTest ? defaultTest : defaultProd },
+    );
+    return useTest ? defaultTest : defaultProd;
+  }
+  return custom;
 }
+
 
 export function isPaymeConfiguredForMode(
   useTest: boolean,
@@ -125,9 +190,168 @@ export function isPaymeConfigured(): boolean {
 
 export type PaycomCallOpts = {
   useTest?: boolean;
-  /** Admin KV dagi merchantId + secretKey — bo‘lsa Secrets dan ustun */
+  /** @deprecated ishlatilmaydi — X-Auth faqat Supabase Secrets */
   kvCredentials?: PaymeKvCredentials | null;
 };
+
+/** receipts.create checkout havolasi uchun (faqat https) */
+export type CreateReceiptPaycomOpts = PaycomCallOpts & {
+  /** payme.uz ga `back=` — localhost bo‘lsa «чек не найден» chiqishi mumkin */
+  checkoutBackUrl?: string;
+};
+
+/**
+ * Admin KV / client: `null`, "null", "undefined", bo‘sh — rad.
+ * payme.uz ko‘pincha `back` bo‘lmasa yoki noto‘g‘ri bo‘lsa `back=null` va «чек не найден» beradi.
+ */
+export function parsePaycomHttpsBackUrl(raw: unknown): string | undefined {
+  const s = String(raw ?? "").trim();
+  if (!s) return undefined;
+  const lower = s.toLowerCase();
+  if (lower === "null" || lower === "undefined" || lower === "none" || lower === "nil") {
+    return undefined;
+  }
+  if (!/^https:\/\/.+/i.test(s)) return undefined;
+  try {
+    const u = new URL(s);
+    if (u.protocol !== "https:") return undefined;
+    if (u.hostname === "localhost" || u.hostname.endsWith(".local")) return undefined;
+    return u.toString();
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Har doim yaroqli https `back` — Payme `back=null` holatini oldini olish.
+ */
+function resolveCheckoutBackUrl(opts?: CreateReceiptPaycomOpts): string {
+  // SUPABASE_URL ni `back` sifatida ishlatmaymiz — Payme ba’zan rad qilib `back=null` qiladi.
+  const candidates: unknown[] = [
+    opts?.checkoutBackUrl,
+    Deno.env.get("PAYME_CHECKOUT_BACK_URL"),
+    Deno.env.get("PAYCOM_CHECKOUT_BACK_URL"),
+    Deno.env.get("PUBLIC_APP_URL"),
+    Deno.env.get("SITE_URL"),
+    Deno.env.get("APP_URL"),
+    Deno.env.get("NEXT_PUBLIC_SITE_URL"),
+  ];
+  for (const c of candidates) {
+    const v = parsePaycomHttpsBackUrl(c);
+    if (v) return v;
+  }
+  console.warn(
+    "[paycom] checkout `back`: hech qayerda https URL yo‘q — vaqtincha https://payme.uz/ ishlatiladi. " +
+      "Admin → Callback URL (https) yoki Secret PAYME_CHECKOUT_BACK_URL qo‘ying.",
+  );
+  return "https://payme.uz/";
+}
+
+/**
+ * Checkout host FAQAT `useTest` dan — PAYCOM_API_URL dan emas (RPC URL bilan chalkashmasin).
+ * Path da **faqat** result.receipt._id (Mongo ObjectId), encodeURIComponent ishlatilmaydi (hujjatdagi namuna bilan bir xil).
+ */
+function buildSubscribeCheckoutUrl(useTest: boolean, receiptId: string, backHttps: string): string {
+  const id = String(receiptId).trim();
+  if (!/^[a-f0-9]{24}$/i.test(id)) {
+    console.warn(
+      "[paycom] receiptId Mongo ObjectId formatida emas — baribir davom etamiz",
+      { receiptIdPreview: id.slice(0, 32), len: id.length },
+    );
+  }
+  let baseUrl: string;
+  if (useTest) {
+    baseUrl = `https://checkout.test.paycom.uz/${id}`;
+  } else {
+    const style = (Deno.env.get("PAYCOM_CHECKOUT_STYLE") || "paycom").trim().toLowerCase();
+    if (style === "payme" || style === "direct") {
+      console.warn(
+        "[paycom] PAYCOM_CHECKOUT_STYLE=payme: payme.uz/checkout — «чек не найден» bo‘lsa paycom stiliga qayting.",
+      );
+      baseUrl = `https://payme.uz/checkout/${id}`;
+    } else {
+      baseUrl = `https://checkout.paycom.uz/${id}`;
+    }
+  }
+  try {
+    const u = new URL(baseUrl);
+    u.searchParams.set("back", backHttps);
+    return u.toString();
+  } catch {
+    return `${baseUrl}?back=${encodeURIComponent(backHttps)}`;
+  }
+}
+
+/** receipts.create / receipts.get javobidan chek identifikatori (faqat receipt `_id`, order emas) */
+function coercePaycomReceiptIdField(raw: unknown): string | null {
+  if (raw == null) return null;
+  if (typeof raw === "string") {
+    const t = raw.trim();
+    return t.length > 0 ? t : null;
+  }
+  if (typeof raw === "number" && Number.isFinite(raw)) {
+    return String(raw);
+  }
+  if (typeof raw === "object" && raw !== null && "$oid" in (raw as object)) {
+    const oid = (raw as { $oid?: unknown }).$oid;
+    if (oid != null && String(oid).trim() !== "") return String(oid).trim();
+  }
+  return null;
+}
+
+export function extractReceiptIdFromSubscribeResult(result: unknown): string | null {
+  if (!result || typeof result !== "object") return null;
+  const r = result as Record<string, unknown>;
+  const rec = r.receipt;
+  if (rec && typeof rec === "object" && rec !== null) {
+    const o = rec as Record<string, unknown>;
+    const fromUnderscore = coercePaycomReceiptIdField(o._id);
+    if (fromUnderscore) return fromUnderscore;
+    const fromId = coercePaycomReceiptIdField(o.id);
+    if (fromId) return fromId;
+  }
+  const top = coercePaycomReceiptIdField(r._id) ?? coercePaycomReceiptIdField(r.id);
+  return top;
+}
+
+function readSubscribeReceiptState(receipt: unknown): number | undefined {
+  if (!receipt || typeof receipt !== "object") return undefined;
+  const s = (receipt as { state?: unknown }).state;
+  const n = Number(s);
+  return Number.isFinite(n) ? n : undefined;
+}
+
+/** Tashqi chaqiriqlar: chek havolasi + har doim to‘g‘ri `back=` */
+export function buildPaycomCheckoutLink(
+  receiptId: string,
+  useTest: boolean,
+  paycomOpts?: CreateReceiptPaycomOpts,
+): string {
+  const backHttps = resolveCheckoutBackUrl(paycomOpts);
+  return buildSubscribeCheckoutUrl(useTest, receiptId, backHttps);
+}
+
+/** receipts.create bilan bir xil jami (tiyin) — idempotency va validatsiya uchun */
+export function sumItemsTiyinForPaycom(items: PaymeReceiptItem[]): number {
+  let sum = 0;
+  for (const item of items) {
+    const price = Math.round(Number(item.price) * 100);
+    const count = Number(item.count) || 1;
+    if (!Number.isFinite(price) || price <= 0 || !Number.isFinite(count) || count <= 0) continue;
+    sum += price * count;
+  }
+  return sum;
+}
+
+/** Supabase Logs — PAYCOM_DEBUG_LOG yoki PAYME_HTTP_DEBUG=true */
+function paycomTrace(
+  phase: "rpc.request" | "rpc.response" | "rpc.error",
+  payload: Record<string, unknown>,
+) {
+  const verbose = paycomHttpDebug();
+  if (!verbose && phase === "rpc.request") return;
+  console.log(`[paycom] ${phase}`, payload);
+}
 
 let rpcSeq = 0;
 function nextRpcId(): number {
@@ -147,7 +371,7 @@ function augmentPaycomUserError(msg: string): string {
     m.includes('unauthorized') ||
     m.includes('авторизац')
   ) {
-    return `${msg} — Payme API: X-Auth rad etildi. Admin → To‘lovlar → Payme: «Merchant ID» (ID кассы) va «Secret Key» to‘g‘ri va test rejimi kalit bilan mos ekanini tekshiring; yoki Supabase Secrets: PAYCOM_REGISTER_ID + PAYCOM_SECRET_PROD / PAYCOM_SECRET_TEST.`;
+    return `${msg} — Payme API: X-Auth rad etildi. Supabase Edge Function Secrets: PAYCOM_REGISTER_ID va PAYCOM_SECRET_PROD (yoki test uchun PAYCOM_SECRET_TEST), PAYCOM_USE_TEST mosligi.`;
   }
   if (
     m.includes('поставщик') ||
@@ -155,7 +379,7 @@ function augmentPaycomUserError(msg: string): string {
     m.includes('заблокирован') ||
     m.includes('blocked')
   ) {
-    return `${msg} — Payme: «ID кассы» (PAYCOM_REGISTER_ID / PAYME_MERCHANT_ID) va kalit bir xil muhitda bo‘lsin (test+test kalit yoki prod+prod). Admin «test rejimi» yoki PAYCOM_USE_TEST mosligini tekshiring; eski merchant id касса ID si bilan farq qilishi mumkin.`;
+    return `${msg} — Payme: ID кассы (PAYCOM_REGISTER_ID) va kalit bir xil muhitda bo‘lsin (test+test yoki prod+prod). PAYCOM_USE_TEST ni tekshiring.`;
   }
   return msg;
 }
@@ -172,8 +396,8 @@ async function makePaymeRequest<T = unknown>(
     return {
       success: false,
       error: useTest
-        ? 'Paycom TEST: Admin panelda Payme «Merchant ID» va «Secret Key» yoki Secrets: PAYCOM_REGISTER_ID + PAYCOM_SECRET_TEST (yoki PAYME_SECRET_KEY)'
-        : 'Paycom PROD: Admin panelda Payme «Merchant ID» va «Secret Key» yoki Secrets: PAYCOM_REGISTER_ID + PAYCOM_SECRET_PROD (yoki PAYME_SECRET_KEY)',
+        ? 'Paycom TEST: Supabase Secrets — PAYCOM_REGISTER_ID + PAYCOM_SECRET_TEST (yoki PAYME_SECRET_KEY)'
+        : 'Paycom PROD: Supabase Secrets — PAYCOM_REGISTER_ID + PAYCOM_SECRET_PROD (yoki PAYME_SECRET_KEY)',
     };
   }
 
@@ -182,6 +406,23 @@ async function makePaymeRequest<T = unknown>(
   const body = { jsonrpc: '2.0' as const, id, method, params };
 
   const xAuth = `${auth.registerId}:${auth.secret}`;
+  const orderRef =
+    params.account && typeof params.account === "object" && params.account !== null &&
+      "order_id" in params.account
+      ? String((params.account as { order_id?: unknown }).order_id ?? "")
+      : "";
+  const t0 = Date.now();
+  const reqShort = {
+    method,
+    useTest,
+    order_id: orderRef || undefined,
+    registerIdTail: auth.registerId.length > 4 ? `…${auth.registerId.slice(-4)}` : "?",
+  };
+  if (paycomHttpDebug()) {
+    paycomTrace("rpc.request", { ...reqShort, ...sanitizePaycomRpcParamsForLog(method, params) });
+  } else {
+    console.log(`[paycom] rpc → ${method}`, reqShort);
+  }
 
   try {
     const res = await fetch(url, {
@@ -199,6 +440,12 @@ async function makePaymeRequest<T = unknown>(
     try {
       json = JSON.parse(text);
     } catch {
+      paycomTrace("rpc.error", {
+        method,
+        ms: Date.now() - t0,
+        http: res.status,
+        parseError: true,
+      });
       return {
         success: false,
         error: `Paycom javob JSON emas (${res.status}): ${text.slice(0, 200)}`,
@@ -211,11 +458,39 @@ async function makePaymeRequest<T = unknown>(
         typeof json.error === 'string'
           ? json.error
           : json.error.message || json.error.msg || JSON.stringify(json.error);
+      paycomTrace("rpc.response", {
+        method,
+        ms: Date.now() - t0,
+        ok: false,
+        order_id: orderRef || undefined,
+        errPreview: String(msg).slice(0, 120),
+      });
       return { success: false, error: augmentPaycomUserError(String(msg)), raw: json };
     }
 
+    const r = json?.result;
+    const idFromResult = r?.receipt?._id ?? r?.receipt?.id ?? r?.id;
+    const idFromParams = params.id != null ? String(params.id) : "";
+    const traceId = idFromResult != null && idFromResult !== ""
+      ? String(idFromResult)
+      : idFromParams;
+    const traceState = typeof r?.state === "number" ? r.state : undefined;
+    paycomTrace("rpc.response", {
+      method,
+      ms: Date.now() - t0,
+      ok: true,
+      order_id: orderRef || undefined,
+      receiptId: traceId ? `${traceId.slice(0, 8)}…` : undefined,
+      /** receipts.check / receipts.get(id) — natijada state bo‘lishi mumkin */
+      state: traceState,
+    });
     return { success: true, result: json.result as T };
   } catch (e) {
+    paycomTrace("rpc.error", {
+      method,
+      ms: Date.now() - t0,
+      network: e instanceof Error ? e.message : String(e),
+    });
     return { success: false, error: `Tarmoq xatosi: ${e instanceof Error ? e.message : String(e)}` };
   }
 }
@@ -240,8 +515,6 @@ export type PaymeReceiptItem = {
   discount?: number; // tiyin
 };
 
-export type CreateReceiptPaycomOpts = PaycomCallOpts;
-
 /**
  * receipts.create
  * https://developer.help.paycom.uz/metody-subscribe-api/receipts.create
@@ -259,29 +532,54 @@ export async function createReceipt(
     return { success: false as const, error: 'Noto‘g‘ri summa' };
   }
 
-  const detailItems = items.map((item) => ({
-    title: item.title,
-    price: Math.round(Number(item.price) * 100),
-    count: Number(item.count) || 1,
-    code: item.code || '00000000000000000',
-    units: item.units ?? 2411,
-    vat_percent: item.vat_percent ?? 0,
-    package_code: item.package_code || '123456',
-    ...(item.discount != null && item.discount > 0 ? { discount: Math.round(item.discount) } : {}),
-  }));
+  const envIkpu = (Deno.env.get("PAYCOM_DEFAULT_ITEM_CODE") || "").trim();
+  const envUnitsRaw = (Deno.env.get("PAYCOM_DEFAULT_UNITS") || "").trim();
+  const envUnits = envUnitsRaw ? Number(envUnitsRaw) : NaN;
+  const defaultUnits = Number.isFinite(envUnits) && envUnits > 0 ? envUnits : 2411;
 
-  const itemsSum = detailItems.reduce((s, i) => s + i.price * i.count, 0);
-  if (Math.abs(itemsSum - amountInTiyin) > 2) {
-    console.warn('⚠️ Paycom: detail jami amount bilan deyarli mos emas', {
-      itemsSum,
-      amountInTiyin,
-      orderId,
-    });
+  const detailItems = items.map((item) => {
+    const code = String(item.code || envIkpu || "00000000000000000").trim();
+    return {
+      title: item.title,
+      price: Math.round(Number(item.price) * 100),
+      count: Number(item.count) || 1,
+      code: code || "00000000000000000",
+      units: item.units ?? defaultUnits,
+      vat_percent: item.vat_percent ?? 0,
+      package_code: item.package_code || "123456",
+      ...(item.discount != null && item.discount > 0 ? { discount: Math.round(item.discount) } : {}),
+    };
+  });
+  if (!envIkpu && detailItems.some((d) => d.code === "00000000000000000")) {
+    console.warn(
+      "[paycom] IKPU (code) nol — checkout «чек не найден» bo‘lishi mumkin. " +
+        "Secret PAYCOM_DEFAULT_ITEM_CODE yoki mahsulot `code` (Soliq.uz ИКПУ).",
+      { orderId },
+    );
   }
 
+  const itemsSumTiyin = detailItems.reduce((s, i) => s + i.price * i.count, 0);
+  if (!Number.isFinite(itemsSumTiyin) || itemsSumTiyin <= 0) {
+    return { success: false as const, error: 'Mahsulotlar summasi noto‘g‘ri (0 yoki raqam emas)' };
+  }
+
+  /** Paycom: params.amount tiyinda === detail.items yig‘indisi. Aks holda chek checkoutda «не найден» berishi mumkin. */
+  const requestedTiyin = amountInTiyin;
+  if (Math.abs(itemsSumTiyin - requestedTiyin) > 2) {
+    return {
+      success: false as const,
+      error:
+        `Summa va mahsulot qatorlari yig‘indisi mos emas (tiyin): yig‘indi=${itemsSumTiyin}, yuborilgan=${requestedTiyin}. ` +
+        "Frontend `amount` va `items` ni qayta hisoblang.",
+      raw: { itemsSumTiyin, requestedTiyin, orderId },
+    };
+  }
+  const amountForPaycom = itemsSumTiyin;
+
+  const orderIdNorm = String(orderId).trim();
   const params: Record<string, unknown> = {
-    amount: amountInTiyin,
-    account: { order_id: String(orderId) },
+    amount: amountForPaycom,
+    account: { order_id: orderIdNorm },
     detail: {
       receipt_type: 0,
       items: detailItems,
@@ -293,6 +591,19 @@ export async function createReceipt(
   }
 
   const useTest = paycomOpts?.useTest !== undefined ? paycomOpts.useTest : paycomDefaultUseTest();
+  const rpcBase = paycomApiUrlForMode(useTest);
+  console.log("PAYCOM_ENV_TRACE:", {
+    useTest,
+    rpcBase,
+    xAuthSource: "supabase_secrets_only",
+    registerIdTail: PAYCOM_REGISTER_ID ? PAYCOM_REGISTER_ID.slice(-6) : "(bo‘sh)",
+    PAYCOM_USE_TEST: (Deno.env.get("PAYCOM_USE_TEST") || "").trim() || "(unset→false)",
+    PAYCOM_API_URL_set: Boolean(PAYCOM_API_URL_ENV),
+    amountTiyin: amountForPaycom,
+    itemsSumTiyin,
+    account_order_id: orderIdNorm,
+  });
+
   const result = await makePaymeRequest<{ receipt: { _id: string; state?: number } }>(
     'receipts.create',
     params,
@@ -301,19 +612,150 @@ export async function createReceipt(
 
   if (!result.success) return result;
 
-  const receipt = result.result?.receipt;
-  const receiptId = receipt?._id;
-  if (!receiptId) {
-    return { success: false as const, error: 'Paycom javobida receipt._id yo‘q', raw: result.result };
+  const createPayload = result.result;
+  try {
+    console.log("CREATE RECEIPT RESPONSE:", JSON.stringify(createPayload).slice(0, 15000));
+  } catch {
+    console.log("CREATE RECEIPT RESPONSE:", String(createPayload).slice(0, 2000));
   }
 
-  const checkoutUrl = `${paycomCheckoutBaseForMode(useTest)}/${receiptId}`;
+  const receiptIdRaw = extractReceiptIdFromSubscribeResult(createPayload);
+  console.log("RECEIPT_ID:", receiptIdRaw);
+  if (!receiptIdRaw) {
+    console.error("RECEIPT_CREATE:", { ok: false, reason: "no_receipt_id", rawKeys: createPayload && typeof createPayload === "object" ? Object.keys(createPayload as object) : [] });
+    return {
+      success: false as const,
+      error: "Paycom receipts.create: result.receipt._id topilmadi (noto‘g‘ri maydon yoki javob shakli).",
+      raw: createPayload,
+    };
+  }
+
+  const receiptStub = (createPayload && typeof createPayload === "object"
+    ? (createPayload as { receipt?: unknown }).receipt
+    : undefined) as Record<string, unknown> | undefined;
+  const createState = receiptStub ? readSubscribeReceiptState(receiptStub) : undefined;
+
+  console.log("RECEIPT_CREATE:", {
+    ok: true,
+    receiptId: receiptIdRaw,
+    accountOrderId: orderIdNorm,
+    stateFromCreate: createState,
+    amountTiyin: amountForPaycom,
+    useTest,
+  });
+
+  const checkOpts = { useTest, kvCredentials: paycomOpts?.kvCredentials };
+  const postCheck = await makePaymeRequest<{ state: number }>(
+    "receipts.check",
+    { id: String(receiptIdRaw) },
+    checkOpts,
+  );
+  try {
+    console.log(
+      "CHECK RECEIPT RESPONSE (receipts.check):",
+      JSON.stringify(
+        postCheck.success ? postCheck.result : { error: postCheck.error, raw: postCheck.raw },
+      ).slice(0, 8000),
+    );
+  } catch {
+    console.log("CHECK RECEIPT RESPONSE (receipts.check):", postCheck.success ? postCheck.result : postCheck.error);
+  }
+  if (postCheck.success) {
+    const pst = Number(postCheck.result?.state);
+    if (pst === 4) {
+      return {
+        success: false as const,
+        error:
+          "Bu chek allaqachon to‘langan (Paycom state=4). Yangi to‘lov uchun boshqa buyurtma / chek yarating.",
+        raw: { receiptId: receiptIdRaw, state: pst },
+      };
+    }
+    console.log("[paycom] receipts.check (create keyin)", { receiptId: receiptIdRaw, state: pst });
+  } else {
+    console.warn("[paycom] receipts.check (create keyin) xato", postCheck.error);
+  }
+
+  /** Checkout ochilishidan oldin chek serverda mavjudligini receipts.get bilan tasdiqlaymiz */
+  const postGet = await makePaymeRequest<{ receipt: unknown }>(
+    "receipts.get",
+    { id: String(receiptIdRaw) },
+    checkOpts,
+  );
+  if (!postGet.success) {
+    console.error("RECEIPT_CREATE:", { ok: false, phase: "receipts.get", receiptId: receiptIdRaw, error: postGet.error });
+    return {
+      success: false as const,
+      error: `Chek yaratilgan ko‘rinadi, lekin receipts.get tasdiqlamadi: ${postGet.error}`,
+      raw: postGet.raw,
+    };
+  }
+
+  try {
+    console.log(
+      "GET RECEIPT RESPONSE (receipts.get):",
+      JSON.stringify(postGet.result).slice(0, 15000),
+    );
+  } catch {
+    console.log("GET RECEIPT RESPONSE (receipts.get):", String(postGet.result).slice(0, 2000));
+  }
+
+  const verifiedId = extractReceiptIdFromSubscribeResult(postGet.result) ?? receiptIdRaw;
+  const fullReceipt = postGet.result?.receipt;
+  const verifiedState = readSubscribeReceiptState(fullReceipt);
+
+  if (verifiedState === 4) {
+    return {
+      success: false as const,
+      error: "Bu chek allaqachon to‘langan (receipts.get state=4).",
+      raw: { receiptId: verifiedId, state: verifiedState },
+    };
+  }
+  if (verifiedState === 21 || verifiedState === 50 || verifiedState === 51) {
+    return {
+      success: false as const,
+      error: `Chek bekor qilingan yoki yaroqsiz (receipts.get state=${verifiedState}).`,
+      raw: { receiptId: verifiedId, state: verifiedState },
+    };
+  }
+
+  console.log("RECEIPT_CREATE:", {
+    ok: true,
+    phase: "receipts.get_ok",
+    receiptId: verifiedId,
+    state: verifiedState,
+    accountOrderId: orderIdNorm,
+  });
+
+  const checkoutUrl = buildPaycomCheckoutLink(verifiedId, useTest, paycomOpts);
+  console.log("CHECKOUT_URL:", checkoutUrl);
+  if (verifiedId !== receiptIdRaw) {
+    console.warn("[paycom] receipts.get dan kelgan id create dan farq qildi", {
+      createId: receiptIdRaw,
+      getId: verifiedId,
+    });
+  }
+
+  try {
+    const u = new URL(checkoutUrl);
+    console.log("[paycom] checkout tayyor", {
+      useTest,
+      host: u.hostname,
+      pathReceiptId: u.pathname.split("/").filter(Boolean).pop(),
+      hasBackParam: u.searchParams.has("back"),
+    });
+  } catch {
+    /* noop */
+  }
+
+  if (useTest && paycomHttpDebug()) {
+    console.log("[paycom] TEST: checkout.test.paycom.uz — prod payme.uz bilan aralashmasin.");
+  }
 
   return {
     success: true as const,
-    receiptId,
+    receiptId: verifiedId,
     checkoutUrl,
-    receipt,
+    receipt: fullReceipt ?? receiptStub,
     /** create / check bir xil API da ishlashi uchun */
     _resolvedUseTest: useTest,
   };

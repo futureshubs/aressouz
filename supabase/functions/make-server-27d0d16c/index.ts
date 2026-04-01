@@ -16,33 +16,60 @@ import bannerRoutes from "./banners.tsx";
 import * as aresso from "./aresso.tsx";
 import clickRoutes from "./click.tsx";
 import {
+  buildPaycomCheckoutLink,
   cancelReceipt as paymeCancelReceipt,
   checkReceipt as paymeCheckReceipt,
   createReceipt as paymeCreateReceipt,
   getReceipt as paymeGetReceipt,
   isPaymeConfigured,
   isPaymeConfiguredForMode,
-  parsePaymeKvCredentials,
-  resolvePaycomUseTest,
+  parsePaycomHttpsBackUrl,
+  paycomDefaultUseTest,
+  resolvePaycomUseTestForPayme,
   sendReceipt as paymeSendReceipt,
+  sumItemsTiyinForPaycom,
+  type PaymeReceiptItem,
 } from "./payme.tsx";
+import {
+  clearPaycomOrderPending,
+  resolvePaycomCreateIdempotency,
+  savePaycomOrderPending,
+} from "./paycom-idempotency.ts";
 import { coerceKvTestMode, normalizeKvTestModeForSave } from "./payment-kv-utils.ts";
 
 async function paycomCallOptsForReceiptId(receiptId: string) {
-  const meta = (await kv.get(`paycom_receipt:${receiptId}`)) as { useTest?: boolean } | null;
-  return typeof meta?.useTest === "boolean" ? { useTest: meta.useTest } : undefined;
+  try {
+    const meta = (await kv.get(`paycom_receipt:${receiptId}`)) as { useTest?: boolean } | null;
+    return typeof meta?.useTest === "boolean" ? { useTest: meta.useTest } : undefined;
+  } catch (e) {
+    console.error("[paycom] paycom_receipt KV o‘qilmadi, PAYCOM_USE_TEST ishlatiladi:", e);
+    return undefined;
+  }
 }
 
 async function paycomCallOptsForReceiptIdWithKv(receiptId: string) {
-  const paymeConfig = await kv.get("payment_method:payme");
-  const kvCredentials = parsePaymeKvCredentials(paymeConfig);
   const fromReceipt = await paycomCallOptsForReceiptId(receiptId);
   const useTest =
     typeof fromReceipt?.useTest === "boolean"
       ? fromReceipt.useTest
-      : resolvePaycomUseTest((paymeConfig as { isTestMode?: unknown } | null)?.isTestMode);
-  return { useTest, kvCredentials };
+      : paycomDefaultUseTest();
+  return { useTest };
 }
+
+const paymeCheckoutOrderKvKey = (orderId: string) =>
+  `payme_checkout_order:${String(orderId).trim()}`;
+
+function logPaymeHttp(tag: string, raw: Record<string, unknown>) {
+  console.log(`[payme/http] ${tag}`, {
+    orderId: raw.orderId,
+    amount: raw.amount,
+    itemsCount: Array.isArray(raw.items) ? raw.items.length : 0,
+    phone: raw.phone ? "[set]" : undefined,
+    returnUrlPreview:
+      typeof raw.returnUrl === "string" ? String(raw.returnUrl).slice(0, 80) : undefined,
+  });
+}
+
 import * as atmos from "./atmos.tsx";
 import preparersRoutes from "./preparers.tsx";
 import twoFactorRoutes from "./twoFactor.tsx";
@@ -502,7 +529,7 @@ async function gateListingByPhoneAndFee(
       status: 400,
       code: "LISTING_FEE_REQUIRED",
       error:
-        `Bu telefon raqami bo‘yicha ${FREE_LISTINGS_PER_PHONE} tadan ortiq bepul e‘lon joylashtirish mumkin emas. Keyingi har bir e‘lon uchun ${LISTING_FEE_UZS.toLocaleString("uz-UZ")} so‘m to‘lang (Click).`,
+        `Bu telefon raqami bo‘yicha ${FREE_LISTINGS_PER_PHONE} tadan ortiq bepul e‘lon joylashtirish mumkin emas. Keyingi har bir e‘lon uchun ${LISTING_FEE_UZS.toLocaleString("uz-UZ")} so‘m to‘lang (Click yoki Payme).`,
     };
   }
   const credit = (await kv.get(`listing_fee_credit:${tid}`)) as {
@@ -1108,6 +1135,74 @@ function getCommunityBanDurationMs(warningsCount: number): number {
   return 24 * 60 * 60 * 1000;
 }
 
+/** SMS: barcha KV kalitlari uchun bir xil 998XXXXXXXXX */
+function normalizeSmsPhoneInput(raw: unknown): string | null {
+  const d = String(raw ?? "").replace(/\D/g, "");
+  if (/^998\d{9}$/.test(d)) return d;
+  if (/^9\d{8}$/.test(d)) return `998${d}`;
+  return null;
+}
+
+function smsOtpMatches(stored: unknown, input: unknown): boolean {
+  return String(stored ?? "").trim() === String(input ?? "").trim();
+}
+
+function smsOtpStillValid(stored: { expiresAt?: unknown }): boolean {
+  const exp = Number(stored?.expiresAt);
+  if (!Number.isFinite(exp)) return false;
+  return Date.now() <= exp;
+}
+
+/** KV `user_phone` yo‘qolgan; Supabase Auth da `998...@aresso.app` bo‘lsa KV ni tiklash */
+async function ensureSmsUserKvFromAuth(
+  normalizedPhone: string,
+): Promise<{ userId: string; userProfile: Record<string, unknown> } | null> {
+  const existingPhone = await kv.get(`user_phone:${normalizedPhone}`);
+  if (existingPhone?.userId) {
+    const prof = await kv.get(`user:${existingPhone.userId}`);
+    if (prof && typeof prof === "object") {
+      return { userId: String(existingPhone.userId), userProfile: prof as Record<string, unknown> };
+    }
+  }
+
+  const wantEmail = `${normalizedPhone}@aresso.app`.toLowerCase();
+  let page = 1;
+  const perPage = 1000;
+  for (let i = 0; i < 100; i++) {
+    const { data, error } = await supabase.auth.admin.listUsers({ page, perPage });
+    if (error) {
+      console.error("SMS KV repair: listUsers", error);
+      return null;
+    }
+    const users = data?.users ?? [];
+    const hit = users.find((u: { email?: string | null; id?: string }) =>
+      String(u?.email ?? "").toLowerCase() === wantEmail
+    );
+    if (hit?.id) {
+      const { data: userData, error: guErr } = await supabase.auth.admin.getUserById(hit.id);
+      if (guErr || !userData?.user) return null;
+      const u = userData.user;
+      const meta = (u.user_metadata || {}) as Record<string, unknown>;
+      const userProfile: Record<string, unknown> = {
+        id: u.id,
+        phone: normalizedPhone,
+        firstName: String(meta.firstName ?? meta.first_name ?? ""),
+        lastName: String(meta.lastName ?? meta.last_name ?? ""),
+        birthDate: meta.birthDate ?? meta.birth_date ?? "",
+        gender: meta.gender ?? "male",
+        email: u.email ?? wantEmail,
+        createdAt: u.created_at ?? new Date().toISOString(),
+      };
+      await kv.set(`user:${u.id}`, userProfile);
+      await kv.set(`user_phone:${normalizedPhone}`, { userId: u.id, phone: normalizedPhone });
+      return { userId: u.id, userProfile };
+    }
+    if (users.length < perPage) break;
+    page += 1;
+  }
+  return null;
+}
+
 // ==================== AUTH ROUTES ====================
 
 // ==================== SMS AUTH ROUTES ====================
@@ -1117,14 +1212,12 @@ app.post("/make-server-27d0d16c/auth/sms/send", async (c) => {
   try {
     const { phone } = await c.req.json();
 
-    if (!phone) {
-      return c.json({ error: 'Telefon raqam majburiy' }, 400);
-    }
-
-    // Validate phone format (998XXXXXXXXX)
-    const phoneRegex = /^998\d{9}$/;
-    if (!phoneRegex.test(phone)) {
-      return c.json({ error: 'Telefon raqam noto\'g\'ri formatda (masalan: 998901234567)' }, 400);
+    const normalizedPhone = normalizeSmsPhoneInput(phone);
+    if (!normalizedPhone) {
+      return c.json({
+        error: 'Telefon raqam noto\'g\'ri formatda (masalan: 998901234567)',
+        code: 'SMS_PHONE_INVALID',
+      }, 400);
     }
 
     // Check if Eskiz is configured
@@ -1138,15 +1231,15 @@ app.post("/make-server-27d0d16c/auth/sms/send", async (c) => {
     const code = eskiz.generateVerificationCode();
 
     // Store code with 5 minutes expiry
-    await kv.set(`sms_code:${phone}`, {
+    await kv.set(`sms_code:${normalizedPhone}`, {
       code,
-      phone,
+      phone: normalizedPhone,
       expiresAt: Date.now() + (5 * 60 * 1000), // 5 minutes
       createdAt: new Date().toISOString(),
     });
 
     // Send SMS
-    const result = await eskiz.sendVerificationSMS(phone, code);
+    const result = await eskiz.sendVerificationSMS(normalizedPhone, code);
 
     if (!result.success) {
       return c.json({ error: result.error || 'SMS yuborishda xatolik' }, 500);
@@ -1172,34 +1265,42 @@ app.post("/make-server-27d0d16c/auth/sms/signup", async (c) => {
       return c.json({ error: 'Barcha maydonlar majburiy' }, 400);
     }
 
+    const normalizedPhone = normalizeSmsPhoneInput(phone);
+    if (!normalizedPhone) {
+      return c.json({
+        error: 'Telefon raqam noto\'g\'ri formatda',
+        code: 'SMS_PHONE_INVALID',
+      }, 400);
+    }
+
     // Get stored code
-    const storedData = await kv.get(`sms_code:${phone}`);
+    const storedData = await kv.get(`sms_code:${normalizedPhone}`);
     
     if (!storedData) {
-      return c.json({ error: 'Kod topilmadi yoki muddati tugagan' }, 400);
+      return c.json({ error: 'Kod topilmadi yoki muddati tugagan', code: 'SMS_CODE_MISSING' }, 400);
     }
 
     // Check expiry
-    if (Date.now() > storedData.expiresAt) {
-      await kv.del(`sms_code:${phone}`);
-      return c.json({ error: 'Kod muddati tugagan' }, 400);
+    if (!smsOtpStillValid(storedData)) {
+      await kv.del(`sms_code:${normalizedPhone}`);
+      return c.json({ error: 'Kod muddati tugagan', code: 'SMS_CODE_EXPIRED' }, 400);
     }
 
     // Verify code
-    if (storedData.code !== code) {
-      return c.json({ error: 'Kod noto\'g\'ri' }, 400);
+    if (!smsOtpMatches(storedData.code, code)) {
+      return c.json({ error: 'Kod noto\'g\'ri', code: 'SMS_CODE_WRONG' }, 400);
     }
 
     // Check if user already exists
-    const existingUser = await kv.get(`user_phone:${phone}`);
+    const existingUser = await kv.get(`user_phone:${normalizedPhone}`);
     
     if (existingUser) {
       return c.json({ error: 'Bu raqam allaqachon ro\'yxatdan o\'tgan' }, 400);
     }
 
     // Create user with Supabase Auth (using phone as email)
-    const email = `${phone}@aresso.app`; // Virtual email
-    const password = `${phone}-${Date.now()}`; // Auto-generated password
+    const email = `${normalizedPhone}@aresso.app`; // Virtual email
+    const password = `${normalizedPhone}-${Date.now()}`; // Auto-generated password
 
     const { data: authData, error: authError } = await supabase.auth.admin.createUser({
       email,
@@ -1209,7 +1310,7 @@ app.post("/make-server-27d0d16c/auth/sms/signup", async (c) => {
         lastName,
         birthDate,
         gender,
-        phone,
+        phone: normalizedPhone,
       },
       email_confirm: true
     });
@@ -1222,7 +1323,7 @@ app.post("/make-server-27d0d16c/auth/sms/signup", async (c) => {
     // Create user profile in KV store
     const userProfile = {
       id: authData.user.id,
-      phone,
+      phone: normalizedPhone,
       firstName,
       lastName,
       birthDate,
@@ -1232,13 +1333,13 @@ app.post("/make-server-27d0d16c/auth/sms/signup", async (c) => {
     };
 
     await kv.set(`user:${authData.user.id}`, userProfile);
-    await kv.set(`user_phone:${phone}`, {
+    await kv.set(`user_phone:${normalizedPhone}`, {
       userId: authData.user.id,
-      phone,
+      phone: normalizedPhone,
     });
 
     // Delete verification code
-    await kv.del(`sms_code:${phone}`);
+    await kv.del(`sms_code:${normalizedPhone}`);
 
     // ALWAYS create custom access token (not Supabase JWT)
     // This ensures consistent token format that works with KV store
@@ -1253,7 +1354,7 @@ app.post("/make-server-27d0d16c/auth/sms/signup", async (c) => {
     // Store the access token in KV for validation
     const tokenData = {
       userId: authData.user.id,
-      phone,
+      phone: normalizedPhone,
       createdAt: new Date().toISOString(),
       expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000), // 30 days
     };
@@ -1290,61 +1391,60 @@ app.post("/make-server-27d0d16c/auth/sms/signin", async (c) => {
     const { phone, code } = await c.req.json();
 
     if (!phone || !code) {
-      return c.json({ error: 'Telefon va kod majburiy' }, 400);
+      return c.json({ error: 'Telefon va kod majburiy', code: 'SMS_FIELDS_MISSING' }, 400);
     }
 
-    // Get stored code
-    const storedData = await kv.get(`sms_code:${phone}`);
+    const normalizedPhone = normalizeSmsPhoneInput(phone);
+    if (!normalizedPhone) {
+      return c.json({
+        error: 'Telefon raqam noto\'g\'ri formatda',
+        code: 'SMS_PHONE_INVALID',
+      }, 400);
+    }
+
+    // Get stored code (kalit har doim normalizatsiyalangan telefon)
+    const storedData = await kv.get(`sms_code:${normalizedPhone}`);
     
     if (!storedData) {
-      return c.json({ error: 'Kod topilmadi yoki muddati tugagan' }, 400);
+      return c.json({ error: 'Kod topilmadi yoki muddati tugagan', code: 'SMS_CODE_MISSING' }, 400);
     }
 
-    // Check expiry
-    if (Date.now() > storedData.expiresAt) {
-      await kv.del(`sms_code:${phone}`);
-      return c.json({ error: 'Kod muddati tugagan' }, 400);
+    if (!smsOtpStillValid(storedData)) {
+      await kv.del(`sms_code:${normalizedPhone}`);
+      return c.json({ error: 'Kod muddati tugagan', code: 'SMS_CODE_EXPIRED' }, 400);
     }
 
-    // Verify code
-    if (storedData.code !== code) {
-      return c.json({ error: 'Kod noto\'g\'ri' }, 400);
+    if (!smsOtpMatches(storedData.code, code)) {
+      return c.json({ error: 'Kod noto\'g\'ri', code: 'SMS_CODE_WRONG' }, 400);
     }
 
-    // Check if user exists
-    const phoneData = await kv.get(`user_phone:${phone}`);
-    
-    if (!phoneData) {
-      return c.json({ error: 'Bu raqam ro\'yxatdan o\'tmagan. Iltimos, avval ro\'yxatdan o\'ting.' }, 400);
+    const repaired = await ensureSmsUserKvFromAuth(normalizedPhone);
+    if (!repaired) {
+      return c.json({
+        error: 'Bu raqam ro\'yxatdan o\'tmagan. Iltimos, avval ro\'yxatdan o\'ting.',
+        code: 'SMS_USER_NOT_REGISTERED',
+      }, 400);
     }
 
-    // Get user profile
-    const userProfile = await kv.get(`user:${phoneData.userId}`);
+    const { userId, userProfile } = repaired;
 
-    if (!userProfile) {
-      return c.json({ error: 'Foydalanuvchi topilmadi' }, 404);
-    }
-
-    // Get user from Supabase Auth
-    const { data: userData, error: userError } = await supabase.auth.admin.getUserById(phoneData.userId);
+    const { data: userData, error: userError } = await supabase.auth.admin.getUserById(userId);
     
     if (userError || !userData.user) {
       console.log('Get user error:', userError);
-      return c.json({ error: 'Foydalanuvchi topilmadi' }, 404);
+      return c.json({ error: 'Foydalanuvchi topilmadi', code: 'SMS_AUTH_USER_MISSING' }, 404);
     }
 
-    // Create access token manually using admin
-    const accessToken = `${phoneData.userId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const accessToken = `${userId}-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     
     console.log('🔑 ===== CREATING ACCESS TOKEN =====');
     console.log('🔑 Generated token:', accessToken);
     console.log('🔑 KV key:', `access_token:${accessToken}`);
-    console.log('🔑 User ID:', phoneData.userId);
+    console.log('🔑 User ID:', userId);
     
-    // Store the access token in KV for validation
     const tokenData = {
-      userId: phoneData.userId,
-      phone,
+      userId,
+      phone: normalizedPhone,
       createdAt: new Date().toISOString(),
       expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000), // 30 days
     };
@@ -1352,7 +1452,6 @@ app.post("/make-server-27d0d16c/auth/sms/signin", async (c) => {
     await kv.set(`access_token:${accessToken}`, tokenData);
     console.log('✅ Token stored in KV:', tokenData);
     
-    // Verify it was stored correctly
     const verification = await kv.get(`access_token:${accessToken}`);
     console.log('✅ Token verification read:', verification ? 'SUCCESS' : 'FAILED');
     if (verification) {
@@ -1360,8 +1459,7 @@ app.post("/make-server-27d0d16c/auth/sms/signin", async (c) => {
     }
     console.log('🔑 ===== TOKEN CREATION COMPLETE =====');
 
-    // Delete verification code
-    await kv.del(`sms_code:${phone}`);
+    await kv.del(`sms_code:${normalizedPhone}`);
 
     return c.json({ 
       success: true,
@@ -4060,7 +4158,7 @@ app.get("/make-server-27d0d16c/check-listing-quota", async (c) => {
       remainingFreeSlots,
       canPostWithoutFee: !requiresFeeForNext,
       message: requiresFeeForNext
-        ? `Keyingi har bir e‘lon uchun ${LISTING_FEE_UZS.toLocaleString("uz-UZ")} so‘m (Click).`
+        ? `Keyingi har bir e‘lon uchun ${LISTING_FEE_UZS.toLocaleString("uz-UZ")} so‘m (Click yoki Payme).`
         : `Bepul qolgan joylar: ${remainingFreeSlots}.`,
     });
   } catch (error: any) {
@@ -4156,6 +4254,107 @@ app.post("/make-server-27d0d16c/listings/fee/click-create", async (c) => {
   }
 });
 
+// E‘lon uchun Payme cheki — to‘lov Paycom da tasdiqlangach `listings/fee/verify` server orqali kredit yozadi
+app.post("/make-server-27d0d16c/listings/fee/payme-create", async (c) => {
+  try {
+    const auth = await validateAccessToken(c);
+    if (!auth.success) {
+      return c.json({ error: auth.error }, 401);
+    }
+
+    const body = await c.req.json();
+    const phoneNorm = normalizeListingPhoneForLimit(body.phone ?? body.ownerPhone);
+    if (!phoneNorm) {
+      return c.json({ error: "Telefon raqami kiriting", code: "PHONE_REQUIRED" }, 400);
+    }
+
+    const paymeConfig = await kv.get("payment_method:payme");
+    if (!paymeConfig || !paymeConfig.enabled) {
+      return c.json({ error: "Payme to‘lov usuli faol emas", code: "PAYME_DISABLED" }, 400);
+    }
+
+    const resolvedTest = resolvePaycomUseTestForPayme(paymeConfig);
+    if (!isPaymeConfiguredForMode(resolvedTest, null)) {
+      return c.json(
+        {
+          error: resolvedTest
+            ? "Paycom TEST: Supabase Secrets — PAYCOM_REGISTER_ID va PAYCOM_SECRET_TEST."
+            : "Paycom PROD: Supabase Secrets — PAYCOM_REGISTER_ID va PAYCOM_SECRET_PROD.",
+          code: "PAYCOM_ENV_MISSING",
+        },
+        503,
+      );
+    }
+
+    const transactionId = `payme_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const items = [
+      {
+        title: "E‘lon joylashtirish to‘lovi",
+        price: LISTING_FEE_UZS,
+        count: 1,
+        code: "00000000000000000",
+        vat_percent: 0,
+        package_code: "123456",
+        units: 2411,
+      },
+    ];
+
+    const created = await paymeCreateReceipt(
+      LISTING_FEE_UZS,
+      transactionId,
+      items,
+      undefined,
+      `E‘lon to‘lovi`,
+      { useTest: resolvedTest, checkoutBackUrl: undefined },
+    );
+
+    if (!created.success) {
+      return c.json(
+        { error: created.error || "Payme cheki yaratilmadi", code: "PAYME_RECEIPT_FAILED" },
+        400,
+      );
+    }
+
+    const transaction = {
+      id: transactionId,
+      orderId: transactionId,
+      userId: auth.userId,
+      amount: LISTING_FEE_UZS,
+      method: "payme",
+      purpose: "listing_fee",
+      status: "pending",
+      receiptId: created.receiptId,
+      listingFeePhoneNorm: phoneNorm,
+      listingFeeUserId: auth.userId,
+      isTestMode: resolvedTest,
+      createdAt: new Date().toISOString(),
+    };
+
+    await kv.set(`transaction:${transactionId}`, transaction);
+    if (created.receiptId) {
+      await kv.set(`paycom_receipt:${created.receiptId}`, {
+        transactionId,
+        orderId: transactionId,
+        useTest: resolvedTest,
+        purpose: "listing_fee",
+      });
+    }
+
+    return c.json({
+      success: true,
+      transaction,
+      listingFeeTransactionId: transactionId,
+      paymentUrl: created.checkoutUrl,
+      checkoutUrl: created.checkoutUrl,
+      receiptId: created.receiptId,
+      feeAmountUzs: LISTING_FEE_UZS,
+    });
+  } catch (error: any) {
+    console.error("Listing fee Payme create error:", error);
+    return c.json({ error: "Payme chekini yaratishda xatolik" }, 500);
+  }
+});
+
 /** Click COMPLETE dan keyin yozilgan `listing_fee_credit` — frontend polling / «Tekshirish» uchun */
 app.get("/make-server-27d0d16c/listings/fee/verify/:transactionId", async (c) => {
   try {
@@ -4177,6 +4376,42 @@ app.get("/make-server-27d0d16c/listings/fee/verify/:transactionId", async (c) =>
     } | null;
 
     if (!credit) {
+      const tx = (await kv.get(`transaction:${transactionId}`)) as Record<string, unknown> | null;
+      if (
+        tx &&
+        String(tx.purpose || "") === "listing_fee" &&
+        String(tx.method || "") === "payme" &&
+        String(tx.status || "") !== "paid"
+      ) {
+        const receiptId = String(tx.receiptId || "").trim();
+        if (receiptId) {
+          try {
+            const paycomOpts = await paycomCallOptsForReceiptIdWithKv(receiptId);
+            const chk = await paymeCheckReceipt(receiptId, paycomOpts);
+            if (chk.success && chk.isPaid) {
+              const paidAtIso = new Date().toISOString();
+              const uId = String(tx.listingFeeUserId ?? tx.userId ?? "").trim();
+              const pNorm = String(tx.listingFeePhoneNorm ?? "").trim();
+              await kv.set(`transaction:${transactionId}`, {
+                ...tx,
+                status: "paid",
+                paidAt: paidAtIso,
+              });
+              if (uId && pNorm) {
+                await kv.set(`listing_fee_credit:${transactionId}`, {
+                  userId: uId,
+                  phoneNorm: pNorm,
+                  amount: LISTING_FEE_UZS,
+                  paidAt: paidAtIso,
+                });
+              }
+              return c.json({ ok: true, transactionId, feeAmountUzs: LISTING_FEE_UZS });
+            }
+          } catch (e) {
+            console.error("listing fee payme verify:", e);
+          }
+        }
+      }
       return c.json({ ok: false, code: "NO_CREDIT" });
     }
     if (String(credit.userId) !== String(auth.userId)) {
@@ -7230,17 +7465,38 @@ app.get("/make-server-27d0d16c/public/branches/location", async (c) => {
 
 // ==================== PAYMENT METHODS ROUTES ====================
 
-// Get all payment methods configuration
+function sanitizePaymentMethodsForPublic(methods: any[]) {
+  return (Array.isArray(methods) ? methods : []).map((m: any) => ({
+    type: String(m?.type || ''),
+    enabled: Boolean(m?.enabled),
+    isTestMode: normalizeKvTestModeForSave(m?.isTestMode),
+    updatedAt: m?.updatedAt ?? null,
+  }));
+}
+
+/** Payme: ID/kalit faqat Supabase Secrets — KV/admin javobida chiqmasin */
+function redactPaymePaymentMethodForResponse(method: unknown) {
+  if (!method || typeof method !== "object") return method;
+  const m = method as Record<string, unknown>;
+  if (String(m.type) !== "payme") return method;
+  return { ...m, config: {}, isTestMode: false };
+}
+
+// Get all payment methods configuration (admin: to‘liq; boshqa: faqat type/enabled/test — maxfiy kalitsiz)
 app.get("/make-server-27d0d16c/payment-methods", async (c) => {
   try {
     console.log('💳 Fetching payment methods configuration...');
-    
+
     const methods = await kv.getByPrefix('payment_method:');
-    
-    console.log(`✅ Found ${methods.length} payment methods`);
-    return c.json({ 
+    const admin = await validateAdminAccess(c);
+
+    console.log(`✅ Found ${methods.length} payment methods (admin=${admin.success})`);
+    const outMethods = admin.success
+      ? methods.map((m) => redactPaymePaymentMethodForResponse(m))
+      : sanitizePaymentMethodsForPublic(methods);
+    return c.json({
       success: true,
-      methods: methods,
+      methods: outMethods,
     });
   } catch (error: any) {
     console.error('Get payment methods error:', error);
@@ -7251,30 +7507,33 @@ app.get("/make-server-27d0d16c/payment-methods", async (c) => {
 // Save or update payment method configuration
 app.post("/make-server-27d0d16c/payment-methods", async (c) => {
   try {
+    const admin = await validateAdminAccess(c);
+    if (!admin.success) {
+      return c.json({ error: admin.error || 'Admin ruxsati talab qilinadi' }, 403);
+    }
+
     const { type, enabled, isTestMode, config } = await c.req.json();
-    
+
     console.log(`💾 Saving payment method: ${type}`);
-    
+
     if (!type) {
       return c.json({ error: 'To\'lov turi majburiy' }, 400);
     }
 
-    // Encrypt sensitive data before storing
-    const encryptedConfig: any = {};
-    for (const [key, value] of Object.entries(config || {})) {
-      if (typeof value === 'string') {
-        // In production, use proper encryption
-        // For now, we'll store as is (should be encrypted in real app)
-        encryptedConfig[key] = value;
+    const encryptedConfig: Record<string, unknown> = {};
+    if (type !== "payme") {
+      for (const [key, value] of Object.entries(config || {})) {
+        if (typeof value === "string") {
+          encryptedConfig[key] = value;
+        }
       }
     }
 
-    // Old: isTestMode !== false → default TRUE (test) — prod kalitlar bilan integratsiya sindirardi
     const methodData = {
       type,
       enabled: enabled || false,
-      isTestMode: normalizeKvTestModeForSave(isTestMode),
-      config: encryptedConfig,
+      isTestMode: type === "payme" ? false : normalizeKvTestModeForSave(isTestMode),
+      config: type === "payme" ? {} : encryptedConfig,
       updatedAt: new Date().toISOString(),
     };
 
@@ -7295,19 +7554,25 @@ app.post("/make-server-27d0d16c/payment-methods", async (c) => {
 // Get specific payment method configuration
 app.get("/make-server-27d0d16c/payment-methods/:type", async (c) => {
   try {
+    const admin = await validateAdminAccess(c);
+    if (!admin.success) {
+      return c.json({ error: admin.error || 'Admin ruxsati talab qilinadi' }, 403);
+    }
+
     const type = c.req.param('type');
     console.log(`💳 Fetching payment method: ${type}`);
-    
+
     const method = await kv.get(`payment_method:${type}`);
-    
+
     if (!method) {
       return c.json({ error: 'To\'lov usuli topilmadi' }, 404);
     }
-    
+
     console.log(`✅ Payment method found: ${type}`);
-    return c.json({ 
+    const outMethod = type === "payme" ? redactPaymePaymentMethodForResponse(method) : method;
+    return c.json({
       success: true,
-      method: method,
+      method: outMethod,
     });
   } catch (error: any) {
     console.error('Get payment method error:', error);
@@ -7318,9 +7583,14 @@ app.get("/make-server-27d0d16c/payment-methods/:type", async (c) => {
 // Delete payment method configuration
 app.delete("/make-server-27d0d16c/payment-methods/:type", async (c) => {
   try {
+    const admin = await validateAdminAccess(c);
+    if (!admin.success) {
+      return c.json({ error: admin.error || 'Admin ruxsati talab qilinadi' }, 403);
+    }
+
     const type = c.req.param('type');
     console.log(`🗑️ Deleting payment method: ${type}`);
-    
+
     await kv.del(`payment_method:${type}`);
     
     console.log(`✅ Payment method deleted: ${type}`);
@@ -7349,22 +7619,23 @@ app.post("/make-server-27d0d16c/payments/payme/create", async (c) => {
       return c.json({ error: 'Payme to\'lov usuli faol emas' }, 400);
     }
 
-    const resolvedTest = resolvePaycomUseTest(paymeConfig?.isTestMode);
-    const kvPaymeCreds = parsePaymeKvCredentials(paymeConfig);
-    if (!isPaymeConfiguredForMode(resolvedTest, kvPaymeCreds)) {
+    const resolvedTest = resolvePaycomUseTestForPayme(paymeConfig);
+    if (!isPaymeConfiguredForMode(resolvedTest, null)) {
       return c.json(
         {
           error: resolvedTest
-            ? "Paycom TEST: Admin Payme (Merchant ID + Secret Key) yoki Secrets: PAYCOM_REGISTER_ID + PAYCOM_SECRET_TEST."
-            : "Paycom PROD: Admin Payme (Merchant ID + Secret Key) yoki Secrets: PAYCOM_REGISTER_ID + PAYCOM_SECRET_PROD.",
+            ? "Paycom TEST: Supabase Secrets — PAYCOM_REGISTER_ID va PAYCOM_SECRET_TEST."
+            : "Paycom PROD: Supabase Secrets — PAYCOM_REGISTER_ID va PAYCOM_SECRET_PROD.",
           code: "PAYCOM_ENV_MISSING",
         },
         503,
       );
     }
 
-    const transactionId = `payme_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const oid = String(orderId || transactionId);
+    /** Paycom account.order_id va tranzaksiya ID bir xil bo‘lsin — aralash ID «чек не найден» izohlarini kamaytiradi */
+    const fallbackId = `payme_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    const oid = String(orderId || "").trim() || fallbackId;
+    const transactionId = oid;
     const amountNum = Number(amount);
     const items = [
       {
@@ -7380,7 +7651,7 @@ app.post("/make-server-27d0d16c/payments/payme/create", async (c) => {
 
     const created = await paymeCreateReceipt(amountNum, oid, items, undefined, `Buyurtma ${oid}`, {
       useTest: resolvedTest,
-      kvCredentials: kvPaymeCreds,
+      checkoutBackUrl: undefined,
     });
 
     if (!created.success) {
@@ -12701,9 +12972,21 @@ app.route('/make-server-27d0d16c', relationalRoutes);
 // Create Payme receipt (underscore alias — ba’zi klientlar /payme/create_receipt chaqiradi)
 const paymeCreateReceiptHandler = async (c: Context) => {
   try {
-    const { amount, orderId, items, phone } = await c.req.json();
+    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
+    if (!body || typeof body !== "object") {
+      return c.json({ error: "JSON body majburiy" }, 400);
+    }
+    logPaymeHttp("POST /payme/create-receipt", body);
 
-    console.log('💳 Creating Payme receipt:', { amount, orderId, itemsCount: items?.length, phone });
+    const { amount, orderId, items, phone, returnUrl } = body as {
+      amount?: unknown;
+      orderId?: unknown;
+      items?: unknown;
+      phone?: unknown;
+      returnUrl?: unknown;
+    };
+
+    console.log('💳 Creating Payme receipt:', { amount, orderId, itemsCount: Array.isArray(items) ? items.length : 0, phone });
 
     if (!amount || !orderId) {
       return c.json({ error: 'Amount va orderId majburiy' }, 400);
@@ -12713,27 +12996,109 @@ const paymeCreateReceiptHandler = async (c: Context) => {
       return c.json({ error: 'Items (mahsulotlar ro\'yxati) majburiy' }, 400);
     }
 
+    const itemsTiyin = sumItemsTiyinForPaycom(items as PaymeReceiptItem[]);
+    const clientTiyin = Math.round(Number(amount) * 100);
+    if (!Number.isFinite(clientTiyin) || clientTiyin <= 0) {
+      return c.json({ error: "Noto‘g‘ri amount" }, 400);
+    }
+    if (!Number.isFinite(itemsTiyin) || itemsTiyin <= 0) {
+      return c.json({ error: "Mahsulotlar summasi 0 yoki noto‘g‘ri" }, 400);
+    }
+    if (Math.abs(itemsTiyin - clientTiyin) > 2) {
+      return c.json(
+        {
+          error:
+            "So‘m va savat qatorlari yig‘indisi mos emas. Sahifani yangilab qayta urinib ko‘ring (Paycom checkout «чек не найден» sababi bo‘lishi mumkin).",
+          code: "PAYCOM_AMOUNT_LINES_MISMATCH",
+          clientTiyin,
+          itemsTiyin,
+        },
+        400,
+      );
+    }
+
+    await kv.set(paymeCheckoutOrderKvKey(String(orderId)), {
+      state: "pending_receipt",
+      orderId: String(orderId),
+      amountTiyin: itemsTiyin,
+      updatedAt: new Date().toISOString(),
+    });
+
     const paymeConfig = await kv.get('payment_method:payme');
-    const resolvedTest = resolvePaycomUseTest(paymeConfig?.isTestMode);
-    const kvPaymeCreds = parsePaymeKvCredentials(paymeConfig);
+    const resolvedTest = resolvePaycomUseTestForPayme(paymeConfig);
+    const checkoutBackUrl = parsePaycomHttpsBackUrl(returnUrl);
 
     console.log('💳 Paycom create-receipt:', resolvedTest ? 'TEST (checkout.test.paycom.uz)' : 'PROD (checkout.paycom.uz)');
 
-    if (!isPaymeConfiguredForMode(resolvedTest, kvPaymeCreds)) {
+    if (!isPaymeConfiguredForMode(resolvedTest, null)) {
       return c.json(
         {
           error: resolvedTest
-            ? 'Paycom TEST: Admin Payme (Merchant ID + Secret Key) yoki Secrets: PAYCOM_REGISTER_ID + PAYCOM_SECRET_TEST.'
-            : 'Paycom PROD: Admin Payme (Merchant ID + Secret Key) yoki Secrets: PAYCOM_REGISTER_ID + PAYCOM_SECRET_PROD.',
+            ? 'Paycom TEST: Supabase Secrets — PAYCOM_REGISTER_ID va PAYCOM_SECRET_TEST.'
+            : 'Paycom PROD: Supabase Secrets — PAYCOM_REGISTER_ID va PAYCOM_SECRET_PROD.',
           code: 'PAYCOM_ENV_MISSING',
         },
         503,
       );
     }
 
+    const paycomCallOpts = {
+      useTest: resolvedTest,
+    };
+    const idem = await resolvePaycomCreateIdempotency(String(orderId), items, paycomCallOpts);
+    if (idem.action === "already_paid") {
+      await kv.set(paymeCheckoutOrderKvKey(String(orderId)), {
+        state: "paid",
+        orderId: String(orderId),
+        receiptId: idem.receiptId,
+        updatedAt: new Date().toISOString(),
+      });
+      return c.json(
+        {
+          error:
+            "Bu buyurtma (orderId) bo‘yicha chek allaqachon to‘langan. Yangi chek ochilmaydi.",
+          code: "PAYCOM_ORDER_ALREADY_PAID",
+          receiptId: idem.receiptId,
+        },
+        409,
+      );
+    }
+    if (idem.action === "reuse") {
+      const r = idem.record;
+      const freshCheckoutUrl = buildPaycomCheckoutLink(r.receiptId, resolvedTest, {
+        useTest: resolvedTest,
+        checkoutBackUrl,
+      });
+      await kv.set(`paycom_receipt:${r.receiptId}`, {
+        orderId: String(orderId),
+        useTest: resolvedTest,
+      });
+      await savePaycomOrderPending({
+        ...r,
+        checkoutUrl: freshCheckoutUrl,
+      });
+      await kv.set(paymeCheckoutOrderKvKey(String(orderId)), {
+        state: "receipt_created",
+        orderId: String(orderId),
+        receiptId: r.receiptId,
+        amountTiyin: itemsTiyin,
+        paycomEnvironment: resolvedTest ? "test" : "prod",
+        idempotentReused: true,
+        updatedAt: new Date().toISOString(),
+      });
+      console.log("[paycom] idempotent reuse", { orderId, receiptId: r.receiptId });
+      return c.json({
+        success: true,
+        receiptId: r.receiptId,
+        checkoutUrl: freshCheckoutUrl,
+        paycomEnvironment: resolvedTest ? "test" : "prod",
+        idempotentReused: true,
+      });
+    }
+
     const result = await paymeCreateReceipt(amount, orderId, items, phone, undefined, {
       useTest: resolvedTest,
-      kvCredentials: kvPaymeCreds,
+      checkoutBackUrl,
     });
 
     if (!result.success) {
@@ -12745,12 +13110,40 @@ const paymeCreateReceiptHandler = async (c: Context) => {
         orderId: String(orderId),
         useTest: resolvedTest,
       });
+      const amountTiyin = sumItemsTiyinForPaycom(items);
+      await savePaycomOrderPending({
+        receiptId: result.receiptId,
+        checkoutUrl: result.checkoutUrl,
+        amountTiyin,
+        useTest: resolvedTest,
+        createdAt: new Date().toISOString(),
+        orderId: String(orderId),
+      });
+      await kv.set(paymeCheckoutOrderKvKey(String(orderId)), {
+        state: "receipt_created",
+        orderId: String(orderId),
+        receiptId: result.receiptId,
+        amountTiyin,
+        paycomEnvironment: resolvedTest ? "test" : "prod",
+        updatedAt: new Date().toISOString(),
+      });
     }
 
+    const rec = result.receipt as { state?: number } | undefined;
+    console.log("RECEIPT_CREATE:", {
+      receiptId: result.receiptId,
+      accountOrderId: String(orderId),
+      paycomEnvironment: resolvedTest ? "test" : "prod",
+      receiptState: typeof rec?.state === "number" ? rec.state : undefined,
+    });
+    console.log("CHECKOUT_URL:", result.checkoutUrl);
     return c.json({
       success: true,
       receiptId: result.receiptId,
       checkoutUrl: result.checkoutUrl,
+      /** test = checkout.test.paycom.uz — payme.uz prod bilan aralashmasin */
+      paycomEnvironment: resolvedTest ? 'test' : 'prod',
+      receiptState: typeof rec?.state === 'number' ? rec.state : undefined,
     });
   } catch (error: any) {
     console.error('Create receipt error:', error);
@@ -12764,20 +13157,60 @@ app.post('/make-server-27d0d16c/payme/create_receipt', paymeCreateReceiptHandler
 // Check Payme receipt status
 app.post('/make-server-27d0d16c/payme/check-receipt', async (c) => {
   try {
-    const { receiptId } = await c.req.json();
-    
-    console.log('💳 Checking Payme receipt:', receiptId);
-    
-    if (!receiptId) {
-      return c.json({ error: 'ReceiptId majburiy' }, 400);
+    let body: { receiptId?: unknown };
+    try {
+      body = await c.req.json();
+    } catch {
+      return c.json({ error: "So‘rov tanasi JSON emas" }, 400);
     }
-    
-    const paycomOpts = await paycomCallOptsForReceiptIdWithKv(String(receiptId));
+    const receiptIdRaw = body?.receiptId;
+    const receiptId = receiptIdRaw != null ? String(receiptIdRaw).trim() : "";
+
+    console.log("💳 Checking Payme receipt:", receiptId);
+
+    if (!receiptId) {
+      return c.json({ error: "ReceiptId majburiy" }, 400);
+    }
+
+    const paycomOpts = await paycomCallOptsForReceiptIdWithKv(receiptId);
     const result = await paymeCheckReceipt(receiptId, paycomOpts);
 
     if (!result.success) {
-      return c.json({ error: result.error || 'Chek tekshirishda xatolik' }, 400);
+      return c.json({ error: result.error || "Chek tekshirishda xatolik" }, 400);
     }
+
+    /** KV (Supabase jadval) xatosi Paycom natijasini «500» qilmasin — to‘lov holati baribir qaytadi */
+    const applyPaidOrCancelledKv = async (kind: "paid" | "cancelled") => {
+      try {
+        const meta = (await kv.get(`paycom_receipt:${receiptId}`)) as
+          | { orderId?: string }
+          | null;
+        if (!meta?.orderId) return;
+        const oid = String(meta.orderId);
+        await clearPaycomOrderPending(oid);
+        await kv.set(paymeCheckoutOrderKvKey(oid), {
+          state: kind,
+          orderId: oid,
+          receiptId,
+          updatedAt: new Date().toISOString(),
+        });
+      } catch (kvErr: unknown) {
+        console.error(`[payme/check-receipt] KV (${kind}) yangilanmadi:`, kvErr);
+      }
+    };
+
+    if (result.isPaid) {
+      await applyPaidOrCancelledKv("paid");
+    }
+    if (result.isCancelled) {
+      await applyPaidOrCancelledKv("cancelled");
+    }
+
+    console.log("[payme/http] POST /payme/check-receipt", {
+      receiptIdTail: receiptId.slice(-8),
+      isPaid: result.isPaid,
+      state: result.state,
+    });
 
     return c.json({
       success: true,
@@ -12786,9 +13219,10 @@ app.post('/make-server-27d0d16c/payme/check-receipt', async (c) => {
       state: result.state,
       receipt: result.receipt,
     });
-  } catch (error: any) {
-    console.error('Check receipt error:', error);
-    return c.json({ error: `Chek tekshirishda xatolik: ${error.message}` }, 500);
+  } catch (error: unknown) {
+    const msg = error instanceof Error ? error.message : String(error);
+    console.error("Check receipt error:", error);
+    return c.json({ error: `Chek tekshirishda xatolik: ${msg}` }, 500);
   }
 });
 
@@ -12854,7 +13288,7 @@ app.post('/make-server-27d0d16c/payme/send-receipt', async (c) => {
     }
 
     const paycomOpts = await paycomCallOptsForReceiptIdWithKv(String(receiptId));
-    if (!isPaymeConfiguredForMode(paycomOpts.useTest, paycomOpts.kvCredentials)) {
+    if (!isPaymeConfiguredForMode(paycomOpts.useTest, null)) {
       return c.json({ error: 'Paycom sozlanmagan (shu chek uchun kerak bo‘lgan muhit kaliti)' }, 503);
     }
 
@@ -13104,6 +13538,8 @@ Yangi buyurtmalar kelganda sizga shunga o'xshash xabar yuboriladi:
 
 const CHAT_KEY_PREFIX = 'chat:';
 const CHAT_MESSAGE_KEY_PREFIX = 'chat_message:';
+/** Mijozlar support yozishi uchun maxsus “filial” id (buyurtmasiz ham chat bo‘lishi uchun). Filial panelida shu branchId bilan suhbatlarni ko‘rish mumkin. */
+const USER_SUPPORT_BRANCH_ID = 'aresso_support';
 
 const normalizeKVValueChat = (v: any) => {
   if (typeof v === 'string') {
@@ -13402,7 +13838,9 @@ async function userChatsHandler(c: any) {
     const ordersRaw = await kv.getByPrefix('order:');
     const myOrders = (ordersRaw || []).filter((o: any) => o && String(o.userId || '') === userId && !o.deleted);
 
-    const branchIds = Array.from(new Set(myOrders.map((o: any) => String(o.branchId || '').trim()).filter(Boolean)));
+    const branchIds = Array.from(
+      new Set(myOrders.map((o: any) => String(o.branchId || '').trim()).filter(Boolean)),
+    ).filter((id) => id !== USER_SUPPORT_BRANCH_ID);
 
     const chats: any[] = [];
     for (const branchId of branchIds) {
@@ -13441,8 +13879,41 @@ async function userChatsHandler(c: any) {
       chats.push(chat);
     }
 
+    const supportChatId = buildChatId(USER_SUPPORT_BRANCH_ID, 'customer', userId);
+    const supportKey = `${CHAT_KEY_PREFIX}${supportChatId}`;
+    const supportExisting = normalizeKVValueChat(await kv.get(supportKey));
+    const nowIsoSupport = new Date().toISOString();
+    const displayName = String(userProfile?.name || userProfile?.firstName || 'Mijoz');
+    const supportChat =
+      supportExisting ||
+      ({
+        id: supportChatId,
+        branchId: USER_SUPPORT_BRANCH_ID,
+        participantId: userId,
+        participantType: 'customer',
+        participantName: displayName,
+        lastMessage: {
+          content: 'Savolingizni yozing — operator tez orada javob beradi.',
+          timestamp: nowIsoSupport,
+          senderName: 'Aresso support',
+          isOwn: false,
+        },
+        unreadCount: 0,
+        isOnline: false,
+        isTyping: false,
+        isArchived: false,
+        isStarred: false,
+        createdAt: nowIsoSupport,
+        updatedAt: nowIsoSupport,
+      } as any);
+
+    if (!supportExisting) {
+      await kv.set(supportKey, supportChat);
+    }
+
     chats.sort((a: any, b: any) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
-    return c.json({ success: true, chats });
+    const ordered = [supportChat, ...chats.filter((c: any) => String(c?.id || '') !== supportChatId)];
+    return c.json({ success: true, chats: ordered });
   } catch (error: any) {
     console.error('User chats list error:', error);
     return c.json({ error: 'Suhbatlarni olishda xatolik' }, 500);
@@ -17830,15 +18301,19 @@ app.post('/make-server-27d0d16c/reports/generate', async (c) => {
 // ==================== ANALYTICS ROUTES ====================
 app.get('/make-server-27d0d16c/analytics', async (c) => {
   try {
-    const branchId = c.req.query('branchId');
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error || 'Unauthorized', success: false }, 401);
+    }
+    const branchId = String(branchAuth.branchId || '');
+    if (!branchId) {
+      return c.json({ error: 'Filial aniqlanmadi', success: false }, 400);
+    }
+
     const dateRange = c.req.query('dateRange') || '7days';
     const category = c.req.query('category') || 'all';
-    
-    console.log('📊 Analytics request:', { branchId, dateRange, category });
 
-    if (!branchId) {
-      return c.json({ error: 'branchId majburiy' }, 400);
-    }
+    console.log('📊 Analytics request:', { branchId, dateRange, category });
 
     const DAY_MS = 24 * 60 * 60 * 1000;
     const rangeDays =
@@ -18030,7 +18505,7 @@ app.get('/make-server-27d0d16c/analytics', async (c) => {
           record?.customerInfo?.phoneNumber ||
           record?.customerInfo?.id ||
           record?.customerInfo?.name ||
-          `sale:${record?.id || Math.random()}`
+          `sale:${record?.id || 'noid'}`
         );
       }
 
@@ -18038,7 +18513,7 @@ app.get('/make-server-27d0d16c/analytics', async (c) => {
         record?.customerPhone ||
         record?.userId ||
         record?.customerName ||
-        `order:${record?.id || Math.random()}`
+        `order:${record?.id || 'noid'}`
       );
     };
 
@@ -18224,15 +18699,18 @@ app.get('/make-server-27d0d16c/analytics', async (c) => {
 // ==================== STATISTICS ROUTES ====================
 app.get('/make-server-27d0d16c/statistics', async (c) => {
   try {
-    const branchId = c.req.query('branchId');
-    const period = c.req.query('period') || 'month';
-    const metric = c.req.query('metric') || 'revenue';
-    
-    console.log('📈 Statistics request:', { branchId, period, metric });
-
-    if (!branchId) {
-      return c.json({ error: 'branchId majburiy' }, 400);
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error || 'Unauthorized', success: false }, 401);
     }
+    const branchId = String(branchAuth.branchId || '');
+    if (!branchId) {
+      return c.json({ error: 'Filial aniqlanmadi', success: false }, 400);
+    }
+
+    const period = c.req.query('period') || 'month';
+
+    console.log('📈 Statistics request:', { branchId, period });
 
     const DAY_MS = 24 * 60 * 60 * 1000;
     const SUCCESSFUL_ORDER_STATUSES = new Set(['completed', 'delivered']);

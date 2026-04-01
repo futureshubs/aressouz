@@ -37,6 +37,7 @@ import { projectId } from '../../../../utils/supabase/info';
 import { buildAdminHeaders, buildBranchHeaders } from '../../utils/requestAuth';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { toast } from 'sonner';
+import { PendingCashMarketBranchPanel } from '../branch/PendingCashMarketBranchPanel';
 
 interface Order {
   id: string;
@@ -324,9 +325,15 @@ export default function OrdersManagement({
       filtered = filtered.filter(order => order.type === activeTab);
     }
 
-    // Filter by status
+    // Filter by status (new + pending bitta «Yangi» tugmasida)
     if (statusFilter !== 'all') {
-      filtered = filtered.filter(order => order.status === statusFilter);
+      if (statusFilter === 'incoming') {
+        filtered = filtered.filter(
+          (order) => order.status === 'new' || order.status === 'pending',
+        );
+      } else {
+        filtered = filtered.filter((order) => order.status === statusFilter);
+      }
     }
 
     // Filter by search
@@ -728,8 +735,7 @@ export default function OrdersManagement({
 
   const statusOptions = [
     { value: 'all', label: 'Barchasi', color: accentColor.color },
-    { value: 'new', label: 'Yangi', color: accentColor.color },
-    { value: 'pending', label: 'Yangi', color: accentColor.color },
+    { value: 'incoming', label: 'Yangi', color: accentColor.color },
     { value: 'confirmed', label: 'Tasdiqlandi', color: '#3b82f6' },
     { value: 'preparing', label: 'Tayyorlanmoqda', color: '#8b5cf6' },
     { value: 'ready', label: 'Tayyor', color: '#10b981' },
@@ -777,13 +783,12 @@ export default function OrdersManagement({
           backgroundColor: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
           border: `1px solid ${isNew ? accentColor.color : isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
           borderRadius: '20px',
-          padding: '20px',
           cursor: 'pointer',
           transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
           position: 'relative',
           overflow: 'hidden',
         }}
-        className="hover:shadow-2xl hover:scale-[1.02] active:scale-[0.98]"
+        className="p-4 sm:p-5 hover:shadow-2xl sm:hover:scale-[1.02] active:scale-[0.98] max-sm:hover:scale-100"
       >
         {/* New indicator */}
         {isNew && (
@@ -801,9 +806,10 @@ export default function OrdersManagement({
         )}
 
         {/* Header */}
-        <div className="flex items-center justify-between mb-4">
-          <div className="flex items-center gap-3">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between mb-4 min-w-0">
+          <div className="flex items-start gap-3 min-w-0 flex-1">
             <div
+              className="shrink-0"
               style={{
                 width: '48px',
                 height: '48px',
@@ -816,14 +822,14 @@ export default function OrdersManagement({
             >
               <TypeIcon className="w-6 h-6" style={{ color: getStatusColor(order.status) }} />
             </div>
-            <div>
-              <div className="flex items-center gap-2">
-                <p className="font-bold text-lg">
+            <div className="min-w-0 flex-1">
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="font-bold text-base sm:text-lg break-all">
                   #{order.orderId || order.id || '—'}
                 </p>
                 {isNew && (
                   <span 
-                    className="text-xs px-2 py-0.5 rounded-full font-bold"
+                    className="text-xs px-2 py-0.5 rounded-full font-bold shrink-0"
                     style={{ 
                       background: `${accentColor.color}20`,
                       color: accentColor.color 
@@ -834,7 +840,7 @@ export default function OrdersManagement({
                 )}
                 {needsMarketCashBranchRelease(order) && (
                   <span
-                    className="text-xs px-2 py-0.5 rounded-full font-bold"
+                    className="text-xs px-2 py-0.5 rounded-full font-bold shrink-0 max-w-full"
                     style={{
                       background: isDark ? 'rgba(251, 191, 36, 0.2)' : 'rgba(251, 191, 36, 0.35)',
                       color: isDark ? '#fcd34d' : '#92400e',
@@ -844,12 +850,12 @@ export default function OrdersManagement({
                   </span>
                 )}
               </div>
-              <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
+              <p className="text-sm mt-0.5" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
                 {getOrderTypeName(order.type)}
               </p>
             </div>
           </div>
-          <div className="flex flex-col items-end gap-2">
+          <div className="flex flex-row sm:flex-col flex-wrap gap-2 sm:items-end w-full sm:w-auto shrink-0">
             <div
               style={{
                 padding: '8px 16px',
@@ -921,14 +927,17 @@ export default function OrdersManagement({
         </div>
 
         {/* Footer */}
-        <div className="flex items-center justify-between pt-4" style={{ borderTop: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}>
-          <div className="flex items-center gap-2">
-            <Calendar className="w-4 h-4" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }} />
-            <span className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
+        <div
+          className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between pt-4"
+          style={{ borderTop: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}` }}
+        >
+          <div className="flex items-center gap-2 min-w-0">
+            <Calendar className="w-4 h-4 shrink-0" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }} />
+            <span className="text-sm truncate" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
               {formatOrderCardDate(order.createdAt)}
             </span>
           </div>
-          <p className="text-xl font-bold" style={{ color: accentColor.color }}>
+          <p className="text-lg sm:text-xl font-bold shrink-0" style={{ color: accentColor.color }}>
             {coerceOrderMoney(order.totalAmount).toLocaleString()}{' '}
             <span className="text-sm">so'm</span>
           </p>
@@ -944,6 +953,7 @@ export default function OrdersManagement({
 
     return (
       <div
+        className="p-3 sm:p-5"
         style={{
           position: 'fixed',
           top: 0,
@@ -956,18 +966,17 @@ export default function OrdersManagement({
           display: 'flex',
           alignItems: 'center',
           justifyContent: 'center',
-          padding: '20px',
           animation: 'fadeIn 0.2s ease-out',
         }}
         onClick={() => setShowOrderModal(false)}
       >
         <div
+          className="rounded-2xl sm:rounded-[32px]"
           style={{
             backgroundColor: isDark ? '#1a1a1a' : '#ffffff',
-            borderRadius: '32px',
             maxWidth: '700px',
             width: '100%',
-            maxHeight: '90vh',
+            maxHeight: 'min(90vh, 100dvh)',
             overflow: 'auto',
             animation: 'slideUp 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             boxShadow: isDark 
@@ -1569,10 +1578,10 @@ export default function OrdersManagement({
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex items-center justify-between flex-wrap gap-4">
-        <div>
-          <div className="flex items-center gap-3 mb-2">
-            <h2 className="text-3xl font-bold">
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between sm:flex-wrap">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2 sm:gap-3 mb-2">
+            <h2 className="text-2xl sm:text-3xl font-bold break-words">
               {type === 'all' ? 'Buyurtmalar' : `${getOrderTypeName(type === 'food' ? 'restaurant' : type)} Buyurtmalar`}
             </h2>
             {newOrdersCount > 0 && (
@@ -1594,7 +1603,7 @@ export default function OrdersManagement({
         </div>
 
         {/* Actions */}
-        <div className="flex items-center gap-3">
+        <div className="flex flex-wrap items-center gap-2 sm:gap-3 w-full sm:w-auto">
           <button
             onClick={() => {
               setAutoRefresh(!autoRefresh);
@@ -1658,9 +1667,9 @@ export default function OrdersManagement({
       </div>
 
       {/* Statistics Cards */}
-      <div className="grid grid-cols-2 lg:grid-cols-6 gap-4">
+      <div className="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
         <div
-          className="p-5 rounded-2xl transition-all hover:scale-105"
+          className="p-4 sm:p-5 rounded-2xl transition-all max-sm:hover:scale-100 sm:hover:scale-105"
           style={{
             background: `linear-gradient(135deg, ${accentColor.color}20, ${accentColor.color}10)`,
             border: `1px solid ${accentColor.color}30`,
@@ -1670,12 +1679,12 @@ export default function OrdersManagement({
             <Package className="w-8 h-8" style={{ color: accentColor.color }} />
             <TrendingUp className="w-5 h-5" style={{ color: accentColor.color, opacity: 0.5 }} />
           </div>
-          <p className="text-3xl font-bold mb-1">{stats.total}</p>
+          <p className="text-2xl sm:text-3xl font-bold mb-1 tabular-nums">{stats.total}</p>
           <p className="text-sm" style={{ opacity: 0.7 }}>Jami buyurtmalar</p>
         </div>
 
         <div
-          className="p-5 rounded-2xl transition-all hover:scale-105"
+          className="p-4 sm:p-5 rounded-2xl transition-all max-sm:hover:scale-100 sm:hover:scale-105"
           style={{
             background: `linear-gradient(135deg, ${accentColor.color}20, ${accentColor.color}10)`,
             border: `1px solid ${accentColor.color}30`,
@@ -1685,12 +1694,12 @@ export default function OrdersManagement({
             <Bell className="w-8 h-8" style={{ color: accentColor.color }} />
             {stats.pending > 0 && <div className="w-3 h-3 rounded-full animate-pulse" style={{ background: accentColor.color }} />}
           </div>
-          <p className="text-3xl font-bold mb-1">{stats.pending}</p>
+          <p className="text-2xl sm:text-3xl font-bold mb-1 tabular-nums">{stats.pending}</p>
           <p className="text-sm" style={{ opacity: 0.7 }}>Yangi</p>
         </div>
 
         <div
-          className="p-5 rounded-2xl transition-all hover:scale-105"
+          className="p-4 sm:p-5 rounded-2xl transition-all max-sm:hover:scale-100 sm:hover:scale-105"
           style={{
             background: 'linear-gradient(135deg, rgba(139, 92, 246, 0.2), rgba(139, 92, 246, 0.1))',
             border: '1px solid rgba(139, 92, 246, 0.3)',
@@ -1699,12 +1708,12 @@ export default function OrdersManagement({
           <div className="flex items-center justify-between mb-2">
             <Activity className="w-8 h-8 text-purple-500" />
           </div>
-          <p className="text-3xl font-bold mb-1">{stats.active}</p>
+          <p className="text-2xl sm:text-3xl font-bold mb-1 tabular-nums">{stats.active}</p>
           <p className="text-sm" style={{ opacity: 0.7 }}>Jarayonda</p>
         </div>
 
         <div
-          className="p-5 rounded-2xl transition-all hover:scale-105"
+          className="p-4 sm:p-5 rounded-2xl transition-all max-sm:hover:scale-100 sm:hover:scale-105"
           style={{
             background: 'linear-gradient(135deg, rgba(34, 197, 94, 0.2), rgba(34, 197, 94, 0.1))',
             border: '1px solid rgba(34, 197, 94, 0.3)',
@@ -1713,12 +1722,12 @@ export default function OrdersManagement({
           <div className="flex items-center justify-between mb-2">
             <CheckCircle className="w-8 h-8 text-green-500" />
           </div>
-          <p className="text-3xl font-bold mb-1">{stats.completed}</p>
+          <p className="text-2xl sm:text-3xl font-bold mb-1 tabular-nums">{stats.completed}</p>
           <p className="text-sm" style={{ opacity: 0.7 }}>Yetkazildi</p>
         </div>
 
         <div
-          className="p-5 rounded-2xl transition-all hover:scale-105"
+          className="p-4 sm:p-5 rounded-2xl transition-all max-sm:hover:scale-100 sm:hover:scale-105"
           style={{
             background: 'linear-gradient(135deg, rgba(239, 68, 68, 0.2), rgba(239, 68, 68, 0.1))',
             border: '1px solid rgba(239, 68, 68, 0.3)',
@@ -1727,12 +1736,12 @@ export default function OrdersManagement({
           <div className="flex items-center justify-between mb-2">
             <XCircle className="w-8 h-8 text-red-500" />
           </div>
-          <p className="text-3xl font-bold mb-1">{stats.cancelled}</p>
+          <p className="text-2xl sm:text-3xl font-bold mb-1 tabular-nums">{stats.cancelled}</p>
           <p className="text-sm" style={{ opacity: 0.7 }}>Bekor qilingan</p>
         </div>
 
         <div
-          className="p-5 rounded-2xl transition-all hover:scale-105"
+          className="p-4 sm:p-5 rounded-2xl transition-all max-sm:hover:scale-100 sm:hover:scale-105"
           style={{
             background: 'linear-gradient(135deg, rgba(16, 185, 129, 0.2), rgba(16, 185, 129, 0.1))',
             border: '1px solid rgba(16, 185, 129, 0.3)',
@@ -1741,7 +1750,7 @@ export default function OrdersManagement({
           <div className="flex items-center justify-between mb-2">
             <DollarSign className="w-8 h-8 text-emerald-500" />
           </div>
-          <p className="text-2xl font-bold mb-1">
+          <p className="text-2xl sm:text-3xl font-bold mb-1 tabular-nums">
             {`${Math.round(safeMoney(stats.totalRevenue) / 1000)}K`}
           </p>
           <p className="text-sm" style={{ opacity: 0.7 }}>Tushum</p>
@@ -1819,7 +1828,7 @@ export default function OrdersManagement({
         </div>
 
         {/* Status Filter */}
-        <div className="flex gap-2 overflow-x-auto pb-2">
+        <div className="flex gap-2 overflow-x-auto pb-2 snap-x snap-mandatory -mx-1 px-1">
           {statusOptions.map(option => {
             const isActive = statusFilter === option.value;
             
@@ -1827,9 +1836,8 @@ export default function OrdersManagement({
               <button
                 key={option.value}
                 onClick={() => setStatusFilter(option.value)}
-                className="transition-all active:scale-95 whitespace-nowrap"
+                className="transition-all active:scale-95 whitespace-nowrap shrink-0 snap-start text-xs sm:text-sm py-2.5 px-3 sm:py-3 sm:px-5"
                 style={{
-                  padding: '12px 20px',
                   borderRadius: '16px',
                   background: isActive 
                     ? option.color
@@ -1845,6 +1853,17 @@ export default function OrdersManagement({
           })}
         </div>
       </div>
+
+      {/* Naqd qabul — faqat «Yangi» filtrida (market + filial) */}
+      {authMode === 'branch' &&
+      type === 'market' &&
+      branchId &&
+      statusFilter === 'incoming' ? (
+        <PendingCashMarketBranchPanel
+          readOnly={!!readOnly}
+          onOrdersChanged={() => loadOrders(true)}
+        />
+      ) : null}
 
       {/* Orders Grid */}
       {filteredOrders.length === 0 ? (
@@ -1869,7 +1888,7 @@ export default function OrdersManagement({
           </p>
         </div>
       ) : (
-        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-5">
+        <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4 sm:gap-5">
           {filteredOrders.map((order, index) => (
             <OrderCard key={buildOrderKey(order, index)} order={order} />
           ))}

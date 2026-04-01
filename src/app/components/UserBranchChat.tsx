@@ -8,6 +8,17 @@ import { useVisibilityTick } from '../utils/visibilityRefetch';
 
 type UserBranchChatMode = 'split' | 'single';
 
+/** Server bilan mos: `userChatsHandler` dagi USER_SUPPORT_BRANCH_ID */
+const USER_SUPPORT_BRANCH_ID = 'aresso_support';
+
+function userChatListTitle(branchId: string) {
+  return branchId === USER_SUPPORT_BRANCH_ID ? 'Aresso support' : `Filial: ${branchId}`;
+}
+
+function userChatHeaderTitle(branchId: string) {
+  return branchId === USER_SUPPORT_BRANCH_ID ? 'Aresso support' : branchId;
+}
+
 type ChatSummary = {
   id: string;
   branchId: string;
@@ -199,7 +210,7 @@ export function UserBranchChat({ mode = 'split' }: UserBranchChatProps) {
                       background: selectedChat?.id === c.id ? `${accentColor.color}14` : 'transparent',
                     }}
                   >
-                    <div className="font-semibold">Filial: {c.branchId}</div>
+                    <div className="font-semibold">{userChatListTitle(c.branchId)}</div>
                     <div className="text-sm" style={{ opacity: 0.7 }}>
                       {c.lastMessage?.senderName ? `${c.lastMessage.senderName}: ` : ''}
                       {c.lastMessage?.content || 'Suhbat'}
@@ -231,7 +242,7 @@ export function UserBranchChat({ mode = 'split' }: UserBranchChatProps) {
               >
                 <ArrowLeft className="size-5" style={{ color: isDark ? '#fff' : '#111827' }} />
               </button>
-              <span>{selectedChat ? `Chat: ${selectedChat.branchId}` : 'Chat'}</span>
+              <span>{selectedChat ? userChatHeaderTitle(selectedChat.branchId) : 'Chat'}</span>
             </div>
 
             <div className="flex-1 p-4 overflow-y-auto space-y-3 min-h-0">
@@ -327,7 +338,7 @@ export function UserBranchChat({ mode = 'split' }: UserBranchChatProps) {
                   background: selectedChat?.id === c.id ? `${accentColor.color}14` : 'transparent',
                 }}
               >
-                <div className="font-semibold">Filial: {c.branchId}</div>
+                <div className="font-semibold">{userChatListTitle(c.branchId)}</div>
                 <div className="text-sm" style={{ opacity: 0.7 }}>
                   {c.lastMessage?.senderName ? `${c.lastMessage.senderName}: ` : ''}
                   {c.lastMessage?.content || 'Suhbat'}
@@ -349,7 +360,7 @@ export function UserBranchChat({ mode = 'split' }: UserBranchChatProps) {
         <div className="p-4 border-b font-bold"
           style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}
         >
-          {selectedChat ? `Chat: ${selectedChat.branchId}` : 'Chat tanlang'}
+          {selectedChat ? userChatHeaderTitle(selectedChat.branchId) : 'Chat tanlang'}
         </div>
 
         <div className="flex-1 p-4 overflow-y-auto space-y-3 min-h-0">
