@@ -2,6 +2,7 @@ import { X, Plus, Minus, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-
 import { memo, useState, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { toast } from 'sonner';
+import { getVariantStockQuantity } from '../utils/cartStock';
 
 interface Product {
   id: number;
@@ -85,12 +86,8 @@ export const ProductVariantModal = memo(function ProductVariantModal({
         const price = v.price || product.price;
         const oldPrice = v.oldPrice || product.oldPrice || Math.round(price * 1.15);
         const discount = Math.round(((oldPrice - price) / oldPrice) * 100);
-        
-        // Shop products use `stock`, Market products use `stockCount`
-        const stockCount = (v as any).stock !== undefined 
-          ? (v as any).stock 
-          : (v.stockCount ?? product.stockCount ?? 0);
-        
+        const stockCount = getVariantStockQuantity(v, product);
+
         return {
           id: v.id,
           weight: v.name,
@@ -106,7 +103,7 @@ export const ProductVariantModal = memo(function ProductVariantModal({
         price: product.price,
         oldPrice: product.oldPrice || Math.round(product.price * 1.15),
         discount: product.oldPrice ? Math.round(((product.oldPrice - product.price) / product.oldPrice) * 100) : 15,
-        stockCount: (product as any).stockQuantity ?? product.stockCount ?? 0,
+        stockCount: getVariantStockQuantity(null, product),
       }];
 
   const [selectedVariant, setSelectedVariant] = useState<string>(variants[0].id);

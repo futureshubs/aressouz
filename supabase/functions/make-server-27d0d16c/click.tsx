@@ -19,14 +19,34 @@
 //   Boshqa nom (masalan SERVICE_ID yoki "merchant user id") ishlamaydi — qarang: CLICK_SUPABASE_SECRETS.md
 //   (ixtiyoriy) CLICK_DEFAULT_RETURN_URL — veb return_url yuborilmasa shu ishlatiladi
 //   (ixtiyoriy) CLICK_PAY_BASE_URL — to‘liq pay URL (masalan test): https://test.click.uz/services/pay
-//     Bo‘sh bo‘lsa: KV `payment_method:click`.isTestMode true → test.click, aks holda my.click
+//     Bo‘sh bo‘lsa: CLICK_USE_TEST=true yoki KV isTestMode true → test.click (yoki CLICK_FORCE_PRODUCTION → my.click)
 
 import { Hono } from 'npm:hono';
 import * as crypto from 'node:crypto';
 import * as kv from './kv_store.tsx';
-import { coerceKvTestMode } from './payment-kv-utils.ts';
+import {
+  clickEnvWantsTestMode,
+  clickForceProduction,
+  coerceKvTestMode,
+} from './payment-kv-utils.ts';
+import { syncRelationalOrderFromLegacy } from '../_shared/db/orders.ts';
 
 const click = new Hono();
+
+/** `index.ts` dagi `getOrderKeys` bilan bir xil — market buyurtmalar `order:market:id` da */
+function orderKvKeysForMainOrder(orderId: string): string[] {
+  const raw = String(orderId || '').trim();
+  if (!raw) return [];
+  if (raw.startsWith('order:market:')) {
+    const stripped = raw.slice('order:market:'.length);
+    return [raw, `order:${stripped}`];
+  }
+  if (raw.startsWith('order:')) {
+    const stripped = raw.slice('order:'.length);
+    return [raw, `order:market:${stripped}`];
+  }
+  return [`order:${raw}`, `order:market:${raw}`];
+}
 
 const CLICK_SERVICE_ID = (Deno.env.get('CLICK_SERVICE_ID') || '').trim();
 const CLICK_MERCHANT_ID = (Deno.env.get('CLICK_MERCHANT_ID') || '').trim();
@@ -48,10 +68,16 @@ function clickInvoiceEnvError(): string | null {
   return `Click sozlanmagan. Supabase secrets: ${miss.join(', ')}. Kabinetdagi service/merchant/user ID va maxfiy kalitni kiriting.`;
 }
 
-/** To‘lov sahifasi: prod yoki test — admin Click `isTestMode` bilan mos. */
+/** To‘lov sahifasi: prod (`my.click.uz`) standart; test faqat aniq yoqilganda. */
 async function resolveClickPayBaseUrl(): Promise<string> {
   const envOverride = (Deno.env.get('CLICK_PAY_BASE_URL') || '').trim();
   if (envOverride) return envOverride.replace(/\/$/, '');
+  if (clickForceProduction()) {
+    return 'https://my.click.uz/services/pay';
+  }
+  if (clickEnvWantsTestMode()) {
+    return 'https://test.click.uz/services/pay';
+  }
   try {
     const clickCfg = await kv.get('payment_method:click');
     if (clickCfg && coerceKvTestMode((clickCfg as { isTestMode?: unknown }).isTestMode) === true) {
@@ -472,14 +498,43 @@ click.post('/complete', async (c) => {
       }
     }
 
-    // Update main order status
-    const mainOrder = await kv.get(`order:${orderId}`);
-    if (mainOrder) {
-      await kv.set(`order:${orderId}`, {
-        ...mainOrder,
-        paymentStatus: 'paid',
-        clickTransId: params.click_trans_id,
-        paidAt: paidAtIso,
+    // Update main order (shop `order:id` va market `order:market:id`)
+    let syncedMain: Record<string, unknown> | null = null;
+    for (const orderKey of orderKvKeysForMainOrder(orderId)) {
+      const mainOrder = await kv.get(orderKey);
+      if (mainOrder && typeof mainOrder === 'object') {
+        const mo = mainOrder as Record<string, unknown>;
+        const hist = Array.isArray(mo.statusHistory) ? [...(mo.statusHistory as unknown[])] : [];
+        const prevPaid = ['paid', 'completed', 'success'].includes(
+          String(mo.paymentStatus || '').toLowerCase().trim(),
+        );
+        if (!prevPaid) {
+          hist.push({
+            status: mo.status,
+            timestamp: paidAtIso,
+            note: 'Onlayn to‘lov tasdiqlandi (Click)',
+          });
+        }
+        syncedMain = {
+          ...mo,
+          paymentStatus: 'paid',
+          paymentCompletedAt: paidAtIso,
+          paymentRequiresVerification: false,
+          clickTransId: params.click_trans_id,
+          paidAt: paidAtIso,
+          updatedAt: paidAtIso,
+          statusHistory: hist,
+        };
+        await kv.set(orderKey, syncedMain);
+        break;
+      }
+    }
+    if (syncedMain) {
+      await syncRelationalOrderFromLegacy({
+        legacyOrderId: String(syncedMain.id ?? orderId),
+        kvStatus: String(syncedMain.status ?? ''),
+        kvPaymentStatus: 'paid',
+        paymentRequiresVerification: false,
       });
     }
 

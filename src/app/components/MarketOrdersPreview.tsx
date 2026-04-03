@@ -42,18 +42,46 @@ function orderTotalAmount(order: any): number {
   return Number.isFinite(n) ? n : 0;
 }
 
+function normalizePreviewImageUrl(u: unknown): string | null {
+  const s = typeof u === 'string' ? u.trim() : '';
+  if (!s) return null;
+  if (/^https?:\/\//i.test(s)) return s;
+  if (s.startsWith('//')) return s;
+  if (s.startsWith('/')) return s;
+  if (s.startsWith('data:image')) return s;
+  return null;
+}
+
 function thumbUrls(order: any): string[] {
+  const fromApi = Array.isArray(order.previewImageUrls) ? order.previewImageUrls : [];
+  const fromPreviewLines = Array.isArray(order.previewLines)
+    ? order.previewLines.map((l: { imageUrl?: string }) => l?.imageUrl)
+    : [];
+
+  const candidates: string[] = [
+    ...fromApi,
+    ...fromPreviewLines,
+  ];
+
   const items = Array.isArray(order.items) ? order.items : [];
+  for (const it of items.slice(0, 3)) {
+    candidates.push(
+      it?.image,
+      it?.imageUrl,
+      it?.photo,
+      it?.thumbnail,
+      it?.productImage,
+      it?.variantImage,
+      typeof it?.variant === 'object' && it.variant?.image,
+      it?.product && typeof it.product === 'object' && (it.product as { image?: string }).image,
+    );
+  }
+
   const out: string[] = [];
-  for (const it of items.slice(0, 2)) {
-    const u =
-      it?.image ||
-      it?.imageUrl ||
-      it?.photo ||
-      it?.variantImage ||
-      (typeof it?.variant === 'object' && it.variant?.image) ||
-      '';
-    if (typeof u === 'string' && u.startsWith('http')) out.push(u);
+  for (const raw of candidates) {
+    if (out.length >= 2) break;
+    const n = normalizePreviewImageUrl(raw);
+    if (n && !out.includes(n)) out.push(n);
   }
   return out;
 }

@@ -1049,18 +1049,24 @@ export default function Checkout({
   if (showSuccess) {
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center"
-        style={{ background: 'rgba(0, 0, 0, 0.9)' }}
+        className="fixed inset-0 z-50 flex items-center justify-center px-4 app-safe-pad"
+        style={{
+          background: isDark ? 'rgba(0, 0, 0, 0.92)' : 'rgba(249, 250, 251, 0.96)',
+        }}
       >
-        <div className="text-center">
+        <div className="text-center max-w-md">
           <div
             className="inline-flex p-8 rounded-full mb-6 animate-bounce"
             style={{ background: `${accentColor.color}30` }}
           >
             <Check className="w-24 h-24" style={{ color: accentColor.color }} />
           </div>
-          <h2 className="text-3xl font-bold mb-2 text-white">Buyurtma rasmiylashtrildi!</h2>
-          <p className="text-white/70">Tez orada siz bilan bog'lanamiz</p>
+          <h2
+            className={`text-2xl sm:text-3xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}
+          >
+            Buyurtma rasmiylashtirildi!
+          </h2>
+          <p className={isDark ? 'text-white/75' : 'text-gray-600'}>Tez orada siz bilan bog‘lanamiz</p>
         </div>
       </div>
     );
@@ -1068,12 +1074,12 @@ export default function Checkout({
 
   return (
     <div
-      className="fixed inset-0 z-[100] overflow-y-auto"
+      className="fixed inset-0 z-[100] flex flex-col h-dvh max-h-dvh min-h-0 overflow-hidden app-safe-pad"
       style={{ background: isDark ? '#000000' : '#ffffff' }}
     >
       {/* Header */}
       <div
-        className="sticky top-0 z-10 border-b"
+        className="shrink-0 z-10 border-b"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -1132,6 +1138,7 @@ export default function Checkout({
       </div>
 
       {/* Content */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain">
       <div className="p-4 pb-32 max-w-2xl mx-auto">
         {/* Step 1: User Info */}
         {step === 1 && (
@@ -1750,11 +1757,11 @@ export default function Checkout({
           </div>
         )}
       </div>
+      </div>
 
       {/* Ijara Shartlari Modal */}
       {showRentalTerms && (
         <>
-          {console.log('📋 Rental terms modal is showing!')}
           <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-900 rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl border border-gray-200/50 dark:border-gray-700/50">
             {/* Header */}

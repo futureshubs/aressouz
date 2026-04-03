@@ -3,6 +3,7 @@ import { useState, useEffect, memo } from 'react';
 import { MenuModal } from './MenuModal';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
+import { devLog } from '../utils/devLog';
 
 interface BottomNavProps {
   activeTab: string;
@@ -19,34 +20,34 @@ export const BottomNav = memo(function BottomNav({ activeTab, onTabChange, onAdd
 
   // Debug: Log isMenuOpen state changes
   useEffect(() => {
-    console.log('🟡 BottomNav: isMenuOpen state changed:', isMenuOpen);
+    devLog('🟡 BottomNav: isMenuOpen state changed:', isMenuOpen);
   }, [isMenuOpen]);
 
   // Close menu when location modal opens
   useEffect(() => {
-    console.log('🟣 BottomNav: locationModalOpen changed:', locationModalOpen);
+    devLog('🟣 BottomNav: locationModalOpen changed:', locationModalOpen);
     if (locationModalOpen && isMenuOpen) {
-      console.log('🟣 BottomNav: Closing menu because location modal opened');
-      console.log('🟣 BottomNav: isMenuOpen BEFORE setIsMenuOpen(false):', isMenuOpen);
+      devLog('🟣 BottomNav: Closing menu because location modal opened');
+      devLog('🟣 BottomNav: isMenuOpen BEFORE setIsMenuOpen(false):', isMenuOpen);
       setIsMenuOpen(false);
-      console.log('🟣 BottomNav: setIsMenuOpen(false) called');
+      devLog('🟣 BottomNav: setIsMenuOpen(false) called');
     }
   }, [locationModalOpen, isMenuOpen]);
 
   // Expose close function via ref
   useEffect(() => {
     if (menuCloseRef) {
-      console.log('🟢 BottomNav: Setting menuCloseRef.current');
+      devLog('🟢 BottomNav: Setting menuCloseRef.current');
       menuCloseRef.current = () => {
-        console.log('🟢 BottomNav: menuCloseRef.current() called - closing menu');
+        devLog('🟢 BottomNav: menuCloseRef.current() called - closing menu');
         setIsMenuOpen(prev => {
-          console.log('🟢 BottomNav: isMenuOpen PREVIOUS VALUE:', prev);
-          console.log('🟢 BottomNav: Setting to FALSE');
+          devLog('🟢 BottomNav: isMenuOpen PREVIOUS VALUE:', prev);
+          devLog('🟢 BottomNav: Setting to FALSE');
           return false;
         });
       };
     } else {
-      console.log('🔴 BottomNav: menuCloseRef is undefined');
+      devLog('🔴 BottomNav: menuCloseRef is undefined');
     }
   }, [menuCloseRef]);
 

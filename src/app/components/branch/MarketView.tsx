@@ -199,6 +199,13 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
     loadInventoryOperations();
   }, [branchId]);
 
+  /** Kataloglar serverda kengaytirilganda (seed merge) — modal ochilganda qayta yuklash */
+  useEffect(() => {
+    if (isModalOpen && branchId) {
+      void loadCategories();
+    }
+  }, [isModalOpen, branchId]);
+
   useEffect(() => {
     if (formData.catalogId) {
       const selectedCatalog = catalogs.find(c => c.id === formData.catalogId);
@@ -2553,10 +2560,17 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                     >
                       Katalog *
                     </label>
+                    <p className="text-xs mb-2" style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
+                      Oziq-ovqatdan tortib elektronika va uy-ro‘zg‘orgacha — ro‘yxat serverdan keladi; kam bo‘lsa sahifani yangilang.
+                    </p>
+                    <p className="text-xs mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)' }}>
+                      Pastdagi ro‘yxatni ichida skroll qiling — barcha kataloglar ko‘rinadi.
+                    </p>
                     <select
+                      size={catalogs.length ? Math.min(catalogs.length + 1, 14) : 1}
                       value={formData.catalogId}
                       onChange={(e) => setFormData({ ...formData, catalogId: e.target.value, categoryId: '' })}
-                      className="w-full px-4 py-3 rounded-2xl border outline-none transition-all cursor-pointer"
+                      className="w-full px-3 py-2 rounded-2xl border outline-none transition-all cursor-pointer"
                       style={{
                         background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
                         borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -2598,11 +2612,19 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                     >
                       Kategoriya *
                     </label>
+                    <p className="text-xs mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.38)' : 'rgba(0,0,0,0.4)' }}>
+                      Tanlangan katalog bo‘yicha barcha kategoriyalar — ro‘yxat ichida pastga skroll qiling.
+                    </p>
                     <select
+                      size={
+                        formData.catalogId && availableCategories.length > 0
+                          ? Math.min(availableCategories.length + 1, 16)
+                          : 1
+                      }
                       value={formData.categoryId}
                       onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
                       disabled={!formData.catalogId}
-                      className="w-full px-4 py-3 rounded-2xl border outline-none disabled:opacity-50 transition-all cursor-pointer disabled:cursor-not-allowed"
+                      className="w-full px-3 py-2 rounded-2xl border outline-none disabled:opacity-50 transition-all cursor-pointer disabled:cursor-not-allowed"
                       style={{
                         background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
                         borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',

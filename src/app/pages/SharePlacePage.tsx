@@ -5,6 +5,8 @@ import { Place } from '../data/places';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
 import { PlaceDetailPageSkeleton } from '../components/skeletons';
+import { projectId, publicAnonKey, edgeFunctionSlug } from '../../../utils/supabase/info';
+import { devLog } from '../utils/devLog';
 
 export function SharePlacePage() {
   const { shareCode } = useParams<{ shareCode: string }>();
@@ -25,13 +27,10 @@ export function SharePlacePage() {
       }
 
       try {
-        const projectId = 'wnondmqmuvjugbomyolz';
-        const publicAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Indub25kbXFtdXZqdWdib215b2x6Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3NzI5MTE3NzQsImV4cCI6MjA4ODQ4Nzc3NH0.7CJOTYZ-NhI9XiyWEGpcBxORx4mmM7jxx0MIJ-lQYSc';
-
-        console.log('🔗 Fetching place by share code:', shareCode);
+        devLog('🔗 Fetching place by share code:', shareCode);
 
         const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/share/${shareCode}`,
+          `https://${projectId}.supabase.co/functions/v1/${edgeFunctionSlug}/share/${shareCode}`,
           {
             headers: {
               'Authorization': `Bearer ${publicAnonKey}`,
@@ -44,7 +43,7 @@ export function SharePlacePage() {
         }
 
         const data = await response.json();
-        console.log('✅ Place loaded:', data.place);
+        devLog('✅ Place loaded:', data.place);
         
         setPlace(data.place);
       } catch (err: any) {
@@ -68,13 +67,17 @@ export function SharePlacePage() {
 
   if (error || !place) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#0a0a0a]">
+      <div
+        className={`fixed inset-0 flex items-center justify-center ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}
+      >
         <div className="text-center max-w-md px-6">
           <div className="size-20 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4">
             <span className="text-4xl">❌</span>
           </div>
-          <h2 className="text-2xl font-bold text-white mb-2">Joy topilmadi</h2>
-          <p className="text-white/60 mb-6">{error || 'Bu link yaroqsiz yoki muddati tugagan'}</p>
+          <h2 className={`text-2xl font-bold mb-2 ${isDark ? 'text-white' : 'text-foreground'}`}>Joy topilmadi</h2>
+          <p className={`mb-6 ${isDark ? 'text-white/60' : 'text-gray-600'}`}>
+            {error || 'Bu link yaroqsiz yoki muddati tugagan'}
+          </p>
           <button
             onClick={handleClose}
             className="px-6 py-3 rounded-xl bg-[#14b8a6] hover:bg-[#14b8a6]/90 text-white font-semibold transition-all active:scale-95"
@@ -87,7 +90,7 @@ export function SharePlacePage() {
   }
 
   return (
-    <div className="fixed inset-0 bg-[#0a0a0a]">
+    <div className={`fixed inset-0 ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}>
       <PlaceDetailModal place={place} isOpen={true} onClose={handleClose} />
     </div>
   );

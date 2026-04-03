@@ -19,6 +19,7 @@ import { buildAdminHeaders } from '../../utils/requestAuth';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 
 const PAYMENT_METHODS_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/payment-methods`;
+const ORDERS_ALL_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders/all`;
 
 interface Payment {
   id: string;
@@ -26,10 +27,101 @@ interface Payment {
   userName: string;
   amount: number;
   method: string;
-  status: 'completed' | 'pending' | 'failed';
+  /** To‘lov holati (to‘langan / kutilmoqda / …) */
+  status: 'completed' | 'pending' | 'failed' | 'refunded';
   orderId: string;
   createdAt: string;
   transactionId?: string;
+  branchId?: string;
+  orderType?: string;
+  /** Buyurtma jarayoni (yangi, tayyorlanmoqda, …) — KV `status` */
+  orderWorkflowStatus: string;
+}
+
+function formatPaymentMethodShort(raw: string | null | undefined): string {
+  const m = String(raw || '').toLowerCase().trim();
+  const map: Record<string, string> = {
+    cash: 'Naqd',
+    naqd: 'Naqd',
+    click: 'Click',
+    payme: 'Payme',
+    uzum: 'Uzum',
+    humo: 'Humo',
+    atmos: 'Atmos',
+    qr: 'QR',
+    qrcode: 'QR',
+    card: 'Karta',
+    transfer: "O'tkazma",
+    cod: 'Naqd (yetkazishda)',
+  };
+  return map[m] || raw?.trim() || '—';
+}
+
+function orderRowToPayment(o: Record<string, unknown>): Payment | null {
+  const id = String(o.id ?? o.orderId ?? '').trim();
+  if (!id) return null;
+
+  const payNested = o.payment && typeof o.payment === 'object' ? (o.payment as any) : null;
+  const ps = String(
+    o.paymentStatus ?? o.payment_status ?? (o as any).paymentState ?? payNested?.status ?? '',
+  )
+    .toLowerCase()
+    .trim();
+  let status: Payment['status'] = 'pending';
+  if (
+    ['paid', 'completed', 'complete', 'success', 'succeeded', 'successful', 'captured', 'settled', 'paid_out'].includes(
+      ps,
+    )
+  ) {
+    status = 'completed';
+  } else if (['failed', 'error', 'declined', 'rejected', 'expired'].includes(ps)) status = 'failed';
+  else if (['refunded', 'partially_refunded', 'partial_refund'].includes(ps)) status = 'refunded';
+
+  const amount = Number(o.totalAmount ?? o.finalTotal ?? o.totalPrice ?? o.total ?? 0) || 0;
+  const pm = String(o.paymentMethod ?? o.payment_method ?? o.paymentProvider ?? '');
+  const pmNorm = pm.toLowerCase().trim();
+  const onlinePrepaid = [
+    'click',
+    'click_card',
+    'payme',
+    'atmos',
+    'uzum',
+    'humo',
+    'online',
+  ].includes(pmNorm);
+  const orderSt = String(o.status ?? '').toLowerCase().trim();
+  const released = Boolean((o as { releasedToPreparerAt?: string }).releasedToPreparerAt);
+  /** Eski KV: to‘lov `pending` qolgan, lekin onlayn va buyurtma allaqachon ishlangan */
+  if (
+    status === 'pending' &&
+    onlinePrepaid &&
+    !['cash', 'naqd', 'cod'].includes(pmNorm) &&
+    (released ||
+      ['preparing', 'ready', 'delivering', 'delivered', 'confirmed'].includes(orderSt))
+  ) {
+    status = 'completed';
+  }
+
+  const createdRaw = o.createdAt ?? o.created_at;
+  const createdAt =
+    createdRaw && Number.isFinite(new Date(String(createdRaw)).getTime())
+      ? new Date(String(createdRaw)).toISOString()
+      : new Date().toISOString();
+
+  return {
+    id: `hist_${id}`,
+    userId: String(o.userId ?? o.customerId ?? ''),
+    userName: String(o.customerName ?? o.name ?? 'Mijoz'),
+    amount,
+    method: formatPaymentMethodShort(pm),
+    status,
+    orderId: String(o.orderId ?? o.order_number ?? o.orderNumber ?? id).replace(/^order:/, ''),
+    createdAt,
+    transactionId: o.paymentTransactionId ? String(o.paymentTransactionId) : undefined,
+    branchId: o.branchId ? String(o.branchId) : undefined,
+    orderType: o.orderType ? String(o.orderType) : o.type ? String(o.type) : undefined,
+    orderWorkflowStatus: String(o.status ?? 'pending'),
+  };
 }
 
 interface PaymentsViewProps {
@@ -46,7 +138,7 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
 
   const [payments, setPayments] = useState<Payment[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'pending' | 'failed'>('all');
+  const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'pending' | 'failed' | 'refunded'>('all');
   const [isLoading, setIsLoading] = useState(false);
   const visibilityRefetchTick = useVisibilityTick();
 
@@ -57,16 +149,27 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
   const loadPayments = useCallback(async () => {
     setIsLoading(true);
     try {
-      const stored = localStorage.getItem('payments');
-      if (stored) {
-        setPayments(JSON.parse(stored));
-      } else {
+      const res = await fetch(ORDERS_ALL_URL, {
+        headers: buildAdminHeaders({ 'Content-Type': 'application/json' }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        toast.error(data?.error || 'Buyurtmalar (to‘lovlar tarixi) yuklanmadi');
         setPayments([]);
+        return;
       }
+      const rows: Payment[] = [];
+      for (const o of data.orders || []) {
+        const p = orderRowToPayment(o as Record<string, unknown>);
+        if (p) rows.push(p);
+      }
+      rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      setPayments(rows);
       onStatsUpdateRef.current?.();
     } catch (error) {
       console.error('Error loading payments:', error);
-      toast.error('To\'lovlarni yuklashda xatolik');
+      toast.error('To‘lovlarni yuklashda xatolik');
+      setPayments([]);
     } finally {
       setIsLoading(false);
     }
@@ -135,9 +238,13 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
   };
 
   const filteredPayments = payments.filter((payment) => {
+    const q = searchQuery.toLowerCase().trim();
     const matchesSearch =
-      payment.userName.toLowerCase().includes(searchQuery.toLowerCase()) ||
-      payment.orderId.toLowerCase().includes(searchQuery.toLowerCase());
+      !q ||
+      payment.userName.toLowerCase().includes(q) ||
+      payment.orderId.toLowerCase().includes(q) ||
+      (payment.branchId && payment.branchId.toLowerCase().includes(q)) ||
+      (payment.orderType && payment.orderType.toLowerCase().includes(q));
 
     const matchesStatus = filterStatus === 'all' || payment.status === filterStatus;
 
@@ -152,6 +259,8 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
         return <Clock className="w-4 h-4" />;
       case 'failed':
         return <X className="w-4 h-4" />;
+      case 'refunded':
+        return <History className="w-4 h-4" />;
     }
   };
 
@@ -163,18 +272,59 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
         return { bg: 'rgba(245, 158, 11, 0.15)', color: '#f59e0b' };
       case 'failed':
         return { bg: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' };
+      case 'refunded':
+        return { bg: 'rgba(107, 114, 128, 0.2)', color: '#6b7280' };
     }
   };
 
-  const getStatusLabel = (status: Payment['status']) => {
+  const getPaymentStatusLabel = (status: Payment['status']) => {
     switch (status) {
       case 'completed':
-        return 'Bajarildi';
+        return 'To‘langan';
       case 'pending':
         return 'Kutilmoqda';
       case 'failed':
-        return 'Bekor qilindi';
+        return 'Xatolik';
+      case 'refunded':
+        return 'Qaytarilgan';
     }
+  };
+
+  const getOrderWorkflowText = (status: string) => {
+    const s = String(status || '').toLowerCase().trim();
+    switch (s) {
+      case 'new':
+        return 'Yangi';
+      case 'pending':
+        return 'Yangi';
+      case 'confirmed':
+        return 'Tasdiqlandi';
+      case 'preparing':
+        return 'Tayyorlanmoqda';
+      case 'ready':
+        return 'Tayyor';
+      case 'delivering':
+        return 'Yetkazilmoqda';
+      case 'delivered':
+        return 'Yetkazildi';
+      case 'awaiting_receipt':
+        return 'Mijoz tasdig‘i';
+      case 'cancelled':
+      case 'canceled':
+        return 'Bekor';
+      default:
+        return status || '—';
+    }
+  };
+
+  const getOrderWorkflowStyle = (status: string) => {
+    const s = String(status || '').toLowerCase().trim();
+    if (s === 'delivered') return { bg: 'rgba(16, 185, 129, 0.15)', color: '#10b981' };
+    if (s === 'cancelled' || s === 'canceled') return { bg: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' };
+    if (['preparing', 'ready', 'delivering', 'confirmed'].includes(s)) {
+      return { bg: 'rgba(139, 92, 246, 0.15)', color: '#a78bfa' };
+    }
+    return { bg: 'rgba(245, 158, 11, 0.12)', color: '#f59e0b' };
   };
 
   const totalAmount = filteredPayments.reduce((sum, p) => sum + p.amount, 0);
@@ -259,7 +409,9 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
             To&apos;lovlar tarixi
           </h2>
           <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}>
-            Mahalliy demo tarix (<code className="text-xs">localStorage</code>).
+            <strong>Buyurtma holati</strong> — yetkazib berish jarayoni (yangi, tayyorlanmoqda, yetkazildi…).{' '}
+            <strong>To‘lov holati</strong> — pul tushgani yoki kutilayotgani (Payme/Click oldindan to‘lovda «To‘langan»). Ma’lumot:{' '}
+            <code className="text-xs">orders/all</code> (KV).
           </p>
         </div>
 
@@ -285,7 +437,9 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
 
           <select
             value={filterStatus}
-            onChange={(e) => setFilterStatus(e.target.value as 'all' | 'completed' | 'pending' | 'failed')}
+            onChange={(e) =>
+              setFilterStatus(e.target.value as 'all' | 'completed' | 'pending' | 'failed' | 'refunded')
+            }
             className="px-4 py-2.5 rounded-2xl border outline-none"
             style={{
               background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
@@ -294,9 +448,10 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
             }}
           >
             <option value="all">Barchasi</option>
-            <option value="completed">Bajarildi</option>
+            <option value="completed">To‘langan</option>
             <option value="pending">Kutilmoqda</option>
-            <option value="failed">Bekor qilindi</option>
+            <option value="failed">Xatolik</option>
+            <option value="refunded">Qaytarilgan</option>
           </select>
         </div>
 
@@ -318,7 +473,9 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
               <p className="text-sm mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
                 Jami summa (filtr bo‘yicha)
               </p>
-              <p className="text-3xl font-bold">{(totalAmount / 1_000_000).toFixed(1)}M so&apos;m</p>
+              <p className="text-2xl sm:text-3xl font-bold break-all">
+                {totalAmount.toLocaleString('uz-UZ')} so&apos;m
+              </p>
             </div>
           </div>
         </div>
@@ -362,10 +519,13 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
                     }}
                   >
                     <th className="text-left px-6 py-4 text-sm font-semibold">Buyurtma ID</th>
+                    <th className="text-left px-6 py-4 text-sm font-semibold">Filial</th>
+                    <th className="text-left px-6 py-4 text-sm font-semibold">Tur</th>
                     <th className="text-left px-6 py-4 text-sm font-semibold">Foydalanuvchi</th>
                     <th className="text-left px-6 py-4 text-sm font-semibold">Summa</th>
                     <th className="text-left px-6 py-4 text-sm font-semibold">To&apos;lov turi</th>
-                    <th className="text-left px-6 py-4 text-sm font-semibold">Holat</th>
+                    <th className="text-left px-6 py-4 text-sm font-semibold">Buyurtma holati</th>
+                    <th className="text-left px-6 py-4 text-sm font-semibold">To&apos;lov holati</th>
                     <th className="text-left px-6 py-4 text-sm font-semibold">Sana</th>
                   </tr>
                 </thead>
@@ -381,6 +541,10 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
                         <td className="px-6 py-4">
                           <span className="font-mono font-semibold">{payment.orderId}</span>
                         </td>
+                        <td className="px-6 py-4 text-xs font-mono max-w-[140px] truncate" title={payment.branchId}>
+                          {payment.branchId || '—'}
+                        </td>
+                        <td className="px-6 py-4 text-sm">{payment.orderType || '—'}</td>
                         <td className="px-6 py-4">{payment.userName}</td>
                         <td className="px-6 py-4 font-semibold">{payment.amount.toLocaleString()} so&apos;m</td>
                         <td className="px-6 py-4">
@@ -398,12 +562,23 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
                           <span
                             className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
                             style={{
+                              background: getOrderWorkflowStyle(payment.orderWorkflowStatus).bg,
+                              color: getOrderWorkflowStyle(payment.orderWorkflowStatus).color,
+                            }}
+                          >
+                            {getOrderWorkflowText(payment.orderWorkflowStatus)}
+                          </span>
+                        </td>
+                        <td className="px-6 py-4">
+                          <span
+                            className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-medium"
+                            style={{
                               background: statusColor.bg,
                               color: statusColor.color,
                             }}
                           >
                             {getStatusIcon(payment.status)}
-                            {getStatusLabel(payment.status)}
+                            {getPaymentStatusLabel(payment.status)}
                           </span>
                         </td>
                         <td className="px-6 py-4 text-sm">

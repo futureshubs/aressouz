@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Building2, User, Lock, ChevronRight, Shield } from 'lucide-react';
+import { Building2, User, Lock, Key, ChevronRight, Shield } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';

@@ -6,6 +6,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
 import { regions } from '../data/regions';
+import { devLog } from '../utils/devLog';
 
 interface HeaderProps {
   cartCount: number;
@@ -46,15 +47,15 @@ export const Header = memo(function Header({
 
   // Close menu when location modal opens
   useEffect(() => {
-    console.log('🔵 Header: isLocationOpen changed:', isLocationOpen);
+    devLog('🔵 Header: isLocationOpen changed:', isLocationOpen);
     if (isLocationOpen) {
-      console.log('🔵 Header: Location modal is opening, closing menu...');
+      devLog('🔵 Header: Location modal is opening, closing menu...');
       setLocationModalOpen(true);
       if (menuCloseRef?.current) {
-        console.log('✅ Header: Calling menuCloseRef.current()');
+        devLog('✅ Header: Calling menuCloseRef.current()');
         menuCloseRef.current();
       } else {
-        console.log('❌ Header: menuCloseRef.current is null');
+        devLog('❌ Header: menuCloseRef.current is null');
       }
     } else {
       setLocationModalOpen(false);
@@ -63,18 +64,18 @@ export const Header = memo(function Header({
 
   // Handle location selection - close menu if open
   const handleLocationOpen = () => {
-    console.log('🔵 handleLocationOpen called');
-    console.log('🔵 menuCloseRef:', menuCloseRef);
-    console.log('🔵 menuCloseRef.current:', menuCloseRef?.current);
+    devLog('🔵 handleLocationOpen called');
+    devLog('🔵 menuCloseRef:', menuCloseRef);
+    devLog('🔵 menuCloseRef.current:', menuCloseRef?.current);
     
     // "Hudud tanlang" prompt modal orqada qolib ketmasligi uchun avval dismiss qilamiz
     dismissLocationPrompt();
     
     if (menuCloseRef?.current) {
-      console.log('✅ Closing menu...');
+      devLog('✅ Closing menu...');
       menuCloseRef.current();
     } else {
-      console.log('❌ menuCloseRef.current is null or undefined');
+      devLog('❌ menuCloseRef.current is null or undefined');
     }
     
     setIsLocationOpen(true);
@@ -89,7 +90,9 @@ export const Header = memo(function Header({
           top: 'var(--app-safe-top)',
           background: bgGradient,
           backdropFilter: 'blur(20px)',
-          boxShadow: '0 8px 32px rgba(0, 0, 0, 0.8), 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05)',
+          boxShadow: isDark
+            ? '0 8px 32px rgba(0, 0, 0, 0.8), 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05)'
+            : '0 4px 24px rgba(0, 0, 0, 0.07), 0 2px 10px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.06)',
         }}
       >
         <div className="px-3 sm:px-4 md:px-6 lg:px-8 max-w-[1600px] mx-auto">

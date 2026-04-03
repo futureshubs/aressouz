@@ -32,18 +32,16 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
       />
 
       <div
-        className="relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5"
+        className="relative w-full sm:max-w-md rounded-t-3xl sm:rounded-3xl p-5 flex flex-col min-h-0 max-h-[85vh] overflow-hidden"
         style={{
           background: isDark
             ? 'linear-gradient(145deg, rgba(20,20,20,0.98), rgba(10,10,10,0.98))'
             : 'linear-gradient(145deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98))',
           border: isDark ? '0.5px solid rgba(255,255,255,0.10)' : '0.5px solid rgba(0,0,0,0.08)',
           boxShadow: isDark ? '0 24px 80px rgba(0,0,0,0.85)' : '0 24px 70px rgba(0,0,0,0.18)',
-          maxHeight: '85vh',
-          overflowY: 'auto',
         }}
       >
-        <div className="flex items-center justify-between mb-4">
+        <div className="flex items-center justify-between mb-4 shrink-0">
           <div className="space-y-0.5">
             <p className="text-sm font-semibold" style={{ color: isDark ? '#fff' : '#111827' }}>
               Support chat
@@ -65,7 +63,7 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
           </button>
         </div>
 
-        <div className="flex gap-2 mb-4">
+        <div className="flex gap-2 mb-4 shrink-0">
           <button
             onClick={() => setMode('chat')}
             className="flex-1 py-2.5 rounded-2xl font-bold transition active:scale-95"
@@ -102,6 +100,7 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
 
         {mode === 'chat' ? (
           <div
+            className="flex-1 min-h-0 flex flex-col"
             style={{
               paddingBottom: 10,
               background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
@@ -110,13 +109,13 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
               overflow: 'hidden',
             }}
           >
-            {/* Profile → Chat tabidagi bir xil UI */}
-            <div style={{ height: '62vh', overflow: 'hidden' }}>
-              <UserBranchChat mode="single" />
+            {/* Profile → Chat tabidagi bir xil UI — bitta scroll faqat ichki xabarlarda */}
+            <div className="min-h-0 flex-1 max-h-[62vh] overflow-hidden flex flex-col">
+              <UserBranchChat mode="single" embedTarget="support" />
             </div>
           </div>
         ) : (
-          <div className="space-y-3">
+          <div className="space-y-3 flex-1 min-h-0 overflow-y-auto overscroll-y-contain pr-1 -mr-1">
             <a
               href={telegramUrl}
               target="_blank"

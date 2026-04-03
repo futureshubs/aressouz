@@ -4,7 +4,8 @@ import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
 import { Home, LayoutGrid, ArrowLeft, Plus, Edit2, Trash2 } from 'lucide-react';
 import { houseCategories, House } from '../data/houses';
-import { HouseCard } from './HouseCard';
+import { ListingCard } from './ListingCard';
+import { houseToListingCardModel } from '../utils/listingDisplay';
 import { HouseCategoryCard } from './HouseCategoryCard';
 import { HouseDetailModal } from './HouseDetailModal';
 import { AddListingModal } from './AddListingModal';
@@ -129,6 +130,15 @@ export function HousesView() {
     void fetchHouses();
     if (isAuthenticated) void fetchUserData();
   });
+
+  /** Ro‘yxat yangilanganda ochiq modaldagi uy obyektini ham yangilash (rasmlar serverda tuzalgach) */
+  useEffect(() => {
+    setSelectedHouse((prev) => {
+      if (!prev) return prev;
+      const fresh = houses.find((h) => h.id === prev.id);
+      return fresh ?? prev;
+    });
+  }, [houses]);
 
   // Handle add house button click
   const handleAddClick = () => {
@@ -272,19 +282,17 @@ export function HousesView() {
             <ProductGridSkeleton
               isDark={isDark}
               count={12}
-              gridClassName="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-5"
+              gridClassName="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3"
             />
           ) : houses.length > 0 ? (
-            <div 
-              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-5"
-              style={{
-                gridAutoRows: 'min-content',
-              }}
-            >
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3 [grid-auto-rows:min-content]">
               {houses.map((house) => (
-                <HouseCard
+                <ListingCard
                   key={house.id}
-                  house={house}
+                  listing={houseToListingCardModel(house)}
+                  compact
+                  hideFavorite
+                  showHousePromoBadges
                   onClick={() => setSelectedHouse(house)}
                 />
               ))}
@@ -354,16 +362,14 @@ export function HousesView() {
           </h2>
 
           {filteredHouses.length > 0 ? (
-            <div 
-              className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-5"
-              style={{
-                gridAutoRows: 'min-content',
-              }}
-            >
-              {filteredHouses.map((house) => (
-                <HouseCard
-                  key={house.id}
-                  house={house}
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3 [grid-auto-rows:min-content]">
+              {filteredHouses.map((house, index) => (
+                <ListingCard
+                  key={house.id != null && String(house.id) !== '' ? String(house.id) : `house-row-${index}`}
+                  listing={houseToListingCardModel(house)}
+                  compact
+                  hideFavorite
+                  showHousePromoBadges
                   onClick={() => setSelectedHouse(house)}
                 />
               ))}
@@ -386,6 +392,7 @@ export function HousesView() {
       {/* House Detail Modal */}
       {selectedHouse && (
         <HouseDetailModal
+          key={selectedHouse.id}
           house={selectedHouse}
           isOpen={!!selectedHouse}
           onClose={() => setSelectedHouse(null)}

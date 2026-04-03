@@ -1,8 +1,36 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
+import * as r2 from "./r2-storage.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const app = new Hono();
+
+function collectRentalProductHttpUrls(p: Record<string, unknown> | null | undefined): Set<string> {
+  const urls = new Set<string>();
+  const add = (v: unknown) => {
+    if (typeof v === "string" && (v.startsWith("http://") || v.startsWith("https://"))) urls.add(v.trim());
+  };
+  if (!p) return urls;
+  add(p.image);
+  add(p.photo);
+  add(p.coverImage);
+  if (Array.isArray(p.images)) for (const x of p.images) add(x);
+  return urls;
+}
+
+async function purgeRentalProductR2Diff(before: unknown, after: unknown) {
+  const oldU = collectRentalProductHttpUrls(before as Record<string, unknown>);
+  const newU = collectRentalProductHttpUrls(after as Record<string, unknown>);
+  for (const url of oldU) {
+    if (!newU.has(url)) await r2.deleteManagedR2UrlIfKnown(url);
+  }
+}
+
+async function purgeAllRentalProductR2(p: unknown) {
+  for (const url of collectRentalProductHttpUrls(p as Record<string, unknown>)) {
+    await r2.deleteManagedR2UrlIfKnown(url);
+  }
+}
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL') ?? '',
@@ -247,6 +275,7 @@ app.put('/products/:id', async (c) => {
       updatedAt: new Date().toISOString()
     };
     
+    await purgeRentalProductR2Diff(existingProduct, updatedProduct);
     await kv.set(`rental_product_${body.branchId}_${id}`, updatedProduct);
     
     console.log('✅ Rental product updated successfully:', id);
@@ -265,6 +294,9 @@ app.delete('/products/:branchId/:id', async (c) => {
     
     console.log('🗑️ Deleting rental product:', branchId, id);
     
+    const existing = await kv.get(`rental_product_${branchId}_${id}`);
+    if (existing) await purgeAllRentalProductR2(existing);
+
     await kv.del(`rental_product_${branchId}_${id}`);
     await kv.del(`rental_warehouse_${branchId}_${id}`);
     

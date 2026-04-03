@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect } from 'react';
 import {
   User,
   Settings,
@@ -29,7 +29,19 @@ import { AddListingModal } from './AddListingModal';
 import { EditListingModal } from './EditListingModal';
 import { PortfolioCard } from './PortfolioCard';
 import { ListingCard } from './ListingCard';
-import { useTheme } from '../context/ThemeContext';
+import { PortfolioDetailModal } from './PortfolioDetailModal';
+import { ListingPreviewModal } from './ListingPreviewModal';
+import { devLog } from '../utils/devLog';
+import { useTheme, type Language } from '../context/ThemeContext';
+import {
+  profileOrderBadgeLabel,
+  profilePaymentStatus,
+  profileCategoryLabel,
+  useUserPanelT,
+  userPanelFormatDateTime,
+  userPanelLocale,
+} from '../i18n/userPanel';
+import { formatListingFeeDisplay } from '../constants/listingFee';
 import { useAuth } from '../context/AuthContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { publicAnonKey, API_BASE_URL, DEV_API_BASE_URL } from '/utils/supabase/info';
@@ -37,6 +49,7 @@ import { OrderReviewModal } from './OrderReviewModal';
 import type { FavoriteOrderEntry } from '../context/FavoritesContext';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { RentalNextPaymentInfo } from './rental/RentalNextPaymentInfo';
+import { tryResolveImageFromBranchCatalog } from '../utils/branchCatalogProductImage';
 
 /** Normalize Postgres marketplace `vertical_type` → profil buyurtma filtrlari */
 function mapRelationalVerticalToCategory(
@@ -66,6 +79,265 @@ function mapRelationalOrderStatus(s: string): 'active' | 'completed' | 'cancelle
   return 'active';
 }
 
+type ProfileOrderLinePreview = {
+  imageUrl: string | null;
+  title: string;
+  subtitle?: string;
+  quantity: number;
+  lineTotal: number;
+  unitPrice?: number;
+  /** Filial katalogi (localStorage) / enrichment */
+  productId?: string;
+  productVariantId?: string;
+};
+
+function mergePreviewLinesWithKv(
+  relLines: ProfileOrderLinePreview[],
+  kvLines: ProfileOrderLinePreview[],
+): ProfileOrderLinePreview[] {
+  if (!Array.isArray(relLines) || relLines.length === 0) return relLines;
+  if (!Array.isArray(kvLines) || kvLines.length === 0) return relLines;
+  return relLines.map((line, i) => {
+    if (line.imageUrl) return line;
+    const byIdx = kvLines[i];
+    if (byIdx?.imageUrl) return { ...line, imageUrl: byIdx.imageUrl };
+    const byTitle = kvLines.find(
+      (k) =>
+        k.title === line.title ||
+        (Boolean(line.subtitle) && Boolean(k.subtitle) && k.subtitle === line.subtitle),
+    );
+    if (byTitle?.imageUrl) return { ...line, imageUrl: byTitle.imageUrl };
+    return line;
+  });
+}
+
+/** Bir xil `id`: relational ma’lumot + KV qatorlaridagi rasmlar */
+function mergeRelationalAndKvOrder(rel: Record<string, unknown>, kv: Record<string, unknown>) {
+  const relLines = Array.isArray(rel.previewLines)
+    ? (rel.previewLines as ProfileOrderLinePreview[])
+    : [];
+  const kvLines = Array.isArray(kv.previewLines)
+    ? (kv.previewLines as ProfileOrderLinePreview[])
+    : [];
+  const previewLines = mergePreviewLinesWithKv(relLines, kvLines);
+  return { ...kv, ...rel, previewLines };
+}
+
+function enrichOrderPreviewLineImages(order: Record<string, unknown>): Record<string, unknown> {
+  if (!order || !Array.isArray(order.previewLines)) return order;
+  const previewLines = (order.previewLines as ProfileOrderLinePreview[]).map((line) => {
+    if (line.imageUrl) return line;
+    const img = tryResolveImageFromBranchCatalog({
+      productId: line.productId,
+      variantId: line.productVariantId,
+      productName: line.title,
+      variantName: line.subtitle,
+    });
+    return img ? { ...line, imageUrl: img } : line;
+  });
+  return { ...order, previewLines };
+}
+
+function formatMoneyProfile(amount: number, currency: string, lang: Language): string {
+  if (!Number.isFinite(amount)) return '—';
+  const cur = String(currency || 'UZS').toUpperCase();
+  try {
+    return new Intl.NumberFormat(userPanelLocale(lang), {
+      style: 'currency',
+      currency: cur.length === 3 ? cur : 'UZS',
+      maximumFractionDigits: cur === 'UZS' ? 0 : 2,
+    }).format(amount);
+  } catch {
+    return `${Math.round(amount)} ${cur}`;
+  }
+}
+
+function mapKvOrderTypeToCategory(
+  orderType: string,
+): 'market' | 'shop' | 'rent' | 'food' | 'auction' {
+  const x = String(orderType || '').toLowerCase().trim();
+  if (x === 'shop') return 'shop';
+  if (x === 'food' || x === 'restaurant') return 'food';
+  if (x === 'rental') return 'rent';
+  return 'market';
+}
+
+function pickItemImageFromKvLine(it: Record<string, unknown>): string | null {
+  const u = (v: unknown) => {
+    const s = String(v || '').trim();
+    if (!s) return '';
+    if (s.startsWith('http') || s.startsWith('//') || s.startsWith('data:') || s.startsWith('/')) return s;
+    return '';
+  };
+  const obj = (v: unknown) => (v && typeof v === 'object' ? (v as Record<string, unknown>) : null);
+  const product = obj(it.product);
+  const variant = obj(it.variant);
+  const dish = obj(it.dishDetails);
+  return (
+    u(it.image) ||
+    u(it.imageUrl) ||
+    u(it.thumbnail) ||
+    u(it.productImage) ||
+    u(it.photo) ||
+    u(product?.image) ||
+    u(variant?.image) ||
+    u(it.selectedVariantImage) ||
+    u(obj(it.variantDetails)?.image) ||
+    u(dish?.image) ||
+    null
+  );
+}
+
+function kvItemsToPreviewLines(items: unknown): ProfileOrderLinePreview[] {
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, 5).map((raw) => {
+    const it = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
+    const qty = Math.max(1, Number(it.quantity || 1));
+    const vd = it.variantDetails as Record<string, unknown> | undefined;
+    const vr = it.variant as Record<string, unknown> | undefined;
+    const unit = Number(it.price ?? it.unitPrice ?? vd?.price ?? vr?.price ?? 0);
+    const lineTotal = Number(
+      it.total ?? it.lineTotal ?? it.subtotal ?? (Number.isFinite(unit) ? unit * qty : 0),
+    );
+    const pr = it.product as Record<string, unknown> | undefined;
+    const title =
+      String(it.name ?? it.title ?? it.dishName ?? pr?.name ?? 'Mahsulot').trim() || 'Mahsulot';
+    const subtitle = String(
+      it.variantName ?? it.selectedVariantName ?? vd?.name ?? vr?.name ?? '',
+    ).trim();
+    const productUuid =
+      it.productUuid != null && String(it.productUuid).trim()
+        ? String(it.productUuid).trim()
+        : it.productId != null && String(it.productId).trim()
+          ? String(it.productId).trim()
+          : pr?.id != null && String(pr.id).trim()
+            ? String(pr.id).trim()
+            : undefined;
+    const productVariantId =
+      it.selectedVariantId != null && String(it.selectedVariantId).trim()
+        ? String(it.selectedVariantId).trim()
+        : undefined;
+    let imageUrl = pickItemImageFromKvLine(it);
+    if (!imageUrl && (productUuid || title)) {
+      imageUrl = tryResolveImageFromBranchCatalog({
+        productId: productUuid,
+        variantId: productVariantId,
+        productName: title,
+        variantName: subtitle,
+      });
+    }
+    return {
+      imageUrl,
+      title,
+      subtitle: subtitle || undefined,
+      quantity: qty,
+      lineTotal: Number.isFinite(lineTotal) ? lineTotal : 0,
+      unitPrice: Number.isFinite(unit) ? unit : undefined,
+      productId: productUuid,
+      productVariantId,
+    };
+  });
+}
+
+function pickPrimaryProductMediaUrl(
+  product: { media?: Array<Record<string, unknown>> } | null | undefined,
+  variantId: string | null,
+): string | null {
+  const rows = Array.isArray(product?.media) ? product!.media! : [];
+  const images = rows.filter((m) => {
+    const type = String(m.media_type || 'image').toLowerCase();
+    const url = String(m.media_url || '').trim();
+    return (type === 'image' || !m.media_type) && url.length > 0;
+  });
+  if (images.length === 0) return null;
+  if (variantId) {
+    const vMatch = images.find((m) => m.variant_id && String(m.variant_id) === variantId);
+    const u = vMatch && String(vMatch.media_url || '').trim();
+    if (u) return u;
+  }
+  const primary = images.find((m) => m.is_primary === true);
+  if (primary && String(primary.media_url || '').trim()) return String(primary.media_url).trim();
+  const sorted = [...images].sort(
+    (a, b) => Number(a.sort_order ?? 0) - Number(b.sort_order ?? 0),
+  );
+  return String(sorted[0]?.media_url || '').trim() || null;
+}
+
+function relationalItemsToPreviewLines(
+  groups: Array<Record<string, unknown>> | undefined,
+): ProfileOrderLinePreview[] {
+  const g0 = Array.isArray(groups) && groups[0] ? groups[0] : null;
+  const items = (g0?.items as Array<Record<string, unknown>> | undefined) || [];
+  if (!Array.isArray(items)) return [];
+  return items.slice(0, 5).map((it) => {
+    const qty = Math.max(1, Number(it.quantity || 1));
+    const unit = Number(it.unit_price || 0);
+    const total = Number(it.total_amount ?? unit * qty);
+    const rawProduct = it.product;
+    const product = Array.isArray(rawProduct)
+      ? (rawProduct[0] as { media?: Array<Record<string, unknown>> } | undefined)
+      : (rawProduct as { media?: Array<Record<string, unknown>> } | undefined);
+    const vid = it.product_variant_id ? String(it.product_variant_id) : null;
+    let imageUrl = product ? pickPrimaryProductMediaUrl(product, vid) : null;
+    const title = String(it.product_name || 'Mahsulot').trim() || 'Mahsulot';
+    const subtitle = String(it.variant_name || '').trim();
+    const productId = it.product_id != null ? String(it.product_id) : undefined;
+    if (!imageUrl) {
+      imageUrl = tryResolveImageFromBranchCatalog({
+        productId,
+        variantId: vid,
+        productName: title,
+        variantName: subtitle,
+      });
+    }
+    return {
+      imageUrl,
+      title,
+      subtitle: subtitle || undefined,
+      quantity: qty,
+      lineTotal: Number.isFinite(total) ? total : 0,
+      unitPrice: Number.isFinite(unit) ? unit : undefined,
+      productId,
+      productVariantId: vid || undefined,
+    };
+  });
+}
+
+function getProfileOrderPreviewLines(order: Record<string, unknown>): ProfileOrderLinePreview[] {
+  if (Array.isArray(order.previewLines) && order.previewLines.length > 0) {
+    return order.previewLines as ProfileOrderLinePreview[];
+  }
+  return kvItemsToPreviewLines(order.items);
+}
+
+function getProfileOrderCardMeta(order: Record<string, unknown>, lang: Language) {
+  const currency = String(order.currency_code || 'UZS');
+  const isRel = order.relational === true;
+  const totalRaw = isRel ? order.total : order.finalTotal ?? order.totalAmount ?? order.total;
+  const total = typeof totalRaw === 'number' ? totalRaw : Number(totalRaw);
+  const shippingRaw = order.shippingAmount ?? order.deliveryPrice;
+  const shipping =
+    typeof shippingRaw === 'number' ? shippingRaw : Number(shippingRaw || 0);
+  const lines = getProfileOrderPreviewLines(order);
+  const itemCount =
+    typeof order.item_count === 'number'
+      ? order.item_count
+      : Array.isArray(order.items)
+        ? order.items.length
+        : lines.reduce((s, l) => s + l.quantity, 0);
+  const categoryKey = String(order.category || 'market');
+  const rawPay = String(order.payment_status || order.paymentStatus || '').toLowerCase();
+  return {
+    currency,
+    total: Number.isFinite(total) ? total : null,
+    shipping: Number.isFinite(shipping) && shipping > 0 ? shipping : null,
+    itemCount: itemCount || lines.length,
+    lines,
+    paymentLabel: profilePaymentStatus(lang, rawPay),
+    categoryLabel: profileCategoryLabel(lang, categoryKey),
+  };
+}
+
 /** KV buyurtma: filtrlash va mijoz tekshiruvi uchun qisqa maydonlar */
 function normalizeKvOrderForProfile(o: any) {
   if (!o || o.relational) return o;
@@ -88,6 +360,10 @@ function normalizeKvOrderForProfile(o: any) {
     orderStatus,
     status: statusLabel,
     awaitingCustomerReceipt: s === 'awaiting_receipt',
+    category: mapKvOrderTypeToCategory(String(o.orderType || '')),
+    previewLines: kvItemsToPreviewLines(o.items),
+    shippingAmount: Number(o.deliveryPrice) || 0,
+    lineRowCount: Array.isArray(o.items) ? o.items.length : 0,
   };
 }
 
@@ -99,6 +375,8 @@ function relationalOrderToUi(row: Record<string, unknown>) {
   const uiStatus = mapRelationalOrderStatus(String(row.status || ''));
   const statusLabel =
     uiStatus === 'completed' ? 'Yakunlangan' : uiStatus === 'cancelled' ? 'Bekor qilingan' : 'Faol';
+  const previewLines = relationalItemsToPreviewLines(groups);
+  const lineRowCount = Array.isArray(g0?.items) ? g0.items.length : 0;
   return {
     id: row.id,
     orderNumber: row.order_number,
@@ -106,10 +384,16 @@ function relationalOrderToUi(row: Record<string, unknown>) {
     status: statusLabel,
     category: mapRelationalVerticalToCategory(vertical),
     total: row.total_amount,
+    subtotal: row.subtotal_amount,
+    shippingAmount: row.shipping_amount,
     createdAt: row.created_at,
     currency_code: row.currency_code,
     item_count: row.item_count,
+    payment_status: row.payment_status,
+    paymentStatus: row.payment_status,
     relational: true as const,
+    previewLines,
+    lineRowCount,
   };
 }
 
@@ -132,18 +416,33 @@ function rentalKvStatusLabel(raw: string): string {
 function rentalKvOrderToProfileCard(r: Record<string, unknown>) {
   const orderStatus = mapRentalKvStatusToProfile(String(r.status || ''));
   const name = String(r.productName || 'Ijara').trim() || 'Ijara';
+  const displayName = name.length > 28 ? `${name.slice(0, 28)}…` : name;
+  const imgRaw = String(r.productImage || r.image || '').trim();
+  const lineTotal = Number(r.totalPrice ?? r.pricePerPeriod ?? 0) || 0;
   return {
     id: r.id,
-    orderNumber: name.length > 28 ? `${name.slice(0, 28)}…` : name,
+    orderNumber: displayName,
     orderStatus,
     status: rentalKvStatusLabel(String(r.status || '')),
     category: 'rent' as const,
     createdAt: r.createdAt,
     total: r.totalPrice ?? r.pricePerPeriod,
-    currency_code: "UZS",
+    currency_code: 'UZS',
     rentalKv: true as const,
     relational: false as const,
     awaitingCustomerReceipt: false,
+    previewLines: [
+      {
+        imageUrl: imgRaw && (imgRaw.startsWith('http') || imgRaw.startsWith('/') || imgRaw.startsWith('data:'))
+          ? imgRaw
+          : null,
+        title: displayName,
+        quantity: 1,
+        lineTotal,
+      },
+    ] satisfies ProfileOrderLinePreview[],
+    paymentStatus: 'paid',
+    lineRowCount: 1,
   };
 }
 
@@ -177,8 +476,11 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
   
   // Portfolio state
   const [myPortfolios, setMyPortfolios] = useState<any[]>([]);
+  const [portfolioDetail, setPortfolioDetail] = useState<any | null>(null);
+  const [listingPreview, setListingPreview] = useState<any | null>(null);
 
-  const { theme, accentColor } = useTheme();
+  const { theme, accentColor, language } = useTheme();
+  const t = useUserPanelT();
   const { isAuthenticated, user, session, signout, smsSignin } = useAuth();
   const {
     favorites: localFavorites,
@@ -198,7 +500,11 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
   const [orders, setOrders] = useState<any[]>([]);
   const [favorites, setFavorites] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  /** Buyurtmalar ro‘yxati alohida yuklanadi — profil boshlig‘i bilan aralashmasin */
+  const [ordersLoading, setOrdersLoading] = useState(false);
   const [reviewModalOrder, setReviewModalOrder] = useState<any | null>(null);
+  const [deleteListingId, setDeleteListingId] = useState<string | null>(null);
+  const [deleteListingBusy, setDeleteListingBusy] = useState(false);
   const [receiptActionOrderId, setReceiptActionOrderId] = useState<string | null>(null);
   const [myRentals, setMyRentals] = useState<any[]>([]);
   const [myRentalsLoading, setMyRentalsLoading] = useState(false);
@@ -232,7 +538,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         // Auto logout after 2 seconds
         setTimeout(() => {
           signout();
-          alert('⚠️ Token formati noto\'g\'ri edi. Iltimos, qayta login qiling.');
+          alert(t('profile.tokenInvalid'));
         }, 2000);
       } else {
         setShowTokenWarning(false);
@@ -246,31 +552,42 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
     setOrderCategory(initialOrderCategory);
   }, [initialOrderCategory]);
 
+  /** Birinchi paint dan oldin: buyurtmalar yuklanishini ko‘rsatish (bo‘sh ro‘yxat «chaqnashi» bo‘lmasin) */
+  useLayoutEffect(() => {
+    if (!isAuthenticated) {
+      setOrdersLoading(false);
+      return;
+    }
+    if (user?.id && accessToken) {
+      setOrdersLoading(true);
+    }
+  }, [isAuthenticated, user?.id, accessToken]);
+
   // Log session and token for debugging
   useEffect(() => {
-    console.log('\n📊 ===== PROFILE VIEW SESSION STATE =====');
-    console.log('🔐 isAuthenticated:', isAuthenticated);
-    console.log('👤 user:', user ? {
+    devLog('\n📊 ===== PROFILE VIEW SESSION STATE =====');
+    devLog('🔐 isAuthenticated:', isAuthenticated);
+    devLog('👤 user:', user ? {
       id: user.id,
       phone: user.phone,
       email: user.email
     } : 'NULL');
-    console.log('🎫 session object:', session);
-    console.log('🎫 session:', session ? {
+    devLog('🎫 session object:', session);
+    devLog('🎫 session:', session ? {
       hasAccessToken: !!session.access_token,
       accessTokenFull: session.access_token || 'MISSING',
       accessTokenPreview: session.access_token ? `${session.access_token.substring(0, 30)}... (length: ${session.access_token.length})` : 'MISSING',
       expires_at: session.expires_at
     } : 'NULL');
-    console.log('🔑 accessToken variable (from session?.access_token):', accessToken ? `${accessToken.substring(0, 30)}... (length: ${accessToken.length})` : 'EMPTY/MISSING');
+    devLog('🔑 accessToken variable (from session?.access_token):', accessToken ? `${accessToken.substring(0, 30)}... (length: ${accessToken.length})` : 'EMPTY/MISSING');
     
     // Check localStorage directly
     const storedSession = localStorage.getItem('sms_session');
     if (storedSession) {
       try {
         const parsed = JSON.parse(storedSession);
-        console.log('💾 localStorage session (full):', parsed);
-        console.log('💾 localStorage session:', {
+        devLog('💾 localStorage session (full):', parsed);
+        devLog('💾 localStorage session:', {
           hasAccessToken: !!parsed.access_token,
           tokenFull: parsed.access_token || 'MISSING',
           tokenPreview: parsed.access_token ? `${parsed.access_token.substring(0, 30)}...` : 'MISSING'
@@ -279,18 +596,19 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         console.error('❌ Failed to parse localStorage session');
       }
     } else {
-      console.log('💾 localStorage session: NULL');
+      devLog('💾 localStorage session: NULL');
     }
     
-    console.log('📊 ===================================\n');
+    devLog('📊 ===================================\n');
   }, [isAuthenticated, user, session, accessToken]);
 
   useEffect(() => {
     // Check if user is authenticated before fetching data
     if (!isAuthenticated) {
-      console.log('🔐 User not authenticated, showing login modal');
+      devLog('🔐 User not authenticated, showing login modal');
       setIsAuthOpen(true);
       setLoading(false);
+      setOrdersLoading(false);
       return;
     }
 
@@ -301,8 +619,9 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
       fetchPortfolios();
       fetchMyListings();
     } else {
-      console.log('⚠️ User authenticated but missing token/session');
+      devLog('⚠️ User authenticated but missing token/session');
       setLoading(false);
+      setOrdersLoading(false);
     }
   }, [isAuthenticated, user, accessToken, userData?.phone, profileVisibilityTick]);
 
@@ -320,7 +639,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Profile loaded from backend:', data);
+        devLog('✅ Profile loaded from backend:', data);
         setUserData(data);
       } else {
         console.error('Failed to fetch user profile:', response.status);
@@ -335,31 +654,31 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
   // Helper function to get token with fallback
   const getValidToken = () => {
     try {
-      console.log('🔍 ===== TOKEN DEBUGGING =====');
-      console.log('📱 Session object:', session);
-      console.log('🔑 Session token:', session?.access_token);
+      devLog('🔍 ===== TOKEN DEBUGGING =====');
+      devLog('📱 Session object:', session);
+      devLog('🔑 Session token:', session?.access_token);
       
       // Try session first
       if (session?.access_token) {
-        console.log('✅ Using session token:', session.access_token.substring(0, 20) + '...');
+        devLog('✅ Using session token:', session.access_token.substring(0, 20) + '...');
         return session.access_token;
       }
       
       // Try localStorage
       const storedSession = localStorage.getItem('sms_session');
-      console.log('💾 localStorage session:', storedSession ? 'EXISTS' : 'NULL');
+      devLog('💾 localStorage session:', storedSession ? 'EXISTS' : 'NULL');
       
       if (storedSession) {
         const parsed = JSON.parse(storedSession);
-        console.log('🔓 Parsed session token:', parsed.access_token ? 'EXISTS' : 'NULL');
+        devLog('🔓 Parsed session token:', parsed.access_token ? 'EXISTS' : 'NULL');
         if (parsed.access_token) {
-          console.log('✅ Using localStorage token:', parsed.access_token.substring(0, 20) + '...');
+          devLog('✅ Using localStorage token:', parsed.access_token.substring(0, 20) + '...');
           return parsed.access_token;
         }
       }
       
-      console.log('❌ NO TOKEN FOUND!');
-      console.log('🔍 ===== TOKEN DEBUGGING END =====');
+      devLog('❌ NO TOKEN FOUND!');
+      devLog('🔍 ===== TOKEN DEBUGGING END =====');
       return null;
     } catch (error) {
       console.error('❌ Error getting token:', error);
@@ -369,97 +688,119 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
 
   // Helper function to handle 401 errors
   const handleAuthError = () => {
-    console.log('🔄 Authentication error detected, clearing session...');
+    devLog('🔄 Authentication error detected, clearing session...');
     localStorage.removeItem('sms_user');
     localStorage.removeItem('sms_session');
     setIsAuthOpen(true);
-    toast.error('Sessiya muddati tugagan. Iltimos, qayta kiring.');
+    toast.error(t('profile.sessionExpired'));
   };
 
   const fetchOrders = async () => {
+    const token = getValidToken();
+
+    if (!token) {
+      setOrdersLoading(false);
+      handleAuthError();
+      return;
+    }
+
+    setOrdersLoading(true);
+    devLog('🔑 Fetching orders (parallel KV + v2 + ijara):', token.substring(0, 20) + '...');
+
+    const headers = {
+      Authorization: `Bearer ${publicAnonKey}`,
+      apikey: publicAnonKey,
+      'X-Access-Token': token,
+      'Content-Type': 'application/json',
+    };
+
+    const rawPhone =
+      userData?.phone ||
+      user?.phone ||
+      (user as { user_metadata?: { phone?: string } })?.user_metadata?.phone;
+    const phonePk = normalizePhoneForRentalsApi(String(rawPhone || ''));
+    const rentalsMinimalHeaders = {
+      Authorization: `Bearer ${publicAnonKey}`,
+      apikey: publicAnonKey,
+    };
+
     try {
-      const token = getValidToken();
-      
-      if (!token) {
-        handleAuthError();
-        return;
-      }
-      
-      console.log('🔑 Fetching orders with token:', token.substring(0, 20) + '...');
-      
-      const response = await fetch(
-        `${apiBaseUrl}/orders`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'apikey': publicAnonKey,
-            'X-Access-Token': token,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      console.log('📦 Orders response status:', response.status);
-      
-      if (response.ok) {
-        const data = await response.json();
-        let list: any[] = (data.orders || []).map((row: any) => normalizeKvOrderForProfile(row));
-        try {
-          const v2res = await fetch(`${apiBaseUrl}/v2/orders?limit=50`, {
-            headers: {
-              Authorization: `Bearer ${publicAnonKey}`,
-              apikey: publicAnonKey,
-              'X-Access-Token': token,
-              'Content-Type': 'application/json',
-            },
-          });
-          if (v2res.ok) {
-            const v2json = await v2res.json();
-            const v2items = Array.isArray(v2json.items)
-              ? v2json.items.map((r: Record<string, unknown>) => relationalOrderToUi(r))
-              : [];
-            const ids = new Set(list.map((o: any) => String(o.id)));
-            const merged = [...list];
-            for (const o of v2items) {
-              if (!ids.has(String(o.id))) merged.unshift(o);
-            }
-            list = merged;
-          }
-        } catch {
-          /* v2 ixtiyoriy — KV buyurtmalar saqlanadi */
-        }
-
-        const rawPhone =
-          userData?.phone ||
-          user?.phone ||
-          (user as { user_metadata?: { phone?: string } })?.user_metadata?.phone;
-        const phonePk = normalizePhoneForRentalsApi(String(rawPhone || ''));
+      const parallel: Promise<Response>[] = [
+        fetch(`${apiBaseUrl}/orders`, { headers }),
+        fetch(`${apiBaseUrl}/v2/orders?limit=50`, { headers }),
+      ];
+      if (phonePk.length >= 9) {
         setMyRentalsLoading(true);
+        parallel.push(
+          fetch(
+            `${apiBaseUrl}/rentals/my-rentals?phone=${encodeURIComponent(phonePk)}`,
+            { headers: rentalsMinimalHeaders },
+          ),
+        );
+      } else {
+        setMyRentalsLoading(false);
+        setMyRentals([]);
+      }
+
+      const results = await Promise.all(parallel);
+      const ordersRes = results[0];
+      const v2res = results[1];
+      const rentalsRes = phonePk.length >= 9 ? results[2] : null;
+
+      let list: any[] = [];
+
+      const kvById = new Map<string, any>();
+
+      if (ordersRes.ok) {
+        const data = await ordersRes.json();
+        for (const row of data.orders || []) {
+          const o = normalizeKvOrderForProfile(row);
+          kvById.set(String(o.id), o);
+        }
+      } else {
+        console.error('❌ Orders fetch failed:', ordersRes.status, ordersRes.statusText);
+        if (ordersRes.status === 401) handleAuthError();
+      }
+
+      if (v2res.ok) {
+        const v2json = await v2res.json();
+        const v2Raw = Array.isArray(v2json.items) ? v2json.items : [];
+        const fromV2: any[] = [];
+        for (const r of v2Raw) {
+          const ui = relationalOrderToUi(r as Record<string, unknown>);
+          const id = String(ui.id);
+          const kv = kvById.get(id);
+          if (kv) {
+            kvById.delete(id);
+            fromV2.push(mergeRelationalAndKvOrder(ui as Record<string, unknown>, kv));
+          } else {
+            fromV2.push(ui);
+          }
+        }
+        list = [...fromV2, ...kvById.values()];
+      } else {
+        list = [...kvById.values()];
+        if (v2res.status === 401) handleAuthError();
+      }
+
+      if (rentalsRes) {
         try {
-          if (phonePk.length >= 9) {
-            const rres = await fetch(
-              `${apiBaseUrl}/rentals/my-rentals?phone=${encodeURIComponent(phonePk)}`,
-              { headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey } },
-            );
-            const rj = await rres.json().catch(() => ({}));
-            if (rres.ok && rj.success && Array.isArray(rj.orders)) {
-              list = list.filter((o: any) => !o.rentalKv);
-              const seenIds = new Set(list.map((o: any) => String(o.id)));
-              for (const r of rj.orders) {
-                const card = rentalKvOrderToProfileCard(r as Record<string, unknown>);
-                if (!seenIds.has(String(card.id))) {
-                  seenIds.add(String(card.id));
-                  list.push(card);
-                }
+          const rj = await rentalsRes.json().catch(() => ({}));
+          if (rentalsRes.ok && rj.success && Array.isArray(rj.orders)) {
+            list = list.filter((o: any) => !o.rentalKv);
+            const seenIds = new Set(list.map((o: any) => String(o.id)));
+            for (const r of rj.orders) {
+              const card = rentalKvOrderToProfileCard(r as Record<string, unknown>);
+              if (!seenIds.has(String(card.id))) {
+                seenIds.add(String(card.id));
+                list.push(card);
               }
-              const activeForBanner = rj.orders.filter((o: { status?: string }) => {
-                const s = String(o?.status || '').toLowerCase();
-                return s === 'active' || s === 'extended';
-              });
-              setMyRentals(activeForBanner);
-            } else {
-              setMyRentals([]);
             }
+            const activeForBanner = rj.orders.filter((o: { status?: string }) => {
+              const s = String(o?.status || '').toLowerCase();
+              return s === 'active' || s === 'extended';
+            });
+            setMyRentals(activeForBanner);
           } else {
             setMyRentals([]);
           }
@@ -468,20 +809,19 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         } finally {
           setMyRentalsLoading(false);
         }
-
-        list.sort(
-          (a: any, b: any) =>
-            new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
-        );
-        setOrders(list);
-      } else {
-        console.error('❌ Orders fetch failed:', response.status, response.statusText);
-        if (response.status === 401) {
-          handleAuthError();
-        }
       }
+
+      list = list.map((o) => enrichOrderPreviewLineImages(o as Record<string, unknown>));
+
+      list.sort(
+        (a: any, b: any) =>
+          new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+      );
+      setOrders(list);
     } catch (error) {
       console.error('Error fetching orders:', error);
+    } finally {
+      setOrdersLoading(false);
     }
   };
 
@@ -510,23 +850,21 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        toast.error(data.error || 'Tasdiqlanmadi');
+        toast.error(data.error || t('profile.confirmNotVerified'));
         return;
       }
-      toast.success('Buyurtma qabul qilindi. Rahmat!');
+      toast.success(t('profile.orderAccepted'));
       await fetchOrders();
     } catch (e) {
       console.error(e);
-      toast.error('Tasdiqlashda xatolik');
+      toast.error(t('profile.confirmError'));
     } finally {
       setReceiptActionOrderId(null);
     }
   };
 
   const cancelAwaitingReceiptOrder = async (order: { id: string }) => {
-    const ok = window.confirm(
-      "Buyurtmani bekor qilasizmi? Mahsulot zaxiraga qaytariladi (agar buyurtma hali yakunlanmagan bo‘lsa).",
-    );
+    const ok = window.confirm(t('profile.cancelOrderConfirm'));
     if (!ok) return;
     const token = getValidToken();
     if (!token) {
@@ -543,14 +881,14 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        toast.error(data.error || 'Bekor qilinmadi');
+        toast.error(data.error || t('profile.cancelNotDone'));
         return;
       }
-      toast.success('Buyurtma bekor qilindi');
+      toast.success(t('profile.orderCancelled'));
       await fetchOrders();
     } catch (e) {
       console.error(e);
-      toast.error('Bekor qilishda xatolik');
+      toast.error(t('profile.cancelError'));
     } finally {
       setReceiptActionOrderId(null);
     }
@@ -565,7 +903,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         return;
       }
       
-      console.log('🔑 Fetching favorites with token:', token.substring(0, 20) + '...');
+      devLog('🔑 Fetching favorites with token:', token.substring(0, 20) + '...');
       
       const response = await fetch(
         `${API_BASE_URL}/favorites`,
@@ -579,7 +917,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         }
       );
 
-      console.log('📦 Favorites response status:', response.status);
+      devLog('📦 Favorites response status:', response.status);
 
       if (response.ok) {
         const data = await response.json();
@@ -604,7 +942,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         return;
       }
 
-      console.log('🔑 Fetching portfolios with token:', currentAccessToken.substring(0, 20) + '...');
+      devLog('🔑 Fetching portfolios with token:', currentAccessToken.substring(0, 20) + '...');
 
       const response = await fetch(`${API_BASE_URL}/services/my-portfolios`, {
         method: 'GET',
@@ -615,11 +953,11 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         },
       });
 
-      console.log('📊 Portfolios response status:', response.status);
+      devLog('📊 Portfolios response status:', response.status);
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ My portfolios loaded:', data);
+        devLog('✅ My portfolios loaded:', data);
         setMyPortfolios(data.portfolios || []);
       } else {
         const errorText = await response.text();
@@ -635,7 +973,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
 
   const fetchMyListings = async () => {
     try {
-      console.log('📋 ===== FETCHING MY LISTINGS =====');
+      devLog('📋 ===== FETCHING MY LISTINGS =====');
       
       const currentAccessToken = getValidToken();
       
@@ -644,7 +982,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         return;
       }
 
-      console.log('🔑 Using token:', currentAccessToken.substring(0, 30) + '...');
+      devLog('🔑 Using token:', currentAccessToken.substring(0, 30) + '...');
 
       const response = await fetch(`${API_BASE_URL}/listings/my`, {
         method: 'GET',
@@ -655,16 +993,16 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         },
       });
 
-      console.log('📡 Listings response status:', response.status);
+      devLog('📡 Listings response status:', response.status);
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ My listings loaded - FULL DATA:', JSON.stringify(data, null, 2));
-        console.log('✅ Listings array:', data.listings);
-        console.log('✅ Listings count:', data.listings?.length || 0);
+        devLog('✅ My listings loaded - FULL DATA:', JSON.stringify(data, null, 2));
+        devLog('✅ Listings array:', data.listings);
+        devLog('✅ Listings count:', data.listings?.length || 0);
         
         if (data.listings && data.listings.length > 0) {
-          console.log('✅ First listing sample:', data.listings[0]);
+          devLog('✅ First listing sample:', data.listings[0]);
         }
         
         setMyListings(data.listings || []);
@@ -680,60 +1018,70 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
     }
   };
 
-  const handleDeleteListing = async (listingId: string) => {
-    // Confirmation dialog
-    const confirmDelete = window.confirm('E\'lonni o\'chirmoqchimisiz?');
-    if (!confirmDelete) return;
+  const requestDeleteListing = (listingId: string) => {
+    setDeleteListingId(listingId);
+  };
 
+  const closeDeleteListingModal = () => {
+    if (deleteListingBusy) return;
+    setDeleteListingId(null);
+  };
+
+  const confirmDeleteListing = async () => {
+    const listingId = deleteListingId;
+    if (!listingId?.trim()) return;
+
+    setDeleteListingBusy(true);
     try {
-      console.log('🗑️ ===== DELETE LISTING =====');
-      console.log('🔑 Listing ID:', listingId);
-      console.log('🔑 Access Token:', accessToken?.substring(0, 30) + '...');
-      
-      // ✅ FIXED: Use /listing/:id endpoint which deletes from both places
-      const response = await fetch(`${API_BASE_URL}/listing/${listingId}`, {
+      devLog('🗑️ ===== DELETE LISTING =====');
+      devLog('🔑 Listing ID:', listingId);
+      devLog('🔑 Access Token:', accessToken?.substring(0, 30) + '...');
+
+      const response = await fetch(`${apiBaseUrl}/listing/${encodeURIComponent(listingId)}`, {
         method: 'DELETE',
         headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'apikey': publicAnonKey,
+          Authorization: `Bearer ${publicAnonKey}`,
+          apikey: publicAnonKey,
           'X-Access-Token': accessToken,
         },
       });
 
-      console.log('📡 Response status:', response.status);
+      devLog('📡 Response status:', response.status);
 
       if (response.ok) {
         const data = await response.json();
-        console.log('✅ Listing deleted successfully:', data);
-        alert('E\'lon muvaffaqiyatli o\'chirildi!');
-        // Refresh listings
+        devLog('✅ Listing deleted successfully:', data);
+        toast.success(t('profile.listingDeleted'));
+        setDeleteListingId(null);
         fetchMyListings();
       } else {
         const errorText = await response.text();
         console.error('❌ Failed to delete listing:', response.status, errorText);
-        alert(`E'lonni o'chirishda xatolik: ${errorText}`);
+        toast.error(`${t('profile.listingDeleteError')}: ${errorText}`);
       }
     } catch (error) {
       console.error('❌ Error deleting listing:', error);
-      alert('E\'lonni o\'chirishda xatolik yuz berdi');
+      toast.error(t('profile.listingDeleteError'));
+    } finally {
+      setDeleteListingBusy(false);
     }
   };
 
   const handleEditListing = (listing: any) => {
     // Open edit modal with listing data
-    console.log('✏️ Edit listing:', listing);
+    devLog('✏️ Edit listing:', listing);
     setSelectedListing(listing);
     setIsEditListingOpen(true);
   };
 
   const handleSignOut = () => {
-    console.log('🚪 ===== SIGNING OUT =====');
-    console.log('Clearing localStorage and session...');
+    devLog('🚪 ===== SIGNING OUT =====');
+    devLog('Clearing localStorage and session...');
     
     // Clear localStorage first
     localStorage.removeItem('sms_user');
     localStorage.removeItem('sms_session');
-    console.log('✅ localStorage cleared');
+    devLog('✅ localStorage cleared');
     
     // Then sign out from context
     signout();
@@ -741,11 +1089,12 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
     // Clear local state
     setUserData(null);
     setOrders([]);
+    setOrdersLoading(false);
     setMyRentals([]);
     setFavorites([]);
     
-    console.log('✅ Sign out complete');
-    console.log('🚪 ===== END SIGN OUT =====');
+    devLog('✅ Sign out complete');
+    devLog('🚪 ===== END SIGN OUT =====');
   };
 
   // Filter orders
@@ -783,7 +1132,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
   const toFavoriteOrderEntry = (order: any): FavoriteOrderEntry => ({
     orderId: String(order.id),
     orderNumber: order.orderNumber != null ? String(order.orderNumber) : undefined,
-    statusLabel: typeof order.status === 'string' ? order.status : undefined,
+    statusLabel: profileOrderBadgeLabel(language, order),
     createdAt: order.createdAt,
     category: order.category,
   });
@@ -792,12 +1141,18 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
   if (!isAuthenticated) {
     return (
       <>
-        <div className="min-h-screen" style={{ background: isDark ? '#000' : '#f5f5f5' }}>
+        <div
+          className={`min-h-[100dvh] w-full max-w-full min-w-0 box-border ${isDark ? 'bg-black' : 'bg-background'}`}
+          style={{ paddingBottom: 'max(0.75rem, var(--app-safe-bottom))' }}
+        >
           {/* Settings Button */}
-          <div className="relative pt-6 pb-8 px-4">
+          <div
+            className="relative pb-6 px-3 sm:px-4"
+            style={{ paddingTop: 'max(0.75rem, var(--app-safe-top))' }}
+          >
             <button 
               onClick={() => setIsSettingsOpen(true)}
-              className="absolute top-6 right-4 p-2.5 rounded-xl transition-all active:scale-90"
+              className="absolute top-2 right-2 sm:top-3 sm:right-3 p-2.5 rounded-xl transition-all active:scale-90"
               style={{
                 background: isDark 
                   ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08))'
@@ -814,7 +1169,10 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
           </div>
 
           {/* Center Content */}
-          <div className="flex flex-col items-center justify-center px-4" style={{ minHeight: 'calc(100vh - 250px)' }}>
+          <div
+            className="flex flex-col items-center justify-center px-3 sm:px-4"
+            style={{ minHeight: 'min(72dvh, calc(100dvh - 14rem))' }}
+          >
             <div className="w-full max-w-md">
               <div className="flex justify-center mb-6">
                 <div 
@@ -834,13 +1192,13 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                 className="text-2xl font-bold text-center mb-2" 
                 style={{ color: isDark ? '#ffffff' : '#111827' }}
               >
-                Profilga kirish
+                {t('profile.loginTitle')}
               </h2>
               <p 
                 className="text-center mb-8 text-sm"
                 style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
               >
-                Profilingizni ko'rish uchun tizimga kiring
+                {t('profile.loginSubtitle')}
               </p>
 
               <button
@@ -855,7 +1213,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
               >
                 <User className="size-5 text-white" strokeWidth={2.5} />
                 <span className="font-bold text-white text-lg">
-                  Tizimga kirish
+                  {t('profile.signIn')}
                 </span>
               </button>
             </div>
@@ -883,24 +1241,24 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
   // To'liq profil - iOS dizayn
   return (
     <>
-      {/* Main Scrollable Container */}
-      <div 
-        className="min-h-screen"
-        style={{ 
-          background: isDark ? '#000' : '#f5f5f5',
-          // iOS-style smooth scrolling
+      {/* Main Scrollable Container — min-w-0: kichik ekran / Telegram ichida overflow oldini oladi */}
+      <div
+        className={`min-h-0 w-full max-w-full min-w-0 ${isDark ? 'bg-black' : 'bg-background'}`}
+        style={{
           WebkitOverflowScrolling: 'touch',
           scrollbarWidth: 'thin',
           scrollbarColor: isDark ? 'rgba(20, 184, 166, 0.4) transparent' : 'rgba(20, 184, 166, 0.3) transparent',
+          paddingBottom: 'max(0.75rem, var(--app-safe-bottom))',
         }}
       >
         {/* Profile Header - Sticky */}
         <div 
-          className="sticky top-0 z-20 pt-6 pb-8 px-4"
+          className="sticky top-0 z-30 pb-6 sm:pb-8 px-3 sm:px-4 pt-2 sm:pt-4"
           style={{
-            background: isDark 
-              ? 'linear-gradient(to bottom, rgba(0, 0, 0, 0.98), rgba(0, 0, 0, 0.95))'
-              : 'linear-gradient(to bottom, rgba(255, 255, 255, 0.98), rgba(250, 250, 250, 0.95))',
+            backgroundColor: isDark ? '#000000' : '#fafafa',
+            backgroundImage: isDark
+              ? 'linear-gradient(to bottom, rgba(0, 0, 0, 1), rgba(0, 0, 0, 0.97))'
+              : 'linear-gradient(to bottom, #fafafa, rgba(250, 250, 250, 0.98))',
             backdropFilter: 'blur(20px)',
             borderBottom: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)'}`,
           }}
@@ -908,7 +1266,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
           {/* Settings Button */}
           <button 
             onClick={() => setIsSettingsOpen(true)}
-            className="absolute top-6 right-4 p-2.5 rounded-xl transition-all active:scale-90"
+            className="absolute top-2 right-2 sm:top-3 sm:right-3 p-2.5 rounded-xl transition-all active:scale-90 z-10"
             style={{
               background: isDark 
                 ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08))'
@@ -924,9 +1282,9 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
           </button>
 
           {/* Profile Avatar */}
-          <div className="flex flex-col items-center">
+          <div className="flex flex-col items-center w-full min-w-0 px-1">
             <div 
-              className="relative w-28 h-28 rounded-full mb-4 group"
+              className="relative w-24 h-24 sm:w-28 sm:h-28 rounded-full mb-3 sm:mb-4 group shrink-0"
               style={{
                 backgroundImage: accentColor.gradient,
                 boxShadow: isDark 
@@ -973,23 +1331,23 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
             ) : (
               <>
                 <h1 
-                  className="text-2xl font-bold mb-1" 
+                  className="text-xl sm:text-2xl font-bold mb-1 text-center max-w-full px-1 break-words" 
                   style={{ 
                     color: isDark ? '#ffffff' : '#111827',
                     textShadow: isDark ? '0 2px 8px rgba(0, 0, 0, 0.5)' : 'none' 
                   }}
                 >
-                  {userData?.fullName || userData?.firstName || 'Foydalanuvchi'}
+                  {userData?.fullName || userData?.firstName || t('profile.userFallback')}
                 </h1>
                 <p 
-                  className="text-sm mb-1"
+                  className="text-xs sm:text-sm mb-1 text-center max-w-full truncate px-1"
                   style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
                 >
                   {userData?.phone || user?.phone || user?.user_metadata?.phone || ''}
                 </p>
                 
                 {/* Additional User Details */}
-                <div className="flex items-center gap-3 mb-4">
+                <div className="flex flex-wrap items-center justify-center gap-2 sm:gap-3 mb-3 sm:mb-4 max-w-full">
                   {userData?.birthDate && (
                     <div 
                       className="flex items-center gap-1.5 px-3 py-1.5 rounded-full text-xs"
@@ -1000,7 +1358,13 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                       }}
                     >
                       <Calendar className="size-3.5" />
-                      <span>{new Date(userData.birthDate).toLocaleDateString('uz-UZ', { year: 'numeric', month: 'long', day: 'numeric' })}</span>
+                      <span>
+                        {new Date(userData.birthDate).toLocaleDateString(userPanelLocale(language), {
+                          year: 'numeric',
+                          month: 'long',
+                          day: 'numeric',
+                        })}
+                      </span>
                     </div>
                   )}
                   
@@ -1014,7 +1378,13 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                       }}
                     >
                       <User className="size-3.5" />
-                      <span>{userData.gender === 'male' ? 'Erkak' : userData.gender === 'female' ? 'Ayol' : ''}</span>
+                      <span>
+                        {userData.gender === 'male'
+                          ? t('profile.genderMale')
+                          : userData.gender === 'female'
+                            ? t('profile.genderFemale')
+                            : ''}
+                      </span>
                     </div>
                   )}
                 </div>
@@ -1022,55 +1392,55 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
             )}
 
             {/* Stats */}
-            <div className="flex items-center gap-6">
-              <div className="flex flex-col items-center">
+            <div className="flex items-stretch justify-center gap-3 sm:gap-5 md:gap-6 max-w-full min-w-0">
+              <div className="flex flex-col items-center min-w-0 flex-1 max-w-[33%]">
                 <span 
-                  className="text-2xl font-bold mb-0.5"
+                  className="text-lg sm:text-2xl font-bold mb-0.5 tabular-nums"
                   style={{ color: isDark ? '#ffffff' : '#111827' }}
                 >
                   {stats.orders}
                 </span>
                 <span 
-                  className="text-xs"
+                  className="text-[10px] sm:text-xs text-center leading-tight px-0.5"
                   style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
                 >
-                  Buyurtmalar
+                  {t('profile.statOrders')}
                 </span>
               </div>
               <div 
-                className="w-px h-10"
+                className="w-px shrink-0 self-stretch min-h-[2.25rem]"
                 style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }}
               />
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center min-w-0 flex-1 max-w-[33%]">
                 <span 
-                  className="text-2xl font-bold mb-0.5"
+                  className="text-lg sm:text-2xl font-bold mb-0.5 tabular-nums"
                   style={{ color: isDark ? '#ffffff' : '#111827' }}
                 >
                   {stats.favorites}
                 </span>
                 <span 
-                  className="text-xs"
+                  className="text-[10px] sm:text-xs text-center leading-tight px-0.5"
                   style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
                 >
-                  Sevimlilar
+                  {t('profile.statFavorites')}
                 </span>
               </div>
               <div 
-                className="w-px h-10"
+                className="w-px shrink-0 self-stretch min-h-[2.25rem]"
                 style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }}
               />
-              <div className="flex flex-col items-center">
+              <div className="flex flex-col items-center min-w-0 flex-1 max-w-[33%]">
                 <span 
-                  className="text-2xl font-bold mb-0.5"
+                  className="text-lg sm:text-2xl font-bold mb-0.5 tabular-nums"
                   style={{ color: isDark ? '#ffffff' : '#111827' }}
                 >
                   {stats.portfolio}
                 </span>
                 <span 
-                  className="text-xs"
+                  className="text-[10px] sm:text-xs text-center leading-tight px-0.5"
                   style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
                 >
-                  Portfolio
+                  {t('profile.statPortfolio')}
                 </span>
               </div>
             </div>
@@ -1078,7 +1448,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         </div>
 
         {onOpenBonus && (
-          <div className="px-4 mb-4">
+          <div className="px-3 sm:px-4 mb-4">
             <button
               onClick={onOpenBonus}
               className="w-full flex items-center justify-between gap-3 p-4 rounded-2xl transition-all active:scale-[0.99]"
@@ -1107,13 +1477,13 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                     className="font-bold text-sm sm:text-base"
                     style={{ color: isDark ? '#ffffff' : '#111827' }}
                   >
-                    Bonuslar
+                    {t('profile.bonusTitle')}
                   </p>
                   <p
                     className="text-xs sm:text-sm truncate"
                     style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}
                   >
-                    Bonus pagega tez o‘tish
+                    {t('profile.bonusSubtitle')}
                   </p>
                 </div>
               </div>
@@ -1127,9 +1497,9 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         )}
 
         {(myRentalsLoading || myRentals.length > 0) && (
-          <div className="px-4 mb-4 space-y-2">
+          <div className="px-3 sm:px-4 mb-4 space-y-2">
             <p className="text-sm font-bold" style={{ color: isDark ? '#fff' : '#111827' }}>
-              Faol ijaralar
+              {t('profile.activeRentals')}
             </p>
             {myRentalsLoading ? (
               <div
@@ -1141,7 +1511,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
               >
                 <Loader2 className="size-5 animate-spin shrink-0" style={{ color: accentColor.color }} />
                 <span className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
-                  Ijaralar yuklanmoqda...
+                  {t('profile.rentalsLoading')}
                 </span>
               </div>
             ) : null}
@@ -1163,14 +1533,16 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                     <Clock className="size-5" style={{ color: accentColor.color }} />
                   </div>
                   <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-sm truncate">{r.productName || 'Ijara'}</p>
+                    <p className="font-semibold text-sm truncate">
+                      {r.productName || t('profile.rentFallback')}
+                    </p>
                     <p className="text-xs mt-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
-                      Reja:{' '}
+                      {t('profile.rentSchedule')}{' '}
                       {r.paymentSchedule === 'weekly'
-                        ? 'Har hafta'
+                        ? t('profile.rentWeekly')
                         : r.paymentSchedule === 'monthly'
-                          ? 'Har oy'
-                          : 'Bir martalik / muddatlik'}
+                          ? t('profile.rentMonthly')
+                          : t('profile.rentOneOff')}
                     </p>
                     <RentalNextPaymentInfo
                       compact
@@ -1187,10 +1559,10 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                       awaitingCourierDelivery={r.awaitingCourierDelivery === true}
                     />
                     {r.paymentAlert === 'overdue' && (
-                      <p className="text-xs text-red-500 font-semibold mt-1">To‘lov muddati o‘tgan — filial bilan bog‘laning</p>
+                      <p className="text-xs text-red-500 font-semibold mt-1">{t('profile.rentOverdue')}</p>
                     )}
                     {r.paymentAlert === 'due_soon' && (
-                      <p className="text-xs text-amber-500 font-medium mt-1">To‘lov muddati yaqin (3 kun ichida)</p>
+                      <p className="text-xs text-amber-500 font-medium mt-1">{t('profile.rentDueSoon')}</p>
                     )}
                   </div>
                 </div>
@@ -1200,9 +1572,9 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         )}
 
         {/* iOS Tabs */}
-        <div className="px-4 mb-4">
+        <div className="px-3 sm:px-4 mb-4 min-w-0">
           <div
-            className="w-full max-w-full grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2 p-1 sm:p-1.5 rounded-2xl overflow-hidden"
+            className="w-full max-w-full min-w-0 grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 sm:p-1.5 rounded-2xl overflow-hidden"
             style={{
               background: isDark
                 ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04))'
@@ -1216,7 +1588,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
           >
             <button
               onClick={() => setActiveTab('orders')}
-              className="w-full flex items-center justify-center gap-1.5 sm:gap-2 py-2 sm:py-2.5 px-2 sm:px-4 rounded-xl transition-all"
+              className="w-full min-h-[3rem] sm:min-h-0 flex flex-col min-[400px]:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-2.5 px-1.5 sm:px-4 rounded-xl transition-all"
               style={{
                 background: activeTab === 'orders'
                   ? `linear-gradient(135deg, ${accentColor.color}4d, ${accentColor.color}33)`
@@ -1236,15 +1608,15 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                 style={{ color: activeTab === 'orders' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
               />
               <span
-                className="text-[11px] sm:text-xs font-semibold truncate"
+                className="text-[10px] min-[400px]:text-[11px] sm:text-xs font-semibold text-center leading-tight max-w-full px-0.5 line-clamp-2 min-[400px]:truncate"
                 style={{ color: activeTab === 'orders' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
               >
-                Buyurtmalar
+                {t('profile.tabOrders')}
               </span>
             </button>
             <button
               onClick={() => setActiveTab('favorites')}
-              className="w-full flex items-center justify-center gap-1.5 sm:gap-2 py-2 sm:py-2.5 px-2 sm:px-4 rounded-xl transition-all"
+              className="w-full min-h-[3rem] sm:min-h-0 flex flex-col min-[400px]:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-2.5 px-1.5 sm:px-4 rounded-xl transition-all"
               style={{
                 background: activeTab === 'favorites'
                   ? `linear-gradient(135deg, ${accentColor.color}4d, ${accentColor.color}33)`
@@ -1264,15 +1636,15 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                 style={{ color: activeTab === 'favorites' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
               />
               <span
-                className="text-[11px] sm:text-xs font-semibold truncate"
+                className="text-[10px] min-[400px]:text-[11px] sm:text-xs font-semibold text-center leading-tight max-w-full px-0.5 line-clamp-2 min-[400px]:truncate"
                 style={{ color: activeTab === 'favorites' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
               >
-                Sevimlilar
+                {t('profile.tabFavorites')}
               </span>
             </button>
             <button
               onClick={() => setActiveTab('portfolio')}
-              className="w-full flex items-center justify-center gap-1.5 sm:gap-2 py-2 sm:py-2.5 px-2 sm:px-4 rounded-xl transition-all"
+              className="w-full min-h-[3rem] sm:min-h-0 flex flex-col min-[400px]:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-2.5 px-1.5 sm:px-4 rounded-xl transition-all"
               style={{
                 background: activeTab === 'portfolio'
                   ? `linear-gradient(135deg, ${accentColor.color}4d, ${accentColor.color}33)`
@@ -1292,15 +1664,15 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                 style={{ color: activeTab === 'portfolio' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
               />
               <span
-                className="text-[11px] sm:text-xs font-semibold truncate"
+                className="text-[10px] min-[400px]:text-[11px] sm:text-xs font-semibold text-center leading-tight max-w-full px-0.5 line-clamp-2 min-[400px]:truncate"
                 style={{ color: activeTab === 'portfolio' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
               >
-                Portfolio
+                {t('profile.tabPortfolio')}
               </span>
             </button>
             <button
               onClick={() => setActiveTab('ads')}
-              className="w-full flex items-center justify-center gap-1.5 sm:gap-2 py-2 sm:py-2.5 px-2 sm:px-4 rounded-xl transition-all"
+              className="w-full min-h-[3rem] sm:min-h-0 flex flex-col min-[400px]:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-2.5 px-1.5 sm:px-4 rounded-xl transition-all"
               style={{
                 background: activeTab === 'ads'
                   ? `linear-gradient(135deg, ${accentColor.color}4d, ${accentColor.color}33)`
@@ -1320,40 +1692,44 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                 style={{ color: activeTab === 'ads' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
               />
               <span
-                className="text-[11px] sm:text-xs font-semibold truncate"
+                className="text-[10px] min-[400px]:text-[11px] sm:text-xs font-semibold text-center leading-tight max-w-full px-0.5 line-clamp-2 min-[400px]:truncate"
                 style={{ color: activeTab === 'ads' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
               >
-                Uy/Moshina
+                {t('profile.tabAds')}
               </span>
             </button>
           </div>
         </div>
 
         {/* Content */}
-        <div className="px-4 space-y-3 mb-6">
+        <div className="px-3 sm:px-4 space-y-3 mb-6 min-w-0 max-w-full">
           {/* Orders Tab */}
           {activeTab === 'orders' && (
             <>
               <div
-                className="p-2 rounded-2xl"
+                className="p-2 rounded-2xl min-w-0"
                 style={{
                   background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
                   border: isDark ? '0.5px solid rgba(255,255,255,0.08)' : '0.5px solid rgba(0,0,0,0.06)',
                 }}
               >
-                <div className="flex flex-wrap gap-2">
+                <div
+                  className="overflow-x-auto overflow-y-hidden -mx-0.5 px-0.5 pb-0.5 scrollbar-hide overscroll-x-contain"
+                  style={{ WebkitOverflowScrolling: 'touch' }}
+                >
+                  <div className="flex w-max min-w-full flex-nowrap gap-2 sm:flex-wrap sm:w-auto">
                   {[
-                    { id: 'all', label: 'Barchasi' },
-                    { id: 'market', label: 'Market' },
-                    { id: 'shop', label: "Do'kon" },
-                    { id: 'food', label: 'Restoran' },
-                    { id: 'rent', label: 'Ijara' },
-                    { id: 'auction', label: 'Auktsion' },
+                    { id: 'all', label: t('profile.filterAll') },
+                    { id: 'market', label: t('profile.catMarket') },
+                    { id: 'shop', label: t('profile.catShop') },
+                    { id: 'food', label: t('profile.catFood') },
+                    { id: 'rent', label: t('profile.catRent') },
+                    { id: 'auction', label: t('profile.catAuction') },
                   ].map((c) => (
                     <button
                       key={c.id}
                       onClick={() => setOrderCategory(c.id as any)}
-                      className="px-3 py-2 rounded-xl font-semibold text-xs sm:text-sm transition-all active:scale-95"
+                      className="shrink-0 px-3 py-2 rounded-xl font-semibold text-xs sm:text-sm transition-all active:scale-95"
                       style={{
                         background:
                           orderCategory === c.id
@@ -1373,11 +1749,12 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                       {c.label}
                     </button>
                   ))}
+                  </div>
                 </div>
               </div>
 
               <div
-                className="p-2 rounded-2xl mt-2"
+                className="p-2 rounded-2xl mt-2 min-w-0"
                 style={{
                   background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
                   border: isDark ? '0.5px solid rgba(255,255,255,0.08)' : '0.5px solid rgba(0,0,0,0.06)',
@@ -1387,22 +1764,26 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                   className="text-[10px] font-semibold uppercase tracking-wide mb-2 px-1"
                   style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
                 >
-                  Holat
+                  {t('profile.statusSection')}
                 </p>
-                <div className="flex flex-wrap gap-2">
+                <div
+                  className="overflow-x-auto overflow-y-hidden -mx-0.5 px-0.5 scrollbar-hide overscroll-x-contain"
+                  style={{ WebkitOverflowScrolling: 'touch' }}
+                >
+                  <div className="flex w-max min-w-full flex-nowrap gap-2 sm:flex-wrap sm:w-auto">
                   {(
                     [
-                      { id: 'all' as const, label: 'Barchasi' },
-                      { id: 'active' as const, label: 'Faol' },
-                      { id: 'completed' as const, label: 'Yakunlangan' },
-                      { id: 'cancelled' as const, label: 'Bekor qilingan' },
+                      { id: 'all' as const, label: t('profile.filterAll') },
+                      { id: 'active' as const, label: t('profile.statusActive') },
+                      { id: 'completed' as const, label: t('profile.statusCompleted') },
+                      { id: 'cancelled' as const, label: t('profile.statusCancelled') },
                     ] as const
                   ).map((c) => (
                     <button
                       key={c.id}
                       type="button"
                       onClick={() => setOrderStatus(c.id)}
-                      className="px-3 py-2 rounded-xl font-semibold text-xs sm:text-sm transition-all active:scale-95"
+                      className="shrink-0 px-3 py-2 rounded-xl font-semibold text-xs sm:text-sm transition-all active:scale-95"
                       style={{
                         background:
                           orderStatus === c.id
@@ -1422,22 +1803,100 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                       {c.label}
                     </button>
                   ))}
+                  </div>
                 </div>
               </div>
 
-              {filteredOrders.length === 0 ? (
+              {ordersLoading && orders.length > 0 ? (
+                <div
+                  className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-semibold mb-1"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.07)' : `${accentColor.color}14`,
+                    color: isDark ? 'rgba(255,255,255,0.88)' : '#374151',
+                    border: isDark ? '0.5px solid rgba(255,255,255,0.1)' : `0.5px solid ${accentColor.color}33`,
+                  }}
+                >
+                  <Loader2 className="size-4 animate-spin shrink-0" style={{ color: accentColor.color }} />
+                  {t('profile.ordersRefreshing')}
+                </div>
+              ) : null}
+
+              {ordersLoading && orders.length === 0 ? (
+                <div className="space-y-3 py-2">
+                  <div
+                    className="flex flex-col items-center justify-center gap-2 py-4 rounded-2xl"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                      border: isDark ? '0.5px solid rgba(255,255,255,0.08)' : '0.5px solid rgba(0,0,0,0.06)',
+                    }}
+                  >
+                    <Loader2 className="size-8 animate-spin" style={{ color: accentColor.color }} strokeWidth={2.5} />
+                    <p className="text-sm font-semibold" style={{ color: isDark ? '#fff' : '#111827' }}>
+                      {t('profile.ordersLoading')}
+                    </p>
+                    <p className="text-xs px-4 text-center" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                      {t('profile.ordersLoadingHint')}
+                    </p>
+                  </div>
+                  {[0, 1, 2].map((sk) => (
+                    <div
+                      key={`order-skel-${sk}`}
+                      className="p-4 rounded-2xl animate-pulse"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                        border: isDark ? '0.5px solid rgba(255,255,255,0.08)' : '0.5px solid rgba(0,0,0,0.06)',
+                      }}
+                    >
+                      <div className="flex gap-3 mb-3">
+                        <div
+                          className="size-14 sm:size-16 rounded-xl shrink-0"
+                          style={{ background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}
+                        />
+                        <div className="flex-1 space-y-2 min-w-0">
+                          <div
+                            className="h-4 rounded-lg w-4/5 max-w-xs"
+                            style={{ background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}
+                          />
+                          <div
+                            className="h-3 rounded-lg w-2/5"
+                            style={{ background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.06)' }}
+                          />
+                          <div
+                            className="h-3 rounded-lg w-3/5"
+                            style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}
+                          />
+                        </div>
+                      </div>
+                      <div
+                        className="h-10 rounded-xl w-full"
+                        style={{ background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)' }}
+                      />
+                    </div>
+                  ))}
+                </div>
+              ) : filteredOrders.length === 0 ? (
                 <div className="text-center py-12">
-                  <Package 
-                    className="size-16 mx-auto mb-4" 
+                  <Package
+                    className="size-16 mx-auto mb-4"
                     strokeWidth={1.5}
                     style={{ color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' }}
                   />
                   <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-                    Hozircha buyurtmalar yo'q
+                    {orders.length > 0 ? t('profile.ordersEmptyFilter') : t('profile.ordersEmpty')}
                   </p>
                 </div>
               ) : (
-                filteredOrders.map((order, index) => (
+                filteredOrders.map((order, index) => {
+                  const orec = order as Record<string, unknown>;
+                  const meta = getProfileOrderCardMeta(orec, language);
+                  const rowTotal =
+                    typeof orec.lineRowCount === 'number'
+                      ? orec.lineRowCount
+                      : Array.isArray((order as { items?: unknown[] }).items)
+                        ? (order as { items: unknown[] }).items.length
+                        : meta.lines.length;
+                  const moreCount = Math.max(0, rowTotal - meta.lines.length);
+                  return (
                   <div
                     key={buildListKey('order', order, index, ['id', 'orderNumber', 'createdAt'])}
                     className="p-4 rounded-2xl"
@@ -1448,35 +1907,185 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                       border: isDark ? '0.5px solid rgba(255, 255, 255, 0.1)' : '0.5px solid rgba(0, 0, 0, 0.08)',
                     }}
                   >
-                    <div className="flex items-center justify-between mb-2">
-                      <span className="font-semibold" style={{ color: isDark ? '#ffffff' : '#111827' }}>
-                        #{order.orderNumber}
-                      </span>
-                      <span 
-                        className="text-xs px-2 py-1 rounded-lg"
-                        style={{
-                          background: order.awaitingCustomerReceipt
-                            ? '#f59e0b33'
-                            : order.orderStatus === 'active'
-                              ? '#10b98133'
-                              : order.orderStatus === 'completed'
-                                ? '#22c55e33'
-                                : '#ef444433',
-                          color: order.awaitingCustomerReceipt
-                            ? '#f59e0b'
-                            : order.orderStatus === 'active'
-                              ? '#10b981'
-                              : order.orderStatus === 'completed'
-                                ? '#22c55e'
-                                : '#ef4444',
-                        }}
-                      >
-                        {order.status}
-                      </span>
+                    <div className="flex items-start justify-between gap-2 mb-3">
+                      <div className="min-w-0 flex-1">
+                        <div className="flex items-center gap-2 flex-wrap">
+                          <span className="font-bold text-base" style={{ color: isDark ? '#ffffff' : '#111827' }}>
+                            #{order.orderNumber}
+                          </span>
+                          <span
+                            className="text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-md"
+                            style={{
+                              background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                              color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)',
+                            }}
+                          >
+                            {meta.categoryLabel}
+                          </span>
+                        </div>
+                        <div className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                          <span style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.5)' }}>
+                            <Clock className="inline size-3.5 mr-1 align-text-bottom opacity-70" />
+                            {order.createdAt &&
+                              userPanelFormatDateTime(language, new Date(order.createdAt))}
+                          </span>
+                          {order.branchName ? (
+                            <span
+                              className="truncate max-w-[200px]"
+                              style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.5)' }}
+                            >
+                              {String(order.branchName)}
+                            </span>
+                          ) : null}
+                        </div>
+                      </div>
+                      <div className="flex flex-col items-end gap-1.5 shrink-0">
+                        <span 
+                          className="text-xs px-2 py-1 rounded-lg font-semibold whitespace-nowrap"
+                          style={{
+                            background: order.awaitingCustomerReceipt
+                              ? '#f59e0b33'
+                              : order.orderStatus === 'active'
+                                ? '#10b98133'
+                                : order.orderStatus === 'completed'
+                                  ? '#22c55e33'
+                                  : '#ef444433',
+                            color: order.awaitingCustomerReceipt
+                              ? '#f59e0b'
+                              : order.orderStatus === 'active'
+                                ? '#10b981'
+                                : order.orderStatus === 'completed'
+                                  ? '#22c55e'
+                                  : '#ef4444',
+                          }}
+                        >
+                          {profileOrderBadgeLabel(language, order)}
+                        </span>
+                        <span
+                          className="text-[10px] px-2 py-0.5 rounded-md font-medium"
+                          style={{
+                            background: isDark ? 'rgba(99,102,241,0.2)' : 'rgba(99,102,241,0.12)',
+                            color: isDark ? '#c7d2fe' : '#4338ca',
+                          }}
+                        >
+                          {meta.paymentLabel}
+                        </span>
+                      </div>
                     </div>
-                    <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                      {order.createdAt && new Date(order.createdAt).toLocaleDateString('uz-UZ')}
-                    </p>
+
+                    {meta.lines.length > 0 ? (
+                      <div className="space-y-2 mb-3">
+                        {meta.lines.map((line, li) => (
+                          <div
+                            key={`${String(order.id)}-line-${li}`}
+                            className="flex gap-3 items-center rounded-xl p-2 -mx-1"
+                            style={{
+                              background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(0,0,0,0.03)',
+                            }}
+                          >
+                            <div
+                              className="size-14 sm:size-16 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center"
+                              style={{
+                                background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                                border: isDark ? '0.5px solid rgba(255,255,255,0.1)' : '0.5px solid rgba(0,0,0,0.06)',
+                              }}
+                            >
+                              {line.imageUrl ? (
+                                <img
+                                  src={line.imageUrl}
+                                  alt=""
+                                  className="size-full object-cover"
+                                  loading="lazy"
+                                />
+                              ) : (
+                                <Package
+                                  className="size-6 sm:size-7 opacity-35"
+                                  strokeWidth={1.5}
+                                  style={{ color: isDark ? '#fff' : '#111' }}
+                                />
+                              )}
+                            </div>
+                            <div className="min-w-0 flex-1">
+                              <p
+                                className="font-semibold text-sm leading-snug line-clamp-2"
+                                style={{ color: isDark ? '#fff' : '#111827' }}
+                              >
+                                {line.title}
+                              </p>
+                              {line.subtitle ? (
+                                <p
+                                  className="text-xs mt-0.5 line-clamp-1"
+                                  style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
+                                >
+                                  {line.subtitle}
+                                </p>
+                              ) : null}
+                              <p
+                                className="text-xs mt-1 font-medium"
+                                style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                              >
+                                ×{line.quantity}
+                                {line.unitPrice != null && Number.isFinite(line.unitPrice) ? (
+                                  <span>
+                                    {' '}
+                                    · {formatMoneyProfile(line.unitPrice, meta.currency, language)} /{' '}
+                                    {t('profile.unitEach')}
+                                  </span>
+                                ) : null}
+                              </p>
+                            </div>
+                            <div
+                              className="text-sm font-bold tabular-nums shrink-0"
+                              style={{ color: isDark ? '#e5e7eb' : '#111827' }}
+                            >
+                              {formatMoneyProfile(line.lineTotal, meta.currency, language)}
+                            </div>
+                          </div>
+                        ))}
+                        {moreCount > 0 ? (
+                          <p
+                            className="text-xs font-medium px-2"
+                            style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                          >
+                            +{moreCount} {t('profile.moreLines')}
+                          </p>
+                        ) : null}
+                      </div>
+                    ) : null}
+
+                    <div
+                      className="flex flex-wrap items-end justify-between gap-2 mb-1 pt-1 border-t"
+                      style={{
+                        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                      }}
+                    >
+                      <div className="text-xs space-y-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                        {meta.shipping != null && meta.shipping > 0 ? (
+                          <p>
+                            {t('profile.shipping')}{' '}
+                            <span className="font-semibold" style={{ color: isDark ? '#e5e7eb' : '#374151' }}>
+                              {formatMoneyProfile(meta.shipping, meta.currency, language)}
+                            </span>
+                          </p>
+                        ) : null}
+                        <p>
+                          {meta.itemCount} {t('profile.itemsCount')}
+                        </p>
+                      </div>
+                      {meta.total != null && meta.total > 0 ? (
+                        <div className="text-right">
+                          <p className="text-[10px] font-semibold uppercase tracking-wide" style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
+                            {t('profile.total')}
+                          </p>
+                          <p
+                            className="text-lg font-extrabold tabular-nums"
+                            style={{ color: accentColor.color }}
+                          >
+                            {formatMoneyProfile(meta.total, meta.currency, language)}
+                          </p>
+                        </div>
+                      ) : null}
+                    </div>
                     {order.awaitingCustomerReceipt && !order.relational ? (
                       <div
                         className="mt-3 p-3 rounded-xl space-y-2"
@@ -1491,8 +2100,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                           className="text-xs leading-relaxed font-medium"
                           style={{ color: isDark ? '#fde68a' : '#92400e' }}
                         >
-                          Mahsulotni tekshiring. Hammasi joyida bo‘lsa «Qabul qildim» ni bosing; yoqmasa «Bekor
-                          qilish».
+                          {t('profile.receiptHint')}
                         </p>
                         <div className="flex flex-wrap gap-2">
                           <button
@@ -1511,7 +2119,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                             ) : (
                               <CheckCircle2 className="size-3.5" />
                             )}
-                            Qabul qildim
+                            {t('profile.received')}
                           </button>
                           <button
                             type="button"
@@ -1525,7 +2133,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                             }}
                           >
                             <X className="size-3.5" />
-                            Bekor qilish
+                            {t('profile.cancel')}
                           </button>
                         </div>
                       </div>
@@ -1542,18 +2150,14 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                         }}
                       >
                         <MessageSquare className="size-3.5" />
-                        Sharx
+                        {t('profile.review')}
                       </button>
                       <button
                         type="button"
                         onClick={() => {
                           const was = isFavoriteOrder(String(order.id));
                           toggleFavoriteOrder(toFavoriteOrderEntry(order));
-                          toast.success(
-                            was
-                              ? 'Buyurtma sevimlilardan olib tashlandi'
-                              : 'Buyurtma sevimlilarga qo‘shildi',
-                          );
+                          toast.success(was ? t('profile.favRemove') : t('profile.favAdd'));
                         }}
                         className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all active:scale-95"
                         style={{
@@ -1574,11 +2178,12 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                           className="size-3.5"
                           fill={isFavoriteOrder(String(order.id)) ? accentColor.color : 'transparent'}
                         />
-                        Sevimlilar
+                        {t('profile.favoritesLabel')}
                       </button>
                     </div>
                   </div>
-                ))
+                );
+                })
               )}
             </>
           )}
@@ -1594,7 +2199,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                     style={{ color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' }}
                   />
                   <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-                    Sevimlilar bo'sh
+                    {t('profile.favoritesEmpty')}
                   </p>
                 </div>
               ) : (
@@ -1605,7 +2210,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                         className="text-sm font-bold"
                         style={{ color: isDark ? '#fff' : '#111827' }}
                       >
-                        Sevimli buyurtmalar
+                        {t('profile.favOrdersTitle')}
                       </p>
                       <div className="space-y-2">
                         {favoriteOrders.map((fo) => (
@@ -1631,14 +2236,14 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                               type="button"
                               onClick={() => {
                                 removeFavoriteOrder(fo.orderId);
-                                toast.success('Olib tashlandi');
+                                toast.success(t('profile.removed'));
                               }}
                               className="shrink-0 rounded-lg border px-2 py-1 text-xs font-semibold"
                               style={{
                                 borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
                               }}
                             >
-                              O‘chirish
+                              {t('profile.delete')}
                             </button>
                           </div>
                         ))}
@@ -1709,7 +2314,9 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
                             }}
                           >
-                            {product.stockCount > 0 ? `${product.stockCount} ta` : 'Tugagan'}
+                            {product.stockCount > 0
+                              ? `${product.stockCount} ${t('profile.stockUnits')}`
+                              : t('profile.outOfStock')}
                           </div>
                         )}
                         
@@ -1736,7 +2343,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                               boxShadow: '0 4px 12px rgba(0, 0, 0, 0.3)',
                             }}
                           >
-                            ⭐ Baholanmagan
+                            ⭐ {t('profile.unrated')}
                           </div>
                         )}
                       </div>
@@ -1761,7 +2368,8 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                                 className="text-[10px] sm:text-xs line-through truncate max-w-full"
                                 style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)' }}
                               >
-                                {product.oldPrice.toLocaleString('uz-UZ')} so'm
+                                {product.oldPrice.toLocaleString(userPanelLocale(language))}{' '}
+                                {t('profile.currency')}
                               </span>
                               <span 
                                 className="text-[10px] sm:text-xs font-bold px-1 sm:px-1.5 py-0.5 rounded shrink-0"
@@ -1778,7 +2386,8 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                             className="text-sm sm:text-base font-bold tabular-nums"
                             style={{ color: accentColor.color }}
                           >
-                            {product.price.toLocaleString('uz-UZ')} so'm
+                            {product.price.toLocaleString(userPanelLocale(language))}{' '}
+                            {t('profile.currency')}
                           </p>
                         </div>
                         
@@ -1832,7 +2441,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                 <div className="flex items-center justify-center gap-3">
                   <Plus className="size-5 text-white" strokeWidth={2.5} />
                   <span className="font-bold text-white text-base">
-                    Portfolio qo'shish
+                    {t('profile.portfolioAdd')}
                   </span>
                 </div>
               </button>
@@ -1845,10 +2454,10 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                     style={{ color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' }}
                   />
                   <p className="mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-                    Portfolio bo'sh
+                    {t('profile.portfolioEmpty')}
                   </p>
                   <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)' }}>
-                    O'z ustalarlik ko'nikmalaringizni namoyish qiling
+                    {t('profile.portfolioHint')}
                   </p>
                 </div>
               ) : (
@@ -1857,10 +2466,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                     <PortfolioCard
                       key={buildListKey('portfolio', portfolio, index, ['id', 'userId', 'createdAt', 'profession'])}
                       portfolio={portfolio}
-                      onClick={() => {
-                        // TODO: Open portfolio detail modal
-                        console.log('Open portfolio:', portfolio);
-                      }}
+                      onClick={() => setPortfolioDetail(portfolio)}
                     />
                   ))}
                 </div>
@@ -1875,10 +2481,10 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
               <button
                 onClick={() => {
                   if (!isAuthenticated || !accessToken) {
-                    console.log('⚠️ User not authenticated, opening auth modal');
+                    devLog('⚠️ User not authenticated, opening auth modal');
                     setIsAuthOpen(true);
                   } else {
-                    console.log('✅ User authenticated, opening listing modal');
+                    devLog('✅ User authenticated, opening listing modal');
                     setIsAddListingOpen(true);
                   }
                 }}
@@ -1893,7 +2499,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                 <div className="flex items-center justify-center gap-3">
                   <Plus className="size-5 text-white" strokeWidth={2.5} />
                   <span className="font-bold text-white text-base">
-                    E'lon joylash
+                    {t('profile.listingPost')}
                   </span>
                 </div>
               </button>
@@ -1911,15 +2517,21 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                 <div className="flex items-center gap-3 mb-2">
                   <DollarSign className="size-5" style={{ color: accentColor.color }} strokeWidth={2.5} />
                   <h3 className="font-semibold" style={{ color: isDark ? '#ffffff' : '#111827' }}>
-                    To'lov shartlari
+                    {t('profile.paymentTerms')}
                   </h3>
                 </div>
                 <div className="space-y-1.5">
                   <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                    ✅ 1-chi e'lon: <span className="font-semibold" style={{ color: accentColor.color }}>BEPUL</span>
+                    ✅ {t('profile.firstListingFree')}{' '}
+                    <span className="font-semibold" style={{ color: accentColor.color }}>
+                      {t('profile.free')}
+                    </span>
                   </p>
                   <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                    💵 Keyingi e'lonlar: <span className="font-semibold" style={{ color: accentColor.color }}>5000 so'm</span>
+                    💵 {t('profile.nextListings')}{' '}
+                    <span className="font-semibold" style={{ color: accentColor.color }}>
+                      {formatListingFeeDisplay(language)}
+                    </span>
                   </p>
                 </div>
               </div>
@@ -1943,7 +2555,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                 >
                   <Home className="size-4" strokeWidth={2.5} style={{ color: listingCategory === 'home' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }} />
                   <span className="text-sm font-semibold" style={{ color: listingCategory === 'home' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}>
-                    Uy
+                    {t('profile.catHome')}
                   </span>
                 </button>
                 <button
@@ -1963,7 +2575,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                 >
                   <Car className="size-4" strokeWidth={2.5} style={{ color: listingCategory === 'car' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }} />
                   <span className="text-sm font-semibold" style={{ color: listingCategory === 'car' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}>
-                    Moshina
+                    {t('profile.catCar')}
                   </span>
                 </button>
               </div>
@@ -1984,30 +2596,18 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                     />
                   )}
                   <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-                    {listingCategory === 'home' ? 'Uy e\'lonlari yo\'q' : 'Moshina e\'lonlari yo\'q'}
+                    {listingCategory === 'home' ? t('profile.listingsEmptyHome') : t('profile.listingsEmptyCar')}
                   </p>
                 </div>
               ) : (
-                <div 
-                  className="listings-grid-container"
-                  style={{
-                    display: 'grid',
-                    gridTemplateColumns: 'repeat(2, 1fr)',
-                    gap: '16px',
-                    width: '100%',
-                    padding: '0',
-                    marginTop: '8px',
-                  }}
-                >
+                <div className="listings-grid-container mt-2 grid w-full grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3">
                   {myListings.filter(l => l.type === (listingCategory === 'home' ? 'house' : 'car')).map((listing, index) => (
                     <ListingCard
                       key={buildListKey('listing', listing, index, ['id', 'listingId', 'createdAt', 'title'])}
                       listing={listing}
-                      onClick={() => {
-                        // TODO: Open listing detail modal
-                        console.log('Open listing:', listing);
-                      }}
-                      onDelete={() => handleDeleteListing(listing.id)}
+                      compact
+                      onClick={() => setListingPreview(listing)}
+                      onDelete={() => requestDeleteListing(listing.id)}
                       onEdit={() => handleEditListing(listing)}
                       showActions={true}
                     />
@@ -2053,7 +2653,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         isOpen={isAddListingOpen}
         onClose={() => setIsAddListingOpen(false)}
         userId={user?.id || ''}
-        userName={userData?.fullName || userData?.firstName || 'Foydalanuvchi'}
+        userName={userData?.fullName || userData?.firstName || t('profile.userFallback')}
         userPhone={userData?.phone || user?.phone || ''}
         accessToken={accessToken}
         defaultType={listingCategory === 'home' ? 'house' : 'car'}
@@ -2084,6 +2684,90 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
           setIsAuthOpen(false);
         }}
       />
+
+      <PortfolioDetailModal
+        portfolio={portfolioDetail}
+        isOpen={!!portfolioDetail}
+        onClose={() => setPortfolioDetail(null)}
+      />
+
+      <ListingPreviewModal
+        listing={listingPreview}
+        isOpen={!!listingPreview}
+        onClose={() => setListingPreview(null)}
+        onEdit={() => {
+          if (listingPreview) {
+            setSelectedListing(listingPreview);
+            setIsEditListingOpen(true);
+          }
+        }}
+      />
+
+      {deleteListingId !== null && (
+        <div
+          className="fixed inset-0 z-[520] flex items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.55)' }}
+          role="presentation"
+          onClick={closeDeleteListingModal}
+        >
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-listing-modal-title"
+            className="w-full max-w-sm rounded-2xl p-5 shadow-xl"
+            style={{
+              background: isDark ? 'rgba(28,28,32,0.98)' : '#ffffff',
+              border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3
+              id="delete-listing-modal-title"
+              className="text-lg font-semibold"
+              style={{ color: isDark ? '#fff' : '#111827' }}
+            >
+              {t('profile.deleteListingModalTitle')}
+            </h3>
+            <p className="mt-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)' }}>
+              {t('profile.deleteListingConfirm')}
+            </p>
+            <p className="mt-1 text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
+              {t('profile.deleteListingModalHint')}
+            </p>
+            <div className="mt-5 flex gap-2">
+              <button
+                type="button"
+                disabled={deleteListingBusy}
+                className="flex-1 rounded-xl py-2.5 text-sm font-semibold transition-opacity disabled:opacity-50"
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.06)',
+                  color: isDark ? '#fff' : '#374151',
+                }}
+                onClick={closeDeleteListingModal}
+              >
+                {t('profile.cancel')}
+              </button>
+              <button
+                type="button"
+                disabled={deleteListingBusy}
+                className="flex-1 rounded-xl py-2.5 text-sm font-semibold text-white transition-opacity disabled:opacity-50"
+                style={{
+                  background: deleteListingBusy ? 'rgba(220,38,38,0.5)' : '#dc2626',
+                }}
+                onClick={() => void confirmDeleteListing()}
+              >
+                {deleteListingBusy ? (
+                  <span className="inline-flex items-center justify-center gap-2">
+                    <Loader2 className="size-4 animate-spin shrink-0" aria-hidden />
+                  </span>
+                ) : (
+                  t('profile.delete')
+                )}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       <OrderReviewModal
         isOpen={!!reviewModalOrder}

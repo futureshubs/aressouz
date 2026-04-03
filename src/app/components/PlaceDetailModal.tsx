@@ -68,7 +68,8 @@ export function PlaceDetailModal({ place, isOpen, onClose }: PlaceDetailModalPro
   const [touchStartX, setTouchStartX] = useState(0);
   const [touchMoveX, setTouchMoveX] = useState(0);
   const [isSwiping, setIsSwiping] = useState(false);
-  
+  const visibilityRefetchTick = useVisibilityTick();
+
   const isDark = theme === 'dark';
   
   // Check if place is open based on current time

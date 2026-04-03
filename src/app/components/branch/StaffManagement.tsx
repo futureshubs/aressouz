@@ -31,6 +31,7 @@ type StaffRecord = {
 export function StaffManagement({ branchId }: { branchId: string; branchInfo?: any }) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
+  const visibilityRefetchTick = useVisibilityTick();
 
   const [staff, setStaff] = useState<StaffRecord[]>([]);
   const [isLoading, setIsLoading] = useState(true);

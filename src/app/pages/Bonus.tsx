@@ -257,7 +257,7 @@ export default function Bonus({ onClose }: BonusProps) {
 
   return (
     <div 
-      className="fixed inset-0 z-50 overflow-hidden"
+      className="fixed inset-0 z-50 overflow-hidden app-safe-pad"
       style={{
         background: isDark 
           ? 'linear-gradient(135deg, #0a0a0a 0%, #1a1a1a 50%, #0a0a0a 100%)'
@@ -267,12 +267,12 @@ export default function Bonus({ onClose }: BonusProps) {
       {/* Close Button */}
       <button
         onClick={onClose}
-        className="absolute top-6 right-6 size-12 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-300 active:scale-95 z-10"
+        className="absolute top-4 right-4 size-12 rounded-full flex items-center justify-center backdrop-blur-xl transition-all duration-300 active:scale-95 z-10"
         style={{
           background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
           border: isDark ? '1px solid rgba(255, 255, 255, 0.2)' : '1px solid rgba(0, 0, 0, 0.1)',
-          boxShadow: isDark 
-            ? '0 4px 16px rgba(0, 0, 0, 0.3)' 
+          boxShadow: isDark
+            ? '0 4px 16px rgba(0, 0, 0, 0.3)'
             : '0 4px 16px rgba(0, 0, 0, 0.1)',
         }}
       >

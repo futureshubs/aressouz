@@ -3,6 +3,40 @@
  * or when cart quantity exceeds available stock (market / shop / food / rental flags).
  */
 
+function tryNonNegativeInt(...raw: unknown[]): number | null {
+  for (const x of raw) {
+    if (x === null || x === undefined || x === '') continue;
+    const n = typeof x === 'number' ? x : Number(x);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  return null;
+}
+
+/**
+ * Bitta variant uchun qoldiq (market: `stockQuantity`, do‘kon: `stock` / `stockCount`).
+ * Bir nechta variant bo‘lsa **mahsulot** darajasidagi `stockCount` / `stockQuantity` ishlatilmasin —
+ * aks holda barcha qatorlar birinchi variant zaxirasiga yopishib, bittasi tugasa hammasi «Tugadi» bo‘ladi.
+ */
+export function getVariantStockQuantity(variant: unknown, product: unknown): number {
+  const p = product as Record<string, unknown> | undefined;
+  const variantList = Array.isArray(p?.variants) ? p!.variants : [];
+  const multiVariant = variantList.length > 1;
+
+  if (variant == null) {
+    return tryNonNegativeInt(p?.stockQuantity, p?.stockCount, p?.stock) ?? 0;
+  }
+
+  const v = variant as Record<string, unknown>;
+  const fromVariant = tryNonNegativeInt(v.stock, v.stockQuantity, v.stockCount);
+  if (fromVariant !== null) return fromVariant;
+
+  if (!multiVariant) {
+    return tryNonNegativeInt(p?.stockQuantity, p?.stockCount, p?.stock) ?? 0;
+  }
+
+  return 0;
+}
+
 /**
  * API ba'zan mahsulot darajasida `stockQuantity` bermaydi yoki 0 qaytaradi, lekin
  * variantlarda `stock` / `stockQuantity` bo‘ladi — ro‘yxat va tugmalar uchun jami qoldiq.

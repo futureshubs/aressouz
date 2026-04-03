@@ -32,6 +32,7 @@ const PaymentDemo = lazy(() => import('./components/PaymentDemo'));
 const OrdersPage = lazy(() => import('./pages/Orders'));
 const OrderDetailsPage = lazy(() => import('./pages/OrderDetails'));
 const NotFoundPage = lazy(() => import('./pages/NotFound'));
+const MarketingDocPage = lazy(() => import('./pages/MarketingDocPage'));
 
 const withSuspense = (node: ReactNode) => (
   <Suspense fallback={<RouteChunkSkeleton />}>{node}</Suspense>
@@ -146,6 +147,10 @@ export const router = createBrowserRouter([
   {
     path: '/open-file',
     element: <AppRoute>{withSuspense(<OpenFilePage />)}</AppRoute>,
+  },
+  {
+    path: '/docs/:slug',
+    element: <AppRoute>{withSuspense(<MarketingDocPage />)}</AppRoute>,
   },
   {
     path: '/admin',

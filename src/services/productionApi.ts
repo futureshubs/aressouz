@@ -3,7 +3,8 @@
  * Handles all API communication with proper error handling, retries, and fallbacks
  */
 
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../app/utils/edgeFunctionBaseUrl';
 
 export interface ApiResponse<T = any> {
   success: boolean;
@@ -32,7 +33,9 @@ export interface Branch {
 }
 
 export class ProductionApiService {
-  private static baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
+  private static get baseUrl(): string {
+    return edgeFunctionBaseUrl();
+  }
   private static defaultHeaders = {
     'Content-Type': 'application/json',
     'apikey': publicAnonKey,

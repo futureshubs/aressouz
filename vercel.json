@@ -1,3 +1,9 @@
 {
-  "rewrites": [{ "source": "/(.*)", "destination": "/index.html" }]
+  "rewrites": [
+    {
+      "source": "/functions/v1/make-server-27d0d16c/:path*",
+      "destination": "https://wnondmqmuvjugbomyolz.supabase.co/functions/v1/make-server-27d0d16c/:path*"
+    },
+    { "source": "/(.*)", "destination": "/index.html" }
+  ]
 }

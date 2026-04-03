@@ -1,19 +1,24 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Shield, Lock, ChevronRight, Copy } from 'lucide-react';
+import { Shield, Lock, ChevronRight, Copy, User } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId } from '../../../utils/supabase/info';
-import { buildPublicHeaders } from '../utils/requestAuth';
+import { buildAdminLoginHeaders } from '../utils/requestAuth';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+
+const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
 export default function AdminLogin() {
   const navigate = useNavigate();
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
-  const [step, setStep] = useState<'code' | 'setup' | 'otp'>('code');
-  const [adminCode, setAdminCode] = useState('');
+  const [step, setStep] = useState<'credentials' | 'setup' | 'otp'>('credentials');
+  const [username, setUsername] = useState('');
+  const [password, setPassword] = useState('');
+  const [secondaryCode, setSecondaryCode] = useState('');
+  const [tempToken, setTempToken] = useState('');
   const [otp, setOtp] = useState('');
   const [secretBase32, setSecretBase32] = useState('');
   const [otpauthUrl, setOtpauthUrl] = useState('');
@@ -21,25 +26,43 @@ export default function AdminLogin() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    const session = localStorage.getItem('adminSession');
-    if (session) {
-      navigate('/admin/dashboard');
+    try {
+      const raw = localStorage.getItem('adminSession');
+      if (!raw) return;
+      const s = JSON.parse(raw) as { sessionToken?: string; role?: string };
+      if (s?.role === 'admin' && s?.sessionToken) {
+        navigate('/admin/dashboard');
+        return;
+      }
+      if (s?.role === 'admin' && !s?.sessionToken) {
+        localStorage.removeItem('adminSession');
+      }
+    } catch {
+      localStorage.removeItem('adminSession');
     }
   }, [navigate]);
 
   useVisibilityRefetch(() => {
-    const session = localStorage.getItem('adminSession');
-    if (session) {
-      navigate('/admin/dashboard');
+    try {
+      const raw = localStorage.getItem('adminSession');
+      if (!raw) return;
+      const s = JSON.parse(raw) as { sessionToken?: string; role?: string };
+      if (s?.role === 'admin' && s?.sessionToken) {
+        navigate('/admin/dashboard');
+      }
+    } catch {
+      /* ignore */
     }
   });
 
-  const statusEndpoint = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/admin/2fa/status`;
-  const setupEndpoint = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/admin/2fa/setup`;
-  const enableEndpoint = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/admin/2fa/enable`;
-  const verifyEndpoint = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/admin/2fa/verify`;
+  const loginHeaders = () => buildAdminLoginHeaders({ 'Content-Type': 'application/json' });
+  const tempHeaders = () =>
+    buildAdminLoginHeaders({
+      'Content-Type': 'application/json',
+      'X-Admin-Login-Token': tempToken,
+    });
 
-  const handleAdminCode = async (e: React.FormEvent) => {
+  const handleCredentials = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
@@ -48,37 +71,46 @@ export default function AdminLogin() {
     setOtp('');
 
     try {
-      const code = adminCode.trim();
-      if (!code) {
-        setError('Admin code kiriting');
-        return;
-      }
-
-      const resp = await fetch(statusEndpoint, {
-        headers: buildPublicHeaders({
-          'Content-Type': 'application/json',
-          'X-Admin-Code': code,
+      const resp = await fetch(`${baseUrl}/admin/auth/credentials`, {
+        method: 'POST',
+        headers: loginHeaders(),
+        body: JSON.stringify({
+          username: username.trim(),
+          password,
+          secondaryCode: secondaryCode.trim(),
         }),
       });
       const data = await resp.json().catch(() => ({}));
-      if (!resp.ok || !data?.success) {
-        setError(data?.error || 'Admin code noto‘g‘ri');
+
+      if (resp.status === 429) {
+        const until = data?.blockedUntil
+          ? new Date(data.blockedUntil).toLocaleString('uz-UZ')
+          : '';
+        setError(until ? `Bloklangan. Qayta urinish: ${until}` : (data?.error || 'Bloklangan'));
         return;
       }
 
-      if (data.enabled) {
+      if (!resp.ok || !data?.success) {
+        setError(data?.error || 'Kirish maʼlumotlari noto‘g‘ri');
+        return;
+      }
+
+      const t = String(data.tempToken || '');
+      setTempToken(t);
+      if (data.twoFaEnabled) {
         setStep('otp');
       } else {
-        const setupResp = await fetch(setupEndpoint, {
+        const setupResp = await fetch(`${baseUrl}/admin/2fa/setup`, {
           method: 'POST',
-          headers: buildPublicHeaders({
+          headers: buildAdminLoginHeaders({
             'Content-Type': 'application/json',
-            'X-Admin-Code': code,
+            'X-Admin-Login-Token': t,
           }),
         });
         const setupData = await setupResp.json().catch(() => ({}));
         if (!setupResp.ok || !setupData?.success) {
-          setError(setupData?.error || '2FA setup xatoligi');
+          setError(setupData?.error || '2FA sozlash xatoligi');
+          setTempToken('');
           return;
         }
         setSecretBase32(String(setupData.secretBase32 || ''));
@@ -95,15 +127,10 @@ export default function AdminLogin() {
     setError('');
     setLoading(true);
     try {
-      const code = adminCode.trim();
-      const token = otp.trim();
-      const resp = await fetch(enableEndpoint, {
+      const resp = await fetch(`${baseUrl}/admin/2fa/enable`, {
         method: 'POST',
-        headers: buildPublicHeaders({
-          'Content-Type': 'application/json',
-          'X-Admin-Code': code,
-        }),
-        body: JSON.stringify({ token }),
+        headers: tempHeaders(),
+        body: JSON.stringify({ token: otp.trim() }),
       });
       const data = await resp.json().catch(() => ({}));
       if (!resp.ok || !data?.success) {
@@ -118,22 +145,29 @@ export default function AdminLogin() {
     }
   };
 
-  const handleVerifyOtp = async (e: React.FormEvent) => {
+  const handleFinish = async (e: React.FormEvent) => {
     e.preventDefault();
     setError('');
     setLoading(true);
     try {
-      const code = adminCode.trim();
-      const token = otp.trim();
-      const resp = await fetch(verifyEndpoint, {
+      const resp = await fetch(`${baseUrl}/admin/auth/finish`, {
         method: 'POST',
-        headers: buildPublicHeaders({
-          'Content-Type': 'application/json',
-          'X-Admin-Code': code,
+        headers: loginHeaders(),
+        body: JSON.stringify({
+          tempToken,
+          token: otp.trim(),
         }),
-        body: JSON.stringify({ token }),
       });
       const data = await resp.json().catch(() => ({}));
+
+      if (resp.status === 429) {
+        const until = data?.blockedUntil
+          ? new Date(data.blockedUntil).toLocaleString('uz-UZ')
+          : '';
+        setError(until ? `Bloklangan. ${until}` : (data?.error || 'Bloklangan'));
+        return;
+      }
+
       if (!resp.ok || !data?.success) {
         setError(data?.error || 'Kod noto‘g‘ri');
         return;
@@ -143,9 +177,9 @@ export default function AdminLogin() {
         'adminSession',
         JSON.stringify({
           role: 'admin',
-          code,
+          sessionToken: String(data.sessionToken || ''),
           loginTime: new Date().toISOString(),
-        })
+        }),
       );
       navigate('/admin/dashboard');
     } finally {
@@ -154,21 +188,20 @@ export default function AdminLogin() {
   };
 
   return (
-    <div 
+    <div
       className="min-h-screen flex items-center justify-center p-4"
-      style={{ 
-        background: isDark 
+      style={{
+        background: isDark
           ? 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)'
-          : 'linear-gradient(135deg, #f9fafb 0%, #e5e7eb 100%)'
+          : 'linear-gradient(135deg, #f9fafb 0%, #e5e7eb 100%)',
       }}
     >
       <div className="w-full max-w-md">
-        {/* Logo & Title */}
         <div className="text-center mb-8">
-          <div 
+          <div
             className="inline-flex p-4 rounded-3xl mb-4"
             style={{
-              background: isDark 
+              background: isDark
                 ? 'linear-gradient(145deg, rgba(20, 184, 166, 0.1), rgba(20, 184, 166, 0.05))'
                 : 'linear-gradient(145deg, rgba(20, 184, 166, 0.15), rgba(20, 184, 166, 0.08))',
               boxShadow: isDark
@@ -178,22 +211,22 @@ export default function AdminLogin() {
           >
             <Shield className="w-12 h-12" style={{ color: accentColor.color }} />
           </div>
-          <h1 
-            className="text-3xl font-bold mb-2"
-            style={{ color: isDark ? '#ffffff' : '#111827' }}
-          >
+          <h1 className="text-3xl font-bold mb-2" style={{ color: isDark ? '#ffffff' : '#111827' }}>
             Admin Panel
           </h1>
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            {step === 'code' ? 'Admin code bilan kirish' : step === 'setup' ? '2FA sozlash' : '2FA kod'}
+            {step === 'credentials'
+              ? 'Login, parol va maxfiy kod'
+              : step === 'setup'
+                ? '2FA sozlash'
+                : 'Authenticator kodi'}
           </p>
         </div>
 
-        {/* Login Form */}
         <div
           className="rounded-3xl p-8 border"
           style={{
-            background: isDark 
+            background: isDark
               ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
               : 'linear-gradient(145deg, #ffffff, #f9fafb)',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -202,44 +235,96 @@ export default function AdminLogin() {
               : '0 20px 60px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.8)',
           }}
         >
-          {step === 'code' ? (
-            <form onSubmit={handleAdminCode} className="space-y-6">
+          {step === 'credentials' ? (
+            <form onSubmit={handleCredentials} className="space-y-5">
               <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: isDark ? '#ffffff' : '#111827' }}>
-                  Admin code
+                <label className="block text-sm font-medium mb-2" style={{ color: isDark ? '#fff' : '#111' }}>
+                  Login
                 </label>
                 <div className="relative">
-                  <Lock
+                  <User
                     className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5"
-                    style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)' }}
+                    style={{ color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}
                   />
                   <input
-                    type="password"
-                    value={adminCode}
-                    onChange={(e) => setAdminCode(e.target.value)}
-                    placeholder="••••"
+                    type="text"
+                    autoComplete="username"
+                    value={username}
+                    onChange={(e) => setUsername(e.target.value)}
+                    placeholder="Ali"
                     className="w-full pl-12 pr-4 py-3.5 rounded-2xl border outline-none transition-all"
                     style={{
-                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      color: isDark ? '#ffffff' : '#111827',
+                      background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      color: isDark ? '#fff' : '#111',
                     }}
                   />
                 </div>
               </div>
+              <div>
+                <label className="block text-sm font-medium mb-2" style={{ color: isDark ? '#fff' : '#111' }}>
+                  Parol
+                </label>
+                <div className="relative">
+                  <Lock
+                    className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5"
+                    style={{ color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}
+                  />
+                  <input
+                    type="password"
+                    autoComplete="current-password"
+                    value={password}
+                    onChange={(e) => setPassword(e.target.value)}
+                    placeholder="••••"
+                    className="w-full pl-12 pr-4 py-3.5 rounded-2xl border outline-none transition-all"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      color: isDark ? '#fff' : '#111',
+                    }}
+                  />
+                </div>
+              </div>
+              <div>
+                <label className="block text-sm font-medium mb-2" style={{ color: isDark ? '#fff' : '#111' }}>
+                  Maxfiy kod (panel)
+                </label>
+                <div className="relative">
+                  <Lock
+                    className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5"
+                    style={{ color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}
+                  />
+                  <input
+                    type="password"
+                    inputMode="numeric"
+                    value={secondaryCode}
+                    onChange={(e) => setSecondaryCode(e.target.value)}
+                    placeholder="Boshlang‘ich: 0099"
+                    className="w-full pl-12 pr-4 py-3.5 rounded-2xl border outline-none transition-all"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      color: isDark ? '#fff' : '#111',
+                    }}
+                  />
+                </div>
+                <p className="text-xs mt-2" style={{ opacity: 0.55 }}>
+                  Login va parol o‘zgarmaydi. Maxfiy kodni panelda «Xavfsizlik» bo‘limidan almashtirasiz.
+                </p>
+              </div>
 
-              {error && (
-                <div 
+              {error ? (
+                <div
                   className="p-4 rounded-2xl border"
                   style={{
                     background: 'rgba(239, 68, 68, 0.1)',
                     borderColor: 'rgba(239, 68, 68, 0.3)',
-                    color: '#ef4444'
+                    color: '#ef4444',
                   }}
                 >
                   <p className="text-sm">{error}</p>
                 </div>
-              )}
+              ) : null}
 
               <button
                 type="submit"
@@ -259,13 +344,13 @@ export default function AdminLogin() {
             <form onSubmit={handleEnable2fa} className="space-y-6">
               <div className="space-y-2">
                 <div className="text-sm" style={{ opacity: 0.75 }}>
-                  Authenticator ilovaga secret ni qo‘shing (manual).
+                  Authenticator ilovaga secret qo‘shing.
                 </div>
                 <div
                   className="p-4 rounded-2xl border flex items-center justify-between gap-3"
                   style={{
-                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                    background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
                   }}
                 >
                   <div className="text-xs break-all" style={{ opacity: 0.85 }}>
@@ -275,8 +360,8 @@ export default function AdminLogin() {
                     type="button"
                     className="p-2 rounded-xl border"
                     style={{
-                      background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
-                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0,0,0,0.1)',
+                      background: isDark ? 'rgba(255,255,255,0.03)' : '#fff',
+                      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
                     }}
                     onClick={async () => {
                       try {
@@ -298,30 +383,24 @@ export default function AdminLogin() {
               </div>
 
               <div>
-                <label className="block text-sm font-medium mb-2" style={{ color: isDark ? '#ffffff' : '#111827' }}>
+                <label className="block text-sm font-medium mb-2" style={{ color: isDark ? '#fff' : '#111' }}>
                   2FA kod (6 raqam)
                 </label>
-                <div className="relative">
-                  <Lock
-                    className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5"
-                    style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)' }}
-                  />
-                  <input
-                    inputMode="numeric"
-                    value={otp}
-                    onChange={(e) => setOtp(e.target.value)}
-                    placeholder="123456"
-                    className="w-full pl-12 pr-4 py-3.5 rounded-2xl border outline-none transition-all"
-                    style={{
-                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      color: isDark ? '#ffffff' : '#111827',
-                    }}
-                  />
-                </div>
+                <input
+                  inputMode="numeric"
+                  value={otp}
+                  onChange={(e) => setOtp(e.target.value)}
+                  placeholder="123456"
+                  className="w-full px-4 py-3.5 rounded-2xl border outline-none transition-all"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                    color: isDark ? '#fff' : '#111',
+                  }}
+                />
               </div>
 
-              {error && (
+              {error ? (
                 <div
                   className="p-4 rounded-2xl border"
                   style={{
@@ -332,17 +411,20 @@ export default function AdminLogin() {
                 >
                   <p className="text-sm">{error}</p>
                 </div>
-              )}
+              ) : null}
 
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setStep('code')}
+                  onClick={() => {
+                    setStep('credentials');
+                    setTempToken('');
+                  }}
                   className="flex-1 py-3.5 rounded-2xl font-semibold border transition-all active:scale-95"
                   style={{
-                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                    color: isDark ? '#ffffff' : '#111827',
+                    background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                    color: isDark ? '#fff' : '#111',
                   }}
                 >
                   Orqaga
@@ -353,7 +435,7 @@ export default function AdminLogin() {
                   className="flex-1 py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
                   style={{
                     background: accentColor.gradient,
-                    color: '#ffffff',
+                    color: '#fff',
                     boxShadow: `0 8px 24px ${accentColor.color}40`,
                   }}
                 >
@@ -363,18 +445,15 @@ export default function AdminLogin() {
               </div>
             </form>
           ) : (
-            <form onSubmit={handleVerifyOtp} className="space-y-6">
+            <form onSubmit={handleFinish} className="space-y-6">
               <div>
-                <label 
-                  className="block text-sm font-medium mb-2"
-                  style={{ color: isDark ? '#ffffff' : '#111827' }}
-                >
-                  2FA kod (6 raqam)
+                <label className="block text-sm font-medium mb-2" style={{ color: isDark ? '#fff' : '#111' }}>
+                  Authenticator kodi (6 raqam)
                 </label>
                 <div className="relative">
-                  <Lock 
+                  <Lock
                     className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5"
-                    style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)' }}
+                    style={{ color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.4)' }}
                   />
                   <input
                     inputMode="numeric"
@@ -383,36 +462,40 @@ export default function AdminLogin() {
                     placeholder="123456"
                     className="w-full pl-12 pr-4 py-3.5 rounded-2xl border outline-none transition-all"
                     style={{
-                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      color: isDark ? '#ffffff' : '#111827',
+                      background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      color: isDark ? '#fff' : '#111',
                     }}
                   />
                 </div>
               </div>
 
-              {error && (
-                <div 
+              {error ? (
+                <div
                   className="p-4 rounded-2xl border"
                   style={{
                     background: 'rgba(239, 68, 68, 0.1)',
                     borderColor: 'rgba(239, 68, 68, 0.3)',
-                    color: '#ef4444'
+                    color: '#ef4444',
                   }}
                 >
                   <p className="text-sm">{error}</p>
                 </div>
-              )}
+              ) : null}
 
               <div className="flex gap-3">
                 <button
                   type="button"
-                  onClick={() => setStep('code')}
+                  onClick={() => {
+                    setStep('credentials');
+                    setTempToken('');
+                    setOtp('');
+                  }}
                   className="flex-1 py-3.5 rounded-2xl font-semibold border transition-all active:scale-95"
                   style={{
-                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                    color: isDark ? '#ffffff' : '#111827',
+                    background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                    color: isDark ? '#fff' : '#111',
                   }}
                 >
                   Orqaga
@@ -423,7 +506,7 @@ export default function AdminLogin() {
                   className="flex-1 py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
                   style={{
                     background: accentColor.gradient,
-                    color: '#ffffff',
+                    color: '#fff',
                     boxShadow: `0 8px 24px ${accentColor.color}40`,
                   }}
                 >
@@ -435,18 +518,27 @@ export default function AdminLogin() {
           )}
         </div>
 
-        {/* Steps Indicator */}
         <div className="flex justify-center gap-2 mt-6">
-          <div 
+          <div
             className="h-2 w-16 rounded-full transition-all"
-            style={{ 
-              background: step === 'code' ? accentColor.gradient : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)')
+            style={{
+              background:
+                step === 'credentials'
+                  ? accentColor.gradient
+                  : isDark
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(0,0,0,0.1)',
             }}
           />
-          <div 
+          <div
             className="h-2 w-16 rounded-full transition-all"
-            style={{ 
-              background: step !== 'code' ? accentColor.gradient : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)')
+            style={{
+              background:
+                step !== 'credentials'
+                  ? accentColor.gradient
+                  : isDark
+                    ? 'rgba(255,255,255,0.1)'
+                    : 'rgba(0,0,0,0.1)',
             }}
           />
         </div>

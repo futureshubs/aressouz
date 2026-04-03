@@ -44,6 +44,8 @@ interface AuctionDetailModalProps {
   onParticipate: () => Promise<void>;
   getTimeRemaining: (endDate: string) => string;
   calculateMinimumBid: (auction: Auction) => number;
+  /** Ishtirok / to‘lov oqimi ketmoqda */
+  participateSubmitting?: boolean;
 }
 
 export function AuctionDetailModal({
@@ -52,7 +54,8 @@ export function AuctionDetailModal({
   onPlaceBid,
   onParticipate,
   getTimeRemaining,
-  calculateMinimumBid
+  calculateMinimumBid,
+  participateSubmitting = false,
 }: AuctionDetailModalProps) {
   const { theme, accentColor } = useTheme();
   const { user } = useAuth();
@@ -372,8 +375,10 @@ export function AuctionDetailModal({
 
               {/* Participate Button */}
               <button
-                onClick={onParticipate}
-                className="w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all active:scale-95"
+                type="button"
+                disabled={participateSubmitting}
+                onClick={() => void onParticipate()}
+                className="w-full py-4 rounded-2xl font-bold text-lg flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-60 disabled:pointer-events-none"
                 style={{
                   background: `linear-gradient(135deg, ${accentColor.color}, ${accentColor.color}dd)`,
                   color: '#ffffff',
@@ -381,7 +386,7 @@ export function AuctionDetailModal({
                 }}
               >
                 <Award className="w-5 h-5" />
-                <span>Ishtirok Etish</span>
+                <span>{participateSubmitting ? 'To‘lov tekshirilmoqda…' : 'Ishtirok Etish'}</span>
               </button>
 
               {!user && (

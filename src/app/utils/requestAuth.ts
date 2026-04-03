@@ -14,23 +14,23 @@ const safeParse = <T>(value: string | null): T | null => {
   }
 };
 
-export const getStoredAdminCode = () => {
-  const session = safeParse<{ code?: string; role?: string }>(localStorage.getItem('adminSession'));
-  if (session?.code?.trim()) {
-    return session.code.trim();
+/** Brauzer «qurilma» identifikatori — admin kirish blokirovkasi uchun server bilan */
+export function getOrCreateAdminDeviceId(): string {
+  if (typeof localStorage === 'undefined') return '';
+  let id = localStorage.getItem('adminDeviceId');
+  if (!id) {
+    id = crypto.randomUUID();
+    localStorage.setItem('adminDeviceId', id);
   }
+  return id;
+}
 
-  // Backward compatibility for older admin sessions saved before `code` was persisted.
-  if (session?.role === 'admin') {
-    return '0099';
+export const getStoredAdminSessionToken = () => {
+  const session = safeParse<{ sessionToken?: string; role?: string }>(localStorage.getItem('adminSession'));
+  if (session?.sessionToken?.trim()) {
+    return session.sessionToken.trim();
   }
-
   return '';
-};
-
-export const getStoredAccessToken = () => {
-  const session = safeParse<{ access_token?: string }>(localStorage.getItem('sms_session'));
-  return session?.access_token?.trim() || '';
 };
 
 export const buildPublicHeaders = (headers: HeaderMap = {}): HeaderMap => ({
@@ -39,13 +39,24 @@ export const buildPublicHeaders = (headers: HeaderMap = {}): HeaderMap => ({
   ...headers,
 });
 
+/** Kirishdan oldin: device id (admin /admin/auth) */
+export const buildAdminLoginHeaders = (headers: HeaderMap = {}): HeaderMap => {
+  const deviceId = getOrCreateAdminDeviceId();
+  return {
+    ...buildPublicHeaders(headers),
+    ...(deviceId ? { 'X-Admin-Device-Id': deviceId } : {}),
+  };
+};
+
 export const buildAdminHeaders = (headers: HeaderMap = {}): HeaderMap => {
-  const adminCode = getStoredAdminCode();
+  const sessionToken = getStoredAdminSessionToken();
+  const deviceId = getOrCreateAdminDeviceId();
 
   return {
     apikey: publicAnonKey,
     Authorization: `Bearer ${publicAnonKey}`,
-    ...(adminCode ? { 'X-Admin-Code': adminCode } : {}),
+    ...(sessionToken ? { 'X-Admin-Session': sessionToken } : {}),
+    ...(deviceId ? { 'X-Admin-Device-Id': deviceId } : {}),
     ...headers,
   };
 };
@@ -58,6 +69,11 @@ export const buildUserHeaders = (headers: HeaderMap = {}): HeaderMap => {
     ...(accessToken ? { 'X-Access-Token': accessToken } : {}),
     ...headers,
   };
+};
+
+export const getStoredAccessToken = () => {
+  const session = safeParse<{ access_token?: string }>(localStorage.getItem('sms_session'));
+  return session?.access_token?.trim() || '';
 };
 
 export const getStoredCourierToken = () => {

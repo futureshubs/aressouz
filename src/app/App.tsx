@@ -2,13 +2,31 @@ import { useEffect } from 'react';
 import { RouterProvider } from 'react-router';
 import { ErrorBoundary, router } from './routes';
 import { AuthProvider } from './context/AuthContext';
-import { ThemeProvider } from './context/ThemeContext';
+import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { DeployUpdateNotifier } from './components/DeployUpdateNotifier';
 import { installVisibilityRefetchBroadcast } from './utils/visibilityRefetch';
+import { initTelegramMiniAppViewport } from './utils/telegramMiniApp';
 import { Toaster } from 'sonner';
+
+function ThemeAwareToaster() {
+  const { theme } = useTheme();
+  return (
+    <Toaster
+      theme={theme}
+      position="top-center"
+      expand={true}
+      richColors
+      closeButton
+      duration={3000}
+      offset={{ top: 'var(--app-safe-top)' }}
+      mobileOffset={{ top: 'var(--app-safe-top)' }}
+    />
+  );
+}
 
 export default function App() {
   useEffect(() => {
+    initTelegramMiniAppViewport();
     // PWA: viewport / theme / Apple meta (manifest + sw — index.html)
     const setViewport = () => {
       let viewport = document.querySelector('meta[name="viewport"]');
@@ -120,18 +138,10 @@ export default function App() {
         <AuthProvider>
           <ThemeProvider>
             <RouterProvider router={router} />
+            <ThemeAwareToaster />
           </ThemeProvider>
         </AuthProvider>
       </ErrorBoundary>
-      <Toaster 
-        position="top-center"
-        expand={true}
-        richColors
-        closeButton
-        duration={3000}
-        offset={{ top: 'var(--app-safe-top)' }}
-        mobileOffset={{ top: 'var(--app-safe-top)' }}
-      />
     </>
   );
 }

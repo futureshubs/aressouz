@@ -3,6 +3,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
 import { Store, MapPin, Clock, Phone, Package, Truck, ShoppingCart, Star, Heart, X, ChevronRight, Filter, Trash2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { buildAdminHeaders, getStoredAdminSessionToken } from '../utils/requestAuth';
 import { toast } from 'sonner';
 import { regions } from '../data/regions';
 import { ProductDetailModal } from './ProductModals';
@@ -57,14 +58,12 @@ export default function OnlineShops({
   const [pressTimer, setPressTimer] = useState<NodeJS.Timeout | null>(null);
   const [deleteProduct, setDeleteProduct] = useState<any>(null);
   const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [deleteCode, setDeleteCode] = useState('');
   const [pressingProductId, setPressingProductId] = useState<string | null>(null);
 
   // 🔐 Delete functionality states for shops
   const [pressShopTimer, setPressShopTimer] = useState<NodeJS.Timeout | null>(null);
   const [deleteShop, setDeleteShop] = useState<any>(null);
   const [showDeleteShopModal, setShowDeleteShopModal] = useState(false);
-  const [deleteShopCode, setDeleteShopCode] = useState('');
   const [pressingShopId, setPressingShopId] = useState<string | null>(null);
 
   // Convert region ID to name for banners
@@ -304,8 +303,8 @@ export default function OnlineShops({
 
   // 🔐 Delete product function
   const handleDeleteProduct = async () => {
-    if (deleteCode !== '0099') {
-      toast.error('Kod noto\'g\'ri!');
+    if (!getStoredAdminSessionToken()) {
+      toast.error('Admin panelda tizimga kiring (sessiya kerak).');
       return;
     }
 
@@ -314,10 +313,7 @@ export default function OnlineShops({
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/products/${deleteProduct.id}`,
         {
           method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-Admin-Code': deleteCode.trim(),
-          },
+          headers: buildAdminHeaders(),
         }
       );
 
@@ -326,7 +322,6 @@ export default function OnlineShops({
         setAllProducts(prev => prev.filter(p => p.id !== deleteProduct.id));
         setShowDeleteModal(false);
         setDeleteProduct(null);
-        setDeleteCode('');
       } else {
         toast.error('Xatolik yuz berdi');
       }
@@ -357,8 +352,8 @@ export default function OnlineShops({
 
   // 🔐 Delete shop function
   const handleDeleteShop = async () => {
-    if (deleteShopCode !== '0099') {
-      toast.error('Kod noto\'g\'ri!');
+    if (!getStoredAdminSessionToken()) {
+      toast.error('Admin panelda tizimga kiring (sessiya kerak).');
       return;
     }
 
@@ -367,10 +362,7 @@ export default function OnlineShops({
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops/${deleteShop.id}`,
         {
           method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-Admin-Code': deleteShopCode.trim(),
-          },
+          headers: buildAdminHeaders(),
         }
       );
 
@@ -379,7 +371,6 @@ export default function OnlineShops({
         setShops(prev => prev.filter(s => s.id !== deleteShop.id));
         setShowDeleteShopModal(false);
         setDeleteShop(null);
-        setDeleteShopCode('');
       } else {
         toast.error('Xatolik yuz berdi');
       }
@@ -913,29 +904,12 @@ export default function OnlineShops({
               <span className="font-medium">{deleteProduct.name}</span> ni o'chirmoqchimisiz?
             </p>
 
-            {/* Security Code Input */}
-            <div className="mb-6">
-              <label 
-                className="block text-sm font-medium mb-2"
-                style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}
-              >
-                Xavfsizlik kodi
-              </label>
-              <input
-                type="password"
-                value={deleteCode}
-                onChange={(e) => setDeleteCode(e.target.value)}
-                placeholder="Kodni kiriting"
-                className="w-full px-4 py-3 rounded-xl text-center text-lg font-bold tracking-widest"
-                style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                  border: `2px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                  color: isDark ? '#ffffff' : '#000000',
-                }}
-                maxLength={4}
-                autoFocus
-              />
-            </div>
+            <p
+              className="text-center text-sm mb-6"
+              style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}
+            >
+              Admin panel sessiyasi bilan tasdiqlanadi. Avval /admin orqali kiring.
+            </p>
 
             {/* Buttons */}
             <div className="flex gap-3">
@@ -943,7 +917,6 @@ export default function OnlineShops({
                 onClick={() => {
                   setShowDeleteModal(false);
                   setDeleteProduct(null);
-                  setDeleteCode('');
                 }}
                 className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95"
                 style={{
@@ -1000,29 +973,12 @@ export default function OnlineShops({
               <span className="font-medium">{deleteShop.name}</span> do'konini o'chirmoqchimisiz?
             </p>
 
-            {/* Security Code Input */}
-            <div className="mb-6">
-              <label 
-                className="block text-sm font-medium mb-2"
-                style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}
-              >
-                Xavfsizlik kodi
-              </label>
-              <input
-                type="password"
-                value={deleteShopCode}
-                onChange={(e) => setDeleteShopCode(e.target.value)}
-                placeholder="Kodni kiriting"
-                className="w-full px-4 py-3 rounded-xl text-center text-lg font-bold tracking-widest"
-                style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                  border: `2px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                  color: isDark ? '#ffffff' : '#000000',
-                }}
-                maxLength={4}
-                autoFocus
-              />
-            </div>
+            <p
+              className="text-center text-sm mb-6"
+              style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}
+            >
+              Admin panel sessiyasi bilan tasdiqlanadi. Avval /admin orqali kiring.
+            </p>
 
             {/* Buttons */}
             <div className="flex gap-3">
@@ -1030,7 +986,6 @@ export default function OnlineShops({
                 onClick={() => {
                   setShowDeleteShopModal(false);
                   setDeleteShop(null);
-                  setDeleteShopCode('');
                 }}
                 className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95"
                 style={{

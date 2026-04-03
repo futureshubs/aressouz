@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo } from 'react';
+import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import { Header } from './components/Header';
 import { Hero } from './components/Hero';
 import { ViewToggle } from './components/ViewToggle';
@@ -41,6 +41,7 @@ import { useVisibilityRefetch } from './utils/visibilityRefetch';
 import { TestBackend } from './test-backend';
 import ProductionApiService from '../services/productionApi';
 import { SupportChatWidget } from './components/SupportChatWidget';
+import { SiteFooter } from './components/SiteFooter';
 import Checkout from './components/Checkout';
 import { RentalTermsConsentModal } from './components/RentalTermsConsentModal';
 import { useMarketplaceNativeCartBadge } from './hooks/useMarketplaceNativeCartBadge';
@@ -48,6 +49,21 @@ import {
   ProductGridSkeleton,
   SectionHeaderSkeleton,
 } from './components/skeletons';
+import { devLog } from './utils/devLog';
+
+const MAIN_ACTIVE_TAB_KEY = 'aresso:mainActiveTab';
+
+function readStoredMainActiveTab(): string {
+  if (typeof sessionStorage === 'undefined') return 'market';
+  try {
+    const v = sessionStorage.getItem(MAIN_ACTIVE_TAB_KEY)?.trim();
+    if (!v || v.length > 64) return 'market';
+    if (!/^[\w-]+$/.test(v)) return 'market';
+    return v;
+  } catch {
+    return 'market';
+  }
+}
 
 // Main App Component
 interface Product {
@@ -110,6 +126,60 @@ interface CartItem extends Product {
   }[];
 }
 
+/** Bozor/do‘kon: tanlangan variant narxi + `variantDetails` — savat/checkout `item.price` faqat birinchi variant bo‘lib qolmasin */
+function buildCartLinePricing(
+  product: Product,
+  variantId?: string,
+  variantName?: string,
+): {
+  unitPrice: number;
+  oldPrice?: number;
+  variantDetails?: CartItem['variantDetails'];
+  selectedVariantName?: string;
+} {
+  const asCart = product as CartItem;
+  const prebuiltVd = asCart.variantDetails;
+  const isFoodLine =
+    Boolean(asCart.dishDetails) ||
+    asCart.catalogId === 'foods' ||
+    asCart.categoryId === 'taomlar' ||
+    Boolean((asCart as { dishId?: string }).dishId);
+
+  if (isFoodLine && prebuiltVd) {
+    return {
+      unitPrice: Number(product.price) || 0,
+      variantDetails: prebuiltVd,
+      selectedVariantName: asCart.selectedVariantName,
+    };
+  }
+
+  const vid = variantId != null ? String(variantId).trim() : '';
+  if (!vid || vid === '0') {
+    return {
+      unitPrice: Number(product.price) || 0,
+      oldPrice: product.oldPrice,
+    };
+  }
+
+  const v = product.variants?.find((x) => String(x.id) === vid);
+  if (!v) {
+    return {
+      unitPrice: Number(product.price) || 0,
+      oldPrice: product.oldPrice,
+    };
+  }
+
+  const p = Number(v.price) || 0;
+  const label =
+    (variantName && String(variantName).trim()) || v.name || 'Variant';
+  return {
+    unitPrice: p,
+    oldPrice: v.oldPrice ?? product.oldPrice,
+    variantDetails: { name: label, price: p },
+    selectedVariantName: label,
+  };
+}
+
 // Branch product interface
 interface BranchProduct {
   id: string;
@@ -157,7 +227,7 @@ export default function AppContent() {
   const [flowCheckoutOpen, setFlowCheckoutOpen] = useState(false);
   const [flowRentalTermsOpen, setFlowRentalTermsOpen] = useState(false);
   const [isCartOpen, setIsCartOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState('market');
+  const [activeTab, setActiveTab] = useState(readStoredMainActiveTab);
   const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [profileOrderCategoryPreset, setProfileOrderCategoryPreset] = useState<
     undefined | 'all' | 'market' | 'shop' | 'rent' | 'food' | 'auction'
@@ -167,12 +237,20 @@ export default function AppContent() {
   
   // Debug location selection
   useEffect(() => {
-    console.log('📍 AppContent Location:', { selectedRegion, selectedDistrict });
+    devLog('📍 AppContent Location:', { selectedRegion, selectedDistrict });
   }, [selectedRegion, selectedDistrict]);
 
   // Debug activeTab changes
   useEffect(() => {
-    console.log('🔴 AppContent: activeTab changed to:', activeTab);
+    devLog('🔴 AppContent: activeTab changed to:', activeTab);
+  }, [activeTab]);
+
+  useEffect(() => {
+    try {
+      sessionStorage.setItem(MAIN_ACTIVE_TAB_KEY, activeTab);
+    } catch {
+      /* private mode / quota */
+    }
   }, [activeTab]);
 
   // Platform detection
@@ -190,7 +268,28 @@ export default function AppContent() {
   const [isLoadingBranches, setIsLoadingBranches] = useState(true);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
 
-  useVisibilityRefetch(() => setRefreshKey((k) => k + 1));
+  const activeTabRef = useRef(activeTab);
+  activeTabRef.current = activeTab;
+
+  /** Faqat bozor / do‘kon — filial mahsulotlari shu yerda; boshqa tablarda visibility qaytganda qayta yuklamaymiz */
+  useVisibilityRefetch(() => {
+    const t = activeTabRef.current;
+    if (t !== 'market' && t !== 'dokon') return;
+    setRefreshKey((k) => k + 1);
+  });
+
+  useEffect(() => {
+    if (!isProfileOpen) return;
+    const html = document.documentElement;
+    const prevHtml = html.style.overflow;
+    const prevBody = document.body.style.overflow;
+    html.style.overflow = 'hidden';
+    document.body.style.overflow = 'hidden';
+    return () => {
+      html.style.overflow = prevHtml;
+      document.body.style.overflow = prevBody;
+    };
+  }, [isProfileOpen]);
 
   const parseMoneyValue = (value: unknown): number => {
     if (typeof value === 'number' && Number.isFinite(value)) return value;
@@ -247,12 +346,9 @@ export default function AppContent() {
   }, [branchProducts]);
 
   useEffect(() => {
-    // Set CSS variables for theme
     document.documentElement.style.setProperty('--accent-color', accentColor.color);
     document.documentElement.style.setProperty('--accent-gradient', accentColor.gradient);
-    document.body.style.backgroundColor = theme === 'dark' ? '#000000' : '#f9fafb';
-    document.body.style.color = theme === 'dark' ? '#ffffff' : '#111827';
-  }, [theme, accentColor]);
+  }, [accentColor]);
 
   // Initialize test shops - DISABLED (use admin panel to create shops)
   // Users should create shops via branch panel instead of auto-loading test data
@@ -262,12 +358,12 @@ export default function AppContent() {
     const loadBranches = async () => {
       try {
         setIsLoadingBranches(true);
-        console.log('📡 Fetching branches from Production API...');
+        devLog('📡 Fetching branches from Production API...');
         
         const response = await ProductionApiService.getBranches();
         
         if (response.success && response.data) {
-          console.log('✅ Branches loaded from Production API:', response.data.branches.length);
+          devLog('✅ Branches loaded from Production API:', response.data.branches.length);
           
           setBranches(response.data.branches);
           
@@ -284,7 +380,7 @@ export default function AppContent() {
         const storedBranches = localStorage.getItem('branches');
         if (storedBranches) {
           setBranches(JSON.parse(storedBranches));
-          console.log('⚠️ Using cached branches from localStorage');
+          devLog('⚠️ Using cached branches from localStorage');
         }
       } finally {
         setIsLoadingBranches(false);
@@ -297,10 +393,10 @@ export default function AppContent() {
   // Load products from Supabase by user location
   useEffect(() => {
     const loadProducts = async () => {
-      // console.log('🔍 Loading products for:', { selectedRegion, selectedDistrict, branchCount: branches.length });
+      // devLog('🔍 Loading products for:', { selectedRegion, selectedDistrict, branchCount: branches.length });
       
       if (!selectedRegion || !selectedDistrict || branches.length === 0) {
-        // console.log('⚠️ No region/district selected or no branches loaded');
+        // devLog('⚠️ No region/district selected or no branches loaded');
         setBranchProducts([]);
         setIsLoadingProducts(false);
         return;
@@ -311,10 +407,10 @@ export default function AppContent() {
         b => b.regionId === selectedRegion && b.districtId === selectedDistrict
       );
 
-      console.log('🏢 Local branches:', localBranches.length);
+      devLog('🏢 Local branches:', localBranches.length);
 
       if (localBranches.length === 0) {
-        // console.log('⚠️ No branches in this location');
+        // devLog('⚠️ No branches in this location');
         setBranchProducts([]);
         setIsLoadingProducts(false);
         return;
@@ -322,8 +418,8 @@ export default function AppContent() {
 
       try {
         setIsLoadingProducts(true);
-        // console.log('📡 Fetching products from Supabase...');
-        // console.log('🔗 URL:', `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch-products`);
+        // devLog('📡 Fetching products from Supabase...');
+        // devLog('🔗 URL:', `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch-products`);
         
         const response = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch-products?includeSold=false`,
@@ -335,8 +431,8 @@ export default function AppContent() {
           }
         );
 
-        console.log('📊 Response status:', response.status);
-        console.log('📊 Response ok:', response.ok);
+        devLog('📊 Response status:', response.status);
+        devLog('📊 Response ok:', response.ok);
 
         if (!response.ok) {
           const errorText = await response.text();
@@ -345,9 +441,9 @@ export default function AppContent() {
         }
 
         const data = await response.json();
-        console.log('📦 Response data:', data);
+        devLog('📦 Response data:', data);
         const allBranchProducts: BranchProduct[] = data.products || [];
-        console.log('📦 Total products from Supabase:', allBranchProducts.length);
+        devLog('📦 Total products from Supabase:', allBranchProducts.length);
         
         // Filter products by local branches
         const localBranchIds = localBranches.map(b => b.id);
@@ -355,7 +451,7 @@ export default function AppContent() {
           localBranchIds.includes(p.branchId)
         );
 
-        console.log(' Filtered products for local branches:', filteredProducts.length);
+        devLog(' Filtered products for local branches:', filteredProducts.length);
 
         // Helper function to convert string ID to number
         const stringToNumber = (str: string): number => {
@@ -409,8 +505,8 @@ export default function AppContent() {
           };
         });
 
-        console.log('🎯 Final display products:', displayProducts.length);
-        console.log('📋 Sample product with variants:', displayProducts[0]);
+        devLog('🎯 Final display products:', displayProducts.length);
+        devLog('📋 Sample product with variants:', displayProducts[0]);
         setBranchProducts(displayProducts);
         
         // Cache to localStorage
@@ -432,7 +528,7 @@ export default function AppContent() {
         // Fallback to localStorage
         const storedProducts = localStorage.getItem('products');
         if (storedProducts) {
-          console.log('⚠️ Using cached products from localStorage');
+          devLog('⚠️ Using cached products from localStorage');
           const allBranchProducts: BranchProduct[] = JSON.parse(storedProducts);
           const localBranchIds = localBranches.map(b => b.id);
           const filteredProducts = allBranchProducts.filter(p => 
@@ -477,7 +573,7 @@ export default function AppContent() {
           
           setBranchProducts(displayProducts);
         } else {
-          console.log('⚠️ No cached products available, showing empty state');
+          devLog('⚠️ No cached products available, showing empty state');
           setBranchProducts([]);
         }
       } finally {
@@ -530,21 +626,25 @@ export default function AppContent() {
         });
       }
 
+      const line = buildCartLinePricing(product, variantId, variantName);
       return [
         ...prev,
         {
           ...product,
+          price: line.unitPrice,
+          oldPrice: line.oldPrice ?? product.oldPrice,
           quantity,
           selectedVariantId: variantId,
-          selectedVariantName: variantName,
+          selectedVariantName: line.selectedVariantName ?? variantName,
+          variantDetails: line.variantDetails,
         },
       ];
     });
   };
 
   const handleUpdateQuantity = (id: number, quantity: number, variantId?: string) => {
-    console.log('🔄 handleUpdateQuantity called:', { id, quantity, variantId });
-    console.log('📋 Current cart items:', cartItems);
+    devLog('🔄 handleUpdateQuantity called:', { id, quantity, variantId });
+    devLog('📋 Current cart items:', cartItems);
 
     const target = cartItems.find((item) =>
       variantId
@@ -567,20 +667,20 @@ export default function AppContent() {
           : (item.id === id && !item.selectedVariantId);
         
         if (matches) {
-          console.log('✅ Found matching item:', item, '-> new quantity:', quantity);
+          devLog('✅ Found matching item:', item, '-> new quantity:', quantity);
         }
         
         return matches ? { ...item, quantity } : item;
       });
       
-      console.log('📦 Updated cart items:', updated);
+      devLog('📦 Updated cart items:', updated);
       return updated;
     });
   };
 
   const handleRemoveItem = (id: number, variantId?: string) => {
-    console.log('🗑️ handleRemoveItem called:', { id, variantId });
-    console.log('📋 Current cart before remove:', cartItems);
+    devLog('🗑️ handleRemoveItem called:', { id, variantId });
+    devLog('📋 Current cart before remove:', cartItems);
     
     setCartItems(prev => {
       const filtered = prev.filter(item => {
@@ -590,13 +690,13 @@ export default function AppContent() {
           : (item.id === id && !item.selectedVariantId);
         
         if (matches) {
-          console.log('❌ Removing item:', item);
+          devLog('❌ Removing item:', item);
         }
         
         return !matches;
       });
       
-      console.log('📦 Cart after remove:', filtered);
+      devLog('📦 Cart after remove:', filtered);
       return filtered;
     });
   };
@@ -689,8 +789,6 @@ export default function AppContent() {
   const isCommunityFullscreen = activeTab === 'community' && !isProfileOpen;
   
   const isDark = theme === 'dark';
-  const bgColor = isDark ? '#000000' : '#f9fafb';
-  const textColor = isDark ? '#ffffff' : '#111827';
 
   const marketProductsLoading =
     activeTab === 'market' &&
@@ -701,13 +799,14 @@ export default function AppContent() {
 
   return (
     <CheckoutFlowProvider value={{ openCheckoutFlow }}>
-    <div 
-      className={
+    <div
+      className={`${
         isCommunityFullscreen
           ? 'h-dvh min-h-dvh overflow-hidden'
-          : 'min-h-dvh pb-24 sm:pb-32 max-[639px]:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))]'
-      }
-      style={{ backgroundColor: bgColor, color: textColor }}
+          : isProfileOpen
+            ? 'h-dvh min-h-dvh overflow-hidden'
+            : 'min-h-dvh pb-24 sm:pb-32 max-[639px]:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))]'
+      } bg-background text-foreground`}
     >
       {/* Backend health test - runs on mount */}
       <TestBackend />
@@ -902,29 +1001,52 @@ export default function AppContent() {
 
         {/* Profil Modal - Full Screen */}
         {isProfileOpen && (
-          <div className="fixed inset-0 z-50 overflow-y-auto bg-black">
-            <ProfileView
-              initialOrderCategory={profileOrderCategoryPreset}
-              onOpenBonus={() => {
-                setIsProfileOpen(false);
-                setProfileOrderCategoryPreset(undefined);
-                setActiveTab('bonus');
-              }}
-            />
+          <div
+            className={`fixed inset-0 z-[100] flex flex-col overflow-hidden ${isDark ? 'bg-black' : 'bg-background'}`}
+            style={{
+              paddingTop: 'var(--app-safe-top)',
+              paddingRight: 'var(--app-safe-right)',
+              paddingBottom: 'var(--app-safe-bottom)',
+              paddingLeft: 'var(--app-safe-left)',
+            }}
+          >
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain max-sm:pt-12 min-w-0">
+              <ProfileView
+                initialOrderCategory={profileOrderCategoryPreset}
+                onOpenBonus={() => {
+                  setIsProfileOpen(false);
+                  setProfileOrderCategoryPreset(undefined);
+                  setActiveTab('bonus');
+                }}
+              />
+            </div>
             <button
+              type="button"
               onClick={() => {
                 setIsProfileOpen(false);
                 setProfileOrderCategoryPreset(undefined);
               }}
-              className="fixed top-6 left-4 z-50 p-2.5 rounded-2xl transition-all active:scale-90"
+              className="fixed z-[110] p-2.5 rounded-2xl transition-all active:scale-90"
               style={{
-                background: 'linear-gradient(145deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08))',
+                top: 'calc(1.5rem + var(--app-safe-top))',
+                left: 'calc(1rem + var(--app-safe-left))',
+                background: isDark
+                  ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08))'
+                  : 'linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(249, 250, 251, 0.9))',
                 backdropFilter: 'blur(20px)',
-                boxShadow: '0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25)',
-                border: '0.5px solid rgba(255, 255, 255, 0.2)',
+                boxShadow: isDark
+                  ? '0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25)'
+                  : '0 4px 16px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9)',
+                border: isDark ? '0.5px solid rgba(255, 255, 255, 0.2)' : '0.5px solid rgba(0, 0, 0, 0.1)',
               }}
             >
-              <svg className="size-5 text-white" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2.5}>
+              <svg
+                className={`size-5 ${isDark ? 'text-white' : 'text-gray-900'}`}
+                fill="none"
+                viewBox="0 0 24 24"
+                stroke="currentColor"
+                strokeWidth={2.5}
+              >
                 <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
               </svg>
             </button>
@@ -970,7 +1092,7 @@ export default function AppContent() {
               const variantPrice = parseMoneyValue(variant.price);
               const totalItemPrice = variantPrice + addonsTotalPrice; // Price per unit
               
-              console.log('💰 Price Calculation Debug:', {
+              devLog('💰 Price Calculation Debug:', {
                 variantPrice,
                 addonsTotalPrice,
                 quantity,
@@ -1178,7 +1300,7 @@ export default function AppContent() {
         />
 
         {/* Bottom Navigation - Always visible, responsive positioning */}
-        {!isCommunityFullscreen && (
+        {!isCommunityFullscreen && !isProfileOpen && (
           <BottomNav 
             activeTab={activeTab} 
             onTabChange={setActiveTab}
@@ -1222,172 +1344,8 @@ export default function AppContent() {
           }}
         />
 
-        {/* Footer - Only show on desktop */}
-        {!isCommunityFullscreen && (
-          <footer 
-            className="hidden sm:block mt-12 sm:mt-20 border-t"
-            style={{
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              background: isDark ? 'rgba(0, 0, 0, 0.5)' : 'rgba(0, 0, 0, 0.02)',
-            }}
-          >
-          <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8 sm:py-12">
-            <div className="grid grid-cols-2 lg:grid-cols-4 gap-6 sm:gap-8">
-              <div className="col-span-2 lg:col-span-1">
-                <h3 
-                  className="text-lg sm:text-xl mb-3 sm:mb-4"
-                  style={{ color: textColor }}
-                >
-                  TechStore
-                </h3>
-                <p 
-                  className="text-sm"
-                  style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                >
-                  Eng yaxshi texnologiyalar bir joyda
-                </p>
-              </div>
-              <div>
-                <h4 
-                  className="mb-3 sm:mb-4 text-sm"
-                  style={{ color: textColor }}
-                >
-                  Yordam
-                </h4>
-                <ul className="space-y-2 text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                  <li>
-                    <a 
-                      href="#" 
-                      className="transition-colors"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = accentColor.color}
-                      onMouseLeave={(e) => e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'}
-                    >
-                      Yetkazib berish
-                    </a>
-                  </li>
-                  <li>
-                    <a 
-                      href="#" 
-                      className="transition-colors"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = accentColor.color}
-                      onMouseLeave={(e) => e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'}
-                    >
-                      Qaytarish
-                    </a>
-                  </li>
-                  <li>
-                    <a 
-                      href="#" 
-                      className="transition-colors"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = accentColor.color}
-                      onMouseLeave={(e) => e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'}
-                    >
-                      Kafolat
-                    </a>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h4 
-                  className="mb-3 sm:mb-4 text-sm"
-                  style={{ color: textColor }}
-                >
-                  Kompaniya
-                </h4>
-                <ul className="space-y-2 text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                  <li>
-                    <a 
-                      href="#" 
-                      className="transition-colors"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = accentColor.color}
-                      onMouseLeave={(e) => e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'}
-                    >
-                      Biz haqimizda
-                    </a>
-                  </li>
-                  <li>
-                    <a 
-                      href="#" 
-                      className="transition-colors"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = accentColor.color}
-                      onMouseLeave={(e) => e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'}
-                    >
-                      Kontaktlar
-                    </a>
-                  </li>
-                  <li>
-                    <a 
-                      href="#" 
-                      className="transition-colors"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = accentColor.color}
-                      onMouseLeave={(e) => e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'}
-                    >
-                      Vakansiyalar
-                    </a>
-                  </li>
-                </ul>
-              </div>
-              <div>
-                <h4 
-                  className="mb-3 sm:mb-4 text-sm"
-                  style={{ color: textColor }}
-                >
-                  Ijtimoiy
-                </h4>
-                <ul className="space-y-2 text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                  <li>
-                    <a 
-                      href="#" 
-                      className="transition-colors"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = accentColor.color}
-                      onMouseLeave={(e) => e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'}
-                    >
-                      Instagram
-                    </a>
-                  </li>
-                  <li>
-                    <a 
-                      href="#" 
-                      className="transition-colors"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = accentColor.color}
-                      onMouseLeave={(e) => e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'}
-                    >
-                      Telegram
-                    </a>
-                  </li>
-                  <li>
-                    <a 
-                      href="#" 
-                      className="transition-colors"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                      onMouseEnter={(e) => e.currentTarget.style.color = accentColor.color}
-                      onMouseLeave={(e) => e.currentTarget.style.color = isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'}
-                    >
-                      Facebook
-                    </a>
-                  </li>
-                </ul>
-              </div>
-            </div>
-            <div 
-              className="mt-8 sm:mt-12 pt-6 sm:pt-8 border-t text-center text-xs sm:text-sm"
-              style={{
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)',
-              }}
-            >
-              © 2026 TechStore. Barcha huquqlar himoyalangan.
-            </div>
-            </div>
-          </footer>
+        {!isCommunityFullscreen && !isProfileOpen && (
+          <SiteFooter onNavigateTab={setActiveTab} />
         )}
       </div>
 

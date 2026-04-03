@@ -1,4 +1,4 @@
-import { useState, useEffect, memo, useRef } from 'react';
+import { useState, useEffect, memo, useRef, useCallback } from 'react';
 import { MapPin, Map as MapIcon, Grid3x3, Plus } from 'lucide-react';
 import { placeCategories, Place, PlaceCategory } from '../data/places';
 import { PlaceCard } from './PlaceCard';
@@ -32,8 +32,12 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
   const [userLocation, setUserLocation] = useState<{ lat: number; lng: number } | null>(null);
   const [visibleCount, setVisibleCount] = useState(10); // Lazy loading - birin-ketin yuklash
   const loadMoreRef = useRef<HTMLDivElement>(null); // Intersection Observer uchun
+  const filteredPlacesLenRef = useRef(0);
+  const fetchPlacesRef = useRef<(opts?: { showSkeleton?: boolean }) => Promise<void>>(async () => {});
   
   const isDark = theme === 'dark';
+  const userLat = userLocation?.lat;
+  const userLng = userLocation?.lng;
   const isIOS = platform === 'ios';
 
   // Get user location on mount
@@ -43,127 +47,126 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
     });
   }, []);
 
-  // Fetch places on mount and when filters change
-  useEffect(() => {
-    fetchPlaces();
-  }, [headerRegion, headerDistrict, selectedCategoryId, userLocation]);
-
   // Filter places by category for display
   const filteredPlaces = selectedCategoryId
     ? places.filter(place => place.categoryId === selectedCategoryId)
     : places;
 
-  // Intersection Observer - foydalanuvchi pastga scroll qilganda yangi joylar yuklash
+  filteredPlacesLenRef.current = filteredPlaces.length;
+
+  // Intersection Observer — visibleCount dependency yo'q: aks holda observer qayta yaratilib,
+  // sentinel hali ko'rinsa ketma-ket +10 bo'lib, kartalar "doim yangilanayotgandek" bo'lardi.
   useEffect(() => {
-    const currentRef = loadMoreRef.current;
-    if (!currentRef) return;
+    const node = loadMoreRef.current;
+    if (!node || filteredPlaces.length === 0) return;
 
-    const observer = new IntersectionObserver(entries => {
-      entries.forEach(entry => {
-        if (entry.isIntersecting) {
-          console.log('✅ 70% ga yetdi! Yangi joylar yuklanmoqda...');
-          setVisibleCount(prev => {
-            const newCount = prev + 10;
-            console.log('🔢 visibleCount:', prev, '→', newCount);
-            return newCount;
-          });
-        }
-      });
-    }, { threshold: 0.7 });
+    const observer = new IntersectionObserver(
+      (entries) => {
+        const entry = entries[0];
+        if (!entry?.isIntersecting) return;
+        setVisibleCount((prev) => {
+          const max = filteredPlacesLenRef.current;
+          if (prev >= max) return prev;
+          return Math.min(prev + 10, max);
+        });
+      },
+      { threshold: 0.7 },
+    );
 
-    observer.observe(currentRef);
-
-    return () => {
-      if (currentRef) observer.unobserve(currentRef);
-    };
-  }, [filteredPlaces.length, visibleCount]);
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, [filteredPlaces.length]);
 
   // Reset visible count when filters change
   useEffect(() => {
     setVisibleCount(10);
   }, [selectedCategoryId, headerRegion, headerDistrict]);
 
-  // Fetch places from backend
-  const fetchPlaces = async () => {
-    try {
-      setLoading(true);
-      
-      const params = new URLSearchParams();
-      // Use header region/district from LocationContext
-      if (headerRegion) params.append('region', headerRegion);
-      if (headerDistrict) params.append('district', headerDistrict);
-      if (selectedCategoryId) params.append('category', selectedCategoryId);
+  // Fetch places from backend (showSkeleton: tab/filtr o'zgarganda; silent: fonda yangilash)
+  const fetchPlaces = useCallback(
+    async (options?: { showSkeleton?: boolean }) => {
+      const showSkeleton = options?.showSkeleton !== false;
+      if (showSkeleton) setLoading(true);
 
-      console.log('🔍 Fetching places with params:', {
-        region: headerRegion,
-        district: headerDistrict,
-        category: selectedCategoryId,
-        url: `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/places?${params}`
-      });
+      try {
+        const params = new URLSearchParams();
+        if (headerRegion) params.append('region', headerRegion);
+        if (headerDistrict) params.append('district', headerDistrict);
+        if (selectedCategoryId) params.append('category', selectedCategoryId);
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/places?${params}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/places?${params}`,
+          {
+            headers: {
+              Authorization: `Bearer ${publicAnonKey}`,
+            },
           },
+        );
+
+        if (!response.ok) {
+          throw new Error('Joylarni yuklashda xatolik');
         }
-      );
 
-      if (!response.ok) {
-        throw new Error('Joylarni yuklashda xatolik');
-      }
+        const data = await response.json();
+        let fetchedPlaces = data.places || [];
 
-      const data = await response.json();
-      let fetchedPlaces = data.places || [];
-      
-      console.log('📦 Fetched places:', fetchedPlaces.length);
-      
-      // Calculate distances if user location is available
-      if (userLocation) {
-        fetchedPlaces = fetchedPlaces.map((place: Place) => {
-          // Check if coordinates exist and are valid
-          if (!place.coordinates || !Array.isArray(place.coordinates) || place.coordinates.length < 2) {
+        if (userLat != null && userLng != null) {
+          fetchedPlaces = fetchedPlaces.map((place: Place) => {
+            if (!place.coordinates || !Array.isArray(place.coordinates) || place.coordinates.length < 2) {
+              return {
+                ...place,
+                distance: "Noma'lum",
+              };
+            }
+
+            const distance = calculateDistance(
+              userLat,
+              userLng,
+              place.coordinates[0],
+              place.coordinates[1],
+            );
             return {
               ...place,
-              distance: 'Noma\'lum',
+              distance: formatDistance(distance),
             };
-          }
-          
-          const distance = calculateDistance(
-            userLocation.lat,
-            userLocation.lng,
-            place.coordinates[0],
-            place.coordinates[1]
-          );
-          return {
-            ...place,
-            distance: formatDistance(distance),
-          };
+          });
+        }
+
+        setPlaces(fetchedPlaces);
+
+        const counts: Record<string, number> = {};
+        fetchedPlaces.forEach((place: Place) => {
+          counts[place.categoryId] = (counts[place.categoryId] || 0) + 1;
         });
+        setCategoryCounts(counts);
+      } catch (error) {
+        console.error('❌ Error fetching places:', error);
+        setPlaces([]);
+      } finally {
+        setLoading(false);
       }
-      
-      setPlaces(fetchedPlaces);
-      console.log('✅ Places set to state:', fetchedPlaces.length);
-      
-      // Calculate category counts
-      const counts: Record<string, number> = {};
-      fetchedPlaces.forEach((place: Place) => {
-        counts[place.categoryId] = (counts[place.categoryId] || 0) + 1;
-      });
-      setCategoryCounts(counts);
-      console.log('📊 Category counts:', counts);
-    } catch (error) {
-      console.error('❌ Error fetching places:', error);
-      setPlaces([]);
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [headerRegion, headerDistrict, selectedCategoryId, userLat, userLng],
+  );
+
+  fetchPlacesRef.current = fetchPlaces;
+
+  useEffect(() => {
+    void fetchPlacesRef.current({ showSkeleton: true });
+  }, [headerRegion, headerDistrict, selectedCategoryId]);
+
+  useEffect(() => {
+    if (userLat == null || userLng == null) return;
+    void fetchPlacesRef.current({ showSkeleton: false });
+  }, [userLat, userLng]);
 
   useVisibilityRefetch(() => {
-    void fetchPlaces();
+    void fetchPlacesRef.current({ showSkeleton: false });
   });
+
+  const refreshPlacesSilent = useCallback(() => {
+    void fetchPlacesRef.current({ showSkeleton: false });
+  }, []);
 
   const handleCategoryClick = (categoryId: string) => {
     setSelectedCategoryId(categoryId);
@@ -352,7 +355,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                         place={place}
                         onPlaceClick={setSelectedPlace}
                         platform={platform}
-                        onPlaceUpdated={fetchPlaces}
+                        onPlaceUpdated={refreshPlacesSilent}
                       />
                     ))}
                     {/* Lazy loading sentinel */}
@@ -601,15 +604,9 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
         onClose={() => setShowAddModal(false)}
         platform={platform}
         onSuccess={() => {
-          console.log('✅ Place added successfully! Refreshing places...');
-          console.log('🔄 Current filters:', { headerRegion, headerDistrict, selectedCategoryId });
-          
-          // Clear category filter and refresh
           setSelectedCategoryId(null);
-          fetchPlaces();
+          void fetchPlacesRef.current({ showSkeleton: false });
           setShowAddModal(false);
-          
-          console.log('🎉 Places refreshed! New place should be visible now.');
         }}
       />
 

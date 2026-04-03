@@ -183,7 +183,16 @@ export const getBuyerOrders = async (args: {
           quantity,
           unit_price,
           total_amount,
-          currency_code
+          currency_code,
+          product:products (
+            media:product_media (
+              media_url,
+              media_type,
+              is_primary,
+              sort_order,
+              variant_id
+            )
+          )
         )
       ),
       payments (

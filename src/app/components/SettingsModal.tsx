@@ -1,10 +1,11 @@
-import { X, Globe, Bell, Shield, HelpCircle, LogOut, ChevronRight, Moon, Sun, Volume2, VolumeX, Palette, Info, FileText, MessageCircle, Star, Share2, Copy, ExternalLink } from 'lucide-react';
+import { X, Globe, Bell, Shield, HelpCircle, LogOut, ChevronRight, Moon, Sun, Volume2, VolumeX, Palette, Info, FileText, MessageCircle, Star, Share2, Copy, ExternalLink, Check } from 'lucide-react';
 import { useState, type ReactNode } from 'react';
 import { Platform } from '../utils/platform';
-import { useTheme, accentColors } from '../context/ThemeContext';
+import { useTheme, type Language } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { ColorPickerModal } from './ColorPickerModal';
 import { isMarketplaceNativeApp, postToMarketplaceNative } from '../utils/marketplaceNativeBridge';
+import { profileAccentLabel, useUserPanelT } from '../i18n/userPanel';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -17,9 +18,11 @@ const PRIVACY_SUPPORT_EMAIL = 'support@aressouz.app';
 function LegalPolicyRichContent({
   isDark,
   accentHex,
+  language,
 }: {
   isDark: boolean;
   accentHex: string;
+  language: Language;
 }) {
   const muted = isDark ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.72)';
   const heading = isDark ? '#fff' : '#111827';
@@ -27,6 +30,150 @@ function LegalPolicyRichContent({
   const li = 'list-disc pl-5 space-y-1.5 mt-2';
   const sectionTitle = 'text-[15px] font-bold mt-5 mb-2';
   const block = 'text-[13px] leading-relaxed';
+
+  if (language === 'ru') {
+    return (
+      <div className={`space-y-1 ${block}`} style={{ color: muted }}>
+        <section>
+          <h3 className="text-base font-bold mb-2" style={{ color: heading }}>
+            🔐 Политика конфиденциальности
+          </h3>
+          <p>Мы уважаем и защищаем персональные данные пользователей.</p>
+          <h4 className={sectionTitle} style={{ color: sub }}>1. Какие данные собираем</h4>
+          <ul className={li}>
+            <li>Имя и фамилия</li>
+            <li>Телефон / email</li>
+            <li>Данные оплат</li>
+            <li>История заказов и активности</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>2. Зачем используем</h4>
+          <ul className={li}>
+            <li>Обработка заказов и платежей</li>
+            <li>Улучшение сервиса и поддержка</li>
+            <li>Связь с пользователем</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>3. Защита</h4>
+          <ul className={li}>
+            <li>Данные хранятся на защищённых серверах</li>
+            <li>Оплаты проходят по шифрованным каналам (SSL)</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>4. Третьи стороны</h4>
+          <ul className={li}>
+            <li>Передаём только тем, кто нужен для услуги (платежи, доставка)</li>
+            <li><span className="font-semibold" style={{ color: sub }}>Не продаём</span> персональные данные</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>5. Cookie</h4>
+          <p className="mt-2">Используем cookie для работы сайта и аналитики.</p>
+          <h4 className={sectionTitle} style={{ color: sub }}>6. Ваши права</h4>
+          <ul className={li}>
+            <li>Запросить доступ, исправление или удаление данных</li>
+          </ul>
+          <p className="mt-4 flex flex-wrap items-center gap-1.5">
+            <span>📩 Контакт:</span>
+            <a href={`mailto:${PRIVACY_SUPPORT_EMAIL}`} className="font-semibold underline underline-offset-2 break-all" style={{ color: accentHex }}>{PRIVACY_SUPPORT_EMAIL}</a>
+          </p>
+        </section>
+        <hr className="my-6 border-0 h-px" style={{ background: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }} />
+        <section>
+          <h3 className="text-base font-bold mb-2" style={{ color: heading }}>📜 Условия использования</h3>
+          <h4 className={sectionTitle} style={{ color: sub }}>1. Общие</h4>
+          <p className="mt-2">Используя платформу, вы соглашаетесь с условиями.</p>
+          <h4 className={sectionTitle} style={{ color: sub }}>2. Аккаунт</h4>
+          <ul className={li}>
+            <li>Вы отвечаете за безопасность аккаунта</li>
+            <li>Ложные данные могут привести к блокировке</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>3. Заказы и оплата</h4>
+          <ul className={li}>
+            <li>Оплата, как правило, до выполнения заказа</li>
+            <li>Заказ активен после подтверждения оплаты</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>4. Товары продавцов</h4>
+          <ul className={li}>
+            <li>Продавцы несут ответственность за свои объявления</li>
+            <li>Платформа выступает посредником</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>5. Запрещено</h4>
+          <ul className={li}><li>Мошенничество, подделки, незаконная торговля</li></ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>6. Ограничение ответственности</h4>
+          <ul className={li}><li>В ряде случаев ответственность платформы ограничена законом</li></ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>7. Блокировка</h4>
+          <p className="mt-2">При нарушении правил аккаунт может быть закрыт.</p>
+        </section>
+      </div>
+    );
+  }
+
+  if (language === 'en') {
+    return (
+      <div className={`space-y-1 ${block}`} style={{ color: muted }}>
+        <section>
+          <h3 className="text-base font-bold mb-2" style={{ color: heading }}>🔐 Privacy policy</h3>
+          <p>We respect and protect users&apos; personal data.</p>
+          <h4 className={sectionTitle} style={{ color: sub }}>1. Data we collect</h4>
+          <ul className={li}>
+            <li>Name</li>
+            <li>Phone / email</li>
+            <li>Payment-related data</li>
+            <li>Order and activity history</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>2. How we use it</h4>
+          <ul className={li}>
+            <li>Process orders and payments</li>
+            <li>Improve the service and support you</li>
+            <li>Contact you when needed</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>3. Security</h4>
+          <ul className={li}>
+            <li>Data is stored on secured infrastructure</li>
+            <li>Payments use encrypted channels (SSL)</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>4. Third parties</h4>
+          <ul className={li}>
+            <li>Shared only with providers needed for the service (payments, delivery)</li>
+            <li><span className="font-semibold" style={{ color: sub }}>We do not sell</span> your personal data</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>5. Cookies</h4>
+          <p className="mt-2">We use cookies for core functionality and analytics.</p>
+          <h4 className={sectionTitle} style={{ color: sub }}>6. Your rights</h4>
+          <ul className={li}>
+            <li>You may request access, correction or deletion where applicable</li>
+          </ul>
+          <p className="mt-4 flex flex-wrap items-center gap-1.5">
+            <span>📩 Contact:</span>
+            <a href={`mailto:${PRIVACY_SUPPORT_EMAIL}`} className="font-semibold underline underline-offset-2 break-all" style={{ color: accentHex }}>{PRIVACY_SUPPORT_EMAIL}</a>
+          </p>
+        </section>
+        <hr className="my-6 border-0 h-px" style={{ background: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }} />
+        <section>
+          <h3 className="text-base font-bold mb-2" style={{ color: heading }}>📜 Terms &amp; conditions</h3>
+          <h4 className={sectionTitle} style={{ color: sub }}>1. General</h4>
+          <p className="mt-2">By using the platform you agree to these terms.</p>
+          <h4 className={sectionTitle} style={{ color: sub }}>2. Account</h4>
+          <ul className={li}>
+            <li>You are responsible for account security</li>
+            <li>Fraudulent information may lead to suspension</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>3. Orders &amp; payment</h4>
+          <ul className={li}>
+            <li>Payment is generally required before fulfilment</li>
+            <li>Orders activate after payment confirmation</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>4. Marketplace listings</h4>
+          <ul className={li}>
+            <li>Sellers are responsible for their listings</li>
+            <li>The platform acts as an intermediary</li>
+          </ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>5. Prohibited</h4>
+          <ul className={li}><li>Fraud, counterfeit goods, illegal trade</li></ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>6. Liability</h4>
+          <ul className={li}><li>Liability may be limited where the law allows</li></ul>
+          <h4 className={sectionTitle} style={{ color: sub }}>7. Enforcement</h4>
+          <p className="mt-2">We may suspend accounts that violate the rules.</p>
+        </section>
+      </div>
+    );
+  }
 
   return (
     <div className={`space-y-1 ${block}`} style={{ color: muted }}>
@@ -168,12 +315,13 @@ function LegalPolicyRichContent({
 }
 
 type SettingsInfoModal =
-  | { title: string; body: string }
+  | { title: string; body: string; kind?: 'contact' }
   | { title: string; rich: ReactNode };
 
 export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps) {
   const { theme, toggleTheme, language, setLanguage, notifications, toggleNotifications, soundEnabled, toggleSound, accentColor, setAccentColor, supportChatEnabled, toggleSupportChat } = useTheme();
   const { isAuthenticated, signout } = useAuth();
+  const t = useUserPanelT();
   const [showLanguageModal, setShowLanguageModal] = useState(false);
   const [showColorPicker, setShowColorPicker] = useState(false);
   const [infoModal, setInfoModal] = useState<SettingsInfoModal | null>(null);
@@ -181,32 +329,25 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
   const isIOS = platform === 'ios';
   const isDark = theme === 'dark';
 
-  if (!isOpen) return null;
-
-  const languageLabels = {
-    uz: "O'zbekcha",
-    ru: 'Русский',
-    en: 'English'
+  const languageLabels: Record<Language, string> = {
+    uz: t('settings.lang.uz'),
+    ru: t('settings.lang.ru'),
+    en: t('settings.lang.en'),
   };
 
   const handleSignOut = () => {
-    if (confirm('Chiqishni xohlaysizmi?')) {
+    if (confirm(t('settings.confirmSignOut'))) {
       signout();
       onClose();
     }
   };
 
   const handleClearCache = () => {
-    if (confirm('⚠️ Barcha saqlangan ma\'lumotlarni o\'chirish?\n\nBu localStorage\'ni tozalaydi va qayta login qilishingiz kerak bo\'ladi.')) {
-      // Clear localStorage
+    if (confirm(t('settings.confirmClearCache'))) {
       localStorage.removeItem('sms_user');
       localStorage.removeItem('sms_session');
-      
-      // Sign out
       signout();
-      
-      // Reload page
-      alert('✅ Cache tozalandi! Sahifa qayta yuklanmoqda...');
+      alert(t('settings.cacheCleared'));
       window.location.reload();
     }
   };
@@ -218,31 +359,20 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
   const SUPPORT_TELEGRAM_URL = 'https://t.me/aresso_support';
   const SUPPORT_PHONE = '+998901234567';
 
-  const openInfo = (title: string, body: string) => setInfoModal({ title, body });
+  const openInfo = (title: string, body: string, kind?: 'contact') =>
+    setInfoModal(kind ? { title, body, kind } : { title, body });
 
   const handleAboutApp = () => {
     openInfo(
-      'Ilova haqida',
-      [
-        `ARESSO — Zamonaviy online do‘kon`,
-        ``,
-        `Versiya: ${APP_VERSION}`,
-        `Yil: ${APP_YEAR}`,
-        ``,
-        `Asosiy bo‘limlar:`,
-        `- Market`,
-        `- Do‘kon`,
-        `- Taomlar`,
-        `- Ijara`,
-        `- Auktsion`,
-      ].join('\n')
+      t('settings.infoAboutTitle'),
+      t('settings.about.body', { version: APP_VERSION, year: APP_YEAR }),
     );
   };
 
   const openLegalDocs = () => {
     setInfoModal({
-      title: 'Maxfiylik va foydalanish shartlari',
-      rich: <LegalPolicyRichContent isDark={isDark} accentHex={accentColor.color} />,
+      title: t('settings.legalTitle'),
+      rich: <LegalPolicyRichContent isDark={isDark} accentHex={accentColor.color} language={language} />,
     });
   };
 
@@ -251,33 +381,14 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
   const handleTermsOfService = () => openLegalDocs();
 
   const handleHelpCenter = () => {
-    openInfo(
-      'Yordam markazi',
-      [
-        `Ko‘p so‘raladigan savollar:`,
-        ``,
-        `1) Buyurtma qayerda?`,
-        `- Buyurtmalar bo‘limidan statusni ko‘ring.`,
-        ``,
-        `2) To‘lov muammo bo‘lsa?`,
-        `- Support chat yoki aloqa orqali yozing.`,
-        ``,
-        `3) Qaytarish/refund?`,
-        `- Supportga murojaat qiling.`,
-      ].join('\n')
-    );
+    openInfo(t('settings.infoHelpTitle'), t('settings.help.body'));
   };
 
   const handleContactUs = () => {
     openInfo(
-      'Aloqa',
-      [
-        `Email: ${SUPPORT_EMAIL}`,
-        `Telegram: ${SUPPORT_TELEGRAM}`,
-        `Telefon: ${SUPPORT_PHONE}`,
-        ``,
-        `Ish vaqti: 09:00 - 22:00`,
-      ].join('\n')
+      t('settings.infoContactTitle'),
+      t('settings.contact.body', { email: SUPPORT_EMAIL, telegram: SUPPORT_TELEGRAM, phone: SUPPORT_PHONE }),
+      'contact',
     );
   };
 
@@ -288,9 +399,8 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
 
   const handleShareApp = async () => {
     const url = window.location.href;
-    const title = 'ARESSO - Zamonaviy Online Do‘kon';
-    const text =
-      "ARESSO ilovasini sinab ko‘ring! Market, Do‘kon, Taomlar, Ijara va Auktsion — hammasi bir joyda.";
+    const title = t('settings.share.title');
+    const text = t('settings.share.text');
 
     if (isMarketplaceNativeApp()) {
       postToMarketplaceNative({ type: 'share', title, message: text, url });
@@ -308,81 +418,99 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
 
     try {
       await navigator.clipboard.writeText(url);
-      openInfo('Ulashish', `Havola nusxalandi:\n${url}`);
+      openInfo(t('settings.shareTitle'), `${t('settings.shareCopied')}:\n${url}`);
     } catch {
-      openInfo('Ulashish', `Havola:\n${url}`);
+      openInfo(t('settings.shareTitle'), `${t('settings.shareLink')}:\n${url}`);
     }
   };
 
-  const settingsGroups = [
+  const settingsGroups: Array<{
+    title: string;
+    items: Array<{
+      icon: typeof Moon;
+      label: string;
+      subtitle?: string;
+      toggle?: boolean;
+      value?: boolean;
+      action: () => void;
+      danger?: boolean;
+    }>;
+  }> = [
     {
-      title: 'Afzalliklar',
+      title: t('settings.group.preferences'),
       items: [
-        { 
-          icon: theme === 'dark' ? Moon : Sun, 
-          label: 'Qorong\'u rejim', 
+        {
+          icon: theme === 'dark' ? Moon : Sun,
+          label: t('settings.darkMode'),
           toggle: true,
           value: theme === 'dark',
-          action: toggleTheme
+          action: toggleTheme,
         },
-        { 
-          icon: Palette, 
-          label: 'Rang tanlash', 
-          subtitle: accentColor.name,
-          action: () => setShowColorPicker(true)
+        {
+          icon: Palette,
+          label: t('settings.pickColor'),
+          subtitle: profileAccentLabel(language, accentColor.id),
+          action: () => setShowColorPicker(true),
         },
-        { 
-          icon: Bell, 
-          label: 'Bildirishnomalar', 
+        {
+          icon: Bell,
+          label: t('settings.notifications'),
           toggle: true,
           value: notifications,
-          action: toggleNotifications
+          action: toggleNotifications,
         },
-        { 
-          icon: soundEnabled ? Volume2 : VolumeX, 
-          label: 'Ovoz effektlari', 
+        {
+          icon: soundEnabled ? Volume2 : VolumeX,
+          label: t('settings.sound'),
           toggle: true,
           value: soundEnabled,
-          action: toggleSound
+          action: toggleSound,
         },
-        { 
-          icon: Globe, 
-          label: 'Til', 
+        {
+          icon: Globe,
+          label: t('settings.language'),
           subtitle: languageLabels[language],
-          action: () => setShowLanguageModal(true)
+          action: () => setShowLanguageModal(true),
         },
-      ]
+      ],
     },
     {
-      title: 'Yordam va Ma\'lumot',
+      title: t('settings.group.help'),
       items: [
-        { icon: Info, label: 'Ilova haqida', subtitle: 'Versiya 1.0.0', action: handleAboutApp },
-        { icon: Shield, label: 'Maxfiylik siyosati', subtitle: 'Shartlar ham shu yerda', action: handlePrivacyPolicy },
-        { icon: FileText, label: 'Foydalanish shartlari', subtitle: 'Bitta oynada to‘liq matn', action: handleTermsOfService },
-        { icon: MessageCircle, label: 'Support chat', subtitle: 'Ekranda tugma chiqsin', toggle: true, value: supportChatEnabled, action: toggleSupportChat },
-        { icon: MessageCircle, label: 'Aloqa', subtitle: 'Biz bilan bog\'laning', action: handleContactUs },
-        { icon: HelpCircle, label: 'Yordam markazi', subtitle: 'Ko\'p so\'raladigan savollar', action: handleHelpCenter },
-      ]
+        { icon: Info, label: t('settings.about'), subtitle: t('settings.aboutSubtitle'), action: handleAboutApp },
+        { icon: Shield, label: t('settings.privacy'), subtitle: t('settings.privacySubtitle'), action: handlePrivacyPolicy },
+        { icon: FileText, label: t('settings.terms'), subtitle: t('settings.termsSubtitle'), action: handleTermsOfService },
+        {
+          icon: MessageCircle,
+          label: t('settings.supportChat'),
+          subtitle: t('settings.supportChatSubtitle'),
+          toggle: true,
+          value: supportChatEnabled,
+          action: toggleSupportChat,
+        },
+        { icon: MessageCircle, label: t('settings.contact'), subtitle: t('settings.contactSubtitle'), action: handleContactUs },
+        { icon: HelpCircle, label: t('settings.helpCenter'), subtitle: t('settings.helpCenterSubtitle'), action: handleHelpCenter },
+      ],
     },
     {
-      title: 'Ijtimoiy',
+      title: t('settings.group.social'),
       items: [
-        { icon: Star, label: 'Ilovani baholang', subtitle: 'Fikringizni bildiring', action: handleRateApp },
-        { icon: Share2, label: 'Do\'stlarga ulashing', subtitle: 'ARESSO haqida xabar bering', action: handleShareApp },
-      ]
-    }
+        { icon: Star, label: t('settings.rateApp'), subtitle: t('settings.rateSubtitle'), action: handleRateApp },
+        { icon: Share2, label: t('settings.shareApp'), subtitle: t('settings.shareSubtitle'), action: handleShareApp },
+      ],
+    },
+    ...(isAuthenticated
+      ? [
+          {
+            title: t('settings.group.account'),
+            items: [
+              { icon: LogOut, label: t('settings.signOut'), action: handleSignOut, danger: true as const },
+              { icon: X, label: t('settings.clearCache'), action: handleClearCache, danger: true as const },
+            ],
+          },
+        ]
+      : []),
   ];
-
-  // Add sign out option if authenticated
-  if (isAuthenticated) {
-    settingsGroups.push({
-      title: 'Hisob',
-      items: [
-        { icon: LogOut, label: 'Chiqish', action: handleSignOut, danger: true },
-        { icon: X, label: 'Cache tozalash', action: handleClearCache, danger: true },
-      ]
-    });
-  }
 
   const infoModalLayer = infoModal ? (
       <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center">
@@ -431,7 +559,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
                 background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
                 border: isDark ? '0.5px solid rgba(255,255,255,0.12)' : '0.5px solid rgba(0,0,0,0.08)',
               }}
-              aria-label="Yopish"
+              aria-label={t('settings.close')}
             >
               <X className="size-5" style={{ color: isDark ? '#fff' : '#111827' }} />
             </button>
@@ -467,7 +595,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
             </div>
           )}
 
-          {infoModal.title === 'Aloqa' && 'body' in infoModal && (
+          {'kind' in infoModal && infoModal.kind === 'contact' && 'body' in infoModal && (
             <div className="grid grid-cols-2 gap-2 mt-3 shrink-0">
               <a
                 className="flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold active:scale-95 transition"
@@ -483,14 +611,22 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
                 type="button"
                 className="flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold active:scale-95 transition"
                 onClick={async () => {
-                  if (infoModal.title !== 'Aloqa' || !('body' in infoModal)) return;
+                  if (!('body' in infoModal) || infoModal.kind !== 'contact') return;
                   try {
                     await navigator.clipboard.writeText(
                       `${SUPPORT_EMAIL} | ${SUPPORT_TELEGRAM} | ${SUPPORT_PHONE}`,
                     );
-                    openInfo('Aloqa', `${infoModal.body}\n\n✅ Nusxalandi`);
+                    openInfo(
+                      t('settings.infoContactTitle'),
+                      `${infoModal.body}\n\n${t('settings.contactCopied')}`,
+                      'contact',
+                    );
                   } catch {
-                    openInfo('Aloqa', `${infoModal.body}\n\n⚠️ Nusxalab bo‘lmadi`);
+                    openInfo(
+                      t('settings.infoContactTitle'),
+                      `${infoModal.body}\n\n${t('settings.contactCopyFail')}`,
+                      'contact',
+                    );
                   }
                 }}
                 style={{
@@ -500,13 +636,103 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
                 }}
               >
                 <Copy className="size-4" />
-                Nusxa
+                {t('settings.copy')}
               </button>
             </div>
           )}
         </div>
       </div>
   ) : null;
+
+  const languageChoices: Language[] = ['uz', 'ru', 'en'];
+  const languagePickerLayer = showLanguageModal ? (
+    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center">
+      <button
+        type="button"
+        className="absolute inset-0"
+        aria-label={t('settings.close')}
+        onClick={() => setShowLanguageModal(false)}
+        style={{
+          background: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(0,0,0,0.45)',
+          backdropFilter: 'blur(8px)',
+        }}
+      />
+      <div
+        className="relative w-full max-w-md mx-3 sm:mx-0 rounded-t-3xl sm:rounded-3xl overflow-hidden"
+        style={{
+          background: isDark
+            ? 'linear-gradient(145deg, rgba(24,24,24,0.98), rgba(12,12,12,0.98))'
+            : 'linear-gradient(145deg, rgba(255,255,255,0.98), rgba(248,250,252,0.98))',
+          border: isDark ? '0.5px solid rgba(255,255,255,0.1)' : '0.5px solid rgba(0,0,0,0.08)',
+          boxShadow: isDark ? '0 24px 80px rgba(0,0,0,0.85)' : '0 24px 70px rgba(0,0,0,0.18)',
+        }}
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-lang-title"
+      >
+        <div
+          className="flex items-center justify-between px-4 py-3 border-b"
+          style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+        >
+          <p id="settings-lang-title" className="text-base font-bold" style={{ color: isDark ? '#fff' : '#111827' }}>
+            {t('settings.langTitle')}
+          </p>
+          <button
+            type="button"
+            onClick={() => setShowLanguageModal(false)}
+            className="p-2 rounded-xl active:scale-95"
+            style={{
+              background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+            }}
+            aria-label={t('settings.close')}
+          >
+            <X className="size-5" style={{ color: isDark ? '#fff' : '#111827' }} />
+          </button>
+        </div>
+        <div className="p-2 space-y-1">
+          {languageChoices.map((code) => (
+            <button
+              key={code}
+              type="button"
+              onClick={() => {
+                setLanguage(code);
+                setShowLanguageModal(false);
+              }}
+              className="w-full flex items-center justify-between gap-3 px-4 py-3.5 rounded-2xl text-left font-semibold transition active:scale-[0.99]"
+              style={{
+                background:
+                  language === code
+                    ? `${accentColor.color}22`
+                    : isDark
+                      ? 'rgba(255,255,255,0.04)'
+                      : 'rgba(0,0,0,0.03)',
+                color: isDark ? '#fff' : '#111827',
+                border:
+                  language === code
+                    ? `0.5px solid ${accentColor.color}55`
+                    : isDark
+                      ? '0.5px solid rgba(255,255,255,0.06)'
+                      : '0.5px solid rgba(0,0,0,0.06)',
+              }}
+            >
+              <span className="flex items-center gap-2">
+                <Globe className="size-5 opacity-80" />
+                {languageLabels[code]}
+              </span>
+              {language === code ? (
+                <Check className="size-5 shrink-0" style={{ color: accentColor.color }} strokeWidth={2.5} />
+              ) : (
+                <span className="size-5 shrink-0" />
+              )}
+            </button>
+          ))}
+        </div>
+      </div>
+    </div>
+  ) : null;
+
+  if (!isOpen) return null;
 
   if (isIOS) {
     return (
@@ -554,7 +780,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
               className="text-xl font-bold"
               style={{ color: isDark ? '#ffffff' : '#111827' }}
             >
-              Sozlamalar
+              {t('settings.title')}
             </h2>
             <button 
               onClick={onClose}
@@ -570,6 +796,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
                   ? '0.5px solid rgba(255, 255, 255, 0.15)' 
                   : '0.5px solid rgba(0, 0, 0, 0.1)',
               }}
+              aria-label={t('settings.close')}
             >
               <X className="size-5" strokeWidth={2.5} style={{ color: isDark ? '#ffffff' : '#374151' }} />
             </button>
@@ -697,6 +924,8 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
         </div>
       </div>
 
+      {languagePickerLayer}
+
       {/* Color Picker Modal */}
       <ColorPickerModal
         isOpen={showColorPicker}
@@ -756,7 +985,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
             className="text-xl font-bold"
             style={{ color: isDark ? '#ffffff' : '#111827' }}
           >
-            Sozlamalar
+            {t('settings.title')}
           </h2>
           <button 
             onClick={onClose}
@@ -769,6 +998,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
                 ? '1px solid rgba(255, 255, 255, 0.1)' 
                 : '1px solid rgba(0, 0, 0, 0.08)',
             }}
+            aria-label={t('settings.close')}
           >
             <X className="size-5" strokeWidth={2.5} style={{ color: isDark ? '#ffffff' : '#374151' }} />
           </button>
@@ -890,6 +1120,8 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
         </div>
       </div>
     </div>
+
+    {languagePickerLayer}
 
     {/* Color Picker Modal */}
     <ColorPickerModal

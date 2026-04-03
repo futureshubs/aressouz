@@ -35,7 +35,11 @@ import {
   resolvePaycomCreateIdempotency,
   savePaycomOrderPending,
 } from "./paycom-idempotency.ts";
-import { coerceKvTestMode, normalizeKvTestModeForSave } from "./payment-kv-utils.ts";
+import {
+  coerceKvTestMode,
+  normalizeKvTestModeForSave,
+  resolveClickIsTestForInvoice,
+} from "./payment-kv-utils.ts";
 
 async function paycomCallOptsForReceiptId(receiptId: string) {
   try {
@@ -90,11 +94,19 @@ import {
   computeCashierAmount,
   extractRestaurantIdFromOrder,
 } from "./services/payments-logic.ts";
+import {
+  DEFAULT_MARKET_CATALOGS,
+  MARKET_CATALOG_SEED_FLAG,
+  MARKET_CATALOG_SEED_VERSION,
+  MARKET_CATALOG_SEED_VERSION_KEY,
+  mergeMarketCatalogTrees,
+} from "./market-catalog-seeds.ts";
 
 const app = new Hono();
 
 // Supabase invokes this function with the path AFTER /functions/v1/{slug}/ (e.g. /courier-bags).
-// All routes are registered under /make-server-27d0d16c/... — rewrite so both URL styles work.
+// Ba'zan to'liq yo'l keladi: /functions/v1/make-server-27d0d16c/community/... — noto'g'ri qo'shish 404 beradi.
+// Barcha route'lar /make-server-27d0d16c/... ostida.
 app.use("*", async (c, next) => {
   const p = c.req.path;
   // For CORS preflight OPTIONS, don't rewrite/forward the request.
@@ -103,10 +115,21 @@ app.use("*", async (c, next) => {
     await next();
     return;
   }
-  if (!p.startsWith("/make-server-27d0d16c")) {
+  const marker = "/make-server-27d0d16c";
+  let normalized = p;
+  if (p.startsWith(marker)) {
+    normalized = p;
+  } else {
+    const idx = p.indexOf(marker);
+    if (idx !== -1) {
+      normalized = p.slice(idx);
+    } else {
+      normalized = p === "/" ? marker : `${marker}${p}`;
+    }
+  }
+  if (normalized !== p) {
     const u = new URL(c.req.url);
-    const suffix = p === "/" ? "" : p;
-    u.pathname = `/make-server-27d0d16c${suffix}`;
+    u.pathname = normalized;
     return app.fetch(new Request(u.toString(), c.req.raw));
   }
   try {
@@ -245,6 +268,12 @@ app.use("/*", async (c, next) => {
       "x-courier-token",
       "X-Admin-Code",
       "x-admin-code",
+      "X-Admin-Session",
+      "x-admin-session",
+      "X-Admin-Login-Token",
+      "x-admin-login-token",
+      "X-Admin-Device-Id",
+      "x-admin-device-id",
       "X-Branch-Token",
       "x-branch-token",
       "X-Branch-Supabase-Jwt",
@@ -289,7 +318,7 @@ app.options('*', (c) => {
   return c.text('OK', 200, {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Access-Token, x-access-token, X-Seller-Token, x-seller-token, X-Courier-Token, x-courier-token, X-Admin-Code, x-admin-code, X-Request-ID, x-request-id, X-Branch-Token, x-branch-token, X-Branch-Supabase-Jwt, x-branch-supabase-jwt, X-Accountant-Token, x-accountant-token, apikey',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Access-Token, x-access-token, X-Seller-Token, x-seller-token, X-Courier-Token, x-courier-token, X-Admin-Code, x-admin-code, X-Admin-Session, x-admin-session, X-Admin-Login-Token, x-admin-login-token, X-Admin-Device-Id, x-admin-device-id, X-Request-ID, x-request-id, X-Branch-Token, x-branch-token, X-Branch-Supabase-Jwt, x-branch-supabase-jwt, X-Accountant-Token, x-accountant-token, apikey',
     'Access-Control-Expose-Headers': 'Content-Length, Content-Type, X-Request-ID',
     'Access-Control-Max-Age': '600',
   });
@@ -446,6 +475,21 @@ async function validateAccessToken(c: any, formData?: FormData) {
 
 const ONLINE_PAYMENT_METHODS = new Set(['online', 'click', 'click_card', 'payme', 'atmos']);
 
+/** POST /orders: Checkout yuboradigan `paymentStatus` (paid / pending) */
+function normalizeIncomingOrderCreatePaymentStatus(raw: unknown): 'paid' | 'pending' | 'failed' | 'refunded' {
+  const s = String(raw ?? '').toLowerCase().trim();
+  if (
+    ['paid', 'completed', 'complete', 'success', 'succeeded', 'successful', 'captured', 'settled', 'paid_out'].includes(
+      s,
+    )
+  ) {
+    return 'paid';
+  }
+  if (['failed', 'error', 'declined', 'rejected', 'expired'].includes(s)) return 'failed';
+  if (['refunded', 'partially_refunded', 'partial_refund'].includes(s)) return 'refunded';
+  return 'pending';
+}
+
 const normalizePhoneValue = (value: unknown) =>
   String(value || '').replace(/[^\d]/g, '');
 
@@ -464,9 +508,50 @@ const listingContactPhoneForLimit = (listing: any): string => {
   return normalizeListingPhoneForLimit(raw);
 };
 
+/** E'lon rasmlari: bir xil URL takrorlanmasin, tartib saqlansin (client xato / parallel yuklash). */
+function normalizeListingImageUrls(raw: unknown, max = 10): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const x of raw) {
+    const s = String(x ?? "").trim();
+    if (!s || seen.has(s)) continue;
+    seen.add(s);
+    out.push(s);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+/**
+ * `house:` / `car:` ba'zan `listing:userId:id` bilan sinxron bo'lmay qoladi — katalogda noto'g'ri / eski rasm.
+ * Profil `listing:` dan o'qiydi. Katalog javobida listingdagi `images` ustuvor qilinadi.
+ */
+async function mergeCatalogRowImagesFromListing(row: any): Promise<any> {
+  if (!row || typeof row !== "object") return row;
+  const uid = row.userId != null ? String(row.userId).trim() : "";
+  const id = row.id != null ? String(row.id).trim() : "";
+  if (!uid || !id) return row;
+  try {
+    const listing = await kv.get(`listing:${uid}:${id}`);
+    if (!listing || typeof listing !== "object") return row;
+    const li = listing as Record<string, unknown>;
+    const fromListing = normalizeListingImageUrls(li.images, 10);
+    if (fromListing.length === 0) return row;
+    return {
+      ...row,
+      images: fromListing,
+      image: fromListing[0] || (row as { image?: string }).image,
+    };
+  } catch {
+    return row;
+  }
+}
+
 /** Bitta telefon bo‘yicha bepul e’lonlar soni; undan keyin har biri uchun LISTING_FEE_UZS. */
 const FREE_LISTINGS_PER_PHONE = 2;
-const LISTING_FEE_UZS = 10_000;
+/** Vaqtincha test: prodga chiqarishdan oldin 10_000 ga qaytaring. */
+const LISTING_FEE_UZS = 1_000;
 
 /**
  * Profil (`listing:`), katalog (`house:` / `car:`) va yashirin yo‘llar (`POST /houses`, `/cars`)
@@ -509,6 +594,81 @@ async function countUniqueListingsWithPhone(phoneNormalized: string): Promise<nu
   return seen.size;
 }
 
+const listingLifetimeSlotKey = (phoneNorm: string) =>
+  `listing_lifetime_slot:${String(phoneNorm || "").trim()}`;
+
+/**
+ * Telefon bo‘yicha KV dagi barcha uy/avto/listing yozuvlari (o‘chirilgan statusdagi qatorlar ham),
+ * id takrorlanmasin — bepul limit “umrbod”: fizik o‘chirishdan keyin ham slot qaytmasligi uchun
+ * alohida `listing_lifetime_slot:*` sanasi ishlatiladi.
+ */
+async function countUniqueListingsWithPhoneAnyStatus(phoneNormalized: string): Promise<number> {
+  if (!phoneNormalized) return 0;
+  const seen = new Set<string>();
+
+  const ingest = (key: string, value: any) => {
+    if (!value || typeof value !== "object") return;
+    const p = listingContactPhoneForLimit(value);
+    if (!p || p !== phoneNormalized) return;
+    let id = String(value.id ?? "").trim();
+    if (!id && key.startsWith("listing:")) {
+      const rest = key.slice("listing:".length);
+      const colon = rest.indexOf(":");
+      id = colon >= 0 ? rest.slice(colon + 1) : rest;
+    } else if (!id && key.startsWith("house:")) {
+      id = key.slice("house:".length);
+    } else if (!id && key.startsWith("car:")) {
+      id = key.slice("car:".length);
+    }
+    if (id) seen.add(id);
+  };
+
+  for (const { key, value } of await kv.getByPrefixWithKeys("listing:")) {
+    ingest(key, value);
+  }
+  for (const { key, value } of await kv.getByPrefixWithKeys("house:")) {
+    ingest(key, value);
+  }
+  for (const { key, value } of await kv.getByPrefixWithKeys("car:")) {
+    ingest(key, value);
+  }
+
+  return seen.size;
+}
+
+/** Bir marta KV ga yoziladi — keyin faqat increment (o‘chirish kamaytirmaydi). */
+async function ensureListingLifetimeSlotInitialized(phoneNorm: string): Promise<number> {
+  const k = listingLifetimeSlotKey(phoneNorm);
+  const raw = await kv.get(k);
+  if (raw !== null && raw !== undefined && String(raw).trim() !== "") {
+    const n = Number(raw);
+    if (Number.isFinite(n) && n >= 0) return Math.floor(n);
+  }
+  const boot = await countUniqueListingsWithPhoneAnyStatus(phoneNorm);
+  await kv.set(k, boot);
+  return boot;
+}
+
+async function getLifetimeListingSlotsUsed(phoneNorm: string): Promise<number> {
+  return ensureListingLifetimeSlotInitialized(phoneNorm);
+}
+
+async function incrementLifetimeListingSlotsUsed(phoneNorm: string): Promise<void> {
+  const n = await ensureListingLifetimeSlotInitialized(phoneNorm);
+  await kv.set(listingLifetimeSlotKey(phoneNorm), n + 1);
+}
+
+/** Fizik o‘chirishdan oldin chaqiring — KV dan yo‘qoladigan yozuv ham “sarflangan slot” hisobida qoladi. */
+async function touchListingLifetimeBeforeHardDelete(record: unknown): Promise<void> {
+  if (!record || typeof record !== "object") return;
+  const r = record as Record<string, unknown>;
+  const phoneNorm = normalizeListingPhoneForLimit(
+    (r.ownerPhone ?? r.phone ?? r.contactPhone ?? "") as string,
+  );
+  if (!phoneNorm) return;
+  await ensureListingLifetimeSlotInitialized(phoneNorm);
+}
+
 type ListingFeeGateResult =
   | { ok: true; consumeId: string | null }
   | { ok: false; status: number; error: string; code: string };
@@ -517,9 +677,10 @@ async function gateListingByPhoneAndFee(
   authUserId: string,
   ownerPhoneNorm: string,
   listingFeeTransactionId: unknown,
-  phoneListingCount: number,
+  /** Shu nomerga bugungacha sarflangan bepul slotlar (o‘chirilgan e‘lonlar ham hisobda qoladi). */
+  lifetimeSlotsUsed: number,
 ): Promise<ListingFeeGateResult> {
-  if (phoneListingCount < FREE_LISTINGS_PER_PHONE) {
+  if (lifetimeSlotsUsed < FREE_LISTINGS_PER_PHONE) {
     return { ok: true, consumeId: null };
   }
   const tid = String(listingFeeTransactionId ?? "").trim();
@@ -568,15 +729,6 @@ async function gateListingByPhoneAndFee(
   return { ok: true, consumeId: tid };
 }
 
-const getConfiguredAdminCodes = () => {
-  const configured = (Deno.env.get('ADMIN_PANEL_CODES') || Deno.env.get('ADMIN_PANEL_CODE') || '')
-    .split(',')
-    .map((item) => item.trim())
-    .filter(Boolean);
-
-  return configured.length > 0 ? configured : ['0099'];
-};
-
 const getConfiguredAdminPhones = () =>
   new Set(
     (Deno.env.get('ADMIN_PHONE_NUMBERS') || '')
@@ -585,16 +737,114 @@ const getConfiguredAdminPhones = () =>
       .filter(Boolean)
   );
 
-async function validateAdminAccess(c: any) {
-  const adminCode =
-    c.req.header('X-Admin-Code') ||
-    c.req.header('x-admin-code') ||
-    c.req.raw.headers.get('X-Admin-Code') ||
-    c.req.raw.headers.get('x-admin-code') ||
-    c.req.query('adminCode');
+/** Admin panel maxfiy kodi (KV, paneldan o‘zgartiriladi). */
+const ADMIN_PANEL_KV_SECONDARY = 'admin_panel:secondary_code';
+/** Bitta admin panel uchun TOTP (login «Ali» bilan bog‘liq emas). */
+const ADMIN_2FA_KV_KEY = 'admin2fa:panel';
+const ADMIN_LOGIN_USER = (Deno.env.get('ADMIN_PANEL_LOGIN_USER') || 'Ali').trim();
+const ADMIN_LOGIN_PASS = String(Deno.env.get('ADMIN_PANEL_LOGIN_PASS') || 'Ali');
+const ADMIN_TEMP_LOGIN_MS = 10 * 60 * 1000;
+const ADMIN_SESSION_MS = 7 * 24 * 60 * 60 * 1000;
+const ADMIN_LOCKOUT_DURATIONS_MS = [
+  24 * 60 * 60 * 1000,
+  7 * 24 * 60 * 60 * 1000,
+  30 * 24 * 60 * 60 * 1000,
+  365 * 24 * 60 * 60 * 1000,
+];
 
-  if (adminCode && getConfiguredAdminCodes().includes(adminCode)) {
-    return { success: true, mode: 'code', userId: null, adminCode };
+async function sha256Hex(s: string): Promise<string> {
+  const data = new TextEncoder().encode(s);
+  const hash = await crypto.subtle.digest('SHA-256', data);
+  return Array.from(new Uint8Array(hash))
+    .map((b) => b.toString(16).padStart(2, '0'))
+    .join('');
+}
+
+async function adminLoginFingerprint(c: any): Promise<string> {
+  const ip =
+    c.req.header('cf-connecting-ip') ||
+    c.req.header('CF-Connecting-IP') ||
+    c.req.header('x-forwarded-for')?.split(',')[0]?.trim() ||
+    c.req.header('X-Forwarded-For')?.split(',')[0]?.trim() ||
+    c.req.header('x-real-ip') ||
+    'unknown';
+  const ua = c.req.header('user-agent') || '';
+  const dev = c.req.header('x-admin-device-id') || c.req.header('X-Admin-Device-Id') || '';
+  return await sha256Hex(`${ip}|${ua}|${dev}`);
+}
+
+async function getAdminSecondaryCode(): Promise<string> {
+  const row = await kv.get(ADMIN_PANEL_KV_SECONDARY);
+  if (row && typeof row === 'object' && row.value != null) {
+    const v = String(row.value).trim();
+    if (v) return v;
+  }
+  if (typeof row === 'string' && row.trim()) return row.trim();
+  return '0099';
+}
+
+async function assertAdminLoginAllowed(c: any) {
+  const fpKey = `admin_login_lockout:${await adminLoginFingerprint(c)}`;
+  const defaults = { failures: 0, lockUntil: null as string | null, tier: 0 };
+  const raw = await kv.get(fpKey);
+  const rec = { ...defaults, ...(raw && typeof raw === 'object' ? raw : {}) };
+  const now = Date.now();
+  const until = rec.lockUntil ? new Date(rec.lockUntil).getTime() : 0;
+  if (until > now) {
+    return { ok: false as const, blockedUntil: rec.lockUntil as string, fpKey };
+  }
+  if (rec.lockUntil && until <= now) {
+    rec.lockUntil = null;
+    await kv.set(fpKey, rec);
+  }
+  return { ok: true as const, rec, fpKey };
+}
+
+async function adminLoginRecordFailure(c: any, fpKey: string) {
+  const defaults = { failures: 0, lockUntil: null as string | null, tier: 0 };
+  const raw = await kv.get(fpKey);
+  const rec = { ...defaults, ...(raw && typeof raw === 'object' ? raw : {}) };
+  rec.failures = (Number(rec.failures) || 0) + 1;
+  if (rec.failures >= 5) {
+    const idx = Math.min(Number(rec.tier) || 0, 3);
+    rec.lockUntil = new Date(Date.now() + ADMIN_LOCKOUT_DURATIONS_MS[idx]).toISOString();
+    rec.tier = Math.min((Number(rec.tier) || 0) + 1, 3);
+    rec.failures = 0;
+  }
+  await kv.set(fpKey, rec);
+}
+
+async function adminLoginClearFailures(fpKey: string) {
+  const raw = await kv.get(fpKey);
+  if (!raw || typeof raw !== 'object') return;
+  await kv.set(fpKey, { ...raw, failures: 0 });
+}
+
+async function getAdmin2faRecord(): Promise<any> {
+  let rec = await kv.get(ADMIN_2FA_KV_KEY);
+  if (rec) return rec;
+  const legacy = await kv.get('admin2fa:code:0099');
+  if (legacy) {
+    await kv.set(ADMIN_2FA_KV_KEY, legacy);
+    return legacy;
+  }
+  return null;
+}
+
+async function validateAdminAccess(c: any) {
+  const sessionTok =
+    c.req.header('X-Admin-Session') ||
+    c.req.header('x-admin-session') ||
+    c.req.query('adminSession');
+  if (sessionTok) {
+    const tok = String(sessionTok).trim();
+    if (tok) {
+      const srow = await kv.get(`admin_session:${tok}`);
+      const exp = srow?.expiresAt ? new Date(srow.expiresAt).getTime() : 0;
+      if (exp > Date.now()) {
+        return { success: true, mode: 'session', userId: null, adminCode: null, sessionToken: tok };
+      }
+    }
   }
 
   const auth = await validateAccessToken(c);
@@ -615,6 +865,24 @@ async function validateAdminAccess(c: any) {
   }
 
   return { success: true, mode: 'user', userId: auth.userId, profile };
+}
+
+async function validateAdminPanelGate(c: any) {
+  const admin = await validateAdminAccess(c);
+  if (admin.success && admin.mode === 'session') {
+    return { ok: true as const, kind: 'session' as const };
+  }
+  const tempTok = String(
+    c.req.header('X-Admin-Login-Token') || c.req.header('x-admin-login-token') || '',
+  ).trim();
+  if (tempTok) {
+    const row = await kv.get(`admin_temp_login:${tempTok}`);
+    const exp = row?.expiresAt ? new Date(row.expiresAt).getTime() : 0;
+    if (row?.valid === true && exp > Date.now()) {
+      return { ok: true as const, kind: 'temp' as const };
+    }
+  }
+  return { ok: false as const, error: 'Admin tasdiqlash kerak' };
 }
 
 // ==================== ADMIN 2FA (TOTP) ====================
@@ -707,8 +975,6 @@ const totpNow = async (secretBase32: string, opts?: { step?: number; digits?: nu
   return codes;
 };
 
-const getAdmin2faKey = (adminCode: string) => `admin2fa:code:${adminCode}`;
-
 // Alohida sub-app: `app.route('/make-server-27d0d16c', restaurantRoutes)` barcha /make-server-27d0d16c/* ni
 // restoran routeriga berib yuboradi — u yerda /admin/2fa yo'q bo'lib 404 chiqardi.
 // Shuning uchun admin 2FA ni aniqroq prefix bilan mount qilamiz (restoran mountidan OLDIN).
@@ -716,11 +982,11 @@ const admin2faApp = new Hono();
 
 admin2faApp.get('/status', async (c) => {
   try {
-    const admin = await validateAdminAccess(c);
-    if (!admin.success || admin.mode !== 'code' || !admin.adminCode) {
-      return c.json({ success: false, error: 'Admin code kerak' }, 403);
+    const gate = await validateAdminPanelGate(c);
+    if (!gate.ok) {
+      return c.json({ success: false, error: gate.error }, 403);
     }
-    const record = await kv.get(getAdmin2faKey(admin.adminCode));
+    const record = await getAdmin2faRecord();
     return c.json({
       success: true,
       enabled: Boolean(record?.enabled),
@@ -734,26 +1000,31 @@ admin2faApp.get('/status', async (c) => {
 
 admin2faApp.post('/setup', async (c) => {
   try {
-    const admin = await validateAdminAccess(c);
-    if (!admin.success || admin.mode !== 'code' || !admin.adminCode) {
-      return c.json({ success: false, error: 'Admin code kerak' }, 403);
+    const gate = await validateAdminPanelGate(c);
+    if (!gate.ok) {
+      return c.json({ success: false, error: gate.error }, 403);
     }
 
-    const existing = await kv.get(getAdmin2faKey(admin.adminCode));
+    const existing = await getAdmin2faRecord();
     if (existing?.secretBase32) {
       const issuer = encodeURIComponent('Aresso Admin');
-      const label = encodeURIComponent(`admin:${admin.adminCode}`);
+      const label = encodeURIComponent('admin-panel');
       const otpauthUrl = `otpauth://totp/${label}?secret=${existing.secretBase32}&issuer=${issuer}&digits=6&period=30`;
-      return c.json({ success: true, secretBase32: existing.secretBase32, otpauthUrl, enabled: Boolean(existing.enabled) });
+      return c.json({
+        success: true,
+        secretBase32: existing.secretBase32,
+        otpauthUrl,
+        enabled: Boolean(existing.enabled),
+      });
     }
 
     const bytes = crypto.getRandomValues(new Uint8Array(20));
     const secretBase32 = base32Encode(bytes);
     const nowIso = new Date().toISOString();
-    await kv.set(getAdmin2faKey(admin.adminCode), { enabled: false, secretBase32, createdAt: nowIso, updatedAt: nowIso });
+    await kv.set(ADMIN_2FA_KV_KEY, { enabled: false, secretBase32, createdAt: nowIso, updatedAt: nowIso });
 
     const issuer = encodeURIComponent('Aresso Admin');
-    const label = encodeURIComponent(`admin:${admin.adminCode}`);
+    const label = encodeURIComponent('admin-panel');
     const otpauthUrl = `otpauth://totp/${label}?secret=${secretBase32}&issuer=${issuer}&digits=6&period=30`;
     return c.json({ success: true, secretBase32, otpauthUrl, enabled: false });
   } catch (e) {
@@ -764,23 +1035,29 @@ admin2faApp.post('/setup', async (c) => {
 
 admin2faApp.post('/enable', async (c) => {
   try {
-    const admin = await validateAdminAccess(c);
-    if (!admin.success || admin.mode !== 'code' || !admin.adminCode) {
-      return c.json({ success: false, error: 'Admin code kerak' }, 403);
+    const gate = await validateAdminPanelGate(c);
+    if (!gate.ok) {
+      return c.json({ success: false, error: gate.error }, 403);
     }
     const body = await c.req.json().catch(() => ({}));
     const token = String(body?.token || '').trim();
     if (!token) return c.json({ success: false, error: 'token kerak' }, 400);
 
-    const record = await kv.get(getAdmin2faKey(admin.adminCode));
+    const record = await getAdmin2faRecord();
     if (!record?.secretBase32) return c.json({ success: false, error: '2FA setup qilinmagan' }, 400);
 
     const expected = await totpNow(record.secretBase32, { skew: 1 });
     const ok = expected.some((code) => timingSafeEqualStr(code, token));
-    if (!ok) return c.json({ success: false, error: 'Kod noto‘g‘ri' }, 401);
+    if (!ok) {
+      if (gate.kind === 'temp') {
+        const g = await assertAdminLoginAllowed(c);
+        if (g.ok) await adminLoginRecordFailure(c, g.fpKey);
+      }
+      return c.json({ success: false, error: 'Kod noto‘g‘ri' }, 401);
+    }
 
     const nowIso = new Date().toISOString();
-    await kv.set(getAdmin2faKey(admin.adminCode), { ...record, enabled: true, updatedAt: nowIso });
+    await kv.set(ADMIN_2FA_KV_KEY, { ...record, enabled: true, updatedAt: nowIso });
     return c.json({ success: true, enabled: true });
   } catch (e) {
     console.error('admin 2fa enable error', e);
@@ -788,29 +1065,200 @@ admin2faApp.post('/enable', async (c) => {
   }
 });
 
-admin2faApp.post('/verify', async (c) => {
+/** Yangi TOTP kalit (faqat kirgan admin; keyin qayta yoqish kerak) */
+admin2faApp.post('/regenerate', async (c) => {
   try {
     const admin = await validateAdminAccess(c);
-    if (!admin.success || admin.mode !== 'code' || !admin.adminCode) {
-      return c.json({ success: false, error: 'Admin code kerak' }, 403);
+    if (!admin.success || admin.mode !== 'session') {
+      return c.json({ success: false, error: 'Faqat admin panel sessiyasi' }, 403);
     }
     const body = await c.req.json().catch(() => ({}));
-    const token = String(body?.token || '').trim();
-    if (!token) return c.json({ success: false, error: 'token kerak' }, 400);
+    const token = String(body?.totp || body?.token || '').trim();
+    if (!token) return c.json({ success: false, error: 'TOTP kerak' }, 400);
+    const record = await getAdmin2faRecord();
+    if (!record?.secretBase32) return c.json({ success: false, error: '2FA topilmadi' }, 400);
+    const expected = await totpNow(record.secretBase32, { skew: 1 });
+    if (!expected.some((code) => timingSafeEqualStr(code, token))) {
+      return c.json({ success: false, error: 'Kod noto‘g‘ri' }, 401);
+    }
+    const bytes = crypto.getRandomValues(new Uint8Array(20));
+    const secretBase32 = base32Encode(bytes);
+    const nowIso = new Date().toISOString();
+    await kv.set(ADMIN_2FA_KV_KEY, {
+      enabled: false,
+      secretBase32,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      rotatedAt: nowIso,
+    });
+    const issuer = encodeURIComponent('Aresso Admin');
+    const label = encodeURIComponent('admin-panel');
+    const otpauthUrl = `otpauth://totp/${label}?secret=${secretBase32}&issuer=${issuer}&digits=6&period=30`;
+    return c.json({ success: true, secretBase32, otpauthUrl, enabled: false });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Xatolik' }, 500);
+  }
+});
 
-    const record = await kv.get(getAdmin2faKey(admin.adminCode));
+const adminAuthApp = new Hono();
+
+adminAuthApp.post('/credentials', async (c) => {
+  try {
+    const gate = await assertAdminLoginAllowed(c);
+    if (!gate.ok) {
+      return c.json(
+        {
+          success: false,
+          error: 'Juda ko‘p muvaffaqiyatsiz urinish. Bloklangan.',
+          blockedUntil: gate.blockedUntil,
+        },
+        429,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const user = String(body?.username ?? '').trim();
+    const pass = String(body?.password ?? '');
+    const sec = String(body?.secondaryCode ?? '').trim();
+    const want = await getAdminSecondaryCode();
+
+    const okUser = timingSafeEqualStr(user, ADMIN_LOGIN_USER);
+    const okPass = timingSafeEqualStr(pass, ADMIN_LOGIN_PASS);
+    const okSec = timingSafeEqualStr(sec, want);
+
+    if (!okUser || !okPass || !okSec) {
+      await adminLoginRecordFailure(c, gate.fpKey);
+      return c.json(
+        { success: false, error: "Login, parol yoki maxfiy kod noto‘g‘ri" },
+        401,
+      );
+    }
+
+    const bytes = crypto.getRandomValues(new Uint8Array(24));
+    const temp = Array.from(bytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const exp = new Date(Date.now() + ADMIN_TEMP_LOGIN_MS).toISOString();
+    await kv.set(`admin_temp_login:${temp}`, { valid: true, expiresAt: exp });
+
+    const rec = await getAdmin2faRecord();
+    return c.json({
+      success: true,
+      tempToken: temp,
+      twoFaEnabled: Boolean(rec?.enabled),
+    });
+  } catch (e: any) {
+    console.error('admin auth credentials error', e);
+    return c.json({ success: false, error: e?.message || 'Xatolik' }, 500);
+  }
+});
+
+adminAuthApp.post('/finish', async (c) => {
+  try {
+    const gate = await assertAdminLoginAllowed(c);
+    if (!gate.ok) {
+      return c.json(
+        {
+          success: false,
+          error: 'Bloklangan',
+          blockedUntil: gate.blockedUntil,
+        },
+        429,
+      );
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const temp = String(body?.tempToken ?? '').trim();
+    const token = String(body?.token ?? '').trim();
+    if (!temp || !token) {
+      return c.json({ success: false, error: 'tempToken va token majburiy' }, 400);
+    }
+
+    const row = await kv.get(`admin_temp_login:${temp}`);
+    const texp = row?.expiresAt ? new Date(row.expiresAt).getTime() : 0;
+    if (!row?.valid || texp <= Date.now()) {
+      return c.json({ success: false, error: 'Vaqtinchalik sessiya tugagan. Qayta kiring.' }, 401);
+    }
+
+    const record = await getAdmin2faRecord();
     if (!record?.enabled || !record?.secretBase32) {
-      return c.json({ success: false, error: '2FA yoqilmagan' }, 403);
+      return c.json({ success: false, error: '2FA yoqilmagan' }, 400);
     }
 
     const expected = await totpNow(record.secretBase32, { skew: 1 });
     const ok = expected.some((code) => timingSafeEqualStr(code, token));
-    if (!ok) return c.json({ success: false, error: 'Kod noto‘g‘ri' }, 401);
+    if (!ok) {
+      await adminLoginRecordFailure(c, gate.fpKey);
+      return c.json({ success: false, error: 'Kod noto‘g‘ri' }, 401);
+    }
 
+    await kv.del(`admin_temp_login:${temp}`);
+
+    const sessBytes = crypto.getRandomValues(new Uint8Array(32));
+    const sessionToken = Array.from(sessBytes)
+      .map((b) => b.toString(16).padStart(2, '0'))
+      .join('');
+    const expiresAt = new Date(Date.now() + ADMIN_SESSION_MS).toISOString();
+    await kv.set(`admin_session:${sessionToken}`, {
+      createdAt: new Date().toISOString(),
+      expiresAt,
+    });
+    await adminLoginClearFailures(gate.fpKey);
+
+    return c.json({ success: true, sessionToken, expiresAt });
+  } catch (e: any) {
+    console.error('admin auth finish error', e);
+    return c.json({ success: false, error: e?.message || 'Xatolik' }, 500);
+  }
+});
+
+const adminSecurityApp = new Hono();
+
+adminSecurityApp.get('/status', async (c) => {
+  try {
+    const admin = await validateAdminAccess(c);
+    if (!admin.success || admin.mode !== 'session') {
+      return c.json({ success: false, error: 'Faqat admin panel sessiyasi' }, 403);
+    }
+    const sec = await getAdminSecondaryCode();
+    const rec = await getAdmin2faRecord();
+    return c.json({
+      success: true,
+      secondaryCodeLength: sec.length,
+      twoFaEnabled: Boolean(rec?.enabled),
+    });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Xatolik' }, 500);
+  }
+});
+
+adminSecurityApp.post('/secondary-code', async (c) => {
+  try {
+    const admin = await validateAdminAccess(c);
+    if (!admin.success || admin.mode !== 'session') {
+      return c.json({ success: false, error: 'Faqat admin panel sessiyasi' }, 403);
+    }
+    const body = await c.req.json().catch(() => ({}));
+    const newCode = String(body?.newSecondaryCode ?? '').trim();
+    const totp = String(body?.totp ?? '').trim();
+    if (!/^\d{4,12}$/.test(newCode)) {
+      return c.json({ success: false, error: 'Yangi kod 4–12 raqam bo‘lishi kerak' }, 400);
+    }
+    const rec = await getAdmin2faRecord();
+    if (!rec?.enabled || !rec?.secretBase32) {
+      return c.json({ success: false, error: '2FA yoqilmagan' }, 400);
+    }
+    const expected = await totpNow(rec.secretBase32, { skew: 1 });
+    if (!expected.some((code) => timingSafeEqualStr(code, totp))) {
+      return c.json({ success: false, error: 'Authenticator kodi noto‘g‘ri' }, 401);
+    }
+    await kv.set(ADMIN_PANEL_KV_SECONDARY, {
+      value: newCode,
+      updatedAt: new Date().toISOString(),
+    });
     return c.json({ success: true });
-  } catch (e) {
-    console.error('admin 2fa verify error', e);
-    return c.json({ success: false, error: '2FA tekshirishda xatolik' }, 500);
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || 'Xatolik' }, 500);
   }
 });
 
@@ -883,6 +1331,60 @@ async function getOrderRecord(orderId: string) {
   return null;
 }
 
+/** Payme check-receipt / Click COMPLETE: asosiy `order:` / `order:market:` yozuvida to‘lovni «paid» qilish va v2 Postgres bilan sinxronlash */
+async function markKvOrderPaidFromGateway(
+  orderId: string,
+  extras: { paymeReceiptId?: string; clickTransId?: string | number },
+): Promise<void> {
+  const record = await getOrderRecord(orderId);
+  if (!record) {
+    console.warn('[gateway-paid] buyurtma KV da topilmadi:', orderId);
+    return;
+  }
+  const o = record.order as Record<string, unknown>;
+  const nowIso = new Date().toISOString();
+  const legacyId = String(o.id ?? orderId);
+  const prevPaid = ['paid', 'completed', 'success'].includes(
+    String(o.paymentStatus || '').toLowerCase().trim(),
+  );
+  const statusHistory = Array.isArray(o.statusHistory) ? [...(o.statusHistory as unknown[])] : [];
+  if (!prevPaid) {
+    statusHistory.push({
+      status: o.status,
+      timestamp: nowIso,
+      note: 'Onlayn to‘lov tasdiqlandi (Payme/Click)',
+    });
+  }
+  const updatedOrder = {
+    ...record.order,
+    paymentStatus: 'paid',
+    paymentCompletedAt: nowIso,
+    paymentRequiresVerification: false,
+    updatedAt: nowIso,
+    ...(extras.paymeReceiptId ? { paymeReceiptId: extras.paymeReceiptId } : {}),
+    ...(extras.clickTransId != null ? { clickTransId: extras.clickTransId } : {}),
+    statusHistory,
+  };
+  await kv.set(record.key, updatedOrder);
+
+  try {
+    const txKey = `transaction:${legacyId}`;
+    const tx = await kv.get(txKey);
+    if (tx && typeof tx === 'object') {
+      await kv.set(txKey, { ...tx, status: 'paid', paidAt: nowIso });
+    }
+  } catch (txErr: unknown) {
+    console.warn('[gateway-paid] transaction KV:', txErr);
+  }
+
+  await syncRelationalOrderFromLegacy({
+    legacyOrderId: legacyId,
+    kvStatus: String(o.status ?? ''),
+    kvPaymentStatus: 'paid',
+    paymentRequiresVerification: false,
+  });
+}
+
 async function validateOrderOwnership(c: any, order: any) {
   const admin = await validateAdminAccess(c);
   if (admin.success) {
@@ -922,6 +1424,144 @@ const buildCommunityMessageKey = (roomId: string, messageId: string) => `communi
 const buildCommunityMessagePrefix = (roomId: string) => `community_message:${roomId}:`;
 const buildCommunityMemberPrefix = (roomId: string) => `community_member:${roomId}:`;
 const buildCommunityBlockKey = (roomId: string, userId: string) => `community_block:${roomId}:${userId}`;
+
+function extractCommunityR2KeyFromUrl(url: string, ownerUserId: string): string | null {
+  const u = String(url || '').trim();
+  if (!u || (!u.startsWith('http://') && !u.startsWith('https://'))) return null;
+  try {
+    const parsed = new URL(u);
+    const key = decodeURIComponent(parsed.pathname.replace(/^\//, ''));
+    if (!key || !key.startsWith(`community/${ownerUserId}/`)) return null;
+    return key;
+  } catch {
+    return null;
+  }
+}
+
+async function deleteCommunityMediaFromR2IfOwned(mediaUrl: string, ownerUserId: string) {
+  const key = extractCommunityR2KeyFromUrl(mediaUrl, ownerUserId);
+  if (!key) return;
+  try {
+    const r2Config = r2.checkR2Config();
+    if (!r2Config.configured) return;
+    await r2.deleteFromR2(key);
+  } catch (e) {
+    console.error('Community R2 delete (non-fatal):', e);
+  }
+}
+
+/** HTTP(S) media URLs from a KV record (shallow + common nested shapes). */
+function collectHttpMediaUrls(obj: unknown): Set<string> {
+  const urls = new Set<string>();
+  const add = (v: unknown) => {
+    if (typeof v === "string" && (v.startsWith("http://") || v.startsWith("https://"))) {
+      urls.add(v.trim());
+    }
+  };
+  if (!obj || typeof obj !== "object") return urls;
+  const o = obj as Record<string, unknown>;
+  if (Array.isArray(o.images)) for (const x of o.images) add(x);
+  add(o.image);
+  add(o.logo);
+  add(o.photo);
+  add(o.profileImage);
+  add(o.avatar);
+  add(o.avatarUrl);
+  add(o.coverImage);
+  add(o.cover);
+  add(o.bannerImage);
+  add(o.thumbnail);
+  add(o.thumbnailUrl);
+  add(o.coverPhoto);
+  add(o.backgroundImage);
+  add(o.featuredImage);
+  if (Array.isArray(o.gallery)) for (const x of o.gallery) add(x);
+  if (Array.isArray(o.media)) for (const x of o.media) add(x);
+  if (Array.isArray(o.variants)) {
+    for (const v of o.variants) {
+      if (v && typeof v === "object") {
+        const x = v as Record<string, unknown>;
+        add(x.image);
+        add(x.photo);
+        add(x.picture);
+      }
+    }
+  }
+  const scenes = o.panoramaScenes;
+  if (Array.isArray(scenes)) {
+    for (const s of scenes) {
+      if (s && typeof s === "object") {
+        const x = s as Record<string, unknown>;
+        add(x.url);
+        add(x.imageUrl);
+        if (typeof x.preview === "string" && x.preview.startsWith("http")) add(x.preview);
+      }
+    }
+  }
+  return urls;
+}
+
+async function purgeRemovedR2Urls(before: unknown, after: unknown) {
+  const oldU = collectHttpMediaUrls(before);
+  const newU = collectHttpMediaUrls(after);
+  for (const url of oldU) {
+    if (!newU.has(url)) await r2.deleteManagedR2UrlIfKnown(url);
+  }
+}
+
+async function purgeAllManagedR2UrlsInRecord(obj: unknown) {
+  for (const url of collectHttpMediaUrls(obj)) {
+    await r2.deleteManagedR2UrlIfKnown(url);
+  }
+}
+
+async function deleteListingRecordMediaFromR2(listing: Record<string, unknown> | null | undefined) {
+  await purgeAllManagedR2UrlsInRecord(listing);
+}
+
+function communityReplyPreviewFromMessage(m: any): string {
+  if (!m) return '';
+  const t = m.type || 'text';
+  if (t === 'image') return m.content ? `📷 ${String(m.content).slice(0, 80)}` : '📷 Rasm';
+  if (t === 'voice') return '🎤 Ovozli xabar';
+  if (t === 'location') return m.locationLabel ? `📍 ${String(m.locationLabel).slice(0, 80)}` : '📍 Joylashuv';
+  return String(m.content || '').slice(0, 140);
+}
+
+async function refreshCommunityRoomLastMessage(roomId: string) {
+  const roomRow = await getCommunityRoomById(roomId);
+  if (!roomRow) return;
+  const raw = await kv.getByPrefix(buildCommunityMessagePrefix(roomId));
+  const sorted = raw
+    .filter((m: any) => m && m.id)
+    .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime());
+  const last = sorted[sorted.length - 1];
+  const memberCount = await countCommunityMembers(roomId);
+  if (!last) {
+    await kv.set(buildCommunityRoomKey(roomId), {
+      ...roomRow,
+      memberCount,
+      lastMessageAt: null,
+      lastMessagePreview: '',
+      updatedAt: new Date().toISOString(),
+    });
+    return;
+  }
+  const lt = last.type || 'text';
+  let preview = String(last.content || '').slice(0, 120);
+  if (lt === 'image') preview = last.content ? `📷 ${String(last.content).slice(0, 100)}` : '📷 Rasm';
+  if (lt === 'voice') preview = '🎤 Ovozli xabar';
+  if (lt === 'location') {
+    preview = last.locationLabel ? `📍 ${String(last.locationLabel).slice(0, 100)}` : '📍 Joylashuv';
+  }
+  await kv.set(buildCommunityRoomKey(roomId), {
+    ...roomRow,
+    memberCount,
+    lastMessageAt: last.createdAt,
+    lastMessagePreview: preview,
+    updatedAt: new Date().toISOString(),
+  });
+}
 
 type CommunityToxicDecision = {
   blocked: boolean;
@@ -1937,6 +2577,7 @@ app.put("/make-server-27d0d16c/user/profile", async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    await purgeRemovedR2Urls(existingProfile, updatedProfile);
     await kv.set(`user:${auth.userId}`, updatedProfile);
 
     return c.json({ 
@@ -2144,10 +2785,19 @@ app.get("/make-server-27d0d16c/community/room/:roomId/messages", async (c) => {
     }
 
     const messages = await kv.getByPrefix(buildCommunityMessagePrefix(roomId));
+    const communityMessagePassesModerationFilter = (m: any) => {
+      const t = m?.type || 'text';
+      if (t === 'voice') return true;
+      if (t === 'image') return !isCommunityBadLanguageByRegex(String(m?.content || ''));
+      if (t === 'location') {
+        return !isCommunityBadLanguageByRegex(String(m?.locationLabel || m?.content || ''));
+      }
+      return !isCommunityBadLanguageByRegex(String(m?.content || ''));
+    };
     const sortedMessages = messages
       .sort((a: any, b: any) => new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime())
       .slice(-limit)
-      .filter((m: any) => !isCommunityBadLanguageByRegex(String(m?.content || '')));
+      .filter(communityMessagePassesModerationFilter);
 
     return c.json({
       success: true,
@@ -2160,6 +2810,61 @@ app.get("/make-server-27d0d16c/community/room/:roomId/messages", async (c) => {
   }
 });
 
+app.post("/make-server-27d0d16c/community/upload-media", async (c) => {
+  try {
+    const auth = await validateAccessToken(c);
+    if (!auth.success || !auth.userId) {
+      return c.json({ error: auth.error }, 401);
+    }
+
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File;
+
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: 'Fayl topilmadi' }, 400);
+    }
+
+    const isImage = file.type.startsWith('image/');
+    const isAudio = file.type.startsWith('audio/');
+    if (!isImage && !isAudio) {
+      return c.json({ error: 'Faqat rasm yoki audio fayl yuklash mumkin' }, 400);
+    }
+
+    const maxSize = isImage ? 8 * 1024 * 1024 : 6 * 1024 * 1024;
+    if (file.size > maxSize) {
+      return c.json(
+        { error: isImage ? 'Rasm hajmi 8MB dan oshmasligi kerak' : 'Audio hajmi 6MB dan oshmasligi kerak' },
+        400,
+      );
+    }
+
+    const ext = file.name.split('.').pop() || (isImage ? 'jpg' : 'webm');
+    const filename = `community/${auth.userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+
+    const r2Config = r2.checkR2Config();
+    if (!r2Config.configured) {
+      return c.json({ error: r2Config.message }, 500);
+    }
+
+    const uploadResult = await r2.uploadFile(buffer, filename, file.type);
+    if (!uploadResult.success) {
+      return c.json({ error: uploadResult.error || 'Faylni yuklashda xatolik' }, 500);
+    }
+
+    return c.json({
+      success: true,
+      url: uploadResult.url,
+      contentType: file.type,
+    });
+  } catch (error: any) {
+    console.error('Community upload-media error:', error);
+    return c.json({ error: error.message || 'Faylni yuklashda xatolik' }, 500);
+  }
+});
+
 app.post("/make-server-27d0d16c/community/room/:roomId/messages", async (c) => {
   try {
     const auth = await validateAccessToken(c);
@@ -2168,14 +2873,26 @@ app.post("/make-server-27d0d16c/community/room/:roomId/messages", async (c) => {
     }
 
     const roomId = c.req.param('roomId');
-    const { content, regionId, districtId } = await c.req.json();
+    const body = await c.req.json();
+    const {
+      content: rawContent,
+      regionId,
+      districtId,
+      type: rawType,
+      mediaUrl: rawMediaUrl,
+      durationSec: rawDuration,
+      lat: rawLat,
+      lng: rawLng,
+      locationLabel: rawLocationLabel,
+      replyToMessageId: rawReplyToId,
+    } = body;
 
-    if (!content || !String(content).trim()) {
-      return c.json({ error: 'Xabar matni majburiy' }, 400);
-    }
+    const replyToMessageId = rawReplyToId != null ? String(rawReplyToId).trim() : '';
 
-    if (String(content).trim().length > 1000) {
-      return c.json({ error: 'Xabar 1000 ta belgidan oshmasligi kerak' }, 400);
+    const msgType = String(rawType || 'text').toLowerCase();
+    const allowedTypes = ['text', 'image', 'voice', 'location'];
+    if (!allowedTypes.includes(msgType)) {
+      return c.json({ error: 'Noto‘g‘ri xabar turi' }, 400);
     }
 
     const access = await ensureCommunityRoomAccess({
@@ -2194,35 +2911,127 @@ app.post("/make-server-27d0d16c/community/room/:roomId/messages", async (c) => {
       return c.json({ error: 'Foydalanuvchi profili topilmadi' }, 404);
     }
 
-    // AI/toxicity moderation for community messages.
-    let decision: CommunityToxicDecision = { blocked: false, reason: 'unknown' };
-    try {
-      decision = await moderateCommunityTextAI(content);
-    } catch (e) {
-      decision = { blocked: false, reason: 'moderation_fail' };
-    }
-    if (decision.blocked) {
-      return c.json(
-        {
-          error: 'Noto‘g‘ri so‘z ishlatildi.',
-          code: 'community_bad_language',
-        },
-        400
-      );
+    const moderateIfText = async (text: string) => {
+      const t = String(text || '').trim();
+      if (!t) return { ok: true as const };
+      let decision: CommunityToxicDecision = { blocked: false, reason: 'unknown' };
+      try {
+        decision = await moderateCommunityTextAI(t);
+      } catch (_e) {
+        decision = { blocked: false, reason: 'moderation_fail' };
+      }
+      if (decision.blocked) {
+        return { ok: false as const };
+      }
+      return { ok: true as const };
+    };
+
+    let content = '';
+    let mediaUrl = '';
+    let durationSec: number | undefined;
+    let lat: number | undefined;
+    let lng: number | undefined;
+    let locationLabel = '';
+
+    if (msgType === 'text') {
+      if (!rawContent || !String(rawContent).trim()) {
+        return c.json({ error: 'Xabar matni majburiy' }, 400);
+      }
+      content = String(rawContent).trim();
+      if (content.length > 1000) {
+        return c.json({ error: 'Xabar 1000 ta belgidan oshmasligi kerak' }, 400);
+      }
+      const mod = await moderateIfText(content);
+      if (!mod.ok) {
+        return c.json({ error: 'Noto‘g‘ri so‘z ishlatildi.', code: 'community_bad_language' }, 400);
+      }
+    } else if (msgType === 'image') {
+      mediaUrl = String(rawMediaUrl || '').trim();
+      if (!mediaUrl.startsWith('https://') && !mediaUrl.startsWith('http://')) {
+        return c.json({ error: 'Rasm havolasi noto‘g‘ri' }, 400);
+      }
+      content = rawContent != null ? String(rawContent).trim() : '';
+      if (content.length > 500) {
+        return c.json({ error: 'Izoh 500 belgidan oshmasligi kerak' }, 400);
+      }
+      if (content) {
+        const mod = await moderateIfText(content);
+        if (!mod.ok) {
+          return c.json({ error: 'Noto‘g‘ri so‘z ishlatildi.', code: 'community_bad_language' }, 400);
+        }
+      }
+    } else if (msgType === 'voice') {
+      mediaUrl = String(rawMediaUrl || '').trim();
+      if (!mediaUrl.startsWith('https://') && !mediaUrl.startsWith('http://')) {
+        return c.json({ error: 'Audio havolasi noto‘g‘ri' }, 400);
+      }
+      const d = Number(rawDuration);
+      if (Number.isFinite(d) && d > 0) {
+        durationSec = Math.min(600, Math.round(d));
+      }
+    } else if (msgType === 'location') {
+      lat = Number(rawLat);
+      lng = Number(rawLng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+        return c.json({ error: 'Joylashuv koordinatalari majburiy' }, 400);
+      }
+      if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+        return c.json({ error: 'Joylashuv koordinatalari noto‘g‘ri' }, 400);
+      }
+      locationLabel = rawLocationLabel != null ? String(rawLocationLabel).trim().slice(0, 200) : '';
+      if (locationLabel) {
+        const mod = await moderateIfText(locationLabel);
+        if (!mod.ok) {
+          return c.json({ error: 'Noto‘g‘ri so‘z ishlatildi.', code: 'community_bad_language' }, 400);
+        }
+      }
+      content = locationLabel || `${lat.toFixed(5)}, ${lng.toFixed(5)}`;
     }
 
     const messageId = `${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
-    const message = {
+    const message: Record<string, unknown> = {
       id: messageId,
       roomId,
       userId: auth.userId,
-      content: String(content).trim(),
+      type: msgType,
+      content,
       senderName: `${profile.firstName || ''} ${profile.lastName || ''}`.trim() || profile.phone || 'Foydalanuvchi',
       senderAvatar: profile.profileImage || '',
       regionId: access.room.regionId,
       districtId: access.room.districtId,
       createdAt: new Date().toISOString(),
     };
+
+    if (mediaUrl) message.mediaUrl = mediaUrl;
+    if (durationSec != null) message.durationSec = durationSec;
+    if (msgType === 'location') {
+      message.lat = lat;
+      message.lng = lng;
+      if (locationLabel) message.locationLabel = locationLabel;
+    }
+
+    if (replyToMessageId) {
+      const parentKey = buildCommunityMessageKey(roomId, replyToMessageId);
+      const parent: any = await kv.get(parentKey);
+      if (parent && String(parent.roomId) === String(roomId)) {
+        const replyTo: Record<string, unknown> = {
+          messageId: String(parent.id),
+          userId: String(parent.userId || ''),
+          senderName: String(parent.senderName || 'Foydalanuvchi'),
+          type: parent.type || 'text',
+          preview: communityReplyPreviewFromMessage(parent),
+        };
+        if ((parent.type || 'text') === 'image' && parent.mediaUrl) {
+          replyTo.mediaUrl = String(parent.mediaUrl);
+        }
+        message.replyTo = replyTo;
+      }
+    }
+
+    let lastMessagePreview = content.slice(0, 120);
+    if (msgType === 'image') lastMessagePreview = content ? `📷 ${content.slice(0, 100)}` : '📷 Rasm';
+    if (msgType === 'voice') lastMessagePreview = '🎤 Ovozli xabar';
+    if (msgType === 'location') lastMessagePreview = locationLabel ? `📍 ${locationLabel.slice(0, 100)}` : '📍 Joylashuv';
 
     await kv.set(buildCommunityMessageKey(roomId, messageId), message);
 
@@ -2231,7 +3040,7 @@ app.post("/make-server-27d0d16c/community/room/:roomId/messages", async (c) => {
       ...access.room,
       memberCount,
       lastMessageAt: message.createdAt,
-      lastMessagePreview: message.content.slice(0, 120),
+      lastMessagePreview,
       updatedAt: message.createdAt,
     });
 
@@ -2242,6 +3051,80 @@ app.post("/make-server-27d0d16c/community/room/:roomId/messages", async (c) => {
   } catch (error: any) {
     console.error('Send community message error:', error);
     return c.json({ error: `Xabar yuborishda xatolik: ${error.message}` }, 500);
+  }
+});
+
+app.delete("/make-server-27d0d16c/community/room/:roomId/messages/:messageId", async (c) => {
+  try {
+    const auth = await validateAccessToken(c);
+    if (!auth.success || !auth.userId) {
+      return c.json({ error: auth.error }, 401);
+    }
+
+    const roomId = String(c.req.param('roomId') || '').trim();
+    const rawParam = c.req.param('messageId');
+    let messageId = String(rawParam || '').trim();
+    try {
+      messageId = decodeURIComponent(messageId).trim();
+    } catch {
+      /* keep messageId as trimmed raw */
+    }
+    const regionId = c.req.query('regionId') || undefined;
+    const districtId = c.req.query('districtId') || undefined;
+
+    const access = await ensureCommunityRoomAccess({
+      roomId,
+      userId: auth.userId,
+      regionId,
+      districtId,
+    });
+
+    if (!access.success) {
+      return c.json({ error: access.error }, access.status as 400 | 401 | 403 | 404);
+    }
+
+    let storageKey = buildCommunityMessageKey(roomId, messageId);
+    let existing: any = await kv.get(storageKey);
+
+    // Agar URL/param bilan KV kalitining oxirgi segmenti mos kelmasa (eski ma'lumot, kodlash),
+    // xonadagi barcha xabarlardan `id` bo‘yicha topib, haqiqiy kalit bilan o‘chiramiz.
+    if (!existing) {
+      const rows = await kv.getByPrefixWithKeys(buildCommunityMessagePrefix(roomId));
+      const hit = rows.find((r) => {
+        const v = r.value;
+        if (!v || typeof v !== 'object') return false;
+        const id = String((v as any).id ?? '').trim();
+        const rid = String((v as any).roomId ?? '').trim();
+        return id === messageId && (!rid || rid === roomId);
+      });
+      if (hit) {
+        storageKey = hit.key;
+        existing = hit.value;
+      }
+    }
+
+    if (!existing) {
+      return c.json({ error: 'Xabar topilmadi' }, 404);
+    }
+
+    const ownerId = String(existing.userId ?? existing.authorId ?? '').trim();
+    const requesterId = String(auth.userId).trim();
+    if (!ownerId || ownerId !== requesterId) {
+      return c.json({ error: 'Faqat o‘z xabaringizni o‘chira olasiz' }, 403);
+    }
+
+    const t = existing.type || 'text';
+    if ((t === 'image' || t === 'voice') && existing.mediaUrl) {
+      await deleteCommunityMediaFromR2IfOwned(String(existing.mediaUrl), auth.userId);
+    }
+
+    await kv.del(storageKey);
+    await refreshCommunityRoomLastMessage(roomId);
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('Delete community message error:', error);
+    return c.json({ error: `Xabarni o‘chirishda xatolik: ${error.message}` }, 500);
   }
 });
 
@@ -2683,6 +3566,7 @@ app.delete("/make-server-27d0d16c/products/:id", async (c) => {
         return c.json({ error: access.error }, 403);
       }
 
+      await purgeAllManagedR2UrlsInRecord(shopProduct);
       await kv.del(`shop_product:${id}`);
       console.log('✅ Shop product deleted successfully');
       return c.json({ success: true, message: 'Mahsulot o\'chirildi' });
@@ -2697,6 +3581,7 @@ app.delete("/make-server-27d0d16c/products/:id", async (c) => {
         return c.json({ error: admin.error }, 403);
       }
 
+      await purgeAllManagedR2UrlsInRecord(branchProduct);
       await kv.del(`branchproduct:${id}`);
       console.log('✅ Branch product deleted successfully');
       return c.json({ success: true, message: 'Mahsulot o\'chirildi' });
@@ -2956,6 +3841,7 @@ app.delete("/make-server-27d0d16c/branches/:id", async (c) => {
     const branchProducts = allBranchProducts.filter((p: any) => p.branchId === id);
     
     for (const product of branchProducts) {
+      await purgeAllManagedR2UrlsInRecord(product);
       await kv.del(`branchproduct:${product.id}`);
     }
     console.log(`✅ Deleted ${branchProducts.length} branch products`);
@@ -2978,6 +3864,7 @@ app.delete("/make-server-27d0d16c/branches/:id", async (c) => {
       const shopProducts = allShopProducts.filter((p: any) => p.shopId === shop.id);
       
       for (const product of shopProducts) {
+        await purgeAllManagedR2UrlsInRecord(product);
         await kv.del(`shop_product:${product.id}`);
         totalShopProducts++;
       }
@@ -2997,12 +3884,14 @@ app.delete("/make-server-27d0d16c/branches/:id", async (c) => {
     // 4. Delete all shops
     console.log('🗑️ Step 4: Deleting shops...');
     for (const shop of branchShops) {
+      await purgeAllManagedR2UrlsInRecord(shop);
       await kv.del(`shop:${shop.id}`);
     }
     console.log(`✅ Deleted ${branchShops.length} shops`);
     
     // 5. Delete the branch itself
     console.log('🗑️ Step 5: Deleting branch...');
+    await purgeAllManagedR2UrlsInRecord(branch);
     await kv.del(`branch:${id}`);
     
     const summary = {
@@ -3174,6 +4063,7 @@ app.put("/make-server-27d0d16c/branch-products/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    await purgeRemovedR2Urls(existingProduct, updatedProduct);
     await kv.set(`branchproduct:${id}`, updatedProduct);
     
     console.log(`✅ Product updated: ${id}`);
@@ -3197,6 +4087,7 @@ app.delete("/make-server-27d0d16c/branch-products/:id", async (c) => {
       return c.json({ error: 'Mahsulot topilmadi' }, 404);
     }
     
+    await purgeAllManagedR2UrlsInRecord(product);
     await kv.del(`branchproduct:${id}`);
     
     console.log(`✅ Product deleted: ${id}`);
@@ -3249,6 +4140,94 @@ app.patch("/make-server-27d0d16c/branch-products/:id/stock", async (c) => {
 
 // ==================== ADMIN USERS ROUTES ====================
 
+const ADMIN_USER_UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
+function isLegacyUserProfileKvKey(key: string): boolean {
+  const k = String(key || "");
+  const parts = k.split(":");
+  return parts.length === 2 && parts[0] === "user" && Boolean(parts[1]);
+}
+
+function relationalAccountStatusToAdminStatus(
+  status: string | null | undefined,
+  kvBlocked?: boolean,
+): "active" | "blocked" {
+  if (kvBlocked) return "blocked";
+  const s = String(status || "").toLowerCase();
+  if (s === "suspended" || s === "archived" || s === "inactive") {
+    return "blocked";
+  }
+  return "active";
+}
+
+function normalizeAdminUserNames(profile: any, rel?: any) {
+  const firstName =
+    profile?.firstName ||
+    profile?.first_name ||
+    rel?.first_name ||
+    (typeof profile?.name === "string"
+      ? String(profile.name).trim().split(/\s+/)[0]
+      : "") ||
+    (rel?.display_name
+      ? String(rel.display_name).trim().split(/\s+/)[0]
+      : "") ||
+    "";
+  const lastName =
+    profile?.lastName ||
+    profile?.last_name ||
+    rel?.last_name ||
+    (typeof profile?.name === "string"
+      ? String(profile.name).trim().split(/\s+/).slice(1).join(" ")
+      : "") ||
+    (rel?.display_name
+      ? String(rel.display_name).trim().split(/\s+/).slice(1).join(" ")
+      : "") ||
+    "";
+  return { firstName, lastName };
+}
+
+async function fetchOrderAggregatesByRelationalUserId(): Promise<
+  Map<string, { ordersCount: number; paidTotal: number }>
+> {
+  const map = new Map<string, { ordersCount: number; paidTotal: number }>();
+  const pageSize = 1000;
+  let from = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("orders")
+      .select("user_id, total_amount, status, payment_status")
+      .order("created_at", { ascending: false })
+      .range(from, from + pageSize - 1);
+    if (error) {
+      console.error("admin users: orders aggregate error", error);
+      break;
+    }
+    if (!data?.length) break;
+    for (const row of data as any[]) {
+      const uid = String(row.user_id || "");
+      if (!uid) continue;
+      const st = String(row.status || "");
+      const pay = String(row.payment_status || "");
+      const cur = map.get(uid) || { ordersCount: 0, paidTotal: 0 };
+      if (st !== "cancelled" && st !== "refunded") {
+        cur.ordersCount += 1;
+      }
+      if (
+        pay === "paid" ||
+        pay === "authorized" ||
+        pay === "partially_refunded"
+      ) {
+        cur.paidTotal += Number(row.total_amount) || 0;
+      }
+      map.set(uid, cur);
+    }
+    if (data.length < pageSize) break;
+    from += pageSize;
+  }
+  return map;
+}
+
 // Get all users (admin only)
 app.get("/make-server-27d0d16c/admin/users", async (c) => {
   try {
@@ -3257,61 +4236,135 @@ app.get("/make-server-27d0d16c/admin/users", async (c) => {
       return c.json({ error: admin.error }, 403);
     }
 
-    console.log('👥 Fetching all users for admin...');
-    
-    // Get all users from KV store
-    const allUsers = await kv.getByPrefix('user:');
-    
-    // Filter out non-user entries (like user_phone:, user:xxx:favorites, etc.)
-    const users = allUsers.filter((item: any) => {
-      // Only include entries that are direct user profiles
-      const key = item.id || '';
-      return key.startsWith('user:') && !key.includes(':favorites') && 
-             !key.includes(':cart') && !key.includes(':bonus') && 
-             !key.includes(':settings') && !key.includes(':purchase');
-    });
-    
-    // Enrich user data with additional info
-    const enrichedUsers = await Promise.all(users.map(async (user: any) => {
-      // Get bonus info
-      const bonusData = await kv.get(`user:${user.id}:bonus`) || {
+    console.log("👥 Fetching all users for admin (KV + relational)...");
+
+    const orderAgg = await fetchOrderAggregatesByRelationalUserId();
+
+    const { data: relUsers, error: relErr } = await supabase
+      .from("users")
+      .select(
+        "id, legacy_kv_key, phone, email, first_name, last_name, display_name, status, role, created_at, updated_at, user_profiles(bonus_balance)",
+      )
+      .is("deleted_at", null)
+      .eq("role", "buyer");
+
+    if (relErr) {
+      console.error("admin users: relational users error", relErr);
+    }
+
+    const relByLegacyKey = new Map<string, any>();
+    for (const row of relUsers || []) {
+      const lk = row?.legacy_kv_key ? String(row.legacy_kv_key).trim() : "";
+      if (lk) relByLegacyKey.set(lk, row);
+    }
+
+    const kvRows = await kv.getByPrefixWithKeys("user:");
+    const profileRows = kvRows.filter((r) => isLegacyUserProfileKvKey(r.key));
+
+    const seenLegacyKeys = new Set<string>();
+    const enrichedUsers: any[] = [];
+
+    for (const { key, value: rawProfile } of profileRows) {
+      const bareId = key.slice("user:".length);
+      const legacyKey = `user:${bareId}`;
+      seenLegacyKeys.add(legacyKey);
+
+      const profile = {
+        ...(typeof rawProfile === "object" && rawProfile ? rawProfile : {}),
+        id: bareId,
+      };
+
+      const rel = relByLegacyKey.get(legacyKey);
+      const relId = rel?.id ? String(rel.id) : "";
+      const pgBonus = Number(rel?.user_profiles?.bonus_balance ?? NaN);
+      const bonusData = (await kv.get(`user:${bareId}:bonus`)) || {
         balance: 0,
         totalEarned: 0,
       };
-      
-      // Get purchase history count
-      const purchases = await kv.getByPrefix(`user:${user.id}:purchase:`);
-      
-      // Calculate total spent
-      let totalSpent = 0;
+
+      const purchases = await kv.getByPrefix(`user:${bareId}:purchase:`);
+      let kvSpent = 0;
       purchases.forEach((purchase: any) => {
-        totalSpent += purchase.amount || 0;
+        kvSpent += Number(purchase?.amount) || 0;
       });
-      
-      return {
-        ...user,
-        bonusBalance: bonusData.balance || 0,
-        totalBonusEarned: bonusData.totalEarned || 0,
-        purchasesCount: purchases.length,
-        totalSpent: totalSpent,
-        status: user.blocked ? 'blocked' : 'active',
-      };
-    }));
-    
-    // Sort by creation date (newest first)
+
+      const agg = relId ? orderAgg.get(relId) : undefined;
+      const pgCount = agg?.ordersCount ?? 0;
+      const pgPaid = agg?.paidTotal ?? 0;
+
+      const { firstName, lastName } = normalizeAdminUserNames(profile, rel);
+
+      enrichedUsers.push({
+        ...profile,
+        firstName,
+        lastName,
+        phone: profile.phone || rel?.phone || "",
+        email: profile.email || rel?.email || "",
+        bonusBalance: Number.isFinite(pgBonus) && pgBonus > 0
+          ? pgBonus
+          : Number(bonusData.balance) || 0,
+        totalBonusEarned: Number(bonusData.totalEarned) || 0,
+        purchasesCount: pgCount + purchases.length,
+        totalSpent: pgPaid + kvSpent,
+        status: relationalAccountStatusToAdminStatus(
+          rel?.status,
+          Boolean(profile.blocked),
+        ),
+        createdAt:
+          profile.createdAt ||
+          rel?.created_at ||
+          new Date().toISOString(),
+        updatedAt: profile.updatedAt || rel?.updated_at,
+        relationalUserId: relId || undefined,
+      });
+    }
+
+    for (const rel of relUsers || []) {
+      const lk = rel?.legacy_kv_key ? String(rel.legacy_kv_key).trim() : "";
+      if (lk && seenLegacyKeys.has(lk)) continue;
+
+      const relId = String(rel.id || "");
+      if (!relId) continue;
+
+      const agg = orderAgg.get(relId) || { ordersCount: 0, paidTotal: 0 };
+      const pgBonus = Number(rel?.user_profiles?.bonus_balance ?? 0);
+
+      const { firstName, lastName } = normalizeAdminUserNames({}, rel);
+
+      enrichedUsers.push({
+        id: relId,
+        phone: rel.phone || "",
+        email: rel.email || "",
+        firstName,
+        lastName,
+        profileImage: undefined,
+        bonusBalance: Number.isFinite(pgBonus) ? pgBonus : 0,
+        totalBonusEarned: 0,
+        purchasesCount: agg.ordersCount,
+        totalSpent: agg.paidTotal,
+        status: relationalAccountStatusToAdminStatus(rel.status, false),
+        createdAt: rel.created_at || new Date().toISOString(),
+        updatedAt: rel.updated_at,
+        relationalOnly: true,
+        relationalUserId: relId,
+      });
+    }
+
     enrichedUsers.sort((a: any, b: any) => {
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+      const ta = new Date(a.createdAt || 0).getTime();
+      const tb = new Date(b.createdAt || 0).getTime();
+      return tb - ta;
     });
-    
+
     console.log(`✅ Found ${enrichedUsers.length} users`);
-    return c.json({ 
+    return c.json({
       success: true,
       users: enrichedUsers,
       total: enrichedUsers.length,
     });
   } catch (error: any) {
-    console.error('Get users error:', error);
-    return c.json({ error: 'Foydalanuvchilarni olishda xatolik' }, 500);
+    console.error("Get users error:", error);
+    return c.json({ error: "Foydalanuvchilarni olishda xatolik" }, 500);
   }
 });
 
@@ -3323,63 +4376,215 @@ app.get("/make-server-27d0d16c/admin/users/:userId", async (c) => {
       return c.json({ error: admin.error }, 403);
     }
 
-    const userId = c.req.param('userId');
-    console.log('👤 Fetching user details:', userId);
-    
-    // Get user profile
-    const user = await kv.get(`user:${userId}`);
-    
-    if (!user) {
-      return c.json({ error: 'Foydalanuvchi topilmadi' }, 404);
+    const userId = c.req.param("userId");
+    console.log("👤 Fetching user details:", userId);
+
+    let kvBareId = userId;
+    let user: any = await kv.get(`user:${userId}`);
+
+    let rel: any = null;
+    if (ADMIN_USER_UUID_RE.test(userId)) {
+      const { data: relRow } = await supabase
+        .from("users")
+        .select(
+          "id, legacy_kv_key, phone, email, first_name, last_name, display_name, status, role, created_at, updated_at, user_profiles(bonus_balance)",
+        )
+        .eq("id", userId)
+        .maybeSingle();
+      rel = relRow;
     }
-    
-    // Get bonus info
-    const bonusData = await kv.get(`user:${userId}:bonus`) || {
+
+    if (!user && rel?.legacy_kv_key) {
+      const legacy = String(rel.legacy_kv_key).trim();
+      const bare = legacy.startsWith("user:")
+        ? legacy.slice("user:".length)
+        : legacy;
+      if (bare) {
+        kvBareId = bare;
+        user = await kv.get(`user:${bare}`);
+      }
+    }
+
+    if (!user && rel && String(rel.role || "") === "buyer") {
+      const { firstName, lastName } = normalizeAdminUserNames({}, rel);
+      const pgBonus = Number(rel?.user_profiles?.bonus_balance ?? 0);
+      const { data: orderRows } = await supabase
+        .from("orders")
+        .select(
+          "id, order_number, status, payment_status, total_amount, created_at, item_count",
+        )
+        .eq("user_id", rel.id)
+        .order("created_at", { ascending: false });
+
+      const purchases = (orderRows || []).map((o: any) => ({
+        productName: `Buyurtma ${o.order_number || String(o.id).slice(0, 8)}`,
+        amount: Number(o.total_amount) || 0,
+        date: o.created_at,
+        orderId: o.id,
+        status: o.status,
+        paymentStatus: o.payment_status,
+        itemCount: o.item_count,
+      }));
+
+      let totalSpent = 0;
+      purchases.forEach((p: any) => {
+        if (
+          p.paymentStatus === "paid" ||
+          p.paymentStatus === "authorized" ||
+          p.paymentStatus === "partially_refunded"
+        ) {
+          totalSpent += Number(p.amount) || 0;
+        }
+      });
+
+      const userDetails = {
+        id: String(rel.id),
+        phone: rel.phone || "",
+        email: rel.email || "",
+        firstName,
+        lastName,
+        profileImage: undefined,
+        bonus: {
+          balance: Number.isFinite(pgBonus) ? pgBonus : 0,
+          earnedToday: 0,
+          totalEarned: 0,
+          tapCount: 0,
+        },
+        favorites: [],
+        cart: [],
+        purchases,
+        purchasesCount: purchases.filter((p: any) =>
+          p.status !== "cancelled" && p.status !== "refunded"
+        ).length,
+        totalSpent,
+        status: relationalAccountStatusToAdminStatus(rel.status, false),
+        createdAt: rel.created_at,
+        updatedAt: rel.updated_at,
+        relationalOnly: true,
+      };
+
+      console.log("✅ User details loaded (relational)");
+      return c.json({ success: true, user: userDetails });
+    }
+
+    if (!user) {
+      return c.json({ error: "Foydalanuvchi topilmadi" }, 404);
+    }
+
+    const bonusData = (await kv.get(`user:${kvBareId}:bonus`)) || {
       balance: 0,
       earnedToday: 0,
       totalEarned: 0,
       tapCount: 0,
     };
-    
-    // Get favorites
-    const favorites = await kv.get(`user:${userId}:favorites`) || [];
-    
-    // Get cart
-    const cart = await kv.get(`user:${userId}:cart`) || [];
-    
-    // Get purchase history
-    const purchases = await kv.getByPrefix(`user:${userId}:purchase:`);
-    
-    // Calculate total spent
-    let totalSpent = 0;
+
+    const favorites = (await kv.get(`user:${kvBareId}:favorites`)) || [];
+    const cart = (await kv.get(`user:${kvBareId}:cart`)) || [];
+
+    const purchases = await kv.getByPrefix(`user:${kvBareId}:purchase:`);
+
+    let kvSpent = 0;
     purchases.forEach((purchase: any) => {
-      totalSpent += purchase.amount || 0;
+      kvSpent += Number(purchase?.amount) || 0;
     });
-    
-    // Sort purchases by date
+
     purchases.sort((a: any, b: any) => {
-      return new Date(b.date).getTime() - new Date(a.date).getTime();
+      return new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime();
     });
-    
+
+    const legacyKey = `user:${kvBareId}`;
+    if (!rel && legacyKey) {
+      const { data: relRow } = await supabase
+        .from("users")
+        .select(
+          "id, legacy_kv_key, phone, email, first_name, last_name, display_name, status, user_profiles(bonus_balance)",
+        )
+        .eq("legacy_kv_key", legacyKey)
+        .maybeSingle();
+      rel = relRow;
+    }
+
+    const relId = rel?.id ? String(rel.id) : "";
+    let pgPurchases: any[] = [];
+    let pgPaidTotal = 0;
+    let pgOrderCount = 0;
+    if (relId) {
+      const { data: orderRows } = await supabase
+        .from("orders")
+        .select(
+          "id, order_number, status, payment_status, total_amount, created_at, item_count",
+        )
+        .eq("user_id", relId)
+        .order("created_at", { ascending: false });
+      pgPurchases = (orderRows || []).map((o: any) => ({
+        productName: `Buyurtma ${o.order_number || String(o.id).slice(0, 8)}`,
+        amount: Number(o.total_amount) || 0,
+        date: o.created_at,
+        orderId: o.id,
+        status: o.status,
+        paymentStatus: o.payment_status,
+        itemCount: o.item_count,
+        source: "relational",
+      }));
+      for (const p of pgPurchases) {
+        if (p.status !== "cancelled" && p.status !== "refunded") {
+          pgOrderCount += 1;
+        }
+        if (
+          p.paymentStatus === "paid" ||
+          p.paymentStatus === "authorized" ||
+          p.paymentStatus === "partially_refunded"
+        ) {
+          pgPaidTotal += Number(p.amount) || 0;
+        }
+      }
+    }
+
+    const mergedPurchases = [...pgPurchases, ...purchases].sort(
+      (a: any, b: any) =>
+        new Date(b.date || 0).getTime() - new Date(a.date || 0).getTime(),
+    );
+
+    const pgBonus = Number(rel?.user_profiles?.bonus_balance ?? NaN);
+    const mergedBonus = {
+      ...bonusData,
+      balance: Number.isFinite(pgBonus) && pgBonus > 0
+        ? pgBonus
+        : Number(bonusData.balance) || 0,
+    };
+
+    const { firstName, lastName } = normalizeAdminUserNames(user, rel);
+
     const userDetails = {
       ...user,
-      bonus: bonusData,
-      favorites: favorites,
-      cart: cart,
-      purchases: purchases,
-      purchasesCount: purchases.length,
-      totalSpent: totalSpent,
-      status: user.blocked ? 'blocked' : 'active',
+      id: kvBareId,
+      firstName,
+      lastName,
+      phone: user.phone || rel?.phone || "",
+      email: user.email || rel?.email || "",
+      bonus: mergedBonus,
+      favorites,
+      cart,
+      purchases: mergedPurchases,
+      purchasesCount: pgOrderCount + purchases.length,
+      totalSpent: pgPaidTotal + kvSpent,
+      status: relationalAccountStatusToAdminStatus(
+        rel?.status,
+        Boolean(user.blocked),
+      ),
     };
-    
-    console.log('✅ User details loaded');
-    return c.json({ 
+
+    console.log("✅ User details loaded");
+    return c.json({
       success: true,
       user: userDetails,
     });
   } catch (error: any) {
-    console.error('Get user details error:', error);
-    return c.json({ error: 'Foydalanuvchi ma\'lumotlarini olishda xatolik' }, 500);
+    console.error("Get user details error:", error);
+    return c.json(
+      { error: "Foydalanuvchi ma'lumotlarini olishda xatolik" },
+      500,
+    );
   }
 });
 
@@ -3391,37 +4596,109 @@ app.patch("/make-server-27d0d16c/admin/users/:userId/status", async (c) => {
       return c.json({ error: admin.error }, 403);
     }
 
-    const userId = c.req.param('userId');
+    const userId = c.req.param("userId");
     const { blocked } = await c.req.json();
-    
-    console.log(`🔒 ${blocked ? 'Blocking' : 'Unblocking'} user:`, userId);
-    
-    // Get user profile
+
+    console.log(`🔒 ${blocked ? "Blocking" : "Unblocking"} user:`, userId);
+
     const user = await kv.get(`user:${userId}`);
-    
-    if (!user) {
-      return c.json({ error: 'Foydalanuvchi topilmadi' }, 404);
+
+    if (user) {
+      const updatedUser = {
+        ...user,
+        blocked: blocked,
+        blockedAt: blocked ? new Date().toISOString() : null,
+        updatedAt: new Date().toISOString(),
+      };
+
+      await kv.set(`user:${userId}`, updatedUser);
+
+      const legacyKey = `user:${userId}`;
+      const { data: relRow } = await supabase
+        .from("users")
+        .select("id")
+        .eq("legacy_kv_key", legacyKey)
+        .maybeSingle();
+      if (relRow?.id) {
+        const newStatus = blocked ? "suspended" : "active";
+        await supabase
+          .from("users")
+          .update({
+            status: newStatus,
+            updated_at: new Date().toISOString(),
+          })
+          .eq("id", relRow.id);
+      }
+
+      console.log(`✅ User ${blocked ? "blocked" : "unblocked"} (KV)`);
+      return c.json({
+        success: true,
+        user: updatedUser,
+        message: blocked
+          ? "Foydalanuvchi bloklandi"
+          : "Foydalanuvchi aktivlashtirildi",
+      });
     }
-    
-    // Update user status
-    const updatedUser = {
-      ...user,
-      blocked: blocked,
-      blockedAt: blocked ? new Date().toISOString() : null,
-      updatedAt: new Date().toISOString(),
-    };
-    
-    await kv.set(`user:${userId}`, updatedUser);
-    
-    console.log(`✅ User ${blocked ? 'blocked' : 'unblocked'}`);
-    return c.json({ 
-      success: true,
-      user: updatedUser,
-      message: blocked ? 'Foydalanuvchi bloklandi' : 'Foydalanuvchi aktivlashtirildi',
-    });
+
+    let relationalId: string | null = null;
+    if (ADMIN_USER_UUID_RE.test(userId)) {
+      relationalId = userId;
+    } else {
+      const { data: relByLegacy } = await supabase
+        .from("users")
+        .select("id")
+        .eq("legacy_kv_key", `user:${userId}`)
+        .maybeSingle();
+      relationalId = relByLegacy?.id ? String(relByLegacy.id) : null;
+    }
+
+    if (relationalId) {
+      const newStatus = blocked ? "suspended" : "active";
+      const { data: updated, error: upErr } = await supabase
+        .from("users")
+        .update({
+          status: newStatus,
+          updated_at: new Date().toISOString(),
+        })
+        .eq("id", relationalId)
+        .eq("role", "buyer")
+        .select(
+          "id, phone, email, first_name, last_name, display_name, status, created_at, updated_at",
+        )
+        .maybeSingle();
+
+      if (upErr || !updated) {
+        return c.json({ error: "Foydalanuvchi topilmadi" }, 404);
+      }
+
+      const { firstName, lastName } = normalizeAdminUserNames({}, updated);
+      console.log(`✅ User ${blocked ? "blocked" : "unblocked"} (relational)`);
+      return c.json({
+        success: true,
+        user: {
+          id: String(updated.id),
+          firstName,
+          lastName,
+          phone: updated.phone || "",
+          email: updated.email || "",
+          status: relationalAccountStatusToAdminStatus(updated.status, false),
+          createdAt: updated.created_at,
+          updatedAt: updated.updated_at,
+          relationalOnly: true,
+        },
+        message: blocked
+          ? "Foydalanuvchi bloklandi"
+          : "Foydalanuvchi aktivlashtirildi",
+      });
+    }
+
+    return c.json({ error: "Foydalanuvchi topilmadi" }, 404);
   } catch (error: any) {
-    console.error('Update user status error:', error);
-    return c.json({ error: 'Foydalanuvchi holatini o\'zgartirishda xatolik' }, 500);
+    console.error("Update user status error:", error);
+    return c.json(
+      { error: "Foydalanuvchi holatini o'zgartirishda xatolik" },
+      500,
+    );
   }
 });
 
@@ -3780,11 +5057,22 @@ app.get("/make-server-27d0d16c/listings/my", async (c) => {
     const userListings = await kv.getByPrefix(`listing:${auth.userId}:`);
     
     console.log(`✅ Found ${userListings.length} listings for user ${auth.userId}`);
-    
-    return c.json({ 
+
+    const listingsNormalized = userListings.map((L: any) => {
+      const fromArr = normalizeListingImageUrls(L?.images, 10);
+      const fallback =
+        fromArr.length > 0
+          ? fromArr
+          : typeof L?.image === "string" && L.image.trim()
+            ? [L.image.trim()]
+            : [];
+      return { ...L, images: fallback, image: fallback[0] || L?.image };
+    });
+
+    return c.json({
       success: true,
-      listings: userListings,
-      count: userListings.length
+      listings: listingsNormalized,
+      count: listingsNormalized.length,
     });
   } catch (error: any) {
     console.error('❌ Get my listings error:', error);
@@ -3821,6 +5109,8 @@ app.delete("/make-server-27d0d16c/listings/:id", async (c) => {
       return c.json({ error: 'Bu e\'lon sizga tegishli emas' }, 403);
     }
 
+    await touchListingLifetimeBeforeHardDelete(listing);
+    await deleteListingRecordMediaFromR2(listing as Record<string, unknown>);
     // Delete the listing
     await kv.del(`listing:${auth.userId}:${listingId}`);
     
@@ -3870,7 +5160,7 @@ app.put("/make-server-27d0d16c/listings/:id", async (c) => {
     console.log('📝 Update data received:', updatedData);
 
     // Merge with existing listing (keep some fields unchanged)
-    const updatedListing = {
+    const updatedListing: Record<string, unknown> = {
       ...existingListing,
       ...updatedData,
       id: listingId, // Keep original ID
@@ -3878,8 +5168,29 @@ app.put("/make-server-27d0d16c/listings/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    if (Array.isArray(updatedData.images)) {
+      updatedListing.images = normalizeListingImageUrls(updatedData.images, 10);
+    }
+
+    await purgeRemovedR2Urls(existingListing, updatedListing);
     // Save updated listing
     await kv.set(`listing:${auth.userId}:${listingId}`, updatedListing);
+
+    // Katalog `GET /houses` `house:` dan o‘qiydi — tahrirdan keyin rasmlar mos bo‘lishi uchun sinxronlash
+    try {
+      const houseRow: any = await kv.get(`house:${listingId}`);
+      if (houseRow && typeof houseRow === "object" && Array.isArray(updatedListing.images)) {
+        const imgs = updatedListing.images as string[];
+        await kv.set(`house:${listingId}`, {
+          ...houseRow,
+          images: imgs,
+          image: imgs[0] || houseRow.image,
+          updatedAt: updatedListing.updatedAt,
+        });
+      }
+    } catch (syncErr) {
+      console.warn("[listings PUT] house: sinxronlash:", syncErr);
+    }
     
     console.log('✅ Listing updated successfully');
     
@@ -3975,6 +5286,7 @@ app.put("/make-server-27d0d16c/services/portfolio/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    await purgeRemovedR2Urls(existingPortfolio, updatedPortfolio);
     await kv.set(`portfolio:${id}`, updatedPortfolio);
 
     return c.json({ success: true, portfolio: updatedPortfolio, message: 'Portfolio yangilandi' });
@@ -4005,6 +5317,17 @@ app.delete("/make-server-27d0d16c/services/portfolio/:id", async (c) => {
       return c.json({ error: 'Bu portfolio sizga tegishli emas' }, 403);
     }
 
+    try {
+      const projectsData = await kv.getByPrefix(`project:${id}:`);
+      for (const p of projectsData || []) {
+        await purgeAllManagedR2UrlsInRecord(p);
+        const pid = (p as { id?: string })?.id;
+        if (pid) await kv.del(`project:${id}:${pid}`);
+      }
+    } catch (e) {
+      console.warn('[services portfolio delete] loyihalar R2/KV:', e);
+    }
+    await purgeAllManagedR2UrlsInRecord(existingPortfolio);
     await kv.del(`portfolio:${id}`);
 
     return c.json({ success: true, message: 'Portfolio o\'chirildi' });
@@ -4115,6 +5438,7 @@ app.delete("/make-server-27d0d16c/services/portfolio/:id/projects/:projectId", a
       return c.json({ error: 'Bu loyiha sizga tegishli emas' }, 403);
     }
 
+    await purgeAllManagedR2UrlsInRecord(project);
     await kv.del(`project:${portfolioId}:${projectId}`);
 
     return c.json({ success: true, message: 'Loyiha o\'chirildi' });
@@ -4146,7 +5470,7 @@ app.get("/make-server-27d0d16c/check-listing-quota", async (c) => {
       );
     }
 
-    const phoneListingCount = await countUniqueListingsWithPhone(phoneNorm);
+    const phoneListingCount = await getLifetimeListingSlotsUsed(phoneNorm);
     const requiresFeeForNext = phoneListingCount >= FREE_LISTINGS_PER_PHONE;
     const remainingFreeSlots = Math.max(0, FREE_LISTINGS_PER_PHONE - phoneListingCount);
 
@@ -4159,13 +5483,84 @@ app.get("/make-server-27d0d16c/check-listing-quota", async (c) => {
       canPostWithoutFee: !requiresFeeForNext,
       message: requiresFeeForNext
         ? `Keyingi har bir e‘lon uchun ${LISTING_FEE_UZS.toLocaleString("uz-UZ")} so‘m (Click yoki Payme).`
-        : `Bepul qolgan joylar: ${remainingFreeSlots}.`,
+        : `Bepul qolgan joylar: ${remainingFreeSlots} (shu telefon bo‘yicha jami ${FREE_LISTINGS_PER_PHONE} ta; o‘chirilgan e‘lonlar ham hisoblanadi).`,
     });
   } catch (error: any) {
     console.error("Check listing quota error:", error);
     return c.json({ error: "Tekshirishda xatolik" }, 500);
   }
 });
+
+/** Click invoice: KV `payment_method:click` yoki Supabase secrets (CLICK_SERVICE_ID, …) — `click.tsx` bilan bir xil. */
+function clickListingFeeCredentialsFromEnv(): {
+  serviceId: string;
+  merchantId: string;
+  merchantUserId: string;
+} | null {
+  const serviceId = (Deno.env.get("CLICK_SERVICE_ID") || "").trim();
+  const merchantId = (Deno.env.get("CLICK_MERCHANT_ID") || "").trim();
+  const merchantUserId = (Deno.env.get("CLICK_MERCHANT_USER_ID") || "").trim();
+  if (!serviceId || !merchantId || !merchantUserId) return null;
+  return { serviceId, merchantId, merchantUserId };
+}
+
+async function resolveClickInvoiceCredentials(): Promise<
+  | {
+      ok: true;
+      serviceId: string;
+      merchantId: string;
+      merchantUserId: string;
+      clickIsTest: boolean;
+    }
+  | { ok: false; error: string; code: string }
+> {
+  const clickConfig = (await kv.get("payment_method:click")) as {
+    enabled?: unknown;
+    config?: Record<string, unknown>;
+    isTestMode?: unknown;
+  } | null;
+
+  const cfg = (clickConfig?.config || {}) as Record<string, unknown>;
+  const fromKv = {
+    serviceId: String(cfg.serviceId ?? "").trim(),
+    merchantId: String(cfg.merchantId ?? "").trim(),
+    merchantUserId: String(cfg.merchantUserId ?? cfg.merchant_user_id ?? "").trim(),
+  };
+  const kvEnabled = Boolean(clickConfig?.enabled);
+
+  if (kvEnabled && fromKv.serviceId && fromKv.merchantId && fromKv.merchantUserId) {
+    return {
+      ok: true,
+      ...fromKv,
+      clickIsTest: resolveClickIsTestForInvoice({
+        clickKv: clickConfig,
+        credentialsFromKv: true,
+      }),
+    };
+  }
+
+  const fromEnv = clickListingFeeCredentialsFromEnv();
+  if (fromEnv) {
+    return {
+      ok: true,
+      ...fromEnv,
+      clickIsTest: resolveClickIsTestForInvoice({
+        clickKv: clickConfig,
+        credentialsFromKv: false,
+      }),
+    };
+  }
+
+  if (!clickConfig || !kvEnabled) {
+    return { ok: false, error: "Click to‘lov usuli faol emas", code: "CLICK_DISABLED" };
+  }
+  return {
+    ok: false,
+    error:
+      "Click konfiguratsiyasi to‘liq emas. Supabase secrets: CLICK_SERVICE_ID, CLICK_MERCHANT_ID, CLICK_MERCHANT_USER_ID yoki Admin.",
+    code: "CLICK_CONFIG_INCOMPLETE",
+  };
+}
 
 // E‘lon uchun Click hisob-faktura (10 000 so‘m) — to‘lovdan keyin `listing_fee_credit` COMPLETE da yoziladi
 app.post("/make-server-27d0d16c/listings/fee/click-create", async (c) => {
@@ -4181,30 +5576,13 @@ app.post("/make-server-27d0d16c/listings/fee/click-create", async (c) => {
       return c.json({ error: "Telefon raqami kiriting", code: "PHONE_REQUIRED" }, 400);
     }
 
-    const clickConfig = await kv.get("payment_method:click");
-    if (!clickConfig || !clickConfig.enabled) {
-      return c.json({ error: "Click to‘lov usuli faol emas", code: "CLICK_DISABLED" }, 400);
+    const resolved = await resolveClickInvoiceCredentials();
+    if (!resolved.ok) {
+      return c.json({ error: resolved.error, code: resolved.code }, 400);
     }
-
-    const cfg = (clickConfig as any).config || {};
-    const serviceId = String(cfg.serviceId ?? "").trim();
-    const merchantId = String(cfg.merchantId ?? "").trim();
-    const merchantUserId = String(cfg.merchantUserId ?? cfg.merchant_user_id ?? "").trim();
-
-    if (!serviceId || !merchantId || !merchantUserId) {
-      return c.json(
-        {
-          error:
-            "Click konfiguratsiyasi to‘liq emas. Admin: serviceId, merchantId, merchantUserId.",
-          code: "CLICK_CONFIG_INCOMPLETE",
-        },
-        400,
-      );
-    }
+    const { serviceId, merchantId, merchantUserId, clickIsTest } = resolved;
 
     const transactionId = `click_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    const clickIsTest =
-      coerceKvTestMode((clickConfig as { isTestMode?: unknown }).isTestMode) === true;
 
     const transaction = {
       id: transactionId,
@@ -4269,10 +5647,6 @@ app.post("/make-server-27d0d16c/listings/fee/payme-create", async (c) => {
     }
 
     const paymeConfig = await kv.get("payment_method:payme");
-    if (!paymeConfig || !paymeConfig.enabled) {
-      return c.json({ error: "Payme to‘lov usuli faol emas", code: "PAYME_DISABLED" }, 400);
-    }
-
     const resolvedTest = resolvePaycomUseTestForPayme(paymeConfig);
     if (!isPaymeConfiguredForMode(resolvedTest, null)) {
       return c.json(
@@ -4284,6 +5658,9 @@ app.post("/make-server-27d0d16c/listings/fee/payme-create", async (c) => {
         },
         503,
       );
+    }
+    if (paymeConfig && paymeConfig.enabled === false) {
+      return c.json({ error: "Payme to‘lov usuli faol emas", code: "PAYME_DISABLED" }, 400);
     }
 
     const transactionId = `payme_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -4557,9 +5934,10 @@ app.post("/make-server-27d0d16c/create-house", async (c) => {
     }
 
     const data = await c.req.json();
-    
+
+    const images = normalizeListingImageUrls(data.images, 10);
     // Validate required fields
-    if (!data.title || !data.price || !data.categoryId || !data.images || data.images.length === 0) {
+    if (!data.title || !data.price || !data.categoryId || images.length === 0) {
       return c.json({ error: 'Majburiy maydonlarni to\'ldiring' }, 400);
     }
 
@@ -4567,12 +5945,12 @@ app.post("/make-server-27d0d16c/create-house", async (c) => {
     if (!ownerPhoneNorm) {
       return c.json({ error: 'Aloqa uchun telefon raqami kiriting' }, 400);
     }
-    const phoneListingCount = await countUniqueListingsWithPhone(ownerPhoneNorm);
+    const lifetimeSlotsHouse = await getLifetimeListingSlotsUsed(ownerPhoneNorm);
     const feeGateHouse = await gateListingByPhoneAndFee(
       auth.userId,
       ownerPhoneNorm,
       data.listingFeeTransactionId,
-      phoneListingCount,
+      lifetimeSlotsHouse,
     );
     if (!feeGateHouse.ok) {
       return c.json({ error: feeGateHouse.error, code: feeGateHouse.code }, feeGateHouse.status);
@@ -4589,7 +5967,7 @@ app.post("/make-server-27d0d16c/create-house", async (c) => {
       description: data.description,
       price: data.price,
       currency: data.currency,
-      images: data.images,
+      images,
       region: data.region,
       district: data.district,
       address: data.address || '',
@@ -4613,7 +5991,7 @@ app.post("/make-server-27d0d16c/create-house", async (c) => {
       ownerPhone: data.ownerPhone,
       createdAt: new Date().toISOString(),
       status: 'active',
-      isPaid: phoneListingCount >= FREE_LISTINGS_PER_PHONE,
+      isPaid: lifetimeSlotsHouse >= FREE_LISTINGS_PER_PHONE,
     };
 
     await kv.set(`listing:${auth.userId}:${houseId}`, house);
@@ -4621,6 +5999,7 @@ app.post("/make-server-27d0d16c/create-house", async (c) => {
     if (feeGateHouse.consumeId) {
       await kv.del(`listing_fee_credit:${feeGateHouse.consumeId}`);
     }
+    await incrementLifetimeListingSlotsUsed(ownerPhoneNorm);
 
     return c.json({ success: true, house, message: 'Uy e\'loni joylashtirildi' });
   } catch (error: any) {
@@ -4650,7 +6029,7 @@ app.post("/make-server-27d0d16c/create-car", async (c) => {
       hasHalalInstallment: data.hasHalalInstallment,
     });
     
-    // Validate required fields
+    // Validate required fields (rasmlar keyinroq normalize qilinadi)
     if (!data.title || !data.price || !data.categoryId || !data.images || data.images.length === 0) {
       return c.json({ error: 'Majburiy maydonlarni to\'ldiring' }, 400);
     }
@@ -4659,12 +6038,12 @@ app.post("/make-server-27d0d16c/create-car", async (c) => {
     if (!ownerPhoneNormCar) {
       return c.json({ error: 'Aloqa uchun telefon raqami kiriting' }, 400);
     }
-    const phoneListingCountCar = await countUniqueListingsWithPhone(ownerPhoneNormCar);
+    const lifetimeSlotsCar = await getLifetimeListingSlotsUsed(ownerPhoneNormCar);
     const feeGateCar = await gateListingByPhoneAndFee(
       auth.userId,
       ownerPhoneNormCar,
       data.listingFeeTransactionId,
-      phoneListingCountCar,
+      lifetimeSlotsCar,
     );
     if (!feeGateCar.ok) {
       return c.json({ error: feeGateCar.error, code: feeGateCar.code }, feeGateCar.status);
@@ -4694,7 +6073,15 @@ app.post("/make-server-27d0d16c/create-car", async (c) => {
         }
       }
     }
-    
+
+    const imagesNorm = normalizeListingImageUrls(
+      finalImageUrls.length > 0 ? finalImageUrls : data.images,
+      10,
+    );
+    if (imagesNorm.length === 0) {
+      return c.json({ error: 'Kamida bitta to‘g‘ri rasm URL kerak' }, 400);
+    }
+
     const car = {
       id: carId,
       userId: auth.userId,
@@ -4702,8 +6089,8 @@ app.post("/make-server-27d0d16c/create-car", async (c) => {
       name: data.title,
       categoryId: data.categoryId,
       category: data.categoryId,
-      image: finalImageUrls.length > 0 ? finalImageUrls[0] : (data.images?.[0] || ''),
-      images: finalImageUrls.length > 0 ? finalImageUrls : data.images,
+      image: imagesNorm[0] || '',
+      images: imagesNorm,
       year: data.year,
       brand: data.brand,
       model: data.model,
@@ -4762,7 +6149,7 @@ app.post("/make-server-27d0d16c/create-car", async (c) => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: 'active',
-      isPaid: phoneListingCountCar >= FREE_LISTINGS_PER_PHONE,
+      isPaid: lifetimeSlotsCar >= FREE_LISTINGS_PER_PHONE,
     };
 
     // Handle panorama scenes if provided
@@ -4802,6 +6189,7 @@ app.post("/make-server-27d0d16c/create-car", async (c) => {
     if (feeGateCar.consumeId) {
       await kv.del(`listing_fee_credit:${feeGateCar.consumeId}`);
     }
+    await incrementLifetimeListingSlotsUsed(ownerPhoneNormCar);
 
     return c.json({ success: true, car, message: 'Moshina e\'loni joylashtirildi' });
   } catch (error: any) {
@@ -4856,7 +6244,9 @@ app.delete("/make-server-27d0d16c/listing/:id", async (c) => {
     }
 
     console.log('✅ Listing found, type:', listing.type);
-    
+
+    await touchListingLifetimeBeforeHardDelete(listing);
+    await deleteListingRecordMediaFromR2(listing as Record<string, unknown>);
     // Delete from both places
     await kv.del(`listing:${auth.userId}:${listingId}`);
     console.log('✅ Deleted from profile: listing:' + auth.userId + ':' + listingId);
@@ -5103,9 +6493,21 @@ app.get("/make-server-27d0d16c/houses", async (c) => {
     
     // Combine both arrays
     const allHouses = [...oldHouses, ...mappedProperties];
+
+    // Bir xil `id` ikki marta kelsa (masalan house: + property:), React key takrorlanib
+    // bitta kartochkada bir xil rasm/tarkib qolib ketishi mumkin — birinchi yozuvni saqlaymiz.
+    const seenHouseIds = new Set<string>();
+    const uniqueHouses = allHouses.filter((h: any) => {
+      if (!h) return false;
+      const hid = h.id != null ? String(h.id).trim() : '';
+      if (!hid) return true;
+      if (seenHouseIds.has(hid)) return false;
+      seenHouseIds.add(hid);
+      return true;
+    });
     
     // Optimized filtering - single pass (case-insensitive)
-    const filteredHouses = allHouses.filter((h: any) => {
+    const filteredHouses = uniqueHouses.filter((h: any) => {
       if (!h) return false;
       if (region && (!h.region || h.region.toLowerCase() !== region.toLowerCase())) return false;
       if (district && (!h.district || h.district.toLowerCase() !== district.toLowerCase())) return false;
@@ -5114,7 +6516,15 @@ app.get("/make-server-27d0d16c/houses", async (c) => {
     });
 
     console.log(`✅ Filtered houses: ${filteredHouses.length} out of ${allHouses.length}`);
-    return c.json({ houses: filteredHouses });
+    const mergedHouses = await Promise.all(
+      filteredHouses.map((h: any) => mergeCatalogRowImagesFromListing(h)),
+    );
+    const housesOut = mergedHouses.map((h: any) =>
+      h && typeof h === "object"
+        ? { ...h, images: normalizeListingImageUrls(h.images, 10) }
+        : h,
+    );
+    return c.json({ houses: housesOut });
   } catch (error) {
     console.log('Get houses error:', error);
     return c.json({ error: 'Uylarni olishda xatolik' }, 500);
@@ -5125,13 +6535,18 @@ app.get("/make-server-27d0d16c/houses", async (c) => {
 app.get("/make-server-27d0d16c/houses/:id", async (c) => {
   try {
     const id = c.req.param('id');
-    const house = await kv.get(`house:${id}`);
+    let house = await kv.get(`house:${id}`);
     
     if (!house) {
       return c.json({ error: 'Uy topilmadi' }, 404);
     }
 
-    return c.json({ house });
+    house = await mergeCatalogRowImagesFromListing(house);
+    const houseOut =
+      house && typeof house === "object"
+        ? { ...house, images: normalizeListingImageUrls((house as any).images, 10) }
+        : house;
+    return c.json({ house: houseOut });
   } catch (error) {
     console.log('Get house error:', error);
     return c.json({ error: 'Uyni olishda xatolik' }, 500);
@@ -5154,22 +6569,24 @@ app.post("/make-server-27d0d16c/houses", async (c) => {
     if (!housePhoneNorm) {
       return c.json({ error: 'Aloqa uchun telefon raqami kiriting' }, 400);
     }
-    const housePhoneListingCount = await countUniqueListingsWithPhone(housePhoneNorm);
+    const lifetimeSlotsHousePost = await getLifetimeListingSlotsUsed(housePhoneNorm);
     const feeGateHousePost = await gateListingByPhoneAndFee(
       auth.userId,
       housePhoneNorm,
       houseData.listingFeeTransactionId,
-      housePhoneListingCount,
+      lifetimeSlotsHousePost,
     );
     if (!feeGateHousePost.ok) {
       return c.json({ error: feeGateHousePost.error, code: feeGateHousePost.code }, feeGateHousePost.status);
     }
 
     const houseId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    
+
+    const imagesPost = normalizeListingImageUrls(houseData?.images, 10);
     const house = {
       id: houseId,
       ...houseData,
+      ...(imagesPost.length > 0 ? { images: imagesPost } : {}),
       userId: auth.userId,
       createdAt: new Date().toISOString(),
     };
@@ -5178,6 +6595,7 @@ app.post("/make-server-27d0d16c/houses", async (c) => {
     if (feeGateHousePost.consumeId) {
       await kv.del(`listing_fee_credit:${feeGateHousePost.consumeId}`);
     }
+    await incrementLifetimeListingSlotsUsed(housePhoneNorm);
 
     return c.json({ success: true, house, message: 'Uy qo\'shildi' });
   } catch (error: any) {
@@ -5215,6 +6633,7 @@ app.put("/make-server-27d0d16c/houses/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    await purgeRemovedR2Urls(existingHouse, updatedHouse);
     await kv.set(`house:${id}`, updatedHouse);
 
     return c.json({ success: true, house: updatedHouse, message: 'Uy yangilandi' });
@@ -5245,6 +6664,8 @@ app.delete("/make-server-27d0d16c/houses/:id", async (c) => {
       return c.json({ error: 'Bu uy sizga tegishli emas' }, 403);
     }
 
+    await touchListingLifetimeBeforeHardDelete(existingHouse);
+    await purgeAllManagedR2UrlsInRecord(existingHouse);
     await kv.del(`house:${id}`);
 
     return c.json({ success: true, message: 'Uy o\'chirildi' });
@@ -5311,8 +6732,11 @@ app.get("/make-server-27d0d16c/cars", async (c) => {
     if (category) {
       allCars = allCars.filter((car: any) => car.categoryId === category);
     }
-    
-    return c.json({ success: true, cars: allCars });
+
+    const mergedCars = await Promise.all(
+      allCars.map((car: any) => mergeCatalogRowImagesFromListing(car)),
+    );
+    return c.json({ success: true, cars: mergedCars });
   } catch (error: any) {
     console.log('Get cars error:', error);
     return c.json({ error: 'Avtomobillarni olishda xatolik' }, 500);
@@ -5323,12 +6747,13 @@ app.get("/make-server-27d0d16c/cars", async (c) => {
 app.get("/make-server-27d0d16c/cars/:id", async (c) => {
   try {
     const id = c.req.param('id');
-    const car = await kv.get(`car:${id}`);
+    let car = await kv.get(`car:${id}`);
     
     if (!car) {
       return c.json({ error: 'Avtomobil topilmadi' }, 404);
     }
-    
+
+    car = await mergeCatalogRowImagesFromListing(car);
     return c.json({ success: true, car });
   } catch (error: any) {
     console.log('Get car error:', error);
@@ -5352,12 +6777,12 @@ app.post("/make-server-27d0d16c/cars", async (c) => {
     if (!carPhoneNorm) {
       return c.json({ error: 'Aloqa uchun telefon raqami kiriting' }, 400);
     }
-    const carPhoneListingCount = await countUniqueListingsWithPhone(carPhoneNorm);
+    const lifetimeSlotsCarPost = await getLifetimeListingSlotsUsed(carPhoneNorm);
     const feeGateCarPost = await gateListingByPhoneAndFee(
       auth.userId,
       carPhoneNorm,
       carData.listingFeeTransactionId,
-      carPhoneListingCount,
+      lifetimeSlotsCarPost,
     );
     if (!feeGateCarPost.ok) {
       return c.json({ error: feeGateCarPost.error, code: feeGateCarPost.code }, feeGateCarPost.status);
@@ -5377,6 +6802,7 @@ app.post("/make-server-27d0d16c/cars", async (c) => {
     if (feeGateCarPost.consumeId) {
       await kv.del(`listing_fee_credit:${feeGateCarPost.consumeId}`);
     }
+    await incrementLifetimeListingSlotsUsed(carPhoneNorm);
 
     return c.json({ success: true, car: newCar, message: 'Avtomobil qo\'shildi' });
   } catch (error: any) {
@@ -5416,6 +6842,7 @@ app.put("/make-server-27d0d16c/cars/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    await purgeRemovedR2Urls(existingCar, updatedCar);
     await kv.set(`car:${id}`, updatedCar);
 
     return c.json({ success: true, car: updatedCar, message: 'Avtomobil yangilandi' });
@@ -5446,6 +6873,8 @@ app.delete("/make-server-27d0d16c/cars/:id", async (c) => {
       return c.json({ error: 'Bu avtomobil sizga tegishli emas' }, 403);
     }
 
+    await touchListingLifetimeBeforeHardDelete(existingCar);
+    await purgeAllManagedR2UrlsInRecord(existingCar);
     await kv.del(`car:${id}`);
 
     return c.json({ success: true, message: 'Avtomobil o\'chirildi' });
@@ -5601,17 +7030,16 @@ app.post("/make-server-27d0d16c/places", async (c) => {
     console.log('📏 Image data length:', data.image?.length || 0);
     console.log('📷 Images array length:', data.images?.length || 0);
     
-    // Validate security code (fixed code: 0099)
-    const SECRET_CODE = '0099';
-    
-    if (!data.securityCode || data.securityCode !== SECRET_CODE) {
-      console.log(`❌ Invalid security code. Expected: ${SECRET_CODE}, Got: ${data.securityCode}`);
+    const SECRET_CODE = await getAdminSecondaryCode();
+
+    if (!data.securityCode || String(data.securityCode).trim() !== SECRET_CODE) {
+      console.log(`❌ Invalid security code. Expected: (panel KV), Got: ${data.securityCode}`);
       return c.json({ 
         error: `Noto'g'ri maxfiy kod!` 
       }, 403);
     }
     
-    console.log(`✅ Security code validated: ${SECRET_CODE}`);
+    console.log('✅ Security code validated');
 
     // Handle base64 image upload if provided (single image for backward compatibility)
     let finalImageUrl = data.image;
@@ -5762,14 +7190,13 @@ app.put("/make-server-27d0d16c/places/:id", async (c) => {
       return c.json({ error: 'Noto\'g\'ri ma\'lumot formati' }, 400);
     }
 
-    // Validate security code (fixed code: 0099)
-    const SECRET_CODE = '0099';
+    const SECRET_CODE = await getAdminSecondaryCode();
 
     console.log('🔐 Security code validation:');
-    console.log('  Expected code:', SECRET_CODE);
+    console.log('  Expected code:', '(panel KV)');
     console.log('  Received code:', data.securityCode);
 
-    if (!data.securityCode || data.securityCode !== SECRET_CODE) {
+    if (!data.securityCode || String(data.securityCode).trim() !== SECRET_CODE) {
       console.log('❌ Invalid security code');
       return c.json({ error: `Noto'g'ri maxfiy kod!` }, 403);
     }
@@ -5862,6 +7289,7 @@ app.put("/make-server-27d0d16c/places/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    await purgeRemovedR2Urls(existingPlace, updatedPlace);
     console.log('💾 Saving updated place to KV...');
     await kv.set(`place:${id}`, updatedPlace);
     console.log('✅ Place updated successfully in KV');
@@ -5978,6 +7406,7 @@ app.delete("/make-server-27d0d16c/places/:id", async (c) => {
       return c.json({ error: 'Joy topilmadi' }, 404);
     }
 
+    await purgeAllManagedR2UrlsInRecord(existingPlace);
     await kv.del(`place:${id}`);
 
     return c.json({ success: true, message: 'Joy o\'chirildi' });
@@ -6249,6 +7678,7 @@ app.put("/make-server-27d0d16c/branch-places/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
     
+    await purgeRemovedR2Urls(existingPlace, updatedPlace);
     await kv.set(`place:${id}`, updatedPlace);
     
     console.log(`✅ Branch place updated: ${id}`);
@@ -6282,6 +7712,7 @@ app.delete("/make-server-27d0d16c/branch-places/:id", async (c) => {
       return c.json({ error: 'Siz faqat o\'z joylaringizni o\'chira olasiz' }, 403);
     }
     
+    await purgeAllManagedR2UrlsInRecord(existingPlace);
     await kv.del(`place:${id}`);
     
     // Also delete all reviews for this place
@@ -6790,6 +8221,7 @@ app.put("/make-server-27d0d16c/branch-properties/:id", async (c) => {
       updatedProperty.panoramaScenes = existingProperty.panoramaScenes;
     }
     
+    await purgeRemovedR2Urls(existingProperty, updatedProperty);
     // Update using the correct key (property: or house:)
     await kv.set(propertyKey, updatedProperty);
     
@@ -6847,6 +8279,7 @@ app.delete("/make-server-27d0d16c/branch-properties/:id", async (c) => {
       }
     }
     
+    await purgeAllManagedR2UrlsInRecord(existingProperty);
     // Delete using the correct key (property: or house:)
     await kv.del(propertyKey);
     
@@ -7222,6 +8655,7 @@ app.put("/make-server-27d0d16c/branch-vehicles/:id", async (c) => {
       updatedVehicle.panoramaScenes = existingVehicle.panoramaScenes;
     }
     
+    await purgeRemovedR2Urls(existingVehicle, updatedVehicle);
     await kv.set(vehicleKey, updatedVehicle);
     
     console.log(`✅ Branch vehicle updated: ${vehicleKey}`);
@@ -7273,6 +8707,7 @@ app.delete("/make-server-27d0d16c/branch-vehicles/:id", async (c) => {
       }
     }
     
+    await purgeAllManagedR2UrlsInRecord(existingVehicle);
     await kv.del(vehicleKey);
     
     console.log(`✅ Branch vehicle deleted: ${vehicleKey}`);
@@ -7300,6 +8735,7 @@ app.delete("/make-server-27d0d16c/branch-vehicles", async (c) => {
     console.log(`🗑️ Deleting ${vehiclesToDelete.length} vehicles...`);
     
     for (const vehicle of vehiclesToDelete) {
+      await purgeAllManagedR2UrlsInRecord(vehicle);
       await kv.del(`vehicle:${vehicle.id}`);
     }
     
@@ -7615,10 +9051,6 @@ app.post("/make-server-27d0d16c/payments/payme/create", async (c) => {
 
     const paymeConfig = await kv.get('payment_method:payme');
 
-    if (!paymeConfig || !paymeConfig.enabled) {
-      return c.json({ error: 'Payme to\'lov usuli faol emas' }, 400);
-    }
-
     const resolvedTest = resolvePaycomUseTestForPayme(paymeConfig);
     if (!isPaymeConfiguredForMode(resolvedTest, null)) {
       return c.json(
@@ -7630,6 +9062,9 @@ app.post("/make-server-27d0d16c/payments/payme/create", async (c) => {
         },
         503,
       );
+    }
+    if (paymeConfig && paymeConfig.enabled === false) {
+      return c.json({ error: 'Payme to\'lov usuli faol emas' }, 400);
     }
 
     /** Paycom account.order_id va tranzaksiya ID bir xil bo‘lsin — aralash ID «чек не найден» izohlarini kamaytiradi */
@@ -7700,34 +9135,27 @@ app.post("/make-server-27d0d16c/payments/click/create", async (c) => {
     const { amount, orderId, userId } = await c.req.json();
     
     console.log('💳 Creating Click invoice:', { amount, orderId, userId });
-    
-    const clickConfig = await kv.get('payment_method:click');
-    
-    if (!clickConfig || !clickConfig.enabled) {
-      return c.json({ error: 'Click to\'lov usuli faol emas' }, 400);
-    }
 
     const amountSom = Number(amount);
     if (!Number.isFinite(amountSom) || amountSom <= 0) {
       return c.json({ error: 'Noto\'g\'ri summa' }, 400);
     }
-    const cfg = (clickConfig as any).config || {};
-    const serviceId = String(cfg.serviceId ?? '').trim();
-    const merchantId = String(cfg.merchantId ?? '').trim();
-    const merchantUserId = String(cfg.merchantUserId ?? cfg.merchant_user_id ?? '').trim();
 
-    if (!serviceId || !merchantId || !merchantUserId) {
-      return c.json({
-        error:
-          'Click konfiguratsiyasi to‘liq emas. Admin panelda to‘lov usullari → Click: serviceId, merchantId, merchantUserId (kabinetdagi foydalanuvchi ID) majburiy.',
-        code: 'CLICK_CONFIG_INCOMPLETE',
-      }, 400);
+    const resolvedClick = await resolveClickInvoiceCredentials();
+    if (!resolvedClick.ok) {
+      return c.json(
+        {
+          error: resolvedClick.code === 'CLICK_CONFIG_INCOMPLETE'
+            ? 'Click konfiguratsiyasi to‘liq emas. Supabase secrets yoki Admin: serviceId, merchantId, merchantUserId (kabinetdagi foydalanuvchi ID).'
+            : resolvedClick.error,
+          code: resolvedClick.code,
+        },
+        400,
+      );
     }
+    const { serviceId, merchantId, merchantUserId, clickIsTest } = resolvedClick;
 
     const transactionId = `click_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-
-    const clickIsTest =
-      coerceKvTestMode((clickConfig as { isTestMode?: unknown }).isTestMode) === true;
 
     const transaction = {
       id: transactionId,
@@ -11539,6 +12967,7 @@ app.put("/make-server-27d0d16c/shops/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    await purgeRemovedR2Urls(existingShop, updatedShop);
     await kv.set(`shop:${id}`, updatedShop);
 
     return c.json({ 
@@ -11951,6 +13380,7 @@ app.put("/make-server-27d0d16c/seller/products/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    await purgeRemovedR2Urls(product, updatedProduct);
     await kv.set(`shop_product:${id}`, updatedProduct);
 
     return c.json({ 
@@ -11980,6 +13410,7 @@ app.delete("/make-server-27d0d16c/seller/products/:id", async (c) => {
       return c.json({ error: 'Mahsulot topilmadi' }, 404);
     }
 
+    await purgeAllManagedR2UrlsInRecord(product);
     const deletedProduct = {
       ...product,
       deleted: true,
@@ -12937,7 +14368,9 @@ async function retryOperation<T>(
   throw lastError;
 }
 
-// ==================== ADMIN 2FA (mount BEFORE /make-server-27d0d16c catch-all routers) ====================
+// ==================== ADMIN auth / security / 2FA (mount BEFORE /make-server-27d0d16c catch-all routers) ====================
+app.route('/make-server-27d0d16c/admin/auth', adminAuthApp);
+app.route('/make-server-27d0d16c/admin/security', adminSecurityApp);
 app.route('/make-server-27d0d16c/admin/2fa', admin2faApp);
 
 // ==================== RESTAURANT ROUTES ====================
@@ -13201,6 +14634,18 @@ app.post('/make-server-27d0d16c/payme/check-receipt', async (c) => {
 
     if (result.isPaid) {
       await applyPaidOrCancelledKv("paid");
+      try {
+        const paidMeta = (await kv.get(`paycom_receipt:${receiptId}`)) as
+          | { orderId?: string }
+          | null;
+        if (paidMeta?.orderId) {
+          await markKvOrderPaidFromGateway(String(paidMeta.orderId), {
+            paymeReceiptId: receiptId,
+          });
+        }
+      } catch (paidKvErr: unknown) {
+        console.error('[payme/check-receipt] buyurtma to‘langan deb yangilanmadi:', paidKvErr);
+      }
     }
     if (result.isCancelled) {
       await applyPaidOrCancelledKv("cancelled");
@@ -13955,6 +15400,7 @@ const userChatMessagesListHandler = async (c: any) => {
       senderName: String(m.senderName || ''),
       content: String(m.content || ''),
       type: String(m.type || 'text'),
+      imageCaption: m.imageCaption != null ? String(m.imageCaption) : '',
       timestamp: new Date(m.timestamp || Date.now()).toISOString(),
       status: mapMessageStatusToUI(m.status),
       isOwn: String(m.senderId || '') === String(auth.userId),
@@ -13969,6 +15415,54 @@ const userChatMessagesListHandler = async (c: any) => {
 
 app.get("/make-server-27d0d16c/user/chats/:chatId/messages", userChatMessagesListHandler);
 app.get("/user/chats/:chatId/messages", userChatMessagesListHandler);
+
+const userChatUploadMediaHandler = async (c: any) => {
+  try {
+    const auth = await validateAccessToken(c);
+    if (!auth.success || !auth.userId) {
+      return c.json({ error: auth.error }, 401);
+    }
+
+    const formData = await c.req.formData();
+    const file = formData.get('file') as File;
+    if (!file || !(file instanceof File)) {
+      return c.json({ error: 'Fayl topilmadi' }, 400);
+    }
+    if (!file.type.startsWith('image/')) {
+      return c.json({ error: 'Faqat rasm fayli yuklash mumkin' }, 400);
+    }
+    if (file.size > 8 * 1024 * 1024) {
+      return c.json({ error: 'Rasm hajmi 8MB dan oshmasligi kerak' }, 400);
+    }
+
+    const ext = file.name.split('.').pop() || 'jpg';
+    const filename = `support_chat/${auth.userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+
+    const r2Config = r2.checkR2Config();
+    if (!r2Config.configured) {
+      return c.json({ error: r2Config.message }, 500);
+    }
+
+    const uploadResult = await r2.uploadFile(buffer, filename, file.type);
+    if (!uploadResult.success) {
+      return c.json({ error: uploadResult.error || 'Yuklashda xatolik' }, 500);
+    }
+
+    return c.json({
+      success: true,
+      url: uploadResult.url,
+      contentType: file.type,
+    });
+  } catch (error: any) {
+    console.error('User chat upload-media error:', error);
+    return c.json({ error: error.message || 'Yuklashda xatolik' }, 500);
+  }
+};
+
+app.post("/make-server-27d0d16c/user/chats/upload-media", userChatUploadMediaHandler);
+app.post("/user/chats/upload-media", userChatUploadMediaHandler);
 
 // Send a message from user to branch (chat must belong to user)
 const userChatSendHandler = async (c: any) => {
@@ -13985,9 +15479,20 @@ const userChatSendHandler = async (c: any) => {
     }
 
     const body = await c.req.json().catch(() => ({}));
-    const content = String(body?.content || '').trim();
     const type = String(body?.type || 'text').trim() || 'text';
-    if (!content) return c.json({ error: 'content kerak' }, 400);
+    const captionRaw = body?.caption != null ? String(body.caption).trim().slice(0, 500) : '';
+
+    let content = String(body?.content || '').trim();
+    let imageCaption = '';
+
+    if (type === 'image') {
+      if (!/^https?:\/\//i.test(content)) {
+        return c.json({ error: 'Rasm uchun to‘liq https havola kerak' }, 400);
+      }
+      imageCaption = captionRaw;
+    } else {
+      if (!content) return c.json({ error: 'content kerak' }, 400);
+    }
 
     const userId = String(auth.userId);
     const userProfile = await kv.get(`user:${userId}`);
@@ -13996,7 +15501,7 @@ const userChatSendHandler = async (c: any) => {
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const nowIso = new Date().toISOString();
 
-    const message = {
+    const message: Record<string, unknown> = {
       id: messageId,
       chatId,
       senderId: userId,
@@ -14007,8 +15512,14 @@ const userChatSendHandler = async (c: any) => {
       status: 'sent',
       isOwn: true,
     };
+    if (type === 'image' && imageCaption) {
+      message.imageCaption = imageCaption;
+    }
 
     await kv.set(`${CHAT_MESSAGE_KEY_PREFIX}${chatId}:${messageId}`, message);
+
+    const lastPreview =
+      type === 'image' ? (imageCaption ? `📷 ${imageCaption.slice(0, 80)}` : '📷 Rasm') : content;
 
     // Update chat lastMessage
     const chatKey = `${CHAT_KEY_PREFIX}${chatId}`;
@@ -14019,9 +15530,9 @@ const userChatSendHandler = async (c: any) => {
           ...existing,
           updatedAt,
           lastMessage: {
-            content: message.content,
-            timestamp: message.timestamp,
-            senderName: message.senderName,
+            content: lastPreview,
+            timestamp: nowIso,
+            senderName,
             isOwn: false,
           },
         }
@@ -14032,9 +15543,9 @@ const userChatSendHandler = async (c: any) => {
           participantType: 'customer',
           participantName: senderName,
           lastMessage: {
-            content: message.content,
-            timestamp: message.timestamp,
-            senderName: message.senderName,
+            content: lastPreview,
+            timestamp: nowIso,
+            senderName,
             isOwn: false,
           },
           unreadCount: 0,
@@ -14128,6 +15639,7 @@ app.get("/make-server-27d0d16c/chats/:chatId/messages", async (c) => {
       senderName: String(m.senderName || ''),
       content: String(m.content || ''),
       type: String(m.type || 'text'),
+      imageCaption: m.imageCaption != null ? String(m.imageCaption) : '',
       timestamp: new Date(m.timestamp || Date.now()).toISOString(),
       status: mapMessageStatusToUI(m.status),
       isOwn: Boolean(m.isOwn),
@@ -15212,6 +16724,7 @@ app.put("/make-server-27d0d16c/portfolios/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
     
+    await purgeRemovedR2Urls(existingPortfolio, updatedPortfolio);
     await kv.set(`portfolio:${id}`, updatedPortfolio);
     
     console.log(`✅ Portfolio updated: ${id}`);
@@ -15235,6 +16748,17 @@ app.delete("/make-server-27d0d16c/portfolios/:id", async (c) => {
       return c.json({ error: 'Portfolio topilmadi' }, 404);
     }
     
+    try {
+      const projectsData = await kv.getByPrefix(`project:${id}:`);
+      for (const p of projectsData || []) {
+        await purgeAllManagedR2UrlsInRecord(p);
+        const pid = (p as { id?: string })?.id;
+        if (pid) await kv.del(`project:${id}:${pid}`);
+      }
+    } catch (e) {
+      console.warn('[portfolio delete] loyihalar R2/KV:', e);
+    }
+    await purgeAllManagedR2UrlsInRecord(portfolio);
     await kv.del(`portfolio:${id}`);
     
     console.log(`✅ Portfolio deleted: ${id}`);
@@ -15414,6 +16938,7 @@ app.put("/make-server-27d0d16c/banks/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
     
+    await purgeRemovedR2Urls(existingBank, updatedBank);
     await kv.set(`bank:${bankId}`, updatedBank);
     
     console.log('✅ Bank updated successfully');
@@ -15437,6 +16962,7 @@ app.delete("/make-server-27d0d16c/banks/:id", async (c) => {
       return c.json({ error: 'Bank topilmadi' }, 404);
     }
     
+    await purgeAllManagedR2UrlsInRecord(bank);
     await kv.del(`bank:${bankId}`);
     
     console.log('✅ Bank deleted successfully');
@@ -16261,7 +17787,20 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
     const normalizedPaymentMethod = isCashierQrOrderType
       ? 'qr'
       : String(data.paymentMethod || 'cash').toLowerCase().trim();
-    const paymentStatus = 'pending';
+    /** Checkout onlayn to‘lovda `paymentStatus: paid` yuboradi; avvaldoim `pending` qilib KV buzilgan edi. */
+    const bodyPaymentNorm = normalizeIncomingOrderCreatePaymentStatus(data.paymentStatus);
+    const cashLike =
+      normalizedPaymentMethod === 'cash' ||
+      normalizedPaymentMethod === 'naqd' ||
+      normalizedPaymentMethod === 'cod';
+    let paymentStatus: 'paid' | 'pending' | 'failed' | 'refunded';
+    if (bodyPaymentNorm === 'failed' || bodyPaymentNorm === 'refunded') {
+      paymentStatus = bodyPaymentNorm;
+    } else if (cashLike) {
+      paymentStatus = 'pending';
+    } else {
+      paymentStatus = bodyPaymentNorm === 'paid' ? 'paid' : 'pending';
+    }
     const branchId = await inferOrderBranchId(data);
     const branch = branchId ? await kv.get(`branch:${branchId}`) : null;
     const inferredShopId = (() => {
@@ -16353,7 +17892,8 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
 
     // Market + naqd: filial "qabul qilish"gacha tayyorlovchi panelida ko‘rinmasin; onlayn to‘lov — darhol tayyorlovchiga.
     const marketCashHold =
-      normalizedOrderType === 'market' && normalizedPaymentMethod === 'cash';
+      normalizedOrderType === 'market' &&
+      (normalizedPaymentMethod === 'cash' || normalizedPaymentMethod === 'naqd');
     const releasedToPreparerAt =
       normalizedOrderType === 'market' && !marketCashHold
         ? new Date().toISOString()
@@ -16767,6 +18307,49 @@ function inferCreatedAtFromKvKey(kvKey: string): string | undefined {
   return Number.isFinite(ms) ? new Date(ms).toISOString() : undefined;
 }
 
+/** Provayderlar turli qatorlar yuboradi — admin UI uchun bitta enum */
+function normalizeOrderPaymentStatusForAdmin(raw: unknown): 'paid' | 'pending' | 'failed' | 'refunded' {
+  const s = String(raw ?? '').toLowerCase().trim();
+  if (
+    ['paid', 'completed', 'complete', 'success', 'succeeded', 'successful', 'captured', 'settled', 'paid_out'].includes(
+      s,
+    )
+  ) {
+    return 'paid';
+  }
+  if (['failed', 'error', 'declined', 'rejected', 'expired'].includes(s)) {
+    return 'failed';
+  }
+  if (['refunded', 'partially_refunded', 'partial_refund'].includes(s)) {
+    return 'refunded';
+  }
+  if (['pending', 'processing', 'awaiting', 'unpaid', 'new', 'created', 'authorized'].includes(s) || !s) {
+    return 'pending';
+  }
+  return 'pending';
+}
+
+function orderTotalMoneyForStats(o: any): number {
+  const n = Number(o?.finalTotal ?? o?.totalAmount ?? o?.totalPrice ?? o?.total ?? 0);
+  return Number.isFinite(n) ? n : 0;
+}
+
+/** Bir xil buyurtma `order:id` va `order:market:id` kalitlarida takrorlanmasin */
+function dedupeNormalizedOrdersForAdmin(normalized: any[]): any[] {
+  const byId = new Map<string, any>();
+  for (const o of normalized) {
+    const id = String(o?.id ?? '').trim();
+    if (!id) continue;
+    const prev = byId.get(id);
+    const t = new Date(o.updatedAt ?? o.createdAt ?? 0).getTime();
+    const pt = prev ? new Date(prev.updatedAt ?? prev.createdAt ?? 0).getTime() : -1;
+    if (!prev || (Number.isFinite(t) && (!Number.isFinite(pt) || t >= pt))) {
+      byId.set(id, o);
+    }
+  }
+  return Array.from(byId.values());
+}
+
 /** Admin / filial UI uchun KV buyurtma qatorini bir xil maydonlarga keltirish */
 function normalizeOrderRowForAdmin(raw: unknown, kvKey: string): any | null {
   const order = parseKvOrderValue(raw);
@@ -16812,10 +18395,15 @@ function normalizeOrderRowForAdmin(raw: unknown, kvKey: string): any | null {
   if (status === 'accepted') status = 'confirmed';
   else if (status === 'new' || status === '') status = 'pending';
 
-  const paymentRaw = String(order.paymentStatus ?? order.payment_status ?? '').toLowerCase();
-  const paymentStatus = ['paid', 'pending', 'failed', 'refunded'].includes(paymentRaw)
-    ? paymentRaw
-    : (paymentRaw || 'pending');
+  const payObj = order.payment && typeof order.payment === 'object' ? (order.payment as any) : null;
+  const paymentSource =
+    order.paymentStatus ??
+    order.payment_status ??
+    (order as any).paymentState ??
+    (order as any).pay_status ??
+    payObj?.status;
+
+  const paymentStatus = normalizeOrderPaymentStatusForAdmin(paymentSource);
 
   const customerAddress =
     order.customerAddress ??
@@ -16857,7 +18445,8 @@ app.get('/make-server-27d0d16c/orders/all', async (c) => {
       .map(({ key, value }) => normalizeOrderRowForAdmin(value, key))
       .filter((o): o is NonNullable<typeof o> => o != null);
 
-    const sortedOrders = [...normalized].sort(
+    const deduped = dedupeNormalizedOrdersForAdmin(normalized);
+    const sortedOrders = [...deduped].sort(
       (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
 
@@ -17243,10 +18832,45 @@ app.get('/make-server-27d0d16c/orders/stats', async (c) => {
     }
 
     console.log('📦 Getting order statistics');
-    const allOrders = await kv.getByPrefix('order:');
-    
+    const rows = await kv.getByPrefixWithKeys('order:');
+    const normalized = rows
+      .map(({ key, value }) => normalizeOrderRowForAdmin(value, key))
+      .filter((o): o is NonNullable<typeof o> => o != null);
+    const allOrders = dedupeNormalizedOrdersForAdmin(normalized);
+
+    const paymentByStatus = { paid: 0, pending: 0, failed: 0, refunded: 0 };
+    for (const o of allOrders) {
+      const k = o.paymentStatus as keyof typeof paymentByStatus;
+      if (k in paymentByStatus) paymentByStatus[k]++;
+      else paymentByStatus.pending++;
+    }
+
+    const revenueTotal = allOrders.reduce((sum: number, o: any) => sum + orderTotalMoneyForStats(o), 0);
+    const revenuePaid = allOrders
+      .filter((o: any) => o.paymentStatus === 'paid')
+      .reduce((sum: number, o: any) => sum + orderTotalMoneyForStats(o), 0);
+
+    const recentActivity = [...allOrders]
+      .sort(
+        (a: any, b: any) =>
+          new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      )
+      .slice(0, 12)
+      .map((o: any) => ({
+        id: o.id,
+        orderId: o.orderId,
+        customerName: o.customerName || '',
+        status: o.status,
+        paymentStatus: o.paymentStatus,
+        createdAt: o.createdAt,
+        totalAmount: orderTotalMoneyForStats(o),
+        orderType: o.orderType ?? o.type,
+      }));
+
     const stats = {
       total: allOrders.length,
+      paidOrderCount: paymentByStatus.paid,
+      paymentByStatus,
       byType: {
         market: allOrders.filter((o: any) => o.orderType === 'market').length,
         shop: allOrders.filter((o: any) => o.orderType === 'shop').length,
@@ -17263,16 +18887,126 @@ app.get('/make-server-27d0d16c/orders/stats', async (c) => {
         cancelled: allOrders.filter((o: any) => o.status === 'cancelled').length,
       },
       revenue: {
-        total: allOrders.reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0),
-        paid: allOrders.filter((o: any) => o.paymentStatus === 'paid')
-          .reduce((sum: number, o: any) => sum + (o.totalAmount || 0), 0),
+        total: revenueTotal,
+        paid: revenuePaid,
       },
+      recentActivity,
     };
-    
+
     return c.json({ success: true, stats });
   } catch (error: any) {
     console.error('Get order stats error:', error);
     return c.json({ error: `Statistikani olishda xatolik: ${error.message}` }, 500);
+  }
+});
+
+/** Admin: barcha filiallar bo‘yicha buyurtma statistikasi va 14 kunlik qatorlar (KV) */
+app.get('/make-server-27d0d16c/admin/branch-insights', async (c) => {
+  try {
+    const admin = await validateAdminAccess(c);
+    if (!admin.success) {
+      return c.json({ error: admin.error }, 403);
+    }
+
+    const rows = await kv.getByPrefixWithKeys('order:');
+    const normalized = rows
+      .map(({ key, value }) => normalizeOrderRowForAdmin(value, key))
+      .filter((o): o is NonNullable<typeof o> => o != null);
+    const allOrders = dedupeNormalizedOrdersForAdmin(normalized);
+
+    const branchRecords = await kv.getByPrefix('branch:');
+    const branchNameById = new Map<string, string>();
+    for (const b of branchRecords) {
+      if (b?.id) {
+        branchNameById.set(
+          String(b.id),
+          String(b.branchName || b.name || b.login || 'Filial'),
+        );
+      }
+    }
+
+    const dayKeys: string[] = [];
+    for (let i = 13; i >= 0; i--) {
+      const dt = new Date();
+      dt.setUTCDate(dt.getUTCDate() - i);
+      dayKeys.push(dt.toISOString().slice(0, 10));
+    }
+
+    const emptySeries = () => dayKeys.map((date) => ({ date, orders: 0, revenuePaid: 0 }));
+
+    const baseMetrics = () => ({
+      orderCount: 0,
+      revenuePaid: 0,
+      revenueAll: 0,
+      cancelledCount: 0,
+      byOrderType: {} as Record<string, number>,
+      byStatus: {} as Record<string, number>,
+      byPaymentStatus: {} as Record<string, number>,
+      series14d: emptySeries(),
+    });
+
+    type M = ReturnType<typeof baseMetrics>;
+    const global = baseMetrics();
+    const byBranch = new Map<string, M & { branchId: string; branchName: string }>();
+
+    const getBranch = (bid: string) => {
+      const key = bid || '__no_branch__';
+      if (!byBranch.has(key)) {
+        byBranch.set(key, {
+          ...baseMetrics(),
+          branchId: bid,
+          branchName: bid ? (branchNameById.get(bid) || 'Filial') : "Filial ko'rsatilmagan",
+        });
+      }
+      return byBranch.get(key)!;
+    };
+
+    const bump = (m: M, o: any) => {
+      const money = orderTotalMoneyForStats(o);
+      m.orderCount++;
+      m.revenueAll += money;
+      const ps = String(o.paymentStatus || 'pending');
+      m.byPaymentStatus[ps] = (m.byPaymentStatus[ps] || 0) + 1;
+      if (ps === 'paid') m.revenuePaid += money;
+
+      const st = String(o.status || 'pending');
+      m.byStatus[st] = (m.byStatus[st] || 0) + 1;
+      if (st === 'cancelled' || st === 'canceled') m.cancelledCount++;
+
+      const ot = String(o.orderType || o.type || 'unknown');
+      m.byOrderType[ot] = (m.byOrderType[ot] || 0) + 1;
+
+      const t = new Date(o.createdAt || 0).getTime();
+      if (Number.isFinite(t)) {
+        const day = new Date(t).toISOString().slice(0, 10);
+        const idx = dayKeys.indexOf(day);
+        if (idx >= 0) {
+          m.series14d[idx].orders++;
+          if (ps === 'paid') m.series14d[idx].revenuePaid += money;
+        }
+      }
+    };
+
+    for (const o of allOrders) {
+      bump(global, o);
+      const bid = String(o.branchId || '').trim();
+      bump(getBranch(bid), o);
+    }
+
+    const branches = Array.from(byBranch.values()).sort((a, b) => b.orderCount - a.orderCount);
+
+    return c.json({
+      success: true,
+      generatedAt: new Date().toISOString(),
+      global,
+      branches,
+    });
+  } catch (error: any) {
+    console.error('Admin branch insights error:', error);
+    return c.json(
+      { success: false, error: error?.message || 'Statistikani olishda xatolik' },
+      500,
+    );
   }
 });
 
@@ -17665,68 +19399,56 @@ app.delete("/make-server-27d0d16c/orders/:id", async (c) => {
 app.get("/make-server-27d0d16c/categories", async (c) => {
   try {
     console.log('📋 Loading categories...');
-    
-    // Check if categories exist in KV store
-    let categories = await kv.get('categories');
-    
-    if (!categories) {
-      console.log('📝 Categories not found in KV, using default data...');
-      
-      // Default categories data
-      categories = {
-        catalogs: [
-          {
-            id: 'groceries',
-            name: 'Oziq-ovqat',
-            image: 'https://images.unsplash.com/photo-1543168256-418811576931?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxncm9jZXJ5JTIwZm9vZCUyMGluZ3JlZGllbnRzfGVufDF8fHx8MTc3MzE2NjU3M3ww&ixlib=rb-4.1.0&q=80&w=1080',
-            categories: [
-              { id: 'pasta-cereals', name: 'Makaron va donli mahsulotlar', catalog: 'groceries', image: 'https://images.unsplash.com/photo-1586201375761-83865001e31c?w=800' },
-              { id: 'rice', name: 'Guruch', catalog: 'groceries', image: 'https://images.unsplash.com/photo-1536304993881-ff6e9eefa2a6?w=800' },
-              { id: 'flour', name: 'Un va undan mahsulotlar', catalog: 'groceries', image: 'https://images.unsplash.com/photo-1628840042765-356cda07504e?w=800' },
-              { id: 'oil', name: 'Yog\'lar', catalog: 'groceries', image: 'https://images.unsplash.com/photo-1474979266404-7eaacbcd87c5?w=800' },
-              { id: 'sugar-salt', name: 'Shakar va tuz', catalog: 'groceries', image: 'https://images.unsplash.com/photo-1587735243615-c03f25aaff15?w=800' },
-              { id: 'canned', name: 'Konserva mahsulotlari', catalog: 'groceries', image: 'https://images.unsplash.com/photo-1615485736894-c32045e69ca0?w=800' },
-            ]
-          },
-          {
-            id: 'fruits',
-            name: 'Mevalar',
-            image: 'https://images.unsplash.com/photo-1607130813443-243737c21f7d?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmcmVzaCUyMGZydWl0cyUyMGNvbG9yZnVsfGVufDF8fHx8MTc3MzE0OTgzMnww&ixlib=rb-4.1.0&q=80&w=1080',
-            categories: [
-              { id: 'citrus', name: 'Sitrus mevalar', catalog: 'fruits', image: 'https://images.unsplash.com/photo-1582979512210-99b6a53386f9?w=800' },
-              { id: 'stone-fruits', name: 'Shaftoli va o\'rik', catalog: 'fruits', image: 'https://images.unsplash.com/photo-1629828874514-944d8c58a8d6?w=800' },
-              { id: 'berries', name: 'Rezavorlar', catalog: 'fruits', image: 'https://images.unsplash.com/photo-1464965911861-746a04b4bca6?w=800' },
-              { id: 'apples-pears', name: 'Olma va nok', catalog: 'fruits', image: 'https://images.unsplash.com/photo-1568702846914-96b305d2aaeb?w=800' },
-              { id: 'grapes', name: 'Uzum', catalog: 'fruits', image: 'https://images.unsplash.com/photo-1537640538966-79f369143f8f?w=800' },
-              { id: 'bananas', name: 'Banan', catalog: 'fruits', image: 'https://images.unsplash.com/photo-1603833665858-e61d17a86224?w=800' },
-              { id: 'melons', name: 'Qovun va tarvuz', catalog: 'fruits', image: 'https://images.unsplash.com/photo-1587049352846-1eecc30f269e?w=800' },
-              { id: 'exotic-fruits', name: 'Ekzotik mevalar', catalog: 'fruits', image: 'https://images.unsplash.com/photo-1610832958506-aa56368176cf?w=800' },
-            ]
-          },
-          {
-            id: 'vegetables',
-            name: 'Sabzavotlar',
-            image: 'https://images.unsplash.com/photo-1748342319942-223b99937d4e?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxmcmVzaCUyMHZlZ2V0YWJsZXMlMjBtYXJrZXR8ZW58MXx8fHwxNzczMTQzODM0fDA&ixlib=rb-4.1.0&q=80&w=1080',
-            categories: [
-              { id: 'tomatoes', name: 'Pomidor', catalog: 'vegetables', image: 'https://images.unsplash.com/photo-1546094096-0df4bcaaa337?w=800' },
-              { id: 'cucumbers', name: 'Bodring', catalog: 'vegetables', image: 'https://images.unsplash.com/photo-1604977042946-1eecc30f269e?w=800' },
-              { id: 'potatoes', name: 'Kartoshka', catalog: 'vegetables', image: 'https://images.unsplash.com/photo-1518977676601-b5362342d3e3?w=800' },
-              { id: 'onions', name: 'Piyoz', catalog: 'vegetables', image: 'https://images.unsplash.com/photo-1592769655432-735b4b2d2b4c?w=800' },
-              { id: 'carrots', name: 'Sabzavot', catalog: 'vegetables', image: 'https://images.unsplash.com/photo-1445282768819-95a93d8f5529?w=800' },
-              { id: 'cabbage', name: 'Karam', catalog: 'vegetables', image: 'https://images.unsplash.com/photo-1576558413262-9c8596a2c0a6?w=800' },
-              { id: 'greens', name: 'Yashil sabzavotlar', catalog: 'vegetables', image: 'https://images.unsplash.com/photo-1568905179914-84e1b9e5c066?w=800' },
-              { id: 'root-vegetables', name: 'ildiz mevalar', catalog: 'vegetables', image: 'https://images.unsplash.com/photo-1478369402113-1fd53f17e8b4?w=800' },
-            ]
-          }
-        ]
-      };
-      
-      // Save to KV store for future use
-      await kv.set('categories', categories);
-      console.log('✅ Default categories saved to KV store');
+
+    let raw = await kv.get('categories');
+    if (typeof raw === 'string') {
+      try {
+        raw = JSON.parse(raw);
+      } catch {
+        raw = null;
+      }
     }
-    
-    return c.json({ success: true, data: categories });
+
+    const FLAG = MARKET_CATALOG_SEED_FLAG;
+    const VER_KEY = MARKET_CATALOG_SEED_VERSION_KEY;
+    const TARGET_VER = MARKET_CATALOG_SEED_VERSION;
+    let stored: Record<string, unknown> & { catalogs?: unknown[] };
+
+    const existingVer = Number((raw as Record<string, unknown> | null)?.[VER_KEY] ?? 0);
+
+    if (!raw || typeof raw !== 'object' || !Array.isArray((raw as any).catalogs)) {
+      stored = {
+        catalogs: JSON.parse(JSON.stringify(DEFAULT_MARKET_CATALOGS.catalogs)),
+        [FLAG]: true,
+        [VER_KEY]: TARGET_VER,
+      };
+      await kv.set('categories', stored);
+      console.log('✅ Full default market catalogs saved to KV');
+    } else if (!Number.isFinite(existingVer) || existingVer < TARGET_VER) {
+      const merged = mergeMarketCatalogTrees(
+        { catalogs: (raw as { catalogs: any[] }).catalogs },
+        DEFAULT_MARKET_CATALOGS,
+      );
+      stored = {
+        ...(raw as Record<string, unknown>),
+        catalogs: merged.catalogs,
+        [FLAG]: true,
+        [VER_KEY]: TARGET_VER,
+      };
+      await kv.set('categories', stored);
+      console.log(
+        merged.changed
+          ? `✅ Market catalogs merged (seed v${TARGET_VER})`
+          : `✅ Market catalog seed version set to v${TARGET_VER}`,
+      );
+    } else {
+      stored = raw as Record<string, unknown> & { catalogs?: unknown[] };
+    }
+
+    return c.json({
+      success: true,
+      data: { catalogs: stored.catalogs ?? [] },
+    });
   } catch (error: any) {
     console.error('Get categories error:', error);
     return c.json({ error: `Kategoriyalarni olishda xatolik: ${error.message}` }, 500);
@@ -17743,12 +19465,16 @@ app.put("/make-server-27d0d16c/categories", async (c) => {
     if (!body.catalogs || !Array.isArray(body.catalogs)) {
       return c.json({ error: 'Kataloglar majburiy' }, 400);
     }
-    
-    // Save to KV store
-    await kv.set('categories', body);
-    
+
+    const toSave = {
+      ...body,
+      [MARKET_CATALOG_SEED_FLAG]: true,
+      [MARKET_CATALOG_SEED_VERSION_KEY]: MARKET_CATALOG_SEED_VERSION,
+    };
+    await kv.set('categories', toSave);
+
     console.log('✅ Categories updated successfully');
-    return c.json({ success: true, data: body });
+    return c.json({ success: true, data: { catalogs: toSave.catalogs } });
   } catch (error: any) {
     console.error('Update categories error:', error);
     return c.json({ error: `Kategoriyalarni yangilashda xatolik: ${error.message}` }, 500);

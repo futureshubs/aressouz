@@ -1,12 +1,14 @@
-import { useRef, useEffect, useState } from 'react';
+import { useRef, useEffect, useState, type CSSProperties, type RefObject } from 'react';
 import { useTheme } from '../context/ThemeContext';
 
 interface WheelDatePickerProps {
   value: string; // YYYY-MM-DD format
   onChange: (date: string) => void;
+  className?: string;
+  style?: CSSProperties;
 }
 
-export function WheelDatePicker({ value, onChange }: WheelDatePickerProps) {
+export function WheelDatePicker({ value, onChange, className = '', style }: WheelDatePickerProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
   
@@ -122,7 +124,7 @@ export function WheelDatePicker({ value, onChange }: WheelDatePickerProps) {
   }: { 
     items: any[]; 
     selectedIndex: number; 
-    scrollRef: React.RefObject<HTMLDivElement | null>; 
+    scrollRef: RefObject<HTMLDivElement | null>; 
     type: 'day' | 'month' | 'year' 
   }) => (
     <div className="flex-1 relative">
@@ -207,13 +209,14 @@ export function WheelDatePicker({ value, onChange }: WheelDatePickerProps) {
   );
 
   return (
-    <div 
-      className="w-full rounded-2xl p-4"
+    <div
+      className={`w-full rounded-2xl p-4 ${className}`.trim()}
       style={{
-        background: isDark 
+        background: isDark
           ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
           : 'linear-gradient(145deg, rgba(0, 0, 0, 0.03), rgba(0, 0, 0, 0.01))',
         border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
+        ...style,
       }}
     >
       <div className="flex gap-2">

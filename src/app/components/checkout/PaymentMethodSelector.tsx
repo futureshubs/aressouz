@@ -45,6 +45,7 @@ export default function PaymentMethodSelector({
 }: PaymentMethodSelectorProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
+  const visibilityRefetchTick = useVisibilityTick();
 
   const [paymentMethods, setPaymentMethods] = useState<PaymentMethod[]>([]);
   const [selectedMethod, setSelectedMethod] = useState<string | null>(null);

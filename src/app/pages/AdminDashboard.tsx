@@ -13,12 +13,18 @@ import {
   TrendingDown,
   DollarSign,
   ShoppingCart,
-  Package
+  Package,
+  BarChart3,
+  LineChart,
+  Shield,
 } from 'lucide-react';
 import BranchesView from '../components/admin/BranchesView';
 import UsersView from '../components/admin/UsersView';
 import PaymentsView from '../components/admin/PaymentsView';
 import OrdersManagement from '../components/admin/OrdersManagement';
+import AdminBranchStatistics from '../components/admin/AdminBranchStatistics';
+import AdminBranchAnalytics from '../components/admin/AdminBranchAnalytics';
+import AdminSecurityView from '../components/admin/AdminSecurityView';
 import { projectId } from '../../../utils/supabase/info';
 import { buildAdminHeaders } from '../utils/requestAuth';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
@@ -26,6 +32,35 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 const safeNum = (n: unknown): number => {
   const x = Number(n);
   return Number.isFinite(x) ? x : 0;
+};
+
+type RecentActivityRow = {
+  id: string;
+  orderId: string;
+  customerName: string;
+  status: string;
+  paymentStatus: string;
+  createdAt: string;
+  totalAmount: number;
+  orderType?: string;
+};
+
+const formatSumUz = (n: number) =>
+  new Intl.NumberFormat('uz-UZ', { maximumFractionDigits: 0 }).format(safeNum(n));
+
+const paymentStatusLabelUz = (ps: string) => {
+  const p = String(ps || '').toLowerCase();
+  if (p === 'paid') return "To'langan";
+  if (p === 'failed') return 'Xatolik';
+  if (p === 'refunded') return 'Qaytarilgan';
+  return 'Kutilmoqda';
+};
+
+const formatDashboardRevenue = (amount: number) => {
+  const n = safeNum(amount);
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M so'm`;
+  if (n >= 1000) return `${(n / 1000).toFixed(1)}K so'm`;
+  return `${formatSumUz(n)} so'm`;
 };
 
 export default function AdminDashboard() {
@@ -41,43 +76,47 @@ export default function AdminDashboard() {
     totalPayments: 0,
     totalRevenue: 0,
   });
+  const [recentActivity, setRecentActivity] = useState<RecentActivityRow[]>([]);
 
   const loadStats = useCallback(async () => {
     try {
-      const branchesResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branches`,
-        {
+      const [branchesResponse, usersResponse, ordersStatsResponse] = await Promise.all([
+        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branches`, {
           headers: buildAdminHeaders({
             'Content-Type': 'application/json',
           }),
-        }
-      );
-
-      const usersResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/admin/users`,
-        {
+        }),
+        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/admin/users`, {
           headers: buildAdminHeaders({
             'Content-Type': 'application/json',
           }),
-        }
-      );
+        }),
+        fetch(`https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders/stats`, {
+          headers: buildAdminHeaders({
+            'Content-Type': 'application/json',
+          }),
+        }),
+      ]);
 
       const branches = branchesResponse.ok ? (await branchesResponse.json()).branches : [];
       const users = usersResponse.ok ? (await usersResponse.json()).users : [];
 
-      const payments: any[] = [];
+      const ordersStatsPayload = ordersStatsResponse.ok
+        ? await ordersStatsResponse.json().catch(() => ({}))
+        : {};
+      const st = ordersStatsPayload?.success && ordersStatsPayload?.stats ? ordersStatsPayload.stats : null;
 
-      const totalRevenue = payments.reduce(
-        (sum: number, p: any) => sum + safeNum(p?.amount),
-        0
-      );
+      const paidOrderCount = st ? safeNum(st.paidOrderCount ?? st.paymentByStatus?.paid) : 0;
+      const revenueFromPaid = st ? safeNum(st.revenue?.paid) : 0;
+      const recent = st && Array.isArray(st.recentActivity) ? (st.recentActivity as RecentActivityRow[]) : [];
 
       setStats({
         totalBranches: Array.isArray(branches) ? branches.length : 0,
         totalUsers: Array.isArray(users) ? users.length : 0,
-        totalPayments: payments.length,
-        totalRevenue: safeNum(totalRevenue),
+        totalPayments: paidOrderCount,
+        totalRevenue: revenueFromPaid,
       });
+      setRecentActivity(recent);
     } catch (error) {
       console.error('Error loading stats:', error);
     }
@@ -86,6 +125,18 @@ export default function AdminDashboard() {
   useEffect(() => {
     const session = localStorage.getItem('adminSession');
     if (!session) {
+      navigate('/admin');
+      return;
+    }
+    try {
+      const s = JSON.parse(session) as { sessionToken?: string; role?: string };
+      if (s?.role !== 'admin' || !s?.sessionToken) {
+        localStorage.removeItem('adminSession');
+        navigate('/admin');
+        return;
+      }
+    } catch {
+      localStorage.removeItem('adminSession');
       navigate('/admin');
       return;
     }
@@ -104,9 +155,12 @@ export default function AdminDashboard() {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'branches', label: 'Filiallar', icon: Building2 },
+    { id: 'statistics', label: 'Statistika', icon: BarChart3 },
+    { id: 'analytics', label: 'Analitika', icon: LineChart },
     { id: 'users', label: 'Foydalanuvchilar', icon: Users },
     { id: 'payments', label: 'To\'lovlar', icon: CreditCard },
     { id: 'orders', label: 'Buyurtmalar', icon: Package },
+    { id: 'security', label: 'Xavfsizlik', icon: Shield },
   ];
 
   const statsCards = [
@@ -409,29 +463,56 @@ export default function AdminDashboard() {
                   boxShadow: isDark ? '0 10px 30px rgba(0, 0, 0, 0.3)' : '0 10px 30px rgba(0, 0, 0, 0.05)',
                 }}
               >
-                <h3 className="text-lg font-bold mb-4">So'nggi faollik</h3>
+                <h3 className="text-lg font-bold mb-4">So'nggi buyurtmalar (KV)</h3>
                 <div className="space-y-3">
-                  <div className="flex items-center justify-between text-sm">
-                    <span style={{ opacity: 0.7 }}>Filiallar yangilandi</span>
-                    <span style={{ opacity: 0.55 }}>{new Date().toLocaleDateString('uz-UZ')}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span style={{ opacity: 0.7 }}>Buyurtmalar monitoringi</span>
-                    <span style={{ opacity: 0.55 }}>{new Date().toLocaleDateString('uz-UZ')}</span>
-                  </div>
-                  <div className="flex items-center justify-between text-sm">
-                    <span style={{ opacity: 0.7 }}>Foydalanuvchilar ro‘yxati</span>
-                    <span style={{ opacity: 0.55 }}>{new Date().toLocaleDateString('uz-UZ')}</span>
-                  </div>
+                  {recentActivity.length === 0 ? (
+                    <p className="text-sm" style={{ opacity: 0.6 }}>
+                      Hozircha yozuvlar yo'q yoki buyurtmalar boshqa saqlanmagan bo'lishi mumkin.
+                    </p>
+                  ) : (
+                    recentActivity.map((row) => {
+                      const t = new Date(row.createdAt).getTime();
+                      const dateStr = Number.isFinite(t)
+                        ? new Date(row.createdAt).toLocaleString('uz-UZ', {
+                            day: '2-digit',
+                            month: 'short',
+                            hour: '2-digit',
+                            minute: '2-digit',
+                          })
+                        : '—';
+                      return (
+                        <div key={String(row.id)} className="flex items-start justify-between gap-3 text-sm">
+                          <div className="min-w-0">
+                            <span className="font-semibold block truncate">
+                              {row.orderId || row.id}
+                              {row.orderType ? (
+                                <span style={{ opacity: 0.55 }}> · {row.orderType}</span>
+                              ) : null}
+                            </span>
+                            <span style={{ opacity: 0.7 }} className="block truncate">
+                              {row.customerName?.trim() || 'Mijoz'} · {paymentStatusLabelUz(row.paymentStatus)} ·{' '}
+                              {formatSumUz(row.totalAmount)} so'm
+                            </span>
+                          </div>
+                          <span className="shrink-0" style={{ opacity: 0.55 }}>
+                            {dateStr}
+                          </span>
+                        </div>
+                      );
+                    })
+                  )}
                 </div>
               </div>
             </div>
           )}
 
           {activeTab === 'branches' && <BranchesView onStatsUpdate={loadStats} />}
+          {activeTab === 'statistics' && <AdminBranchStatistics />}
+          {activeTab === 'analytics' && <AdminBranchAnalytics />}
           {activeTab === 'orders' && <OrdersManagement />}
           {activeTab === 'users' && <UsersView onStatsUpdate={loadStats} />}
           {activeTab === 'payments' && <PaymentsView onStatsUpdate={loadStats} />}
+          {activeTab === 'security' && <AdminSecurityView />}
         </div>
       </main>
     </div>

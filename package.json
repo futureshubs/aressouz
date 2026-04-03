@@ -6,6 +6,8 @@
   "scripts": {
     "build": "vite build",
     "dev": "vite",
+    "test": "vitest run",
+    "test:watch": "vitest",
     "supabase:deploy": "supabase functions deploy make-server-27d0d16c --project-ref wnondmqmuvjugbomyolz && supabase functions deploy api --project-ref wnondmqmuvjugbomyolz && supabase functions deploy supabase-edge-function --project-ref wnondmqmuvjugbomyolz",
     "deploy:supabase": "npm run supabase:deploy",
     "supabase:deploy:server": "supabase functions deploy make-server-27d0d16c --project-ref wnondmqmuvjugbomyolz"
@@ -81,7 +83,8 @@
     "@tailwindcss/vite": "4.1.12",
     "@vitejs/plugin-react": "4.7.0",
     "tailwindcss": "4.1.12",
-    "vite": "6.3.5"
+    "vite": "6.3.5",
+    "vitest": "3.2.4"
   },
   "peerDependencies": {
     "react": "18.3.1",

@@ -35,6 +35,134 @@ function calculateNextMinimumBid(currentBid: number, bidIncrementPercent: number
   return Math.ceil(currentBid * (1 + bidIncrementPercent / 100));
 }
 
+function participationFeeOrderId(auctionId: string, userId: string) {
+  return `AUC_FEE__${auctionId}__${userId}`;
+}
+
+function parseKvRecord(raw: unknown): Record<string, unknown> | null {
+  if (raw == null) return null;
+  if (typeof raw === "object" && !Array.isArray(raw)) return raw as Record<string, unknown>;
+  if (typeof raw === "string") {
+    try {
+      const p = JSON.parse(raw);
+      if (p && typeof p === "object" && !Array.isArray(p)) return p as Record<string, unknown>;
+    } catch {
+      /* ignore */
+    }
+  }
+  return null;
+}
+
+async function requireSupabaseUser(c: any) {
+  const authHeader =
+    c.req.header("Authorization") || c.req.raw.headers.get("Authorization") || "";
+  const m = authHeader.match(/Bearer\s+(.+)/i);
+  const token = m?.[1]?.trim();
+  if (!token) {
+    return { error: c.json({ success: false, error: "Avtorizatsiya kerak (Bearer token)" }, 401) };
+  }
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) {
+    return { error: c.json({ success: false, error: "Sessiya yaroqsiz yoki muddati tugagan" }, 401) };
+  }
+  return { user };
+}
+
+function displayNameFromUser(user: { user_metadata?: Record<string, unknown>; phone?: string; email?: string }) {
+  const meta = user.user_metadata || {};
+  const n =
+    (typeof meta.name === "string" && meta.name) ||
+    (typeof meta.full_name === "string" && meta.full_name) ||
+    (typeof meta.first_name === "string" && `${meta.first_name} ${typeof meta.last_name === "string" ? meta.last_name : ""}`.trim()) ||
+    user.phone ||
+    user.email ||
+    "Foydalanuvchi";
+  return String(n).trim() || "Foydalanuvchi";
+}
+
+function phoneFromUser(user: { user_metadata?: Record<string, unknown>; phone?: string }) {
+  const meta = user.user_metadata || {};
+  const p =
+    (typeof meta.phone === "string" && meta.phone) ||
+    user.phone ||
+    "";
+  return String(p).trim();
+}
+
+/** Muddat tugagan faol auksionni yakunlaydi: g‘olib eng yuqori taklif (yoki taklifsiz). */
+async function finalizeAndSaveAuction(auction: any): Promise<any> {
+  if (!auction?.id || auction.status !== "active") return auction;
+  const endMs = new Date(auction.endDate).getTime();
+  if (Number.isNaN(endMs) || endMs > Date.now()) return auction;
+
+  const bids = await kv.getByPrefix(`auction_bid:${auction.id}:`);
+  const validBids = (bids || []).filter((b: any) => b && typeof b === "object" && Number.isFinite(Number(b.amount)));
+  validBids.sort((a: any, b: any) => Number(b.amount) - Number(a.amount));
+  const winner = validBids[0];
+
+  const updated = {
+    ...auction,
+    status: "ended",
+    endedAt: new Date().toISOString(),
+    winnerUserId: winner?.userId ?? null,
+    winningBidAmount: winner ? Number(winner.amount) : Number(auction.currentPrice) || 0,
+    winningBidId: winner?.id ?? null,
+    updatedAt: new Date().toISOString(),
+  };
+  await kv.set(`auction:${auction.id}`, updated);
+  return updated;
+}
+
+async function verifyParticipationPayment(
+  paymentId: string | undefined,
+  userId: string,
+  auctionId: string,
+  expectedFee: number,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const fee = Number(expectedFee) || 0;
+  if (fee <= 0) return { ok: true };
+  // payments/create minimal 1000 so'm — kichikroq haqni JWT bilan tasdiqlash yetarli
+  if (fee > 0 && fee < 1000) return { ok: true };
+
+  const pid = String(paymentId || "").trim();
+  if (!pid) {
+    return { ok: false, error: "Ishtirok to‘lovi uchun avval to‘lov yarating va yakunlang" };
+  }
+
+  const raw = await kv.get(`payment:${pid}`);
+  const pay = parseKvRecord(raw);
+  if (!pay) return { ok: false, error: "To‘lov topilmadi" };
+
+  if (String(pay.status) !== "paid") {
+    return { ok: false, error: "To‘lov hali yakunlanmagan — statusni tekshiring" };
+  }
+
+  const expectedOrder = participationFeeOrderId(auctionId, userId);
+  if (String(pay.orderId || "") !== expectedOrder) {
+    return { ok: false, error: "To‘lov boshqa auksion yoki akkaunt uchun" };
+  }
+
+  const amt = Number(pay.amount);
+  if (!Number.isFinite(amt) || amt < fee) {
+    return { ok: false, error: "To‘lov summasi ishtirok haqqiga mos emas" };
+  }
+
+  const paidUid = String(pay.userId || "").trim();
+  if (paidUid && paidUid !== userId) {
+    return { ok: false, error: "To‘lov boshqa foydalanuvchiga tegishli" };
+  }
+
+  return { ok: true };
+}
+
+async function deleteAuctionCascade(auctionId: string) {
+  const bidRows = await kv.getByPrefixWithKeys(`auction_bid:${auctionId}:`);
+  const partRows = await kv.getByPrefixWithKeys(`auction_participant:${auctionId}:`);
+  const keys = [...bidRows, ...partRows].map((r) => r.key).filter(Boolean);
+  if (keys.length) await kv.mdel(keys);
+  await kv.del(`auction:${auctionId}`);
+}
+
 // ==================== AUCTION ROUTES ====================
 
 // DEBUG: Direct KV check
@@ -120,6 +248,18 @@ app.get("/auctions", async (c) => {
       console.log(`✅ Filtered by category: ${auctions.length} auctions`);
     }
 
+    const nowMs = Date.now();
+    for (let i = 0; i < auctions.length; i++) {
+      const a = auctions[i];
+      if (
+        a?.status === "active" &&
+        a?.endDate &&
+        new Date(a.endDate).getTime() <= nowMs
+      ) {
+        auctions[i] = await finalizeAndSaveAuction(a);
+      }
+    }
+
     // Filter by status
     const now = new Date();
     if (status === 'active') {
@@ -171,7 +311,7 @@ app.get("/auctions/:id", async (c) => {
     const auctionId = c.req.param('id');
     console.log('📦 Fetching auction:', auctionId);
 
-    const auction = await kv.get(`auction:${auctionId}`);
+    let auction = await kv.get(`auction:${auctionId}`);
     
     if (!auction) {
       return c.json({ 
@@ -179,6 +319,8 @@ app.get("/auctions/:id", async (c) => {
         error: 'Auksion topilmadi' 
       }, 404);
     }
+
+    auction = await finalizeAndSaveAuction(auction);
 
     // Get bids for this auction
     const bids = await kv.getByPrefix(`auction_bid:${auctionId}:`);
@@ -378,6 +520,7 @@ app.put("/auctions/:id", async (c) => {
       updatedAt: new Date().toISOString(),
     };
 
+    await purgeAuctionR2ImageDiff(auction, updatedAuction);
     await kv.set(`auction:${auctionId}`, updatedAuction);
     console.log('✅ Auction updated:', auctionId);
 
@@ -411,13 +554,10 @@ app.delete("/auctions/:id", async (c) => {
       }, 404);
     }
 
-    // Delete all bids for this auction
-    // Note: We can't directly delete by prefix, so we'll leave bids orphaned
-    // They will be filtered out when fetching since auction won't exist
-    
-    // Delete auction
-    await kv.del(`auction:${auctionId}`);
-    console.log('✅ Auction deleted:', auctionId);
+    await purgeAllAuctionR2Images(auction as { images?: unknown });
+
+    await deleteAuctionCascade(auctionId);
+    console.log('✅ Auction deleted (taklif va ishtirokchilar ham tozalandi):', auctionId);
 
     return c.json({ 
       success: true,
@@ -441,104 +581,139 @@ app.post("/auctions/:id/bid", async (c) => {
     const auctionId = c.req.param('id');
     console.log('💰 Placing bid on auction:', auctionId);
 
-    const { userId, userName, userPhone, amount } = await c.req.json();
+    const auth = await requireSupabaseUser(c);
+    if ("error" in auth) return auth.error;
 
-    if (!userId || !userName || !amount) {
-      return c.json({ 
-        success: false, 
-        error: 'Barcha maydonlarni to\'ldiring' 
-      }, 400);
+    const body = await c.req.json().catch(() => ({}));
+    const amountNum = Number(body?.amount);
+    if (!Number.isFinite(amountNum) || amountNum <= 0) {
+      return c.json({ success: false, error: "Taklif summasi noto‘g‘ri" }, 400);
     }
 
-    // Get auction
-    const auction = await kv.get(`auction:${auctionId}`);
-    
+    if (body?.userId && String(body.userId) !== auth.user.id) {
+      return c.json({ success: false, error: "JWT va tanlangan foydalanuvchi mos emas" }, 403);
+    }
+
+    const userId = auth.user.id;
+    const userName = displayNameFromUser(auth.user);
+    const userPhone = phoneFromUser(auth.user) || String(body?.userPhone || "").trim();
+
+    let auction = await kv.get(`auction:${auctionId}`);
     if (!auction) {
-      return c.json({ 
-        success: false, 
-        error: 'Auksion topilmadi' 
-      }, 404);
+      return c.json({ success: false, error: "Auksion topilmadi" }, 404);
     }
 
-    // Check if auction is still active
-    const now = new Date();
+    auction = await finalizeAndSaveAuction(auction);
+    if (auction.status !== "active") {
+      return c.json({ success: false, error: "Auksion yakunlangan" }, 400);
+    }
+
     const endDate = new Date(auction.endDate);
-    
-    if (endDate <= now || auction.status !== 'active') {
-      return c.json({ 
-        success: false, 
-        error: 'Auksion yakunlangan' 
+    if (endDate.getTime() <= Date.now()) {
+      return c.json({ success: false, error: "Auksion yakunlangan" }, 400);
+    }
+
+    if (amountNum > Number(auction.maxPrice)) {
+      return c.json({
+        success: false,
+        error: `Maksimal narx: ${Number(auction.maxPrice).toLocaleString()} so'm`,
       }, 400);
     }
 
-    // Calculate minimum bid
-    const minimumBid = calculateNextMinimumBid(auction.currentPrice, auction.bidIncrementPercent);
-    
-    if (amount < minimumBid) {
-      return c.json({ 
-        success: false, 
-        error: `Minimal taklif: ${minimumBid.toLocaleString()} so'm`,
-        minimumBid
-      }, 400);
-    }
-
-    if (amount > auction.maxPrice) {
-      return c.json({ 
-        success: false, 
-        error: `Maksimal narx: ${auction.maxPrice.toLocaleString()} so'm` 
-      }, 400);
-    }
-
-    // Check if user has paid participation fee
     const participantKey = `auction_participant:${auctionId}:${userId}`;
     const participant = await kv.get(participantKey);
-    
     if (!participant) {
-      return c.json({ 
-        success: false, 
-        error: 'Ishtirok etish uchun to\'lov qiling',
-        participationFee: auction.participationFee
+      return c.json({
+        success: false,
+        error: "Ishtirok etish uchun avval ro‘yxatdan o‘ting (ishtirok to‘lovi)",
+        participationFee: auction.participationFee,
       }, 400);
     }
 
-    // Create bid
+    let minimumBid = calculateNextMinimumBid(
+      Number(auction.currentPrice),
+      Number(auction.bidIncrementPercent),
+    );
+    if (amountNum < minimumBid) {
+      return c.json({
+        success: false,
+        error: `Minimal taklif: ${minimumBid.toLocaleString()} so'm`,
+        minimumBid,
+      }, 400);
+    }
+
+    const freshRaw = await kv.get(`auction:${auctionId}`);
+    if (!freshRaw) {
+      return c.json({ success: false, error: "Auksion topilmadi" }, 404);
+    }
+    const fresh2 = await finalizeAndSaveAuction(freshRaw);
+    if (!fresh2 || fresh2.status !== "active") {
+      return c.json({ success: false, error: "Auksion yakunlangan" }, 400);
+    }
+
+    minimumBid = calculateNextMinimumBid(
+      Number(fresh2.currentPrice),
+      Number(fresh2.bidIncrementPercent),
+    );
+    if (amountNum < minimumBid) {
+      return c.json(
+        {
+          success: false,
+          error: `Boshqa ishtirokchi yuqori taklif berdi. Minimal taklif: ${minimumBid.toLocaleString()} so'm`,
+          minimumBid,
+          code: "BID_OUTDATED",
+        },
+        409,
+      );
+    }
+
     const bidId = generateBidId();
     const bid = {
       id: bidId,
       auctionId,
       userId,
       userName,
-      userPhone: userPhone || '',
-      amount,
+      userPhone: userPhone || "",
+      amount: amountNum,
       createdAt: new Date().toISOString(),
     };
 
-    // Save bid
     await kv.set(`auction_bid:${auctionId}:${bidId}`, bid);
 
-    // Update auction
-    const updatedAuction = {
-      ...auction,
-      currentPrice: amount,
-      totalBids: (auction.totalBids || 0) + 1,
+    let updatedAuction: any = {
+      ...fresh2,
+      currentPrice: amountNum,
+      totalBids: (fresh2.totalBids || 0) + 1,
       updatedAt: new Date().toISOString(),
     };
 
-    await kv.set(`auction:${auctionId}`, updatedAuction);
-    console.log('✅ Bid placed:', bidId);
+    const maxP = Number(fresh2.maxPrice);
+    if (Number.isFinite(maxP) && amountNum >= maxP) {
+      updatedAuction = {
+        ...updatedAuction,
+        status: "ended",
+        endedAt: new Date().toISOString(),
+        winnerUserId: userId,
+        winningBidAmount: amountNum,
+        winningBidId: bidId,
+      };
+    }
 
-    return c.json({ 
-      success: true, 
+    await kv.set(`auction:${auctionId}`, updatedAuction);
+    console.log("✅ Bid placed:", bidId);
+
+    return c.json({
+      success: true,
       bid,
       auction: updatedAuction,
-      message: 'Taklifingiz qabul qilindi'
+      message: "Taklifingiz qabul qilindi",
     });
   } catch (error) {
-    console.error('❌ Error placing bid:', error);
-    return c.json({ 
-      success: false, 
-      error: 'Taklif berishda xatolik yuz berdi',
-      details: error.message 
+    console.error("❌ Error placing bid:", error);
+    return c.json({
+      success: false,
+      error: "Taklif berishda xatolik yuz berdi",
+      details: error.message,
     }, 500);
   }
 });
@@ -547,56 +722,70 @@ app.post("/auctions/:id/bid", async (c) => {
 app.post("/auctions/:id/participate", async (c) => {
   try {
     const auctionId = c.req.param('id');
-    console.log('💳 Paying participation fee for auction:', auctionId);
+    console.log('💳 Participation for auction:', auctionId);
 
-    const { userId, userName, userPhone, paymentMethod } = await c.req.json();
+    const auth = await requireSupabaseUser(c);
+    if ("error" in auth) return auth.error;
 
-    if (!userId || !userName) {
-      return c.json({ 
-        success: false, 
-        error: 'Barcha maydonlarni to\'ldiring' 
-      }, 400);
+    const body = await c.req.json().catch(() => ({}));
+    if (body?.userId && String(body.userId) !== auth.user.id) {
+      return c.json({ success: false, error: "JWT va foydalanuvchi mos emas" }, 403);
     }
 
-    // Get auction
-    const auction = await kv.get(`auction:${auctionId}`);
-    
+    const userId = auth.user.id;
+    const userName = displayNameFromUser(auth.user);
+    const userPhone = phoneFromUser(auth.user) || String(body?.userPhone || "").trim();
+    const paymentMethod = String(body?.paymentMethod || "app_payment");
+
+    let auction = await kv.get(`auction:${auctionId}`);
     if (!auction) {
-      return c.json({ 
-        success: false, 
-        error: 'Auksion topilmadi' 
-      }, 404);
+      return c.json({ success: false, error: "Auksion topilmadi" }, 404);
     }
 
-    // Check if already participated
+    auction = await finalizeAndSaveAuction(auction);
+    if (auction.status !== "active") {
+      return c.json({ success: false, error: "Auksion yakunlangan" }, 400);
+    }
+
     const participantKey = `auction_participant:${auctionId}:${userId}`;
     const existingParticipant = await kv.get(participantKey);
-    
     if (existingParticipant) {
-      return c.json({ 
-        success: false, 
-        error: 'Siz allaqachon ishtirok etyapsiz' 
-      }, 400);
+      return c.json({ success: false, error: "Siz allaqachon ishtirok etyapsiz" }, 400);
     }
 
-    // Create participant record
+    const payCheck = await verifyParticipationPayment(
+      body?.paymentId,
+      userId,
+      auctionId,
+      Number(auction.participationFee) || 0,
+    );
+    if (!payCheck.ok) {
+      return c.json(
+        {
+          success: false,
+          error: payCheck.error,
+          participationFee: auction.participationFee,
+          expectedOrderId: participationFeeOrderId(auctionId, userId),
+        },
+        402,
+      );
+    }
+
     const participant = {
       auctionId,
       userId,
       userName,
-      userPhone: userPhone || '',
-      paymentMethod: paymentMethod || 'cash',
+      userPhone,
+      paymentMethod,
       participationFee: auction.participationFee,
+      paymentId: body?.paymentId ? String(body.paymentId) : null,
       paidAt: new Date().toISOString(),
     };
 
     await kv.set(participantKey, participant);
 
-    // Update auction participants
-    const participants = auction.participants || [];
-    if (!participants.includes(userId)) {
-      participants.push(userId);
-    }
+    const participants = [...(auction.participants || [])];
+    if (!participants.includes(userId)) participants.push(userId);
 
     const updatedAuction = {
       ...auction,
@@ -606,20 +795,20 @@ app.post("/auctions/:id/participate", async (c) => {
     };
 
     await kv.set(`auction:${auctionId}`, updatedAuction);
-    console.log('✅ Participation fee paid:', userId);
+    console.log("✅ Participation recorded:", userId);
 
-    return c.json({ 
-      success: true, 
+    return c.json({
+      success: true,
       participant,
       auction: updatedAuction,
-      message: 'Ishtirok to\'lovi qabul qilindi'
+      message: "Ishtirok qayd etildi",
     });
   } catch (error) {
-    console.error('❌ Error processing participation:', error);
-    return c.json({ 
-      success: false, 
-      error: 'To\'lovni qayta ishlashda xatolik yuz berdi',
-      details: error.message 
+    console.error("❌ Error processing participation:", error);
+    return c.json({
+      success: false,
+      error: "Ishtirokni qayd etishda xatolik",
+      details: error.message,
     }, 500);
   }
 });
@@ -682,14 +871,21 @@ app.post("/auction-requests", async (c) => {
   try {
     console.log('📝 Creating auction request');
 
-    const { userId, userName, userPhone, productName, productDescription, images, category, estimatedPrice } = await c.req.json();
+    const auth = await requireSupabaseUser(c);
+    if ("error" in auth) return auth.error;
 
-    if (!userId || !userName || !productName || !category) {
+    const { productName, productDescription, images, category, estimatedPrice } = await c.req.json();
+
+    if (!productName || !category) {
       return c.json({ 
         success: false, 
         error: 'Barcha maydonlarni to\'ldiring' 
       }, 400);
     }
+
+    const userId = auth.user.id;
+    const userName = displayNameFromUser(auth.user);
+    const userPhone = phoneFromUser(auth.user);
 
     const requestId = generateRequestId();
     
@@ -871,26 +1067,34 @@ app.get("/auctions/stats/summary", async (c) => {
 // Get user wins
 app.get("/auctions/wins/:userId", async (c) => {
   try {
+    const auth = await requireSupabaseUser(c);
+    if ("error" in auth) return auth.error;
+
     const userId = c.req.param('userId');
+    if (userId !== auth.user.id) {
+      return c.json({ success: false, error: 'Faqat o‘z yutuqlaringizni ko‘rishingiz mumkin' }, 403);
+    }
     console.log('🏆 Fetching wins for user:', userId);
 
-    const auctions = await kv.getByPrefix('auction:');
+    const auctionRows = await kv.getByPrefix('auction:');
 
     const wins = [];
 
-    for (const auction of auctions) {
+    for (const auction of auctionRows) {
       if (!auction || !auction.id) continue;
+
+      let a = await finalizeAndSaveAuction(auction);
       
       // Only check ended auctions
-      const endDate = new Date(auction.endDate);
+      const endDate = new Date(a.endDate);
       const now = new Date();
       
-      if (endDate > now && auction.status !== 'ended') {
+      if (endDate > now && a.status !== 'ended') {
         continue;
       }
 
       // Get highest bid
-      const bids = await kv.getByPrefix(`auction_bid:${auction.id}:`);
+      const bids = await kv.getByPrefix(`auction_bid:${a.id}:`);
       
       if (bids.length === 0) continue;
 
@@ -902,9 +1106,9 @@ app.get("/auctions/wins/:userId", async (c) => {
       
       if (highestBid && highestBid.userId === userId) {
         wins.push({
-          auction,
+          auction: a,
           bid: highestBid,
-          wonAt: auction.endDate,
+          wonAt: a.endedAt || a.endDate,
         });
       }
     }

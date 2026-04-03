@@ -165,6 +165,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     loadSettings();
   }, [userId, visibilityRefetchTick]);
 
+  // Tailwind `dark:` va theme.css `.dark` o‘zgaruvchilari — html bilan sinxron
+  useEffect(() => {
+    const root = document.documentElement;
+    root.classList.toggle('dark', theme === 'dark');
+    root.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
+  }, [theme]);
+
+  useEffect(() => {
+    const map: Record<string, string> = { uz: 'uz', ru: 'ru', en: 'en' };
+    document.documentElement.lang = map[language] || 'uz';
+  }, [language]);
+
   // Single effect to save all settings when any change
   useEffect(() => {
     localStorage.setItem('theme', theme);
@@ -173,9 +185,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     localStorage.setItem('soundEnabled', JSON.stringify(soundEnabled));
     localStorage.setItem('supportChatEnabled', JSON.stringify(supportChatEnabled));
     localStorage.setItem('accentColor', accentColor.id);
-    
-    document.body.style.background = theme === 'dark' ? '#000000' : '#f9fafb';
-    
+
+    // Fon va matn — bg-background / text-foreground (theme.css + .dark)
+    document.body.style.removeProperty('background');
+    document.body.style.removeProperty('background-color');
+    document.body.style.removeProperty('color');
+
     // Debounce Supabase save
     const timer = setTimeout(() => {
       if (userId && userId !== 'anonymous') {

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { X, ChevronLeft, ChevronRight, MapPin, BedDouble, Bath, Maximize2, Phone, MessageCircle, Building2, Layers, Calendar, Home, Car, Sofa, ArrowUpDown, Wind, Building, DollarSign, User, Send, Check, Image, Box, Download, ZoomIn, ZoomOut } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { House, formatCurrency, calculatePayment, paymentPlans } from '../data/houses';
@@ -15,7 +15,22 @@ interface HouseDetailModalProps {
 export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
-  
+  const visibilityTick = useVisibilityTick();
+
+  /** Bir xil rasm URL takrorlansa (server/client xato) — galereyada bitta marta */
+  const galleryImages = useMemo(() => {
+    const raw = Array.isArray(house.images) ? house.images : [];
+    const seen = new Set<string>();
+    const out: string[] = [];
+    for (const x of raw) {
+      const s = String(x ?? '').trim();
+      if (!s || seen.has(s)) continue;
+      seen.add(s);
+      out.push(s);
+    }
+    return out;
+  }, [house.id, house.images]);
+
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [viewMode, setViewMode] = useState<'gallery' | '3d'>('gallery');
   const [paymentTab, setPaymentTab] = useState<'naqd' | 'kredit' | 'ipoteka' | 'halal'>('naqd');
@@ -64,10 +79,11 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
   }, [selectedBank, paymentTab]);
 
   useEffect(() => {
+    const root = document.documentElement;
     if (isOpen) {
+      root.style.overflow = 'hidden';
       document.body.style.overflow = 'hidden';
       setCurrentImageIndex(0);
-      loadAvailableBanks();
       // Set initial payment tab based on available options
       if (house.hasHalalInstallment) {
         setPaymentTab('halal');
@@ -77,12 +93,24 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
         setPaymentTab('naqd');
       }
     } else {
+      root.style.overflow = '';
       document.body.style.overflow = '';
     }
     return () => {
+      root.style.overflow = '';
       document.body.style.overflow = '';
     };
-  }, [isOpen, visibilityRefetchTick]);
+  }, [isOpen]);
+
+  /** Ochish, boshqa uy tanlanganda va tabdan qaytganda banklar; galereya indeksini bu buzmaydi */
+  useEffect(() => {
+    if (!isOpen) return;
+    void loadAvailableBanks();
+  }, [isOpen, visibilityTick, house.id, house.region]);
+
+  useEffect(() => {
+    setCurrentImageIndex(0);
+  }, [house.id]);
 
   // Handle ESC key for fullscreen
   useEffect(() => {
@@ -94,16 +122,51 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
 
     if (isFullscreen) {
       document.addEventListener('keydown', handleKeyDown);
+      document.documentElement.style.overflow = 'hidden';
       document.body.style.overflow = 'hidden';
     }
 
     return () => {
       document.removeEventListener('keydown', handleKeyDown);
       if (!isOpen) {
+        document.documentElement.style.overflow = '';
         document.body.style.overflow = '';
       }
     };
   }, [isFullscreen, isOpen]);
+
+  // Galereya: Swiper uslubida har 3 s da keyingi rasm (faqat galereya rejimi, to‘liq ekran emas)
+  const galleryImageCount = galleryImages.length;
+  useEffect(() => {
+    if (!isOpen || galleryImageCount < 2 || viewMode !== 'gallery' || isFullscreen) {
+      return;
+    }
+
+    let id: ReturnType<typeof setInterval> | undefined;
+    const start = () => {
+      if (id != null) window.clearInterval(id);
+      id = window.setInterval(() => {
+        setCurrentImageIndex((prev) => (prev + 1) % galleryImageCount);
+      }, 3000);
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'hidden') {
+        if (id != null) window.clearInterval(id);
+        id = undefined;
+      } else {
+        start();
+      }
+    };
+
+    start();
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      if (id != null) window.clearInterval(id);
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [isOpen, galleryImageCount, viewMode, isFullscreen, house.id]);
 
   // Load available banks
   const loadAvailableBanks = async () => {
@@ -186,11 +249,15 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
   if (!isOpen) return null;
 
   const nextImage = () => {
-    setCurrentImageIndex((prev) => (prev + 1) % house.images.length);
+    const n = galleryImages.length;
+    if (n <= 1) return;
+    setCurrentImageIndex((prev) => (prev + 1) % n);
   };
 
   const prevImage = () => {
-    setCurrentImageIndex((prev) => (prev - 1 + house.images.length) % house.images.length);
+    const n = galleryImages.length;
+    if (n <= 1) return;
+    setCurrentImageIndex((prev) => (prev - 1 + n) % n);
   };
 
   const openFullscreen = (index: number) => {
@@ -207,20 +274,22 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
   };
 
   const nextFullscreenImage = () => {
-    setFullscreenImageIndex((prev) => (prev + 1) % house.images.length);
+    const n = galleryImages.length || 1;
+    setFullscreenImageIndex((prev) => (prev + 1) % n);
     setImageScale(1);
     setImagePosition({ x: 0, y: 0 });
   };
 
   const prevFullscreenImage = () => {
-    setFullscreenImageIndex((prev) => (prev - 1 + house.images.length) % house.images.length);
+    const n = galleryImages.length || 1;
+    setFullscreenImageIndex((prev) => (prev - 1 + n) % n);
     setImageScale(1);
     setImagePosition({ x: 0, y: 0 });
   };
 
   const downloadImage = async () => {
     try {
-      const imageUrl = house.images[fullscreenImageIndex];
+      const imageUrl = galleryImages[fullscreenImageIndex];
       const response = await fetch(imageUrl);
       const blob = await response.blob();
       const url = window.URL.createObjectURL(blob);
@@ -273,15 +342,15 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex items-center justify-center p-0 md:p-4"
+      className="fixed inset-0 z-[100] flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden overscroll-none md:items-center md:justify-center md:p-4"
       style={{
         background: 'rgba(0, 0, 0, 0.95)',
       }}
       onClick={onClose}
     >
-      {/* Modal Content */}
+      {/* Modal Content — min-h-0: flex ichida bitta scroll (ichki panel) */}
       <div
-        className="relative w-full h-full md:h-auto md:max-h-[90vh] md:max-w-2xl md:rounded-3xl overflow-hidden flex flex-col"
+        className="relative flex min-h-0 w-full flex-1 flex-col overflow-hidden md:h-auto md:max-h-[90vh] md:max-w-2xl md:flex-none md:rounded-3xl"
         style={{
           background: isDark
             ? 'linear-gradient(145deg, #1a1a1a, #0a0a0a)'
@@ -304,8 +373,8 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
           <X className="size-6 text-white" strokeWidth={2.5} />
         </button>
 
-        {/* Scrollable Content - Everything scrolls together */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Scrollable Content - faqat shu qatlam scroll (sahifa scrolli yo‘q) */}
+        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain">
           {/* View Mode Selector */}
           {house.panoramaScenes && house.panoramaScenes.length > 0 && (
             <div className="absolute top-20 left-4 z-30 flex gap-2">
@@ -341,7 +410,7 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
             {viewMode === 'gallery' ? (
               <>
                 <img
-                  src={house.images[currentImageIndex]}
+                  src={galleryImages[currentImageIndex]}
                   alt={house.title}
                   className="w-full h-full object-cover cursor-pointer"
                   onClick={() => openFullscreen(currentImageIndex)}
@@ -359,7 +428,7 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
                 />
 
                 {/* Navigation Arrows */}
-                {house.images.length > 1 && (
+                {galleryImages.length > 1 && (
                   <>
                     <button
                       onClick={(e) => {
@@ -1196,7 +1265,10 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
             background: 'rgba(0, 0, 0, 0.9)',
             backdropFilter: 'blur(8px)',
           }}
-          onClick={() => setShowBankApplicationModal(false)}
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowBankApplicationModal(false);
+          }}
         >
           <div
             className="w-full max-w-md rounded-3xl p-6"
@@ -1373,10 +1445,16 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
           style={{
             background: 'rgba(0, 0, 0, 0.98)',
           }}
+          onClick={(e) => e.stopPropagation()}
+          onPointerDown={(e) => e.stopPropagation()}
         >
           {/* Close Button */}
           <button
-            onClick={closeFullscreen}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              closeFullscreen();
+            }}
             className="absolute top-4 right-4 p-3 rounded-full backdrop-blur-xl transition-all active:scale-90 z-50"
             style={{
               background: 'rgba(255, 255, 255, 0.1)',
@@ -1388,7 +1466,11 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
 
           {/* Download Button */}
           <button
-            onClick={downloadImage}
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              void downloadImage();
+            }}
             className="absolute top-4 right-20 p-3 rounded-full backdrop-blur-xl transition-all active:scale-90 z-50"
             style={{
               background: 'rgba(255, 255, 255, 0.1)',
@@ -1401,7 +1483,11 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
           {/* Zoom Controls */}
           <div className="absolute bottom-24 right-4 flex flex-col gap-2 z-50">
             <button
-              onClick={() => handleZoom(0.25)}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleZoom(0.25);
+              }}
               className="p-3 rounded-full backdrop-blur-xl transition-all active:scale-90"
               style={{
                 background: 'rgba(255, 255, 255, 0.1)',
@@ -1411,7 +1497,11 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
               <ZoomIn className="size-5 text-white" strokeWidth={2.5} />
             </button>
             <button
-              onClick={() => handleZoom(-0.25)}
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                handleZoom(-0.25);
+              }}
               className="p-3 rounded-full backdrop-blur-xl transition-all active:scale-90"
               style={{
                 background: 'rgba(255, 255, 255, 0.1)',
@@ -1430,7 +1520,7 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
             onTouchEnd={handleTouchEnd}
           >
             <img
-              src={house.images[fullscreenImageIndex]}
+              src={galleryImages[fullscreenImageIndex]}
               alt={house.title}
               className="max-w-full max-h-full object-contain transition-transform duration-200"
               style={{
@@ -1440,10 +1530,14 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
           </div>
 
           {/* Navigation Arrows */}
-          {house.images.length > 1 && (
+          {galleryImages.length > 1 && (
             <>
               <button
-                onClick={prevFullscreenImage}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  prevFullscreenImage();
+                }}
                 className="absolute left-4 top-1/2 -translate-y-1/2 p-3 rounded-full backdrop-blur-xl transition-all active:scale-90 z-50"
                 style={{
                   background: 'rgba(255, 255, 255, 0.1)',
@@ -1453,7 +1547,11 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
                 <ChevronLeft className="size-8 text-white" strokeWidth={2.5} />
               </button>
               <button
-                onClick={nextFullscreenImage}
+                type="button"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  nextFullscreenImage();
+                }}
                 className="absolute right-4 top-1/2 -translate-y-1/2 p-3 rounded-full backdrop-blur-xl transition-all active:scale-90 z-50"
                 style={{
                   background: 'rgba(255, 255, 255, 0.1)',
@@ -1474,16 +1572,18 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
             }}
           >
             <p className="text-white text-sm font-bold">
-              {fullscreenImageIndex + 1} / {house.images.length}
+              {fullscreenImageIndex + 1} / {galleryImages.length}
             </p>
           </div>
 
           {/* Thumbnails */}
           <div className="absolute bottom-24 left-1/2 -translate-x-1/2 flex gap-2 max-w-full overflow-x-auto px-4 z-50">
-            {house.images.map((img, idx) => (
+            {galleryImages.map((img, idx) => (
               <button
+                type="button"
                 key={idx}
-                onClick={() => {
+                onClick={(e) => {
+                  e.stopPropagation();
                   setFullscreenImageIndex(idx);
                   setImageScale(1);
                   setImagePosition({ x: 0, y: 0 });

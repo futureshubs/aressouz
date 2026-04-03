@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { publicAnonKey } from '../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 
 export interface Banner {
   id: string;
@@ -50,7 +51,7 @@ export function useBanners(
         const params = new URLSearchParams();
         if (category) params.append('category', category);
         
-        const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/banners?${params.toString()}`;
+        const url = `${edgeFunctionBaseUrl()}/banners?${params.toString()}`;
 
         console.log('🎨 ===== LOADING BANNERS =====');
         console.log('🎨 Category:', category);
@@ -61,8 +62,9 @@ export function useBanners(
 
         const response = await fetch(url, {
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
+            apikey: publicAnonKey,
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
         });
 
         console.log('🎨 Response status:', response.status);
@@ -133,7 +135,7 @@ export function useBanners(
           console.error('   1. Backend server is not running');
           console.error('   2. Network connection issue');
           console.error('   3. CORS configuration problem');
-          console.error('❌ Expected URL:', `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/banners`);
+          console.error('❌ Expected URL:', `${edgeFunctionBaseUrl()}/banners`);
           setError(err instanceof Error ? err.message : 'Unknown error');
           setIsLoading(false);
         }

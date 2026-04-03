@@ -4,9 +4,10 @@ import { useTheme } from '../context/ThemeContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { toast } from 'sonner';
 import { projectId } from '/utils/supabase/info';
-import { buildUserHeaders, buildAdminHeaders, getStoredAdminCode } from '../utils/requestAuth';
+import { buildUserHeaders, buildAdminHeaders, getStoredAdminSessionToken } from '../utils/requestAuth';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { shareTitleTextUrl } from '../utils/marketplaceNativeBridge';
+import { getVariantStockQuantity } from '../utils/cartStock';
 
 interface Product {
   id: number;
@@ -90,7 +91,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
   useEffect(() => {
     // Admin code faqat adminSession mavjud bo'lsa yoqiladi.
     // Bu UI faqat ma'lumot uchun; backend ham qayta tekshiradi.
-    setIsAdmin(Boolean(getStoredAdminCode()));
+    setIsAdmin(Boolean(getStoredAdminSessionToken()));
   }, []);
 
   const [quantity, setQuantity] = useState(0); // Start at 0 like Market section
@@ -282,10 +283,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
   if (!isOpen) return null;
 
   const readVariantStock = (v: any): number => {
-    const n = Number(
-      v?.stockQuantity ?? v?.stock ?? v?.stockCount ?? product.stockQuantity ?? product.stockCount ?? product.stock,
-    );
-    return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
+    return getVariantStockQuantity(v ?? null, product);
   };
 
   const readVariantSoldTotal = (v: any | null): number => {
@@ -453,7 +451,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
 
   const handleShareProduct = async () => {
     const url = buildProductShareUrl();
-    const text = `${product.name} — ${product.price.toLocaleString('uz-UZ')} so'm`;
+    const text = `${product.name} — ${currentPrice.toLocaleString('uz-UZ')} so'm`;
     await shareTitleTextUrl({
       title: product.name,
       text,

@@ -17,6 +17,8 @@ type Payload = {
 export function OrderReviewSharePage() {
   const { token } = useParams<{ token: string }>();
   const navigate = useNavigate();
+  const { theme } = useTheme();
+  const isDark = theme === 'dark';
   const [payload, setPayload] = useState<Payload | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
@@ -59,10 +61,16 @@ export function OrderReviewSharePage() {
 
   if (error || !payload) {
     return (
-      <div className="fixed inset-0 flex items-center justify-center bg-[#0a0a0a] px-6">
+      <div
+        className={`fixed inset-0 flex items-center justify-center px-6 ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}
+      >
         <div className="max-w-md text-center">
-          <h1 className="mb-2 text-2xl font-bold text-white">Sharx topilmadi</h1>
-          <p className="mb-6 text-white/60">{error || 'Havola yaroqsiz'}</p>
+          <h1 className={`mb-2 text-2xl font-bold ${isDark ? 'text-white' : 'text-foreground'}`}>
+            Sharx topilmadi
+          </h1>
+          <p className={`mb-6 ${isDark ? 'text-white/60' : 'text-muted-foreground'}`}>
+            {error || 'Havola yaroqsiz'}
+          </p>
           <button
             type="button"
             onClick={() => navigate('/')}
@@ -75,36 +83,58 @@ export function OrderReviewSharePage() {
     );
   }
 
+  const starEmpty = isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)';
+
   return (
-    <div className="min-h-screen bg-gradient-to-b from-[#0f172a] to-[#0a0a0a] px-4 py-10">
+    <div
+      className={`min-h-screen px-4 py-10 ${
+        isDark ? 'bg-gradient-to-b from-[#0f172a] to-[#0a0a0a]' : 'bg-gradient-to-b from-slate-50 to-gray-100'
+      }`}
+    >
       <div className="mx-auto max-w-md">
-        <p className="mb-2 text-center text-sm text-white/50">Doʻstingizning buyurtma sharhi</p>
+        <p className={`mb-2 text-center text-sm ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+          Doʻstingizning buyurtma sharhi
+        </p>
         <div
-          className="rounded-2xl border border-white/10 bg-white/5 p-6 backdrop-blur-sm"
-          style={{ boxShadow: '0 20px 50px rgba(0,0,0,0.45)' }}
+          className={`rounded-2xl border p-6 backdrop-blur-sm ${
+            isDark
+              ? 'border-white/10 bg-white/5'
+              : 'border-gray-200 bg-white shadow-xl'
+          }`}
+          style={{ boxShadow: isDark ? '0 20px 50px rgba(0,0,0,0.45)' : '0 12px 40px rgba(0,0,0,0.08)' }}
         >
-          <p className="mb-1 text-center text-xs uppercase tracking-wide text-white/40">Buyurtma</p>
-          <p className="mb-4 text-center text-lg font-bold text-white">#{payload.orderNumber}</p>
+          <p className={`mb-1 text-center text-xs uppercase tracking-wide ${isDark ? 'text-white/40' : 'text-gray-400'}`}>
+            Buyurtma
+          </p>
+          <p className={`mb-4 text-center text-lg font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            #{payload.orderNumber}
+          </p>
           <div className="mb-4 flex justify-center gap-0.5">
             {[1, 2, 3, 4, 5].map((n) => (
               <Star
                 key={n}
                 className="size-7"
                 fill={n <= payload.rating ? '#fbbf24' : 'transparent'}
-                stroke={n <= payload.rating ? '#fbbf24' : 'rgba(255,255,255,0.25)'}
+                stroke={n <= payload.rating ? '#fbbf24' : starEmpty}
               />
             ))}
           </div>
-          <p className="mb-3 text-center text-sm text-white/70">{payload.authorName}</p>
+          <p className={`mb-3 text-center text-sm ${isDark ? 'text-white/70' : 'text-gray-600'}`}>
+            {payload.authorName}
+          </p>
           {payload.comment ? (
-            <p className="whitespace-pre-wrap text-center text-base leading-relaxed text-white/90">
+            <p
+              className={`whitespace-pre-wrap text-center text-base leading-relaxed ${
+                isDark ? 'text-white/90' : 'text-gray-800'
+              }`}
+            >
               {payload.comment}
             </p>
           ) : (
-            <p className="text-center text-white/40">Matn qoldirilmagan</p>
+            <p className={`text-center ${isDark ? 'text-white/40' : 'text-gray-400'}`}>Matn qoldirilmagan</p>
           )}
           {payload.updatedAt ? (
-            <p className="mt-6 text-center text-xs text-white/35">
+            <p className={`mt-6 text-center text-xs ${isDark ? 'text-white/35' : 'text-gray-400'}`}>
               {new Date(payload.updatedAt).toLocaleString('uz-UZ')}
             </p>
           ) : null}
@@ -112,7 +142,11 @@ export function OrderReviewSharePage() {
         <button
           type="button"
           onClick={() => navigate('/')}
-          className="mx-auto mt-8 block rounded-xl border border-white/15 px-6 py-3 text-sm font-semibold text-white/80 transition hover:bg-white/5"
+          className={`mx-auto mt-8 block rounded-xl border px-6 py-3 text-sm font-semibold transition ${
+            isDark
+              ? 'border-white/15 text-white/80 hover:bg-white/5'
+              : 'border-gray-300 text-gray-800 hover:bg-gray-100'
+          }`}
         >
           Doʻkonga o‘tish
         </button>

@@ -295,12 +295,21 @@ export const PlaceCard = memo(function PlaceCard({ place, onPlaceClick, platform
       >
         {/* Image */}
         <div className="relative overflow-hidden mx-auto" style={{ borderRadius: isIOS ? '24px 24px 0 0' : '16px 16px 0 0', width: '100%', maxWidth: '500px', aspectRatio: '1/1' }}>
-          <img
-            key={currentImageIndex}
-            src={images[currentImageIndex]}
-            alt={place.name}
-            className="w-full h-full object-cover animate-fadeIn"
-          />
+          {images.map((src, i) => (
+            <img
+              key={`${place.id}-carousel-${i}`}
+              src={src}
+              alt={i === currentImageIndex ? place.name : ''}
+              aria-hidden={i !== currentImageIndex}
+              className="pointer-events-none absolute inset-0 h-full w-full object-cover transition-opacity duration-500 ease-in-out"
+              style={{
+                opacity: i === currentImageIndex ? 1 : 0,
+                zIndex: i === currentImageIndex ? 2 : 1,
+              }}
+              loading={i === 0 ? 'eager' : 'lazy'}
+              decoding="async"
+            />
+          ))}
           
           {/* Image Indicators - only show if multiple images */}
           {images.length > 1 && (
@@ -462,16 +471,6 @@ export const PlaceCard = memo(function PlaceCard({ place, onPlaceClick, platform
         onSuccess={handleEditSuccess}
       />
 
-      {/* Animation styles */}
-      <style>{`
-        @keyframes fadeIn {
-          from { opacity: 0; }
-          to { opacity: 1; }
-        }
-        .animate-fadeIn {
-          animation: fadeIn 0.4s ease-in-out;
-        }
-      `}</style>
     </>
   );
 });

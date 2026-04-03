@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { 
   Package, 
   ShoppingBag, 
   Home, 
+  Building2,
   UtensilsCrossed,
   Search,
   Filter,
@@ -139,6 +140,24 @@ const coerceOrderMoney = (v: unknown) => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/** KV / v2 / turli provayderlar: bitta UI qiymatiga */
+const normalizePaymentStatusForOrder = (raw: unknown): Order['paymentStatus'] => {
+  const s = String(raw ?? '').toLowerCase().trim();
+  if (
+    ['paid', 'completed', 'complete', 'success', 'succeeded', 'successful', 'captured', 'settled', 'paid_out'].includes(
+      s,
+    )
+  ) {
+    return 'paid';
+  }
+  if (['failed', 'error', 'declined', 'rejected', 'expired'].includes(s)) return 'failed';
+  if (['refunded', 'partially_refunded', 'partial_refund'].includes(s)) return 'refunded';
+  if (['pending', 'processing', 'awaiting', 'unpaid', 'new', 'created', 'authorized'].includes(s) || !s) {
+    return 'pending';
+  }
+  return 'pending';
+};
+
 const formatPaymentMethodUz = (raw: string | null | undefined, methodType?: string | null) => {
   const m = String(raw || '').toLowerCase().trim();
   const mt = String(methodType || '').toLowerCase().trim();
@@ -218,7 +237,24 @@ const mapRawToOrder = (raw: any): Order => {
     raw?.paymentProvider ??
     raw?.paymentMethodType;
 
+  const payNested = raw?.payment && typeof raw.payment === 'object' ? (raw.payment as any) : null;
+
   const items = Array.isArray(raw?.items) ? raw.items : [];
+
+  const branchFromRaw =
+    raw?.branchId ??
+    raw?.branch_id ??
+    raw?.branch?.id ??
+    (Array.isArray(raw?.groups) && raw.groups[0]
+      ? (raw.groups[0] as any).branchId ?? (raw.groups[0] as any).branch_id
+      : undefined);
+  const branchIdNorm =
+    branchFromRaw != null && String(branchFromRaw).trim() !== ''
+      ? String(branchFromRaw).trim()
+      : undefined;
+  const branchNameNorm = String(
+    raw?.branchName ?? raw?.branch_name ?? raw?.branch?.name ?? '',
+  ).trim();
 
   return {
     ...raw,
@@ -232,10 +268,17 @@ const mapRawToOrder = (raw: any): Order => {
     customerPhone: String(raw?.customerPhone ?? raw?.phone ?? ''),
     customerAddress: addr,
     status: String(raw?.status ?? 'pending'),
-    paymentStatus: String(raw?.paymentStatus ?? raw?.payment_status ?? 'pending'),
+    paymentStatus: normalizePaymentStatusForOrder(
+      raw?.paymentStatus ??
+        raw?.payment_status ??
+        (raw as any)?.paymentState ??
+        payNested?.status,
+    ),
     paymentMethod: payMethod != null ? String(payMethod) : undefined,
     deliveryFee: del,
     items,
+    branchId: branchIdNorm,
+    branchName: branchNameNorm || undefined,
   } as Order;
 };
 
@@ -286,12 +329,26 @@ export default function OrdersManagement({
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
+  /** Admin panel: filial tanlanmaguncha barcha filiallar «jami» ko‘rinmasin */
+  const [adminSelectedBranchId, setAdminSelectedBranchId] = useState('');
+  const [adminBranches, setAdminBranches] = useState<{ id: string; name: string }[]>([]);
+
+  const effectiveBranchFilter =
+    authMode === 'branch'
+      ? String(branchId || '').trim()
+      : String(branchId || adminSelectedBranchId || '').trim();
+
+  const showAdminBranchPicker = authMode === 'admin' && !String(branchId || '').trim();
+
   const [activeTab, setActiveTab] = useState<'all' | 'market' | 'shop' | 'rental' | 'restaurant'>(
     type === 'food' ? 'restaurant' : type
   );
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
-  const [loading, setLoading] = useState(true);
+  const [loading, setLoading] = useState(() => {
+    if (authMode === 'admin' && !String(branchId || '').trim()) return false;
+    return true;
+  });
   const [searchQuery, setSearchQuery] = useState('');
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
@@ -309,12 +366,47 @@ export default function OrdersManagement({
       }, 10000);
       return () => clearInterval(interval);
     }
-  }, [autoRefresh]);
+  }, [autoRefresh, effectiveBranchFilter, authMode]);
 
-  // Load orders initially
   useEffect(() => {
-    loadOrders();
-  }, []);
+    if (authMode !== 'admin') return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branches`,
+          { headers: buildAdminHeaders({ 'Content-Type': 'application/json' }) },
+        );
+        const data = await res.json().catch(() => ({}));
+        if (cancelled || !res.ok) return;
+        const list = Array.isArray(data.branches) ? data.branches : [];
+        setAdminBranches(
+          list.map((b: { id?: string; name?: string; login?: string }) => ({
+            id: String(b.id || '').trim(),
+            name: String(b.name || b.login || 'Filial').trim() || 'Filial',
+          })).filter((b: { id: string }) => b.id),
+        );
+      } catch {
+        if (!cancelled) setAdminBranches([]);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [authMode]);
+
+  // Load orders when filial (admin) yoki filial sessiyasi tayyor
+  useEffect(() => {
+    if (authMode === 'admin' && !effectiveBranchFilter) {
+      setOrders([]);
+      setLastOrderCount(0);
+      setNewOrdersCount(0);
+      setLoading(false);
+      return;
+    }
+    void loadOrders();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- loadOrders ichida effectiveBranchFilter ishlatiladi
+  }, [authMode, branchId, adminSelectedBranchId]);
 
   // Filter orders
   useEffect(() => {
@@ -334,6 +426,12 @@ export default function OrdersManagement({
       } else {
         filtered = filtered.filter((order) => order.status === statusFilter);
       }
+    }
+
+    // Filial market «Yangi»: naqd qabul alohida panelda; kartochka panjarasida barcha market
+    // yangi buyurtmalar takrorlanmasin va onlayn to‘lovlar bu yerda chiqmasin (tayyorlovchi oqimi).
+    if (authMode === 'branch' && activeTab === 'market' && statusFilter === 'incoming') {
+      filtered = filtered.filter((order) => order.type !== 'market');
     }
 
     // Filter by search
@@ -358,7 +456,7 @@ export default function OrdersManagement({
     }
 
     setFilteredOrders(filtered);
-  }, [orders, activeTab, statusFilter, searchQuery]);
+  }, [orders, activeTab, statusFilter, searchQuery, authMode]);
 
   const loadOrders = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -409,7 +507,16 @@ export default function OrdersManagement({
           const key = String(o.id || '').trim();
           if (!key) continue;
           const prev = byId.get(key);
-          byId.set(key, prev ? { ...prev, ...o } : o);
+          if (!prev) {
+            byId.set(key, o);
+            continue;
+          }
+          const merged: Order = { ...prev, ...o };
+          if (prev.paymentStatus === 'paid' || o.paymentStatus === 'paid') merged.paymentStatus = 'paid';
+          else if (o.paymentStatus === 'failed' || prev.paymentStatus === 'failed') merged.paymentStatus = 'failed';
+          else if (o.paymentStatus === 'refunded' || prev.paymentStatus === 'refunded') merged.paymentStatus = 'refunded';
+          else merged.paymentStatus = o.paymentStatus !== 'pending' ? o.paymentStatus : prev.paymentStatus;
+          byId.set(key, merged);
         }
 
         let merged = Array.from(byId.values());
@@ -422,6 +529,13 @@ export default function OrdersManagement({
         return;
       }
 
+      if (!effectiveBranchFilter) {
+        applyNewOrderToast([]);
+        setOrders([]);
+        if (!silent) setLoading(false);
+        return;
+      }
+
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders/all`,
         { headers: buildAdminHeaders() },
@@ -430,9 +544,9 @@ export default function OrdersManagement({
 
       if (data.success) {
         let allOrders = (data.orders || []) as any[];
-        if (branchId) {
-          allOrders = allOrders.filter((order: Order) => order.branchId === branchId);
-        }
+        allOrders = allOrders.filter(
+          (order: Order) => String(order.branchId || '') === String(effectiveBranchFilter),
+        );
         const mapped = allOrders.map(mapRawToOrder);
         applyNewOrderToast(mapped);
         setOrders(mapped);
@@ -753,14 +867,22 @@ export default function OrdersManagement({
     return x === 'cancelled' || x === 'canceled';
   };
 
+  /** Statistikalar: tanlangan filial + tur (Market/…) bo‘yicha; qidiruv/status filtri kartochkalarni o‘zgartirmaydi */
+  const ordersForStats = useMemo(() => {
+    if (activeTab === 'all') return orders;
+    return orders.filter((o) => o.type === activeTab);
+  }, [orders, activeTab]);
+
   const stats = {
-    total: filteredOrders.length,
-    pending: filteredOrders.filter(o => o.status === 'pending' || o.status === 'new').length,
-    active: filteredOrders.filter(o => ['confirmed', 'preparing', 'ready', 'delivering'].includes(o.status)).length,
-    completed: filteredOrders.filter(o => o.status === 'delivered').length,
-    cancelled: filteredOrders.filter(o => isCancelledStatus(o.status)).length,
-    totalRevenue: filteredOrders
-      .filter(o => o.status === 'delivered')
+    total: ordersForStats.length,
+    pending: ordersForStats.filter((o) => o.status === 'pending' || o.status === 'new').length,
+    active: ordersForStats.filter((o) =>
+      ['confirmed', 'preparing', 'ready', 'delivering'].includes(o.status),
+    ).length,
+    completed: ordersForStats.filter((o) => o.status === 'delivered').length,
+    cancelled: ordersForStats.filter((o) => isCancelledStatus(o.status)).length,
+    totalRevenue: ordersForStats
+      .filter((o) => o.status === 'delivered')
       .reduce((sum, o) => {
         const raw = (o as any).totalAmount ?? (o as any).finalTotal ?? (o as any).total;
         return sum + safeMoney(raw);
@@ -882,6 +1004,36 @@ export default function OrdersManagement({
             </div>
           </div>
         </div>
+
+        {authMode === 'branch' && order.type === 'market' && (
+          <div
+            className="mb-4 px-3 py-2.5 rounded-xl text-center text-sm font-bold tracking-tight"
+            style={{
+              background:
+                order.paymentStatus === 'paid'
+                  ? isDark
+                    ? 'rgba(16, 185, 129, 0.22)'
+                    : 'rgba(16, 185, 129, 0.14)'
+                  : isDark
+                    ? 'rgba(245, 158, 11, 0.18)'
+                    : 'rgba(245, 158, 11, 0.2)',
+              color: order.paymentStatus === 'paid' ? '#10b981' : isDark ? '#fcd34d' : '#b45309',
+              border: `1px solid ${
+                order.paymentStatus === 'paid'
+                  ? 'rgba(16, 185, 129, 0.35)'
+                  : 'rgba(245, 158, 11, 0.35)'
+              }`,
+            }}
+          >
+            {order.paymentStatus === 'paid'
+              ? 'To‘lov: to‘langan'
+              : order.paymentStatus === 'failed'
+                ? 'To‘lov: xatolik'
+                : order.paymentStatus === 'refunded'
+                  ? 'To‘lov: qaytarilgan'
+                  : 'To‘lov: kutilmoqda (to‘lanmagan)'}
+          </div>
+        )}
 
         {/* Customer Info */}
         <div 
@@ -1598,7 +1750,9 @@ export default function OrdersManagement({
             )}
           </div>
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            {branchId ? 'Filial buyurtmalarini real-time boshqaring' : 'Barcha buyurtmalarni bir joyda boshqaring'}
+            {authMode === 'branch' || String(branchId || '').trim()
+              ? 'Filial buyurtmalarini real-time boshqaring'
+              : 'Filial tanlang — faqat shu filial buyurtmalari va statistikasi ko‘rinadi'}
           </p>
         </div>
 
@@ -1666,7 +1820,68 @@ export default function OrdersManagement({
         </div>
       </div>
 
+      {showAdminBranchPicker && (
+        <div
+          className="flex flex-col sm:flex-row sm:items-center gap-3 p-4 sm:p-5 rounded-2xl border"
+          style={{
+            background: isDark ? 'rgba(255, 255, 255, 0.04)' : '#ffffff',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+          }}
+        >
+          <div className="flex items-center gap-2 shrink-0">
+            <MapPin className="w-5 h-5" style={{ color: accentColor.color }} />
+            <span className="font-bold text-sm sm:text-base">Filial</span>
+          </div>
+          <div className="flex-1 min-w-0">
+            <select
+              value={adminSelectedBranchId}
+              onChange={(e) => setAdminSelectedBranchId(e.target.value)}
+              className="w-full max-w-xl py-3 px-4 rounded-xl border outline-none text-base font-semibold cursor-pointer"
+              style={{
+                background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#f9fafb',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.1)',
+                color: isDark ? '#fff' : '#111827',
+              }}
+            >
+              <option value="">— Filialni tanlang —</option>
+              {adminBranches.map((b) => (
+                <option key={b.id} value={b.id}>
+                  {b.name}
+                </option>
+              ))}
+            </select>
+            {adminBranches.length === 0 && (
+              <p className="text-xs mt-2" style={{ opacity: 0.65 }}>
+                Filiallar ro‘yxati yuklanmadi yoki hali filial yo‘q. «Filiallar» bo‘limida qo‘shing.
+              </p>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showAdminBranchPicker && !effectiveBranchFilter ? (
+        <div
+          className="flex flex-col items-center justify-center py-16 sm:py-24 rounded-3xl border"
+          style={{
+            background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+            border: `1px dashed ${isDark ? 'rgba(255, 255, 255, 0.12)' : 'rgba(0, 0, 0, 0.1)'}`,
+          }}
+        >
+          <Building2 className="w-14 h-14 mb-4 opacity-40" style={{ color: accentColor.color }} />
+          <h3 className="text-xl font-bold mb-2 text-center px-4">Filialni tanlang</h3>
+          <p
+            className="text-center max-w-md px-4 text-sm"
+            style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}
+          >
+            Yuqoridagi ro‘yxatdan filialni tanlang. Buyurtmalar, jami sonlar va tushum faqat shu filial uchun
+            ko‘rinadi — barcha filiallar aralash «jami» ko‘rinmaydi.
+          </p>
+        </div>
+      ) : null}
+
       {/* Statistics Cards */}
+      {(!showAdminBranchPicker || effectiveBranchFilter) && (
+      <>
       <div className="grid grid-cols-1 min-[400px]:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 sm:gap-4">
         <div
           className="p-4 sm:p-5 rounded-2xl transition-all max-sm:hover:scale-100 sm:hover:scale-105"
@@ -1867,6 +2082,7 @@ export default function OrdersManagement({
 
       {/* Orders Grid */}
       {filteredOrders.length === 0 ? (
+        authMode === 'branch' && activeTab === 'market' && statusFilter === 'incoming' ? null : (
         <div
           className="flex flex-col items-center justify-center py-20 rounded-3xl"
           style={{
@@ -1887,12 +2103,15 @@ export default function OrdersManagement({
               : 'Hozircha buyurtmalar mavjud emas'}
           </p>
         </div>
+        )
       ) : (
         <div className="grid grid-cols-1 md:grid-cols-2 2xl:grid-cols-3 gap-4 sm:gap-5">
           {filteredOrders.map((order, index) => (
             <OrderCard key={buildOrderKey(order, index)} order={order} />
           ))}
         </div>
+      )}
+      </>
       )}
 
       {/* Order Details Modal */}

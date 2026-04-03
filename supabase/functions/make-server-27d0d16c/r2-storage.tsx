@@ -7,8 +7,90 @@ const R2_ACCESS_KEY_ID = Deno.env.get('R2_ACCESS_KEY_ID');
 const R2_SECRET_ACCESS_KEY = Deno.env.get('R2_SECRET_ACCESS_KEY');
 const R2_BUCKET_NAME = Deno.env.get('R2_BUCKET_NAME') || 'online-shop-images';
 
-// R2 Public URL (permanent, no expiration)
-const R2_PUBLIC_URL = 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev';
+// R2 Public URL (permanent, no expiration). Override via R2_PUBLIC_URL if the bucket uses another domain.
+const R2_PUBLIC_URL =
+  (Deno.env.get("R2_PUBLIC_URL") || "").trim() ||
+  "https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev";
+
+/**
+ * R2 object key prefixes this app uses on the public R2 domain.
+ * `community/` is excluded here — those objects are deleted only with owner checks (see server).
+ */
+const MANAGED_R2_PUBLIC_PREFIXES = [
+  "house/",
+  "car/",
+  "place/",
+  "places/",
+  "property/",
+  "panorama/",
+  "bank/",
+  "profiles/",
+  "videos/",
+  "rentals/",
+  "shop-products/",
+  "support_chat/",
+  "auctions/",
+  "user-car-",
+  "user-car-panorama-",
+  "vehicle-",
+  "vehicle-panorama-",
+] as const;
+
+/** Public R2 URL → object key if it is ours (same host + allowed prefix); else null. */
+export function extractManagedR2PublicKeyFromUrl(url: string): string | null {
+  const u = String(url || "").trim();
+  if (!u || (!u.startsWith("http://") && !u.startsWith("https://"))) return null;
+  try {
+    const parsed = new URL(u);
+    const base = new URL(R2_PUBLIC_URL);
+    if (parsed.hostname !== base.hostname) return null;
+    const key = decodeURIComponent(parsed.pathname.replace(/^\//, ""));
+    if (!key || key.includes("..")) return null;
+    if (key.startsWith("community/")) return null;
+    for (const p of MANAGED_R2_PUBLIC_PREFIXES) {
+      if (key.startsWith(p)) return key;
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+export function extractListingMediaR2KeyFromUrl(url: string): string | null {
+  return extractManagedR2PublicKeyFromUrl(url);
+}
+
+/** Best-effort delete for one URL on our public R2 (ignores external URLs and failures). */
+export async function deleteManagedR2UrlIfKnown(url: string): Promise<void> {
+  const key = extractManagedR2PublicKeyFromUrl(url);
+  if (!key) return;
+  try {
+    if (!checkR2Config().configured) return;
+    await deleteFromR2(key);
+  } catch (e) {
+    console.error("Managed R2 delete (non-fatal):", e);
+  }
+}
+
+export async function deleteListingMediaFromR2IfKnown(url: string): Promise<void> {
+  return deleteManagedR2UrlIfKnown(url);
+}
+
+/** Base64 data URL → R2; key is `${baseFileName}.${ext}` (e.g. user-car-…-0.jpg). */
+export async function uploadImage(dataUrl: string, baseFileName: string): Promise<string> {
+  const m = String(dataUrl).match(/^data:image\/(\w+);base64,(.+)$/i);
+  if (!m) throw new Error("Base64 rasm data URL kutilgan");
+  const imageType = m[1].toLowerCase();
+  const base64Data = m[2];
+  const binaryString = atob(base64Data);
+  const bytes = new Uint8Array(binaryString.length);
+  for (let i = 0; i < binaryString.length; i++) bytes[i] = binaryString.charCodeAt(i);
+  const ext = imageType === "jpeg" ? "jpg" : imageType;
+  const contentType =
+    imageType === "jpeg" || imageType === "jpg" ? "image/jpeg" : `image/${imageType}`;
+  const key = `${baseFileName}.${ext}`;
+  return uploadToR2(key, bytes, contentType);
+}
 
 // Validate configuration
 const isR2Configured = () => {

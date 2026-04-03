@@ -3,6 +3,7 @@ import { X, Phone, ArrowLeft, Loader2, CheckCircle2, User, Calendar, Users } fro
 import { motion } from 'motion/react';
 import { projectId, publicAnonKey, API_BASE_URL } from '/utils/supabase/info';
 import { WheelDatePicker } from './WheelDatePicker';
+import { useThemePalette } from '../hooks/useThemePalette';
 
 const API_URL = API_BASE_URL; // Use local backend in development
 
@@ -29,6 +30,7 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
   const [isNewUser, setIsNewUser] = useState(false); // Track if user is new
   
   const codeInputsRef = useRef<(HTMLInputElement | null)[]>([]);
+  const { tc, isLight } = useThemePalette('android');
 
   // Countdown timer for resend
   useEffect(() => {
@@ -282,21 +284,19 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       exit={{ opacity: 0, x: -20 }}
       className="space-y-6"
     >
-      <div className="text-center">
+      <div className="text-center" style={{ color: tc.text.primary }}>
         <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-[var(--accent-color)]/10 flex items-center justify-center">
           <Phone className="w-10 h-10 text-[var(--accent-color)]" />
         </div>
-        <h2 className="text-3xl font-bold text-white mb-2">
+        <h2 className="text-3xl font-bold mb-2" style={{ color: tc.text.primary }}>
           {isNewUser ? 'Ro\'yxatdan o\'tish' : 'Kirish'}
         </h2>
-        <p className="text-white/60">
-          Telefon raqamingizni kiriting
-        </p>
+        <p style={{ color: tc.text.secondary }}>Telefon raqamingizni kiriting</p>
       </div>
 
       <div className="space-y-4">
         <div>
-          <label className="block text-white/80 mb-2 text-sm font-medium">
+          <label className="block mb-2 text-sm font-medium" style={{ color: tc.text.secondary }}>
             Telefon raqam
           </label>
           <input
@@ -304,7 +304,12 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
             value={formatPhoneDisplay(phone)}
             onChange={(e) => handlePhoneChange(e.target.value)}
             placeholder="+998 (XX) XXX-XX-XX"
-            className="w-full px-4 py-4 bg-white/5 border-2 border-white/10 rounded-2xl text-white text-lg text-center tracking-wider focus:border-[var(--accent-color)] focus:outline-none transition-all"
+            className="w-full px-4 py-4 border-2 rounded-2xl text-lg text-center tracking-wider focus:border-[var(--accent-color)] focus:outline-none transition-all"
+            style={{
+              background: tc.input.background,
+              borderColor: tc.input.border,
+              color: tc.text.primary,
+            }}
             maxLength={20}
           />
         </div>
@@ -313,7 +318,7 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm text-center"
+            className={`p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-center ${isLight ? 'text-red-600' : 'text-red-400'}`}
           >
             {error}
           </motion.div>
@@ -345,8 +350,10 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       className="space-y-6"
     >
       <button
+        type="button"
         onClick={() => setStep('phone')}
-        className="flex items-center gap-2 text-white/60 hover:text-white transition-colors"
+        className="flex items-center gap-2 transition-colors"
+        style={{ color: tc.text.secondary }}
       >
         <ArrowLeft className="w-5 h-5" />
         Orqaga
@@ -356,10 +363,10 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-[var(--accent-color)]/10 flex items-center justify-center">
           <Phone className="w-10 h-10 text-[var(--accent-color)]" />
         </div>
-        <h2 className="text-3xl font-bold text-white mb-2">
+        <h2 className="text-3xl font-bold mb-2" style={{ color: tc.text.primary }}>
           Kodni kiriting
         </h2>
-        <p className="text-white/60">
+        <p style={{ color: tc.text.secondary }}>
           {formatPhoneDisplay(phone)} raqamiga yuborilgan 6 raqamli kodni kiriting
         </p>
       </div>
@@ -378,7 +385,12 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
               value={digit}
               onChange={(e) => handleCodeChange(index, e.target.value)}
               onKeyDown={(e) => handleCodeKeyDown(index, e)}
-              className="w-12 h-14 bg-white/5 border-2 border-white/10 rounded-2xl text-white text-2xl text-center focus:border-[var(--accent-color)] focus:outline-none transition-all"
+              className="w-12 h-14 border-2 rounded-2xl text-2xl text-center focus:border-[var(--accent-color)] focus:outline-none transition-all"
+              style={{
+                background: tc.input.background,
+                borderColor: tc.input.border,
+                color: tc.text.primary,
+              }}
             />
           ))}
         </div>
@@ -387,14 +399,14 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm text-center"
+            className={`p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-center ${isLight ? 'text-red-600' : 'text-red-400'}`}
           >
             {error}
           </motion.div>
         )}
 
         {countdown > 0 && (
-          <div className="text-center text-white/40 text-sm">
+          <div className="text-center text-sm" style={{ color: tc.text.tertiary }}>
             Qayta yuborish: {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, '0')}
           </div>
         )}
@@ -433,8 +445,10 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       className="space-y-6"
     >
       <button
+        type="button"
         onClick={() => setStep('code')}
-        className="flex items-center gap-2 text-white/60 hover:text-white transition-colors"
+        className="flex items-center gap-2 transition-colors"
+        style={{ color: tc.text.secondary }}
       >
         <ArrowLeft className="w-5 h-5" />
         Orqaga
@@ -444,18 +458,16 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-[var(--accent-color)]/10 flex items-center justify-center">
           <User className="w-10 h-10 text-[var(--accent-color)]" />
         </div>
-        <h2 className="text-3xl font-bold text-white mb-2">
+        <h2 className="text-3xl font-bold mb-2" style={{ color: tc.text.primary }}>
           Ma'lumotlarni to'ldiring
         </h2>
-        <p className="text-white/60">
-          Iltimos, shaxsiy ma'lumotlaringizni kiriting
-        </p>
+        <p style={{ color: tc.text.secondary }}>Iltimos, shaxsiy ma'lumotlaringizni kiriting</p>
       </div>
 
       <div className="space-y-4">
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-white/80 mb-2 text-sm font-medium">
+            <label className="block mb-2 text-sm font-medium" style={{ color: tc.text.secondary }}>
               Ism
             </label>
             <input
@@ -463,11 +475,16 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
               value={firstName}
               onChange={(e) => setFirstName(e.target.value)}
               placeholder="Ismingiz"
-              className="w-full px-4 py-3 bg-white/5 border-2 border-white/10 rounded-2xl text-white focus:border-[var(--accent-color)] focus:outline-none transition-all"
+              className="w-full px-4 py-3 border-2 rounded-2xl focus:border-[var(--accent-color)] focus:outline-none transition-all placeholder:text-gray-400"
+              style={{
+                background: tc.input.background,
+                borderColor: tc.input.border,
+                color: tc.text.primary,
+              }}
             />
           </div>
           <div>
-            <label className="block text-white/80 mb-2 text-sm font-medium">
+            <label className="block mb-2 text-sm font-medium" style={{ color: tc.text.secondary }}>
               Familya
             </label>
             <input
@@ -475,38 +492,54 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
               value={lastName}
               onChange={(e) => setLastName(e.target.value)}
               placeholder="Familyangiz"
-              className="w-full px-4 py-3 bg-white/5 border-2 border-white/10 rounded-2xl text-white focus:border-[var(--accent-color)] focus:outline-none transition-all"
+              className="w-full px-4 py-3 border-2 rounded-2xl focus:border-[var(--accent-color)] focus:outline-none transition-all placeholder:text-gray-400"
+              style={{
+                background: tc.input.background,
+                borderColor: tc.input.border,
+                color: tc.text.primary,
+              }}
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-white/80 mb-2 text-sm font-medium">
+          <label className="block mb-2 text-sm font-medium" style={{ color: tc.text.secondary }}>
             Tug'ilgan kun
           </label>
-          <div className="relative">
-            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 text-white/40" />
+          <div className="relative pl-12">
+            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 z-10" style={{ color: tc.text.tertiary }} />
             <WheelDatePicker
               value={birthDate}
               onChange={(date) => setBirthDate(date)}
-              className="w-full pl-12 pr-4 py-3 bg-white/5 border-2 border-white/10 rounded-2xl text-white focus:border-[var(--accent-color)] focus:outline-none transition-all"
+              style={{
+                background: tc.input.background,
+                borderColor: tc.input.border,
+                color: tc.text.primary,
+              }}
             />
           </div>
         </div>
 
         <div>
-          <label className="block text-white/80 mb-2 text-sm font-medium">
+          <label className="block mb-2 text-sm font-medium" style={{ color: tc.text.secondary }}>
             Jins
           </label>
           <div className="grid grid-cols-2 gap-3">
             <button
               type="button"
               onClick={() => setGender('male')}
-              className={`py-3 px-4 rounded-2xl font-medium transition-all ${
-                gender === 'male'
-                  ? 'bg-[var(--accent-color)] text-white shadow-lg'
-                  : 'bg-white/5 text-white/60 border-2 border-white/10'
+              className={`py-3 px-4 rounded-2xl font-medium transition-all border-2 ${
+                gender === 'male' ? 'bg-[var(--accent-color)] text-white shadow-lg border-transparent' : ''
               }`}
+              style={
+                gender === 'male'
+                  ? undefined
+                  : {
+                      background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)',
+                      borderColor: tc.border.primary,
+                      color: tc.text.secondary,
+                    }
+              }
             >
               <div className="flex items-center justify-center gap-2">
                 <Users className="w-5 h-5" />
@@ -516,11 +549,18 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
             <button
               type="button"
               onClick={() => setGender('female')}
-              className={`py-3 px-4 rounded-2xl font-medium transition-all ${
-                gender === 'female'
-                  ? 'bg-[var(--accent-color)] text-white shadow-lg'
-                  : 'bg-white/5 text-white/60 border-2 border-white/10'
+              className={`py-3 px-4 rounded-2xl font-medium transition-all border-2 ${
+                gender === 'female' ? 'bg-[var(--accent-color)] text-white shadow-lg border-transparent' : ''
               }`}
+              style={
+                gender === 'female'
+                  ? undefined
+                  : {
+                      background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)',
+                      borderColor: tc.border.primary,
+                      color: tc.text.secondary,
+                    }
+              }
             >
               <div className="flex items-center justify-center gap-2">
                 <Users className="w-5 h-5" />
@@ -534,7 +574,7 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
           <motion.div
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
-            className="p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-red-400 text-sm text-center"
+            className={`p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-center ${isLight ? 'text-red-600' : 'text-red-400'}`}
           >
             {error}
           </motion.div>
@@ -575,10 +615,10 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         }}
         className="w-24 h-24 rounded-full border-4 border-[var(--accent-color)]/20 border-t-[var(--accent-color)] mb-6"
       />
-      <h3 className="text-2xl font-bold text-white mb-2">
+      <h3 className="text-2xl font-bold mb-2" style={{ color: tc.text.primary }}>
         {isNewUser ? 'Ro\'yxatdan o\'tilmoqda...' : 'Kirilmoqda...'}
       </h3>
-      <p className="text-white/60 text-center">
+      <p className="text-center" style={{ color: tc.text.secondary }}>
         Iltimos, kuting
       </p>
     </motion.div>
@@ -606,7 +646,8 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.2 }}
-        className="text-3xl font-bold text-white mb-2"
+        className="text-3xl font-bold mb-2"
+        style={{ color: tc.text.primary }}
       >
         Xush kelibsiz! 🎉
       </motion.h3>
@@ -614,7 +655,8 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: 0.3 }}
-        className="text-white/60 text-center"
+        className="text-center"
+        style={{ color: tc.text.secondary }}
       >
         Muvaffaqiyatli {isNewUser ? 'ro\'yxatdan o\'tdingiz' : 'kirdingiz'}
       </motion.p>
@@ -626,7 +668,8 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="fixed inset-0 z-[100] flex items-center justify-center backdrop-blur-sm p-4"
+      style={{ background: tc.backdrop }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -635,14 +678,23 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         initial={{ scale: 0.95, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.95, opacity: 0 }}
-        className="relative w-full max-w-md bg-gradient-to-b from-[#1a1a1a] to-[#0f0f0f] rounded-3xl shadow-2xl overflow-hidden"
+        className="relative w-full max-w-md rounded-3xl overflow-hidden border"
+        style={{
+          background: tc.background.modal,
+          borderColor: tc.border.primary,
+          boxShadow: tc.shadow.xl,
+        }}
       >
         {/* Close Button */}
         <button
+          type="button"
           onClick={onClose}
-          className="absolute top-6 right-6 w-10 h-10 bg-white/5 hover:bg-white/10 rounded-full flex items-center justify-center transition-all z-10"
+          className="absolute top-6 right-6 w-10 h-10 rounded-full flex items-center justify-center transition-all z-10"
+          style={{
+            background: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
+          }}
         >
-          <X className="w-5 h-5 text-white" />
+          <X className="w-5 h-5" style={{ color: tc.text.primary }} />
         </button>
 
         {/* Content */}

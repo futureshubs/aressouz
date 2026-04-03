@@ -41,11 +41,10 @@ export default function BogalterDashboard() {
 
   return (
     <div
-      className="h-[100dvh] overflow-y-auto"
+      className="min-h-dvh"
       style={{
         background: isDark ? '#000000' : '#f9fafb',
         color: isDark ? '#ffffff' : '#111827',
-        // Mobile (iOS/Android) da scroll bo'lishi uchun.
         WebkitOverflowScrolling: 'touch',
         touchAction: 'pan-y',
       }}

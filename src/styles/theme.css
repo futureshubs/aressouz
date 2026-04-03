@@ -2,8 +2,9 @@
 
 :root {
   --font-size: 16px;
-  --background: #ffffff;
-  --foreground: oklch(0.145 0 0);
+  /* AppContent / mobil bilan bir xil och kulrang fon */
+  --background: #f9fafb;
+  --foreground: oklch(0.205 0.02 264);
   --card: #ffffff;
   --card-foreground: oklch(0.145 0 0);
   --popover: oklch(1 0 0);
@@ -308,6 +309,34 @@
   .hide-scrollbar::-webkit-scrollbar {
     display: none;
   }
+}
+
+/*
+ * iOS / Android: tirqich, kamera cho‘ntagi, Dynamic Island, home indicator.
+ * fixed inset-0 qatlamlar viewportga yopishadi — #root padding ularga ta’sir qilmaydi.
+ */
+.app-safe-pt {
+  padding-top: var(--app-safe-top);
+  box-sizing: border-box;
+}
+.app-safe-pb {
+  padding-bottom: var(--app-safe-bottom);
+  box-sizing: border-box;
+}
+.app-safe-pl {
+  padding-left: var(--app-safe-left);
+  box-sizing: border-box;
+}
+.app-safe-pr {
+  padding-right: var(--app-safe-right);
+  box-sizing: border-box;
+}
+.app-safe-pad {
+  padding-top: var(--app-safe-top);
+  padding-right: var(--app-safe-right);
+  padding-bottom: var(--app-safe-bottom);
+  padding-left: var(--app-safe-left);
+  box-sizing: border-box;
 }
 
 @media (pointer: coarse) {

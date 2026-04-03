@@ -5,9 +5,11 @@ import { useTheme } from '../context/ThemeContext';
 import { houseCategories } from '../data/houses';
 import { carCategories } from '../data/cars';
 import { regions } from '../data/regions';
-import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { publicAnonKey } from '/utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
 import { openPaymentWindow } from '../services/paymentService';
+import { LISTING_FEE_UZS } from '../constants/listingFee';
 
 interface AddListingModalProps {
   isOpen: boolean;
@@ -22,8 +24,6 @@ interface AddListingModalProps {
 
 type ListingType = 'house' | 'car' | null;
 
-const LISTING_FEE_UZS = 10_000;
-
 function normalizeListingPhoneClient(value: string): string {
   const d = String(value || '').replace(/\D/g, '');
   if (!d) return '';
@@ -34,6 +34,32 @@ function normalizeListingPhoneClient(value: string): string {
 
 function listingFeeSessionKey(uid: string, phone: string) {
   return `ares_listing_fee_tx_${uid}_${normalizeListingPhoneClient(phone)}`;
+}
+
+/** Modal ichidagi scroll konteyner + maydon: scroll qiladi, keyin fokus (klaviatura). */
+function scrollFormFieldIntoView(scrollRoot: HTMLElement | null, el: HTMLElement | null) {
+  if (!el) return;
+  requestAnimationFrame(() => {
+    if (scrollRoot) {
+      const rootRect = scrollRoot.getBoundingClientRect();
+      const elRect = el.getBoundingClientRect();
+      const padding = 96;
+      const nextTop = elRect.top - rootRect.top + scrollRoot.scrollTop - padding;
+      scrollRoot.scrollTo({ top: Math.max(0, nextTop), behavior: 'smooth' });
+    } else {
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    window.setTimeout(() => {
+      const node = el as unknown as { focus?: (opts?: { preventScroll?: boolean }) => void };
+      if (typeof node.focus === 'function') {
+        try {
+          node.focus({ preventScroll: true });
+        } catch {
+          node.focus();
+        }
+      }
+    }, 340);
+  });
 }
 
 export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, accessToken, onSuccess, defaultType }: AddListingModalProps) {
@@ -54,6 +80,8 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
   const [uploadProgress, setUploadProgress] = useState<number[]>([]);
   const [isUploadingImages, setIsUploadingImages] = useState(false);
   const uploadAbortRef = useRef<AbortController | null>(null);
+  /** Yangilanadi: yopilganda yoki yangi fayl tanlanganda — kechikkan yuklash callbacklari state qayta yozmasin */
+  const uploadSessionRef = useRef(0);
   
   // House specific
   const [region, setRegion] = useState('');
@@ -100,6 +128,24 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
+  const modalScrollRef = useRef<HTMLDivElement>(null);
+  const listingFeeBannerRef = useRef<HTMLDivElement>(null);
+  const fieldCategoryRef = useRef<HTMLSelectElement>(null);
+  const fieldTitleRef = useRef<HTMLInputElement>(null);
+  const fieldDescriptionRef = useRef<HTMLTextAreaElement>(null);
+  const fieldPriceRef = useRef<HTMLInputElement>(null);
+  const fieldHouseRegionRef = useRef<HTMLSelectElement>(null);
+  const fieldHouseDistrictRef = useRef<HTMLSelectElement>(null);
+  const fieldHouseRoomsRef = useRef<HTMLInputElement>(null);
+  const fieldHouseAreaRef = useRef<HTMLInputElement>(null);
+  const fieldCarBrandRef = useRef<HTMLInputElement>(null);
+  const fieldCarModelRef = useRef<HTMLInputElement>(null);
+  const fieldCarRegionRef = useRef<HTMLSelectElement>(null);
+  const fieldCarDistrictRef = useRef<HTMLSelectElement>(null);
+  const fieldCarYearRef = useRef<HTMLInputElement>(null);
+  const fieldCarColorRef = useRef<HTMLInputElement>(null);
+  const fieldImagesUploadBtnRef = useRef<HTMLButtonElement>(null);
+  const imagesSectionRef = useRef<HTMLDivElement>(null);
 
   const [listingQuota, setListingQuota] = useState<{
     phoneListingCount: number;
@@ -113,10 +159,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
   const [feePaymentBusy, setFeePaymentBusy] = useState(false);
   const [feePolling, setFeePolling] = useState(false);
 
-  const apiBase = useMemo(
-    () => `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`,
-    [],
-  );
+  const apiBase = useMemo(() => edgeFunctionBaseUrl(), []);
 
   const verifyListingFeeCredit = useCallback(
     async (txId: string): Promise<boolean> => {
@@ -125,6 +168,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         `${apiBase}/listings/fee/verify/${encodeURIComponent(txId)}?phone=${phoneQ}`,
         {
           headers: {
+            apikey: publicAnonKey,
             Authorization: `Bearer ${publicAnonKey}`,
             'X-Access-Token': accessToken,
           },
@@ -148,6 +192,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         const q = encodeURIComponent(userPhone.trim());
         const res = await fetch(`${apiBase}/check-listing-quota?phone=${q}`, {
           headers: {
+            apikey: publicAnonKey,
             Authorization: `Bearer ${publicAnonKey}`,
             'X-Access-Token': accessToken,
           },
@@ -189,6 +234,80 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
     }
   }, [isOpen]);
 
+  const resetForm = useCallback(() => {
+    uploadSessionRef.current += 1;
+    setImagePreviews((prev) => {
+      prev.forEach((url) => {
+        if (typeof url === 'string' && url.startsWith('blob:')) {
+          try {
+            URL.revokeObjectURL(url);
+          } catch {
+            /* ignore */
+          }
+        }
+      });
+      return [];
+    });
+    setUploadedImageUrls([]);
+    setUploadProgress([]);
+    uploadAbortRef.current?.abort();
+    uploadAbortRef.current = null;
+    setIsUploadingImages(false);
+    try {
+      if (fileInputRef.current) fileInputRef.current.value = '';
+    } catch {
+      /* ignore */
+    }
+
+    setStep(defaultType ? 'form' : 'type');
+    setListingType(defaultType || null);
+    setTitle('');
+    setDescription('');
+    setPrice('');
+    setCurrency('UZS');
+    setCategoryId('');
+    setRegion('');
+    setDistrict('');
+    setAddress('');
+    setRooms('');
+    setBathrooms('');
+    setArea('');
+    setFloor('');
+    setTotalFloors('');
+    setCondition('oddiy');
+    setBrand('');
+    setModel('');
+    setYear('');
+    setColor('');
+    setMileage('');
+    setFuelType('');
+    setTransmission('');
+    setHasAutoCredit(false);
+    setAutoCreditBank('');
+    setAutoCreditPercent('');
+    setAutoCreditPeriod('');
+    setSeats('');
+    setBodyType('');
+    setDriveType('');
+    setEngineVolume('');
+    setFeatures([]);
+    setCarPaymentTypes(['cash']);
+    setPaymentType('barchasi');
+    setCreditAvailable(false);
+    setMortgageAvailable(false);
+    setCreditTerm('');
+    setCreditInterestRate('');
+    setInitialPayment('');
+    setError('');
+  }, [defaultType]);
+
+  /** Profil va boshqa joylarda modal o‘chmaydi — yopilganda barcha rasm state tozalanadi */
+  useEffect(() => {
+    if (!isOpen) {
+      resetForm();
+    }
+  }, [isOpen, resetForm]);
+
   const runListingFeePoll = (txId: string) => {
     setListingFeeTransactionId(null);
     setFeePolling(true);
@@ -204,7 +323,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         }
       }
       setFeePolling(false);
-      setError('To‘lov kutilmoqda yoki vaqt tugadi. «To‘lovni tekshirish» tugmasini bosing.');
+      setError('To‘lov kutilmoqda yoki vaqt tugadi. Click/Payme orqali qayta urinib ko‘ring yoki modalni yopib qayta oching.');
     };
     void pollLoop();
   };
@@ -221,6 +340,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          apikey: publicAnonKey,
           Authorization: `Bearer ${publicAnonKey}`,
           'X-Access-Token': accessToken,
         },
@@ -253,6 +373,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
+          apikey: publicAnonKey,
           Authorization: `Bearer ${publicAnonKey}`,
           'X-Access-Token': accessToken,
         },
@@ -270,30 +391,6 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Payme ochilmadi');
       setFeePaymentBusy(false);
-      setFeePolling(false);
-    }
-  };
-
-  const checkPaidFeeManually = async () => {
-    if (!accessToken?.trim() || !userPhone?.trim()) {
-      toast.error('Sessiya yoki telefon yo‘q.');
-      return;
-    }
-    const stored = sessionStorage.getItem(listingFeeSessionKey(userId, userPhone));
-    if (!stored) {
-      toast.error('Avval «Click» yoki «Payme» orqali to‘lashni boshlang.');
-      return;
-    }
-    setFeePolling(true);
-    setError('');
-    try {
-      if (await verifyListingFeeCredit(stored)) {
-        setListingFeeTransactionId(stored);
-        toast.success('To‘lov qabul qilindi.');
-      } else {
-        toast.error('To‘lov hali tasdiqlanmagan. To‘lovni yakunlang yoki biroz kuting.');
-      }
-    } finally {
       setFeePolling(false);
     }
   };
@@ -317,27 +414,37 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
   }, [uploadProgress]);
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    if (isUploadingImages) {
+      setError('Avvalgi rasmlar yuklanmoqda, biroz kuting.');
+      e.target.value = '';
+      return;
+    }
     const files = Array.from(e.target.files || []);
     if (imagePreviews.length + files.length > 10) {
       setError('Maksimum 10 ta rasm yuklash mumkin');
       return;
     }
     
+    const batchStart = imagePreviews.length;
     const newPreviews = files.map((f) => URL.createObjectURL(f));
     setImagePreviews((prev) => [...prev, ...newPreviews]);
     setUploadProgress((prev) => [...prev, ...files.map(() => 0)]);
 
+    uploadAbortRef.current?.abort();
+    uploadSessionRef.current += 1;
+    const sessionId = uploadSessionRef.current;
+
     // Auto-upload immediately
     void (async () => {
+      const controller = new AbortController();
       try {
         setIsUploadingImages(true);
-        uploadAbortRef.current?.abort();
-        const controller = new AbortController();
         uploadAbortRef.current = controller;
 
-        const startIndex = uploadedImageUrls.length;
         const urls: string[] = [];
         for (let i = 0; i < files.length; i++) {
+          if (sessionId !== uploadSessionRef.current) return;
+
           const file = await compressImageIfNeeded(files[i]);
           const formData = new FormData();
           formData.append('file', file);
@@ -348,6 +455,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
             url: `${apiBase}/upload-image`,
             formData,
             headers: {
+              apikey: publicAnonKey,
               Authorization: `Bearer ${publicAnonKey}`,
               'X-Access-Token': accessToken,
             },
@@ -355,7 +463,8 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
             onProgress: (pct) => {
               setUploadProgress((prev) => {
                 const next = [...prev];
-                next[startIndex + i] = pct;
+                const idx = batchStart + i;
+                if (idx >= 0 && idx < next.length) next[idx] = pct;
                 return next;
               });
             },
@@ -367,11 +476,17 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
           urls.push(String(data.url));
         }
 
+        if (sessionId !== uploadSessionRef.current) return;
         setUploadedImageUrls((prev) => [...prev, ...urls].slice(0, 10));
       } catch (err: any) {
         if (err?.name !== 'AbortError') setError(err?.message || 'Rasm yuklashda xatolik');
       } finally {
-        setIsUploadingImages(false);
+        if (uploadAbortRef.current === controller) {
+          uploadAbortRef.current = null;
+        }
+        if (sessionId === uploadSessionRef.current) {
+          setIsUploadingImages(false);
+        }
       }
     })();
   };
@@ -385,29 +500,95 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
   };
 
   const handleSubmit = async () => {
-    if (!title || !description || !price || !categoryId || uploadedImageUrls.length === 0) {
-      setError('Barcha majburiy maydonlarni to\'ldiring va kamida 1 ta rasm yuklang');
+    const root = modalScrollRef.current;
+    const go = (msg: string, el: HTMLElement | null) => {
+      setError(msg);
+      scrollFormFieldIntoView(root, el);
+    };
+
+    if (!categoryId.trim()) {
+      go('Kategoriyani tanlang', fieldCategoryRef.current);
+      return;
+    }
+    if (!title.trim()) {
+      go('Sarlavhani kiriting', fieldTitleRef.current);
+      return;
+    }
+    if (!description.trim()) {
+      go('Ta’rifni kiriting', fieldDescriptionRef.current);
+      return;
+    }
+    if (!String(price).trim()) {
+      go('Narxni kiriting', fieldPriceRef.current);
       return;
     }
 
-    if (listingType === 'house' && (!region || !district || !rooms || !area)) {
-      setError('Uy uchun barcha maydonlarni to\'ldiring');
-      return;
+    if (listingType === 'house') {
+      if (!region.trim()) {
+        go('Viloyatni tanlang', fieldHouseRegionRef.current);
+        return;
+      }
+      if (!district.trim()) {
+        go('Tumanni tanlang', fieldHouseDistrictRef.current);
+        return;
+      }
+      if (!String(rooms).trim()) {
+        go('Xonalar sonini kiriting', fieldHouseRoomsRef.current);
+        return;
+      }
+      if (!String(area).trim()) {
+        go('Maydonni (m²) kiriting', fieldHouseAreaRef.current);
+        return;
+      }
     }
 
-    if (listingType === 'car' && (!brand || !model || !year || !color || !region || !district)) {
-      setError('Moshina uchun barcha maydonlarni to\'ldiring');
+    if (listingType === 'car') {
+      if (!brand.trim()) {
+        go('Brendni kiriting', fieldCarBrandRef.current);
+        return;
+      }
+      if (!model.trim()) {
+        go('Modelni kiriting', fieldCarModelRef.current);
+        return;
+      }
+      if (!String(year).trim()) {
+        go('Ishlab chiqarilgan yilni kiriting', fieldCarYearRef.current);
+        return;
+      }
+      if (!color.trim()) {
+        go('Rangni kiriting', fieldCarColorRef.current);
+        return;
+      }
+      if (!region.trim()) {
+        go('Viloyatni tanlang', fieldCarRegionRef.current);
+        return;
+      }
+      if (!district.trim()) {
+        go('Tumanni tanlang', fieldCarDistrictRef.current);
+        return;
+      }
+    }
+
+    if (uploadedImageUrls.length === 0) {
+      go(
+        'Kamida bitta rasm yuklang',
+        fieldImagesUploadBtnRef.current ?? imagesSectionRef.current,
+      );
       return;
     }
 
     if (isUploadingImages) {
-      setError('Rasmlar yuklanmoqda, iltimos kuting…');
+      go(
+        'Rasmlar yuklanmoqda, iltimos kuting…',
+        fieldImagesUploadBtnRef.current ?? imagesSectionRef.current,
+      );
       return;
     }
 
     if (listingQuota?.requiresFeeForNext && !listingFeeTransactionId?.trim()) {
-      setError(
+      go(
         `Bu telefon bo‘yicha ${listingQuota.freeLimit} tadan ortiq e‘lon uchun avval ${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m to‘lang (Click yoki Payme).`,
+        listingFeeBannerRef.current,
       );
       return;
     }
@@ -537,7 +718,8 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`,
+            apikey: publicAnonKey,
+            Authorization: `Bearer ${publicAnonKey}`,
             'X-Access-Token': accessToken,
           },
           body: JSON.stringify(listingData),
@@ -579,49 +761,6 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
     }
   };
 
-  const resetForm = () => {
-    setStep(defaultType ? 'form' : 'type');
-    setListingType(defaultType || null);
-    setTitle('');
-    setDescription('');
-    setPrice('');
-    setCurrency('UZS');
-    setCategoryId('');
-    setImagePreviews([]);
-    setRegion('');
-    setDistrict('');
-    setAddress('');
-    setRooms('');
-    setBathrooms('');
-    setArea('');
-    setFloor('');
-    setTotalFloors('');
-    setCondition('oddiy');
-    setBrand('');
-    setModel('');
-    setYear('');
-    setColor('');
-    setMileage('');
-    setFuelType('');
-    setTransmission('');
-    setHasAutoCredit(false);
-    setAutoCreditBank('');
-    setAutoCreditPercent('');
-    setAutoCreditPeriod('');
-    setSeats('');
-    setBodyType('');
-    setDriveType('');
-    setEngineVolume('');
-    setFeatures([]);
-    setCarPaymentTypes(['cash']);
-    setPaymentType('barchasi');
-    setCreditAvailable(false);
-    setMortgageAvailable(false);
-    setCreditTerm('');
-    setInitialPayment('');
-    setError('');
-  };
-
   if (!isOpen) return null;
 
   return (
@@ -636,6 +775,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
       {/* Content Container - Full screen on mobile, centered on desktop */}
       <div className="w-full h-full flex items-start sm:items-center justify-center">
         <div 
+          ref={modalScrollRef}
           className="w-full h-full sm:h-auto sm:max-h-[95vh] sm:max-w-2xl sm:rounded-3xl overflow-y-auto"
           style={{
             background: isDark ? '#0a0a0a' : '#ffffff',
@@ -672,7 +812,9 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         <div className="p-4 sm:p-6 space-y-5 pb-32">
           {(quotaLoading || listingQuota) && (
             <div
-              className="p-4 rounded-2xl text-sm space-y-2"
+              ref={listingFeeBannerRef}
+              tabIndex={-1}
+              className="p-4 rounded-2xl text-sm space-y-2 outline-none"
               style={{
                 background: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
                 border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
@@ -700,48 +842,34 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         To&apos;lov qabul qilindi. Endi turini tanlab e&apos;lonni joylashtirishingiz mumkin.
                       </p>
                     ) : (
-                      <div className="flex flex-col gap-2 mt-2">
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                          <button
-                            type="button"
-                            onClick={startListingFeeClick}
-                            disabled={feePaymentBusy || feePolling}
-                            className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50"
-                            style={{ backgroundImage: accentColor.gradient }}
-                          >
-                            {feePaymentBusy
-                              ? 'Tayyorlanmoqda…'
-                              : feePolling
-                                ? 'To‘lov kutilmoqda…'
-                                : `${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m — Click`}
-                          </button>
-                          <button
-                            type="button"
-                            onClick={startListingFeePayme}
-                            disabled={feePaymentBusy || feePolling}
-                            className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50"
-                            style={{
-                              background: 'linear-gradient(135deg, #00AACB 0%, #008BA3 100%)',
-                            }}
-                          >
-                            {feePaymentBusy
-                              ? 'Tayyorlanmoqda…'
-                              : feePolling
-                                ? 'To‘lov kutilmoqda…'
-                                : `${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m — Payme`}
-                          </button>
-                        </div>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
                         <button
                           type="button"
-                          onClick={checkPaidFeeManually}
+                          onClick={startListingFeeClick}
                           disabled={feePaymentBusy || feePolling}
-                          className="w-full py-3 rounded-xl font-semibold transition-all disabled:opacity-50"
+                          className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50"
+                          style={{ backgroundImage: accentColor.gradient }}
+                        >
+                          {feePaymentBusy
+                            ? 'Tayyorlanmoqda…'
+                            : feePolling
+                              ? 'To‘lov kutilmoqda…'
+                              : `${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m — Click`}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={startListingFeePayme}
+                          disabled={feePaymentBusy || feePolling}
+                          className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50"
                           style={{
-                            background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.06)',
-                            color: isDark ? '#ffffff' : '#111827',
+                            background: 'linear-gradient(135deg, #00AACB 0%, #008BA3 100%)',
                           }}
                         >
-                          To&apos;lovni tekshirish
+                          {feePaymentBusy
+                            ? 'Tayyorlanmoqda…'
+                            : feePolling
+                              ? 'To‘lov kutilmoqda…'
+                              : `${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m — Payme`}
                         </button>
                       </div>
                     )}
@@ -869,6 +997,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                   Kategoriya *
                 </label>
                 <select
+                  ref={fieldCategoryRef}
                   value={categoryId}
                   onChange={(e) => setCategoryId(e.target.value)}
                   className="w-full px-4 py-3 rounded-xl border-none outline-none"
@@ -892,6 +1021,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                   Sarlavha *
                 </label>
                 <input
+                  ref={fieldTitleRef}
                   type="text"
                   value={title}
                   onChange={(e) => setTitle(e.target.value)}
@@ -910,6 +1040,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                   Ta'rif *
                 </label>
                 <textarea
+                  ref={fieldDescriptionRef}
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   placeholder="Batafsil ma'lumot..."
@@ -929,6 +1060,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                     Narx *
                   </label>
                   <input
+                    ref={fieldPriceRef}
                     type="number"
                     value={price}
                     onChange={(e) => setPrice(e.target.value)}
@@ -968,6 +1100,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         Viloyat *
                       </label>
                       <select
+                        ref={fieldHouseRegionRef}
                         value={region}
                         onChange={(e) => {
                           setRegion(e.target.value);
@@ -992,6 +1125,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         Tuman *
                       </label>
                       <select
+                        ref={fieldHouseDistrictRef}
                         value={district}
                         onChange={(e) => setDistrict(e.target.value)}
                         disabled={!region}
@@ -1034,6 +1168,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         Xonalar *
                       </label>
                       <input
+                        ref={fieldHouseRoomsRef}
                         type="number"
                         value={rooms}
                         onChange={(e) => setRooms(e.target.value)}
@@ -1066,6 +1201,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         Maydoni (m²) *
                       </label>
                       <input
+                        ref={fieldHouseAreaRef}
                         type="number"
                         value={area}
                         onChange={(e) => setArea(e.target.value)}
@@ -1307,6 +1443,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         Brend *
                       </label>
                       <input
+                        ref={fieldCarBrandRef}
                         type="text"
                         value={brand}
                         onChange={(e) => setBrand(e.target.value)}
@@ -1323,6 +1460,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         Model *
                       </label>
                       <input
+                        ref={fieldCarModelRef}
                         type="text"
                         value={model}
                         onChange={(e) => setModel(e.target.value)}
@@ -1343,6 +1481,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         Viloyat *
                       </label>
                       <select
+                        ref={fieldCarRegionRef}
                         value={region}
                         onChange={(e) => {
                           setRegion(e.target.value);
@@ -1367,6 +1506,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         Tuman *
                       </label>
                       <select
+                        ref={fieldCarDistrictRef}
                         value={district}
                         onChange={(e) => setDistrict(e.target.value)}
                         disabled={!region}
@@ -1392,6 +1532,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         Yil *
                       </label>
                       <input
+                        ref={fieldCarYearRef}
                         type="number"
                         value={year}
                         onChange={(e) => setYear(e.target.value)}
@@ -1408,6 +1549,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                         Rang *
                       </label>
                       <input
+                        ref={fieldCarColorRef}
                         type="text"
                         value={color}
                         onChange={(e) => setColor(e.target.value)}
@@ -1785,7 +1927,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
               )}
 
               {/* Image upload */}
-              <div>
+              <div ref={imagesSectionRef} tabIndex={-1} className="rounded-xl outline-none">
                 <label className="block text-sm font-bold mb-3" style={{ color: isDark ? '#ffffff' : '#111827' }}>
                   Rasmlar * (maksimum 10 ta)
                 </label>
@@ -1832,6 +1974,8 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
 
                 {imagePreviews.length < 10 && (
                   <button
+                    type="button"
+                    ref={fieldImagesUploadBtnRef}
                     onClick={() => fileInputRef.current?.click()}
                     className="w-full p-6 rounded-xl border-2 border-dashed transition-all active:scale-98"
                     style={{

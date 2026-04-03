@@ -111,7 +111,7 @@ export function Cart({ items, isOpen, onClose, onUpdateQuantity, onRemoveItem, o
 
       {/* Cart Panel - Full screen on mobile */}
       <div 
-        className="fixed top-0 right-0 h-full w-full sm:max-w-md border-l z-50 shadow-2xl flex flex-col"
+        className="fixed right-0 top-[var(--app-safe-top)] bottom-[var(--app-safe-bottom)] w-full sm:max-w-md border-l z-50 shadow-2xl flex flex-col"
         style={{
           background: bgGradient,
           borderColor: borderColor,
@@ -175,8 +175,10 @@ export function Cart({ items, isOpen, onClose, onUpdateQuantity, onRemoveItem, o
                 const itemKey = item.selectedVariantId ? `${item.id}_${item.selectedVariantId}` : `${item.id}`;
                 
                 // Get selected variant data if available
-                const selectedVariant = item.selectedVariantId && item.variants 
-                  ? item.variants.find(v => v.id === item.selectedVariantId)
+                const selectedVariant = item.selectedVariantId && item.variants
+                  ? item.variants.find(
+                      (v) => String(v.id) === String(item.selectedVariantId),
+                    )
                   : null;
                 
                 // Use variant data or fallback to item data
@@ -327,7 +329,7 @@ export function Cart({ items, isOpen, onClose, onUpdateQuantity, onRemoveItem, o
                         {item.variantDetails ? (
                           <div className="flex items-baseline gap-2">
                             <p className="text-[10px]" style={{ color: textSecondary }}>
-                              Taom narxi:
+                              {item.dishDetails ? 'Taom narxi:' : 'Variant narxi:'}
                             </p>
                             <p 
                               className="text-sm font-bold"

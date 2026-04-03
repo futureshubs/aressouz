@@ -1,8 +1,42 @@
 import { Hono } from 'npm:hono';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
+import * as r2 from './r2-storage.tsx';
 
 const app = new Hono();
+
+function collectDishLikeHttpUrls(obj: unknown): Set<string> {
+  const urls = new Set<string>();
+  const add = (v: unknown) => {
+    if (typeof v === "string" && (v.startsWith("http://") || v.startsWith("https://"))) urls.add(v.trim());
+  };
+  if (!obj || typeof obj !== "object") return urls;
+  const o = obj as Record<string, unknown>;
+  add(o.image);
+  add(o.logo);
+  add(o.coverImage);
+  if (Array.isArray(o.images)) for (const x of o.images) add(x);
+  if (Array.isArray(o.variants)) {
+    for (const v of o.variants) {
+      if (v && typeof v === "object") add((v as Record<string, unknown>).image);
+    }
+  }
+  return urls;
+}
+
+async function purgeRemovedRestaurantR2Media(before: unknown, after: unknown) {
+  const oldU = collectDishLikeHttpUrls(before);
+  const newU = collectDishLikeHttpUrls(after);
+  for (const url of oldU) {
+    if (!newU.has(url)) await r2.deleteManagedR2UrlIfKnown(url);
+  }
+}
+
+async function purgeAllRestaurantR2Media(obj: unknown) {
+  for (const url of collectDishLikeHttpUrls(obj)) {
+    await r2.deleteManagedR2UrlIfKnown(url);
+  }
+}
 
 const supabase = createClient(
   Deno.env.get('SUPABASE_URL') ?? '',
@@ -175,6 +209,7 @@ app.put('/restaurants/:id', async (c) => {
     }
 
     const updated = { ...existing, ...body, updatedAt: new Date().toISOString() };
+    await purgeRemovedRestaurantR2Media(existing, updated);
     await kv.set(id, updated);
 
     return c.json({ success: true, data: updated });
@@ -188,13 +223,17 @@ app.put('/restaurants/:id', async (c) => {
 app.delete('/restaurants/:id', async (c) => {
   try {
     const id = c.req.param('id');
-    await kv.del(id);
+    const existing = await kv.get(id);
     
     // Delete all dishes for this restaurant
     const dishes = await kv.getByPrefix(`dish:${id}:`);
     for (const dish of dishes) {
+      await purgeAllRestaurantR2Media(dish);
       await kv.del(dish.id);
     }
+
+    if (existing) await purgeAllRestaurantR2Media(existing);
+    await kv.del(id);
 
     return c.json({ success: true });
   } catch (error) {
@@ -263,6 +302,7 @@ app.put('/dishes/:id', async (c) => {
     }
 
     const updated = { ...existing, ...body, updatedAt: new Date().toISOString() };
+    await purgeRemovedRestaurantR2Media(existing, updated);
     await kv.set(id, updated);
 
     return c.json({ success: true, data: updated });
@@ -276,6 +316,8 @@ app.put('/dishes/:id', async (c) => {
 app.delete('/dishes/:id', async (c) => {
   try {
     const id = c.req.param('id');
+    const existing = await kv.get(id);
+    if (existing) await purgeAllRestaurantR2Media(existing);
     await kv.del(id);
     return c.json({ success: true });
   } catch (error) {

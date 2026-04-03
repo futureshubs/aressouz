@@ -2,6 +2,12 @@ import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import {
+  createPayment,
+  checkPaymentStatus,
+  openPaymentWindow,
+  pollUntilPaymentPaid,
+} from '../services/paymentService';
 import { 
   Clock, 
   Gavel, 
@@ -129,10 +135,17 @@ const CATALOGS = [
   },
 ];
 
+const AUCTION_API = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
+
 export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, activeTab, onTabChange }: AuctionViewProps) {
   const { theme, accentColor } = useTheme();
-  const { user } = useAuth();
+  const { user, accessToken } = useAuth();
   const isDark = theme === 'dark';
+
+  const userJwtHeaders = (json = true): HeadersInit => ({
+    Authorization: `Bearer ${accessToken || ''}`,
+    ...(json ? { 'Content-Type': 'application/json' } : {}),
+  });
 
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -146,7 +159,10 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
   const [viewMode, setViewMode] = useState<'auction' | 'catalog'>('auction');
   const [selectedCatalogId, setSelectedCatalogId] = useState<string | null>(null);
   const [catalogProducts, setCatalogProducts] = useState<Auction[]>([]);
-  
+  const [participationSubmittingAuctionId, setParticipationSubmittingAuctionId] = useState<string | null>(
+    null,
+  );
+
   // Request form state
   const [requestData, setRequestData] = useState({
     productName: '',
@@ -164,7 +180,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
       setLoading(true);
       const categoryParam = selectedCategory === 'all' ? '' : `&category=${selectedCategory}`;
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/auctions?status=active${categoryParam}`,
+        `${AUCTION_API}/auctions?status=active${categoryParam}`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`,
@@ -213,32 +229,93 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
   };
 
   const handleParticipate = async (auction: Auction) => {
-    if (!user) {
+    if (!user || !accessToken) {
       toast.error('Ishtirok etish uchun tizimga kiring');
       return;
     }
 
+    const fee = Number(auction.participationFee) || 0;
+    let paymentId: string | undefined;
+
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/auctions/${auction.id}/participate`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: user.id,
-            userName: user.name,
-            userPhone: user.phone,
-            paymentMethod: 'cash',
-          }),
+      setParticipationSubmittingAuctionId(auction.id);
+
+      if (fee >= 1000) {
+        const orderId = `AUC_FEE__${auction.id}__${user.id}`;
+        const returnUrl = `${window.location.origin}/payment?orderId=${encodeURIComponent(orderId)}`;
+        const created = await createPayment({
+          amount: fee,
+          orderId,
+          description: `Auksion ishtirok: ${auction.name}`,
+          userId: user.id,
+          userPhone: user.phone,
+          returnUrl,
+        });
+        if (!created.success || !created.paymentId) {
+          toast.error(created.error || 'To‘lov yaratilmadi');
+          return;
         }
-      );
+
+        const isDemo =
+          created.paymentId.startsWith('DEMO_PAY_') ||
+          Boolean(created.paymentUrl?.includes('demo-payment'));
+
+        if (isDemo) {
+          await checkPaymentStatus(created.paymentId);
+        } else {
+          if (!created.paymentUrl) {
+            toast.error('To‘lov havolasi kelmadi — keyinroq qayta urinib ko‘ring');
+            return;
+          }
+          const w = openPaymentWindow(created.paymentUrl);
+          if (!w) {
+            toast.message('To‘lov sahifasini oching', {
+              description: 'Pop-up bloklangan bo‘lsa, havolani qo‘lda oching.',
+              action: {
+                label: 'Ochish',
+                onClick: () => window.open(created.paymentUrl!, '_blank', 'noopener,noreferrer'),
+              },
+            });
+          } else {
+            toast.message('To‘lov oynasi ochildi', {
+              description: 'To‘lovni yakunlang — status avtomatik tekshiriladi (20 daqiqagacha).',
+              duration: 8000,
+            });
+          }
+        }
+
+        const poll = await pollUntilPaymentPaid(created.paymentId, {
+          intervalMs: isDemo ? 500 : 2500,
+          maxMs: isDemo ? 20_000 : 20 * 60 * 1000,
+        });
+
+        if (!poll.paid) {
+          if (poll.reason === 'timeout') {
+            toast.error(
+              'To‘lov hali tasdiqlanmadi. To‘lovni tugatgan bo‘lsangiz, birozdan keyin yana «Ishtirok Etish» bosing.',
+            );
+          } else {
+            toast.error(poll.error || 'To‘lov yakunlanmadi');
+          }
+          return;
+        }
+
+        paymentId = created.paymentId;
+      }
+
+      const response = await fetch(`${AUCTION_API}/auctions/${auction.id}/participate`, {
+        method: 'POST',
+        headers: userJwtHeaders(true),
+        body: JSON.stringify({
+          paymentId,
+          userPhone: user.phone,
+          paymentMethod: fee >= 1000 ? 'app_payment' : 'waived_or_small_fee',
+        }),
+      });
 
       const data = await response.json();
       if (data.success) {
-        toast.success('Ishtirok to\'lovi qabul qilindi!');
+        toast.success(fee >= 1000 ? 'To‘lov tasdiqlandi, ishtirok qayd etildi!' : 'Ishtirok qayd etildi!');
         loadAuctions();
       } else {
         toast.error(data.error || 'Xatolik yuz berdi');
@@ -246,12 +323,14 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
     } catch (error) {
       console.error('Error participating:', error);
       toast.error('Ishtirok etishda xatolik');
+    } finally {
+      setParticipationSubmittingAuctionId(null);
     }
   };
 
   const handlePlaceBid = async () => {
-    if (!selectedAuction || !user) {
-      toast.error('Tizimga kiring');
+    if (!selectedAuction || !user || !accessToken) {
+      toast.error('Taklif uchun tizimga kiring');
       return;
     }
 
@@ -270,22 +349,14 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
 
     try {
       setSubmittingBid(true);
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/auctions/${selectedAuction.id}/bid`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: user.id,
-            userName: user.name,
-            userPhone: user.phone,
-            amount,
-          }),
-        }
-      );
+      const response = await fetch(`${AUCTION_API}/auctions/${selectedAuction.id}/bid`, {
+        method: 'POST',
+        headers: userJwtHeaders(true),
+        body: JSON.stringify({
+          userPhone: user.phone,
+          amount,
+        }),
+      });
 
       const data = await response.json();
       if (data.success) {
@@ -294,7 +365,13 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
         loadAuctions();
         setSelectedAuction(null);
       } else {
-        toast.error(data.error || 'Xatolik yuz berdi');
+        if (response.status === 409 && data.minimumBid != null) {
+          toast.error(data.error || `Yangi minimal taklif: ${Number(data.minimumBid).toLocaleString()} so'm`);
+        } else if (response.status === 401) {
+          toast.error('Sessiya tugagan — qayta kiring');
+        } else {
+          toast.error(data.error || 'Xatolik yuz berdi');
+        }
       }
     } catch (error) {
       console.error('Error placing bid:', error);
@@ -307,7 +384,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
   const handleSubmitRequest = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    if (!user) {
+    if (!user || !accessToken) {
       toast.error('Tizimga kiring');
       return;
     }
@@ -318,26 +395,17 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
     }
 
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/auction-requests`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            userId: user.id,
-            userName: user.name,
-            userPhone: user.phone,
-            productName: requestData.productName,
-            productDescription: requestData.productDescription,
-            category: requestData.category,
-            estimatedPrice: parseFloat(requestData.estimatedPrice) || 0,
-            images: [],
-          }),
-        }
-      );
+      const response = await fetch(`${AUCTION_API}/auction-requests`, {
+        method: 'POST',
+        headers: userJwtHeaders(true),
+        body: JSON.stringify({
+          productName: requestData.productName,
+          productDescription: requestData.productDescription,
+          category: requestData.category,
+          estimatedPrice: parseFloat(requestData.estimatedPrice) || 0,
+          images: [],
+        }),
+      });
 
       const data = await response.json();
       if (data.success) {
@@ -360,7 +428,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto flex flex-col"
+      className="fixed inset-0 z-50 flex flex-col h-dvh max-h-dvh min-h-0 overflow-hidden"
       style={{ background: isDark ? '#000000' : '#f9fafb' }}
     >
       {/* Real System Header */}
@@ -429,8 +497,8 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
         </div>
       </div>
 
-      {/* Content - Scrollable */}
-      <div className="flex-1 overflow-y-auto pb-24">
+      {/* Content — bitta scroll (body emas) */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain pb-24">
         <div className="max-w-7xl mx-auto px-4 py-6">
           {/* AUKSION VIEW */}
           {viewMode === 'auction' && (
@@ -767,6 +835,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
       {selectedAuction && (
         <AuctionDetailModal
           auction={selectedAuction}
+          participateSubmitting={participationSubmittingAuctionId === selectedAuction.id}
           onClose={() => {
             setSelectedAuction(null);
             setSelectedImageIndex(0);
@@ -786,22 +855,19 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
               throw new Error('Bid exceeds maximum');
             }
 
-            const response = await fetch(
-              `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/auctions/${selectedAuction.id}/bid`,
-              {
-                method: 'POST',
-                headers: {
-                  'Authorization': `Bearer ${publicAnonKey}`,
-                  'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                  userId: user?.id,
-                  userName: user?.name,
-                  userPhone: user?.phone,
-                  amount: amountNum,
-                }),
-              }
-            );
+            if (!accessToken) {
+              toast.error('Taklif uchun tizimga kiring');
+              throw new Error('No session');
+            }
+
+            const response = await fetch(`${AUCTION_API}/auctions/${selectedAuction.id}/bid`, {
+              method: 'POST',
+              headers: userJwtHeaders(true),
+              body: JSON.stringify({
+                userPhone: user?.phone,
+                amount: amountNum,
+              }),
+            });
 
             const data = await response.json();
             if (data.success) {
@@ -809,8 +875,12 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
               await loadAuctions();
               setSelectedAuction(null);
             } else {
-              toast.error(data.error || 'Xatolik yuz berdi');
-              throw new Error(data.error);
+              if (response.status === 409 && data.minimumBid != null) {
+                toast.error(data.error || `Yangi minimal taklif: ${Number(data.minimumBid).toLocaleString()} so'm`);
+              } else {
+                toast.error(data.error || 'Xatolik yuz berdi');
+              }
+              throw new Error(data.error || 'Bid failed');
             }
           }}
           onParticipate={() => handleParticipate(selectedAuction)}

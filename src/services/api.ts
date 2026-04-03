@@ -3,10 +3,13 @@
  * Handles authentication, error handling, and request formatting
  */
 
-import { projectId, publicAnonKey } from '../../utils/supabase/info';
+import { publicAnonKey } from '../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../app/utils/edgeFunctionBaseUrl';
 
 export class ApiService {
-  private static baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
+  private static get baseUrl(): string {
+    return edgeFunctionBaseUrl();
+  }
   private static defaultHeaders = {
     'Content-Type': 'application/json',
     'apikey': publicAnonKey,

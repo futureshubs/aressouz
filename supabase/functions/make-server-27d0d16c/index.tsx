@@ -8287,7 +8287,11 @@ app.post("/make-server-27d0d16c/payments/create", async (c) => {
       
       await kv.set(`payment:${mockPaymentId}`, JSON.stringify(paymentData));
       await kv.set(`order:${orderId}:payment`, mockPaymentId);
-      
+      await kv.set(`payment_order:${orderId}`, {
+        paymentId: mockPaymentId,
+        orderId,
+      });
+
       return c.json({
         success: true,
         paymentId: mockPaymentId,
@@ -8459,10 +8463,16 @@ app.get("/make-server-27d0d16c/payments/order/:orderId", async (c) => {
       return c.json({ error: 'Buyurtma ID majburiy' }, 400);
     }
 
-    // Get payment mapping
-    const mapping = await kv.get(`payment_order:${orderId}`);
-
+    // Get payment mapping (prod: payment_order; demo: order:{orderId}:payment)
+    let mapping = await kv.get(`payment_order:${orderId}`);
     if (!mapping) {
+      const legacyPid = await kv.get(`order:${orderId}:payment`);
+      if (typeof legacyPid === 'string' && legacyPid.trim()) {
+        mapping = { paymentId: legacyPid.trim(), orderId };
+      }
+    }
+
+    if (!mapping || !mapping.paymentId) {
       return c.json({ 
         success: false,
         error: 'To\'lov topilmadi' 
@@ -8470,7 +8480,14 @@ app.get("/make-server-27d0d16c/payments/order/:orderId", async (c) => {
     }
 
     // Get payment data
-    const paymentData = await kv.get(`payment:${mapping.paymentId}`);
+    let paymentData = await kv.get(`payment:${mapping.paymentId}`);
+    if (typeof paymentData === 'string') {
+      try {
+        paymentData = JSON.parse(paymentData);
+      } catch {
+        /* ignore */
+      }
+    }
 
     if (!paymentData) {
       return c.json({ 

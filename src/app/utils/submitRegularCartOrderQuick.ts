@@ -113,6 +113,15 @@ export function getMarketCartCatalogIdError(cartItems: any[]): string | null {
 function buildOrderLine(item: any): Record<string, unknown> {
   const unit = lineUnitPrice(item);
   const uuid = resolveBranchProductUuid(item);
+  const variants = Array.isArray(item?.variants) ? item.variants : [];
+  const sid = item?.selectedVariantId != null ? String(item.selectedVariantId) : '';
+  const vMatch = sid
+    ? variants.find((x: { id?: string }) => String(x?.id ?? '') === sid)
+    : null;
+  const vm = vMatch as { image?: string; images?: string[] } | undefined;
+  const fromVariant =
+    String(vm?.image || '').trim() || String(vm?.images?.[0] || '').trim();
+  const lineImage = String(item?.image || '').trim() || fromVariant;
   const line: Record<string, unknown> = {
     id: item.id,
     productId: uuid || item.id,
@@ -121,6 +130,9 @@ function buildOrderLine(item: any): Record<string, unknown> {
     selectedVariantId: item.selectedVariantId,
     name: item.name,
   };
+  if (lineImage) {
+    line.image = lineImage;
+  }
   if (uuid) {
     line.productUuid = uuid;
   }

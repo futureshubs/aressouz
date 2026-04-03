@@ -31,6 +31,53 @@ export interface PaymentStatus {
   error?: string;
 }
 
+export type PollUntilPaidResult =
+  | { paid: true }
+  | { paid: false; reason: 'timeout' | 'cancelled' | 'failed'; error?: string };
+
+function sleep(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+/**
+ * To‘lov `paid` bo‘lguncha (yoki vaqt tugaguncha) statusni qayta-qayta tekshiradi.
+ * Payme/Click oynasi ochilganda foydalanuvchi tashqarida to‘laganidan keyin ham ishlaydi.
+ */
+export async function pollUntilPaymentPaid(
+  paymentId: string,
+  options?: {
+    intervalMs?: number;
+    maxMs?: number;
+    signal?: AbortSignal;
+  },
+): Promise<PollUntilPaidResult> {
+  const intervalMs = Math.max(400, options?.intervalMs ?? 2500);
+  const maxMs = options?.maxMs ?? 20 * 60 * 1000;
+  const deadline = Date.now() + maxMs;
+
+  while (Date.now() < deadline) {
+    if (options?.signal?.aborted) {
+      return { paid: false, reason: 'cancelled', error: 'Bekor qilindi' };
+    }
+
+    const st = await checkPaymentStatus(paymentId);
+
+    if (st.success && st.status === 'paid') {
+      return { paid: true };
+    }
+    if (st.status === 'failed') {
+      return { paid: false, reason: 'failed', error: st.error };
+    }
+    if (st.status === 'cancelled') {
+      return { paid: false, reason: 'cancelled', error: st.error };
+    }
+
+    await sleep(intervalMs);
+  }
+
+  return { paid: false, reason: 'timeout', error: 'To‘lov ma’lum vaqt ichida tasdiqlanmadi' };
+}
+
 // Create payment
 export async function createPayment(params: PaymentCreateParams): Promise<PaymentResponse> {
   try {

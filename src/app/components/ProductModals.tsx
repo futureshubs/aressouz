@@ -4,6 +4,7 @@ import { useFavorites } from '../context/FavoritesContext';
 import { X, Heart, Share2, Star, ChevronLeft, ChevronRight, ShoppingCart, Package, Clock, RotateCcw, Settings, MapPin, ChevronRight as ChevronRightIcon, Minus, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { shareTitleTextUrl } from '../utils/marketplaceNativeBridge';
+import { getVariantStockQuantity } from '../utils/cartStock';
 
 // Full Screen Product Detail Modal (Ozon/Wildberries style)
 export function ProductDetailModal({ 
@@ -45,12 +46,7 @@ export function ProductDetailModal({
         image: v.image || v.images?.[0] || product.image,
         images: v.images || [v.image || product.image],
         price: v.price,
-        stockQuantity: (() => {
-          const n = Number(
-            v.stockQuantity ?? v.stock ?? v.stockCount ?? product.stockQuantity ?? product.stockCount ?? product.stock,
-          );
-          return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
-        })(),
+        stockQuantity: getVariantStockQuantity(v, product),
         oldPrice: v.oldPrice ?? product.oldPrice,
         variantId: v.id,
         soldTotal: readVariantSoldTotal(v),
@@ -61,10 +57,7 @@ export function ProductDetailModal({
         image: product.image,
         images: [product.image],
         price: product.price, 
-        stockQuantity: (() => {
-          const n = Number(product.stockQuantity ?? product.stockCount ?? product.stock);
-          return Number.isFinite(n) && n >= 0 ? Math.floor(n) : 0;
-        })(),
+        stockQuantity: getVariantStockQuantity(null, product),
         oldPrice: product.oldPrice,
         variantId: '0',
         soldTotal: readVariantSoldTotal(null),

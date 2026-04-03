@@ -59,6 +59,51 @@ interface UsersViewProps {
   onStatsUpdate: () => void;
 }
 
+function normalizeAdminUser(u: Record<string, unknown>): UserData {
+  const firstName =
+    (u.firstName as string) ||
+    (u.first_name as string) ||
+    (typeof u.name === 'string' ? String(u.name).trim().split(/\s+/)[0] : '') ||
+    (typeof u.display_name === 'string'
+      ? String(u.display_name).trim().split(/\s+/)[0]
+      : '') ||
+    '';
+  const lastName =
+    (u.lastName as string) ||
+    (u.last_name as string) ||
+    (typeof u.name === 'string'
+      ? String(u.name).trim().split(/\s+/).slice(1).join(' ')
+      : '') ||
+    (typeof u.display_name === 'string'
+      ? String(u.display_name).trim().split(/\s+/).slice(1).join(' ')
+      : '') ||
+    '';
+  const phone = String(u.phone ?? '');
+  const emailStr = String(u.email ?? '');
+  return {
+    id: String(u.id ?? ''),
+    phone,
+    firstName:
+      firstName ||
+      phone ||
+      (emailStr.includes('@') ? emailStr.split('@')[0] : emailStr) ||
+      'Mijoz',
+    lastName: lastName || '',
+    birthDate: u.birthDate as string | undefined,
+    gender: u.gender as string | undefined,
+    email: String(u.email ?? ''),
+    profileImage: u.profileImage as string | undefined,
+    bonusBalance: Number(u.bonusBalance) || 0,
+    totalBonusEarned: Number(u.totalBonusEarned) || 0,
+    purchasesCount: Number(u.purchasesCount) || 0,
+    totalSpent: Number(u.totalSpent) || 0,
+    status: (u.status === 'blocked' ? 'blocked' : 'active') as 'active' | 'blocked',
+    blocked: Boolean(u.blocked),
+    createdAt: String(u.createdAt ?? u.created_at ?? new Date().toISOString()),
+    updatedAt: (u.updatedAt ?? u.updated_at) as string | undefined,
+  };
+}
+
 export default function UsersView({ onStatsUpdate }: UsersViewProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
@@ -140,9 +185,10 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
       }
 
       const data = await response.json();
-      console.log('✅ Users loaded:', data.users.length);
-      
-      setUsers(data.users);
+      const raw = Array.isArray(data.users) ? data.users : [];
+      console.log('✅ Users loaded:', raw.length);
+
+      setUsers(raw.map((row: Record<string, unknown>) => normalizeAdminUser(row)));
     } catch (error) {
       console.error('❌ Error loading users:', error);
       toast.error('Foydalanuvchilarni yuklashda xatolik');
@@ -169,7 +215,30 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
       }
 
       const data = await response.json();
-      setViewUserModal({ isOpen: true, user: data.user, isLoading: false });
+      const raw = data.user as Record<string, unknown> | null;
+      if (!raw) {
+        throw new Error('Empty user payload');
+      }
+      const base = normalizeAdminUser(raw);
+      const bonusRaw = (raw.bonus as UserDetails['bonus']) || {
+        balance: base.bonusBalance,
+        earnedToday: 0,
+        totalEarned: base.totalBonusEarned,
+        tapCount: 0,
+      };
+      const userDetails: UserDetails = {
+        ...base,
+        bonus: {
+          balance: Number(bonusRaw.balance) ?? base.bonusBalance,
+          earnedToday: Number(bonusRaw.earnedToday) || 0,
+          totalEarned: Number(bonusRaw.totalEarned) ?? base.totalBonusEarned,
+          tapCount: Number(bonusRaw.tapCount) || 0,
+        },
+        favorites: Array.isArray(raw.favorites) ? raw.favorites : [],
+        cart: Array.isArray(raw.cart) ? raw.cart : [],
+        purchases: Array.isArray(raw.purchases) ? raw.purchases : [],
+      };
+      setViewUserModal({ isOpen: true, user: userDetails, isLoading: false });
     } catch (error) {
       console.error('❌ Error loading user details:', error);
       toast.error('Foydalanuvchi ma\'lumotlarini yuklashda xatolik');

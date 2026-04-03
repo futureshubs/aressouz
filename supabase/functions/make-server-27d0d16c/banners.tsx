@@ -1,7 +1,20 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
+import * as r2 from "./r2-storage.tsx";
 
 const bannerRoutes = new Hono();
+
+async function purgeBannerImageIfReplaced(before: Banner, after: Banner) {
+  const prev =
+    typeof before.image === "string" && (before.image.startsWith("http://") || before.image.startsWith("https://"))
+      ? before.image.trim()
+      : "";
+  const next =
+    typeof after.image === "string" && (after.image.startsWith("http://") || after.image.startsWith("https://"))
+      ? after.image.trim()
+      : "";
+  if (prev && prev !== next) await r2.deleteManagedR2UrlIfKnown(prev);
+}
 
 // Retry helper function for database operations
 async function retryOperation<T>(
@@ -252,6 +265,7 @@ bannerRoutes.patch('/banners/:id', async (c) => {
       updatedAt: new Date().toISOString()
     };
 
+    await purgeBannerImageIfReplaced(banner, updatedBanner);
     // Save updated banner
     await kv.set(`banner:${bannerId}`, updatedBanner);
 
@@ -286,6 +300,10 @@ bannerRoutes.delete('/banners/:id', async (c) => {
       }, 404);
     }
 
+    const b = existing as Banner;
+    if (typeof b.image === "string" && (b.image.startsWith("http://") || b.image.startsWith("https://"))) {
+      await r2.deleteManagedR2UrlIfKnown(b.image.trim());
+    }
     // Delete banner
     await kv.del(`banner:${bannerId}`);
 

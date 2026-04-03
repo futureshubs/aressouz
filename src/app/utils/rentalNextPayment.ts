@@ -9,9 +9,11 @@ export function computePaymentCountdown(
   nowMs: number = Date.now(),
 ): {
   dueDate: Date;
-  remainingUz: string;
   overdue: boolean;
   tone: PaymentCountdownTone;
+  days: number;
+  hours: number;
+  mins: number;
 } | null {
   if (!nextPaymentDueIso) return null;
   const due = new Date(nextPaymentDueIso);
@@ -29,18 +31,7 @@ export function computePaymentCountdown(
   const hours = Math.floor((abs % MS_DAY) / MS_HOUR);
   const mins = Math.floor((abs % MS_HOUR) / MS_MIN);
 
-  let remainingUz: string;
-  if (overdue) {
-    if (days > 0) remainingUz = `Kechikkan: ${days} kun ${hours} soat`;
-    else if (hours > 0) remainingUz = `Kechikkan: ${hours} soat ${mins} daqiqa`;
-    else remainingUz = `Kechikkan: ${mins} daqiqa`;
-  } else {
-    if (days > 0) remainingUz = `Qoldi: ${days} kun ${hours} soat`;
-    else if (hours > 0) remainingUz = `Qoldi: ${hours} soat ${mins} daqiqa`;
-    else remainingUz = `Qoldi: ${mins} daqiqa`;
-  }
-
-  return { dueDate: due, remainingUz, overdue, tone };
+  return { dueDate: due, overdue, tone, days, hours, mins };
 }
 
 export function formatDueDateTimeUz(d: Date): string {

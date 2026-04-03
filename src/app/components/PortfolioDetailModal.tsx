@@ -5,6 +5,7 @@ import { useState, useEffect } from 'react';
 import { AddCompletedProjectModal } from './AddCompletedProjectModal';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
+import { devLog } from '../utils/devLog';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 

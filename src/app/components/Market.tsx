@@ -338,7 +338,7 @@ export default function Market() {
           <>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-lg font-bold">Barcha mahsulotlar</h2>
+                <h2 className="text-lg font-bold text-foreground">Barcha mahsulotlar</h2>
                 {selectedRegion && (
                   <p className="text-sm mt-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
                     {getLocationName(selectedRegion, selectedDistrict)}
@@ -362,7 +362,7 @@ export default function Market() {
                 style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
               >
                 <Package className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
-                <h3 className="text-lg font-bold mb-2">Mahsulotlar yo'q</h3>
+                <h3 className="text-lg font-bold mb-2 text-foreground">Mahsulotlar yo'q</h3>
                 <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
                   {selectedRegion 
                     ? `${getLocationName(selectedRegion, selectedDistrict)} hududida mahsulotlar topilmadi`
@@ -388,7 +388,7 @@ export default function Market() {
           <>
             <div className="flex items-center justify-between mb-4">
               <div>
-                <h2 className="text-lg font-bold">Filiallar</h2>
+                <h2 className="text-lg font-bold text-foreground">Filiallar</h2>
                 {selectedRegion && (
                   <p className="text-sm mt-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
                     {getLocationName(selectedRegion, selectedDistrict)}
@@ -408,7 +408,7 @@ export default function Market() {
                 style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
               >
                 <Store className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
-                <h3 className="text-lg font-bold mb-2">Filiallar yo'q</h3>
+                <h3 className="text-lg font-bold mb-2 text-foreground">Filiallar yo'q</h3>
                 <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
                   {selectedRegion 
                     ? `${getLocationName(selectedRegion, selectedDistrict)} hududida filiallar topilmadi`
@@ -433,7 +433,7 @@ export default function Market() {
                   >
                     <div className="flex items-center justify-between">
                       <div className="flex-1">
-                        <h3 className="font-bold text-lg mb-2">{branch.branchName}</h3>
+                        <h3 className="font-bold text-lg mb-2 text-foreground">{branch.branchName}</h3>
                         
                         {branch.regionId && branch.districtId && (
                           <div className="flex items-center gap-2 text-sm mb-2">
@@ -480,7 +480,7 @@ export default function Market() {
             </button>
 
             <div className="px-6 py-6">
-              <h2 className="text-3xl font-bold mb-4">{selectedBranch.branchName}</h2>
+              <h2 className="text-3xl font-bold mb-4 text-foreground">{selectedBranch.branchName}</h2>
               
               {selectedBranch.regionId && selectedBranch.districtId && (
                 <div className="flex items-center gap-2 text-base mb-4">
@@ -489,7 +489,7 @@ export default function Market() {
                 </div>
               )}
 
-              <h3 className="text-xl font-bold mb-6 mt-8">Mahsulotlar</h3>
+              <h3 className="text-xl font-bold mb-6 mt-8 text-foreground">Mahsulotlar</h3>
               
               {branchProducts.length === 0 ? (
                 <div 

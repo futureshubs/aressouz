@@ -1,6 +1,7 @@
-import React from 'react';
+import React, { useMemo } from 'react';
 import { Home, Car, Heart, Edit, Trash2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import { firstListingImageUrl, listingCategoryShortLabel } from '../utils/listingDisplay';
 
 interface ListingCardProps {
   listing: any;
@@ -8,148 +9,215 @@ interface ListingCardProps {
   onEdit?: () => void;
   onDelete?: () => void;
   showActions?: boolean; // Show edit/delete buttons only in profile
+  /** Profil ro‘yxati: ixcham kartochka */
+  compact?: boolean;
+  /** Katalog (Mening uy): yurakcha ko‘rinmasin — Ipoteka/Xalol badge uchun joy */
+  hideFavorite?: boolean;
+  /** Katalog: uy rasmi ustida Ipoteka / Xalol (profilda tahrir tugmalari bo‘lsa o‘chiriladi) */
+  showHousePromoBadges?: boolean;
 }
 
-export function ListingCard({ listing, onClick, onEdit, onDelete, showActions = false }: ListingCardProps) {
+export function ListingCard({
+  listing,
+  onClick,
+  onEdit,
+  onDelete,
+  showActions = false,
+  compact = false,
+  hideFavorite = false,
+  showHousePromoBadges = false,
+}: ListingCardProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
+  const coverUrl = useMemo(() => firstListingImageUrl(listing), [
+    listing?.id,
+    listing?.image,
+    Array.isArray(listing?.images) ? listing.images.join('\u001f') : '',
+    Array.isArray(listing?.photos) ? listing.photos.join('\u001f') : '',
+    Array.isArray(listing?.photoUrls) ? listing.photoUrls.join('\u001f') : '',
+  ]);
+
+  const categoryLabel = listingCategoryShortLabel(
+    String(listing?.categoryId ?? ''),
+    String(listing?.type ?? ''),
+  );
+
+  const promoHouse =
+    compact &&
+    showHousePromoBadges &&
+    !showActions &&
+    String(listing?.type) === 'house';
+
   return (
     <div
-      className="overflow-hidden rounded-2xl transition-all active:scale-[0.97] cursor-pointer relative w-full"
+      className={`overflow-hidden transition-all active:scale-[0.97] cursor-pointer relative w-full ${
+        compact ? 'rounded-xl' : 'rounded-2xl'
+      }`}
       style={{
         background: isDark ? '#1a1a1a' : '#ffffff',
         border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
-        boxShadow: isDark ? '0 4px 20px rgba(0, 0, 0, 0.6)' : '0 4px 12px rgba(0, 0, 0, 0.1)',
+        boxShadow: compact
+          ? isDark
+            ? '0 2px 12px rgba(0, 0, 0, 0.45)'
+            : '0 2px 8px rgba(0, 0, 0, 0.08)'
+          : isDark
+            ? '0 4px 20px rgba(0, 0, 0, 0.6)'
+            : '0 4px 12px rgba(0, 0, 0, 0.1)',
       }}
     >
       {/* Image */}
       <div 
         onClick={onClick}
-        className="relative w-full aspect-square overflow-hidden"
+        className={`relative w-full overflow-hidden ${compact ? 'aspect-[4/3]' : 'aspect-square'}`}
         style={{ background: isDark ? '#2a2a2a' : '#f5f5f5' }}
       >
-        {listing.images && listing.images.length > 0 ? (
-          <img 
-            src={listing.images[0]} 
+        {coverUrl ? (
+          <img
+            key={`${listing?.id ?? 'x'}-${coverUrl}`}
+            src={coverUrl}
             alt={listing.title}
-            className="w-full h-full object-cover"
+            className="h-full w-full object-cover"
+            loading="lazy"
           />
         ) : (
           <div className="absolute inset-0 flex items-center justify-center">
             {listing.type === 'house' ? (
-              <Home className="size-12" strokeWidth={1.5} style={{ color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' }} />
+              <Home
+                className={compact ? 'size-8' : 'size-12'}
+                strokeWidth={1.5}
+                style={{ color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' }}
+              />
             ) : (
-              <Car className="size-12" strokeWidth={1.5} style={{ color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' }} />
+              <Car
+                className={compact ? 'size-8' : 'size-12'}
+                strokeWidth={1.5}
+                style={{ color: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' }}
+              />
             )}
           </div>
         )}
         
         {/* Category Badge - Top Left */}
         <div 
-          className="absolute top-3 left-3 px-3 py-1.5 rounded-lg font-bold text-xs"
+          className={`absolute font-bold rounded-md ${
+            compact ? 'top-1.5 left-1.5 px-1.5 py-0.5 text-[10px]' : 'top-3 left-3 px-3 py-1.5 rounded-lg text-xs'
+          }`}
           style={{
             background: accentColor.color,
             color: '#ffffff',
             boxShadow: '0 2px 8px rgba(0, 0, 0, 0.2)',
           }}
         >
-          {/* House Categories */}
-          {listing.categoryId === 'apartment' ? 'Kvartira' :
-           listing.categoryId === 'house' ? 'Uy' :
-           listing.categoryId === 'villa' ? 'Villa' :
-           listing.categoryId === 'penthouse' ? 'Pentxaus' :
-           listing.categoryId === 'townhouse' ? 'Taurnxaus' :
-           /* Car Categories */
-           listing.categoryId === 'sedan' ? 'Sedan' :
-           listing.categoryId === 'hatchback' ? 'Hatchback' :
-           listing.categoryId === 'suv' ? 'SUV' :
-           listing.categoryId === 'crossover' ? 'Crossover' :
-           listing.categoryId === 'coupe' ? 'Coupe' :
-           listing.categoryId === 'luxury' ? 'Hashamatli' :
-           listing.categoryId === 'sport' ? 'Sport' :
-           listing.categoryId === 'electric' ? 'Elektr' :
-           listing.categoryId === 'hybrid' ? 'Gibrid' :
-           listing.categoryId === 'minivan' ? 'Minivan' :
-           listing.categoryId === 'pickup' ? 'Pickup' :
-           listing.categoryId === 'van' ? 'Van' :
-           listing.categoryId === 'convertible' ? 'Kabriolet' :
-           listing.categoryId === 'wagon' ? 'Wagon' :
-           listing.type === 'house' ? 'Uy' : 'Moshina'}
+          {categoryLabel}
         </div>
+
+        {promoHouse && listing.hasHalalInstallment && (
+          <div
+            className="absolute right-1.5 top-1.5 max-w-[calc(100%-3.5rem)] truncate rounded-md px-1.5 py-0.5 text-[9px] font-bold"
+            style={{
+              background: accentColor.color,
+              color: '#ffffff',
+              boxShadow: `0 2px 6px ${accentColor.color}50`,
+            }}
+          >
+            Xalol
+          </div>
+        )}
+
+        {promoHouse && listing.mortgageAvailable && (
+          <div
+            className="absolute bottom-1.5 left-1.5 rounded-md px-1.5 py-0.5 text-[9px] font-bold"
+            style={{
+              background: 'rgba(59, 130, 246, 0.95)',
+              color: '#ffffff',
+            }}
+          >
+            Ipoteka
+          </div>
+        )}
 
         {/* Actions: Show either Edit/Delete OR Heart based on showActions prop */}
         {showActions ? (
           // Edit/Delete Buttons - Profile view only
-          <div className="absolute top-3 right-3 flex gap-2">
+          <div className={`absolute flex ${compact ? 'top-1.5 right-1.5 gap-1' : 'top-3 right-3 gap-2'}`}>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onEdit?.();
               }}
-              className="w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-90"
+              className={`rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-90 ${
+                compact ? 'w-7 h-7' : 'w-9 h-9'
+              }`}
               style={{
                 background: 'rgba(255, 255, 255, 0.25)',
                 border: '1px solid rgba(255, 255, 255, 0.3)',
               }}
             >
-              <Edit className="size-4 text-white" strokeWidth={2} />
+              <Edit className={`text-white ${compact ? 'size-3' : 'size-4'}`} strokeWidth={2} />
             </button>
             <button
               onClick={(e) => {
                 e.stopPropagation();
                 onDelete?.();
               }}
-              className="w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-90"
+              className={`rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-90 ${
+                compact ? 'w-7 h-7' : 'w-9 h-9'
+              }`}
               style={{
                 background: 'rgba(255, 255, 255, 0.25)',
                 border: '1px solid rgba(255, 255, 255, 0.3)',
               }}
             >
-              <Trash2 className="size-4 text-white" strokeWidth={2} />
+              <Trash2 className={`text-white ${compact ? 'size-3' : 'size-4'}`} strokeWidth={2} />
             </button>
           </div>
-        ) : (
+        ) : !hideFavorite ? (
           // Heart Icon - Public view
           <button
+            type="button"
             onClick={(e) => {
               e.stopPropagation();
               // TODO: Add to favorites
             }}
-            className="absolute top-3 right-3 w-9 h-9 rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-90"
+            className={`absolute rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-90 ${
+              compact ? 'top-1.5 right-1.5 w-7 h-7' : 'top-3 right-3 w-9 h-9'
+            }`}
             style={{
               background: 'rgba(255, 255, 255, 0.25)',
               border: '1px solid rgba(255, 255, 255, 0.3)',
             }}
           >
-            <Heart className="size-4 text-white" strokeWidth={2} fill="rgba(255, 255, 255, 0.3)" />
+            <Heart className={`text-white ${compact ? 'size-3' : 'size-4'}`} strokeWidth={2} fill="rgba(255, 255, 255, 0.3)" />
           </button>
-        )}
+        ) : null}
       </div>
 
       {/* Content */}
-      <div className="p-3.5">
+      <div className={compact ? 'p-2' : 'p-3.5'}>
         {/* Title */}
         <h3 
-          className="text-sm font-bold mb-2 line-clamp-2 leading-snug" 
-          style={{ color: isDark ? '#ffffff' : '#111827', minHeight: '2.5rem' }}
+          className={`font-bold line-clamp-2 leading-snug ${
+            compact ? 'text-[11px] mb-1 min-h-0' : 'text-sm mb-2 min-h-[2.5rem]'
+          }`}
+          style={{ color: isDark ? '#ffffff' : '#111827' }}
         >
           {listing.title}
         </h3>
 
         {/* Location */}
-        <div className="flex items-start gap-1.5 mb-3">
-          <svg className="size-3.5 flex-shrink-0 mt-0.5" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className={`flex items-start gap-1 ${compact ? 'mb-1.5' : 'gap-1.5 mb-3'}`}>
+          <svg className={`flex-shrink-0 mt-0.5 ${compact ? 'size-3' : 'size-3.5'}`} style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }} fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" />
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
           </svg>
-          <p className="text-xs line-clamp-1 leading-tight" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+          <p className={`line-clamp-1 leading-tight ${compact ? 'text-[10px]' : 'text-xs'}`} style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
             {listing.district && listing.region ? `${listing.district}, ${listing.region}` : listing.region || listing.district || listing.address || 'Manzil'}
           </p>
         </div>
 
         {/* Details - Icons Row */}
-        {listing.type === 'house' && (
+        {listing.type === 'house' && !compact && (
           <div className="flex items-center gap-3 mb-3 pb-3" style={{ borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)' }}>
             {listing.rooms && (
               <div className="flex items-center gap-1.5">
@@ -178,7 +246,7 @@ export function ListingCard({ listing, onClick, onEdit, onDelete, showActions = 
           </div>
         )}
 
-        {listing.type === 'car' && (
+        {listing.type === 'car' && !compact && (
           <div className="flex items-center gap-3 mb-3 pb-3" style={{ borderBottom: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)' }}>
             {listing.year && (
               <div className="flex items-center gap-1.5">
@@ -199,13 +267,35 @@ export function ListingCard({ listing, onClick, onEdit, onDelete, showActions = 
           </div>
         )}
 
+        {compact && listing.type === 'house' && (listing.rooms || listing.area || listing.bathrooms) && (
+          <p className="text-[10px] mb-1.5 line-clamp-1" style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.5)' }}>
+            {[
+              listing.rooms != null ? `${listing.rooms} xona` : null,
+              listing.bathrooms != null ? `${listing.bathrooms} hammom` : null,
+              listing.area != null ? `${listing.area} m²` : null,
+            ]
+              .filter(Boolean)
+              .join(' · ')}
+          </p>
+        )}
+        {compact && listing.type === 'car' && listing.year && (
+          <p className="text-[10px] mb-1.5" style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.5)' }}>
+            {listing.year}
+            {listing.mileage != null ? ` · ${Number(listing.mileage).toLocaleString()} km` : ''}
+          </p>
+        )}
+
         {/* Price */}
         <div>
-          <p className="text-xs mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>Narx</p>
-          <p className="text-lg font-bold" style={{ color: accentColor.color }}>
+          {!compact && (
+            <p className="text-xs mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
+              Narx
+            </p>
+          )}
+          <p className={`font-bold ${compact ? 'text-xs' : 'text-lg'}`} style={{ color: accentColor.color }}>
             {listing.price ? `${listing.price.toLocaleString()} ` : 'Kelishiladi '}
-            <span className="text-xs font-semibold" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-              {listing.price && 'USD'}
+            <span className={`font-semibold ${compact ? 'text-[10px]' : 'text-xs'}`} style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
+              {listing.price && (listing.currency === 'UZS' ? 'UZS' : 'USD')}
             </span>
           </p>
         </div>
