@@ -606,7 +606,6 @@ app.post('/orders/restaurant', async (c) => {
     }
 
     const chatId = pickTelegramChatIdFromEntity(restaurant);
-    const pm = String(body.paymentMethod || '').toLowerCase();
     const paymentLabel =
       pm === 'cash' || pm === 'naqd'
         ? 'Naqd pul'
