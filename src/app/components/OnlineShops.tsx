@@ -381,7 +381,7 @@ export default function OnlineShops({
   };
 
   return (
-    <div className="min-h-screen" style={{ background: isDark ? '#0a0a0a' : '#f5f5f5' }}>
+    <div className="min-h-screen" style={{ background: isDark ? '#000000' : '#f5f5f5' }}>
       {/* Shop Banners - Only show if location selected */}
       {selectedRegionName && selectedDistrictName && (
         <div className="px-4 pt-4 pb-2">
