@@ -13,6 +13,7 @@ import { getRegularCartStockIssues, getRentalCartStockIssues } from '../utils/ca
 import { getMarketCartCatalogIdError, mapCartItemsForOrdersApi } from '../utils/submitRegularCartOrderQuick';
 import type { RentalCartItem } from '../context/RentalCartContext';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
+import { splitCartIntoFulfillmentGroups, sumGroupSubtotal } from '../utils/splitCheckoutCart';
 
 interface CheckoutProps {
   cartItems: any[];
@@ -25,6 +26,11 @@ interface CheckoutProps {
   onRentalSuccess?: () => void;
   /** Savatdagi ijara uchun Cart modali orqali rozilik berilgan */
   rentalTermsPreAccepted?: boolean;
+  /**
+   * Filial kassasi QR to‘lovi — faqat kassa/staff oqimida ko‘rsatiladi.
+   * Oddiy mijoz checkoutida yashirin (standart false).
+   */
+  showBranchCashierQrOption?: boolean;
 }
 
 const getZoneCenter = (zone: any) => {
@@ -243,6 +249,7 @@ export default function Checkout({
   rentalLineItems,
   onRentalSuccess,
   rentalTermsPreAccepted = false,
+  showBranchCashierQrOption = false,
 }: CheckoutProps) {
   const { theme, accentColor } = useTheme();
   const { user, accessToken, isAuthenticated, setIsAuthOpen } = useAuth();
@@ -326,7 +333,19 @@ export default function Checkout({
   const [promoCode, setPromoCode] = useState('');
   const [bonusPoints, setBonusPoints] = useState(0);
   const [useBonus, setUseBonus] = useState(false);
-  const isCashierQrFlow = orderType !== 'market' && orderType !== 'rental';
+
+  const fulfillmentGroupsPreview = useMemo(
+    () => splitCartIntoFulfillmentGroups(cartItems || []),
+    [cartItems],
+  );
+  const showKassaQrOption =
+    showBranchCashierQrOption && (orderType === 'shop' || orderType === 'food');
+
+  useEffect(() => {
+    if (!showKassaQrOption && paymentMethod === 'qr') {
+      setPaymentMethod('cash');
+    }
+  }, [showKassaQrOption, paymentMethod]);
 
   // Address
   const [addressType, setAddressType] = useState<'current' | 'manual' | 'map'>('manual');
@@ -350,12 +369,6 @@ export default function Checkout({
     loadDeliveryZones();
     loadUserBonus();
   }, [visibilityRefetchTick]);
-
-  useEffect(() => {
-    if (isCashierQrFlow) {
-      setPaymentMethod('qr');
-    }
-  }, [isCashierQrFlow]);
 
   const loadDeliveryZones = async (): Promise<any[]> => {
     try {
@@ -629,16 +642,44 @@ export default function Checkout({
     [cartItems, rentalLineItems, selectedZone, useBonus, bonusPoints, goodsAndRentalSubtotal],
   );
 
-  // Create order function (called after successful payment for CLICK)
-  const createOrder = async () => {
+  type CreateOrderOptions = {
+    skipSuccessUI?: boolean;
+    checkoutBatchId?: string;
+    reserveForOnlinePayment?: boolean;
+  };
+
+  const finalizeCheckoutSuccessUi = () => {
+    onRentalSuccess?.();
+    onOrderSuccess?.();
+    setShowSuccess(true);
+
+    const onlineJustPaid =
+      paymentMethod === 'payme' ||
+      paymentMethod === 'click' ||
+      paymentMethod === 'click_card' ||
+      paymentMethod === 'atmos';
+
+    setTimeout(() => {
+      onClose();
+      toast.success(
+        hasRentalLines
+          ? 'Buyurtma qabul qilindi! Ijara to‘lovlari profil va filial panelida ko‘rinadi. ✅'
+          : onlineJustPaid
+            ? 'Buyurtma qabul qilindi! To‘lov tasdiqlandi. ✅'
+            : 'Buyurtma qabul qilindi! ✅',
+      );
+    }, 3000);
+  };
+
+  /** Onlayn to‘lov: avval pending buyurtmalar, keyin provayder; naqd/QR — darhol muvaffaqiyat. */
+  const createOrder = async (opts?: CreateOrderOptions): Promise<boolean> => {
     setIsProcessing(true);
 
     try {
       if (!isAuthenticated || !accessToken) {
         toast.error('Buyurtma berish uchun avval tizimga kiring');
         setIsAuthOpen(true);
-        setIsProcessing(false);
-        return;
+        return false;
       }
 
       const finalTotal = calculateTotal();
@@ -646,14 +687,12 @@ export default function Checkout({
 
       if (!selectedZone) {
         toast.error('Yetkazib berish zonasini tanlang');
-        setIsProcessing(false);
-        return;
+        return false;
       }
 
       if (!hasMarketCart && !hasRentalLines) {
         toast.error('Savat bo‘sh');
-        setIsProcessing(false);
-        return;
+        return false;
       }
 
       const stockIssues = getRegularCartStockIssues(cartItems || []);
@@ -662,8 +701,7 @@ export default function Checkout({
           description: stockIssues.slice(0, 4).join('\n'),
           duration: 6000,
         });
-        setIsProcessing(false);
-        return;
+        return false;
       }
 
       const rIssues = hasRentalLines ? getRentalCartStockIssues(rentalLineItems as any[]) : [];
@@ -672,8 +710,7 @@ export default function Checkout({
           description: rIssues.slice(0, 4).join('\n'),
           duration: 6000,
         });
-        setIsProcessing(false);
-        return;
+        return false;
       }
 
       if (hasRentalLines && rentalLineItems) {
@@ -681,8 +718,7 @@ export default function Checkout({
           const bid = (line.item as { branchId?: string }).branchId;
           if (!bid) {
             toast.error(`"${line.item.name}" uchun filial ma'lumoti yo‘q`);
-            setIsProcessing(false);
-            return;
+            return false;
           }
         }
       }
@@ -705,6 +741,18 @@ export default function Checkout({
           : `${selectedZone?.name || 'Yetkazib berish zonasi'} (${Number(resolvedCustomerLocation?.lat || 0).toFixed(5)}, ${Number(resolvedCustomerLocation?.lng || 0).toFixed(5)})`;
 
       const contractIso = new Date(`${rentalContractStart}T12:00:00.000Z`).toISOString();
+
+      let createdId = '';
+      const reserveForOnline = opts?.reserveForOnlinePayment === true;
+      const checkoutBatchId =
+        opts?.checkoutBatchId ??
+        `chk_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+
+      const isOnlineGateway =
+        paymentMethod === 'click' ||
+        paymentMethod === 'click_card' ||
+        paymentMethod === 'payme' ||
+        paymentMethod === 'atmos';
 
       const submitKvRentals = async (): Promise<boolean> => {
         if (!hasRentalLines || !rentalLineItems?.length) return true;
@@ -735,13 +783,25 @@ export default function Checkout({
                 contractStartDate: contractIso,
                 deliveryZoneSummary: selectedZone?.name || '',
                 customerUserId: user?.id || undefined,
+                checkoutBatchId,
+                paymentMethod,
+                paymentFlow: 'platform_checkout',
+                ...(reserveForOnline
+                  ? {
+                      reserveForOnlinePayment: true,
+                      checkoutUserId: user?.id || undefined,
+                    }
+                  : {}),
               }),
             },
           );
           const j = await res.json().catch(() => ({}));
           if (!res.ok || !j?.success) {
+            if (reserveForOnline) {
+              toast.error(j?.error || 'Ijara buyurtmasi yaratilmadi — to‘lovni boshlamang');
+              return false;
+            }
             console.log('❌ Rental order failed, but continuing...', j);
-            // Xatolik bo'lsa ham, mock buyurtma yaratamiz
             const mockOrder = {
               success: true,
               order: {
@@ -771,138 +831,190 @@ export default function Checkout({
         return true;
       };
 
-      let createdId = '';
-
       if (hasMarketCart) {
-        const isFood = String(orderType).toLowerCase() === 'food';
-        if (!isFood && String(orderType).toLowerCase() === 'market') {
-          const catalogErr = getMarketCartCatalogIdError(cartItems);
-          if (catalogErr) {
-            toast.error(catalogErr);
-            setIsProcessing(false);
-            return;
+        const groups = splitCartIntoFulfillmentGroups(cartItems);
+        if (groups.length === 0) {
+          toast.error('Savat bo‘limlari aniqlanmadi');
+          return false;
+        }
+
+        const deliveryTotal = Number(selectedZone?.deliveryPrice) || 0;
+        const bonusDiscount =
+          useBonus && bonusPoints > 0 ? Math.min(bonusPoints, goodsAndRentalSubtotal * 0.5) : 0;
+        const weights = groups.map((g) => sumGroupSubtotal(g.items));
+        const sumW = weights.reduce((a, b) => a + b, 0) || 1;
+
+        let delivAlloc = 0;
+        let bonusAlloc = 0;
+
+        const mapFoodLineItems = (items: any[]) =>
+          items.map((it: any) => {
+            const normalizedAdditionalProducts = (
+              Array.isArray(it?.addons)
+                ? it.addons
+                : Array.isArray(it?.additionalProducts)
+                  ? it.additionalProducts
+                  : []
+            ).map((a: any) => ({
+              name: String(a?.name || a?.title || 'Qo‘shimcha'),
+              price: Number(a?.price || 0),
+              quantity: Number(a?.quantity || a?.count || 1),
+            }));
+            return {
+              dishId: it?.dishDetails?.dishId || it?.dishId || it?.id,
+              dishName: String(it?.name || it?.dishDetails?.restaurantName || 'Taom'),
+              variantName: it?.variantDetails?.name || it?.variantName || '',
+              quantity: Number(it?.quantity || 1),
+              price: parseMoneyValue(it?.variantDetails?.price ?? it?.price ?? 0),
+              additionalProducts: normalizedAdditionalProducts,
+              addons: normalizedAdditionalProducts,
+            };
+          });
+
+        for (let i = 0; i < groups.length; i++) {
+          const group = groups[i];
+          const w = weights[i];
+          const ratio = sumW > 0 ? w / sumW : 1 / groups.length;
+          const isLast = i === groups.length - 1;
+          const gDelivery = isLast ? deliveryTotal - delivAlloc : Math.round(deliveryTotal * ratio);
+          const gBonus = isLast ? bonusDiscount - bonusAlloc : Math.round(bonusDiscount * ratio);
+          delivAlloc += gDelivery;
+          bonusAlloc += gBonus;
+          const gAmount = w;
+          const gFinal = Math.max(0, gAmount + gDelivery - gBonus);
+
+          if (group.kind === 'market') {
+            const catalogErr = getMarketCartCatalogIdError(group.items);
+            if (catalogErr) {
+              toast.error(catalogErr);
+              return false;
+            }
+          }
+
+          const itemsForApi =
+            group.kind === 'food' ? group.items : mapCartItemsForOrdersApi(group.items);
+
+          const orderData = {
+            customerName,
+            customerPhone,
+            orderType: group.kind,
+            items: itemsForApi,
+            totalAmount: gAmount,
+            deliveryPrice: gDelivery,
+            finalTotal: gFinal,
+            paymentMethod,
+            promoCode: promoCode || null,
+            bonusUsed: i === 0 && useBonus ? bonusPoints : 0,
+            address: resolvedAddressPayload,
+            addressText: computedAddressText,
+            customerLocation: resolvedCustomerLocation,
+            addressType,
+            deliveryZone: selectedZone?.id || null,
+            zoneIp: String(selectedZone?.zoneIp || '').trim(),
+            branchId: inferredBranchId,
+            status: 'pending',
+            paymentStatus:
+              reserveForOnline && isOnlineGateway
+                ? 'pending'
+                : isOnlineGateway
+                  ? 'paid'
+                  : 'pending',
+            createdAt: new Date().toISOString(),
+            checkoutBatchId,
+            ...(reserveForOnline ? { reserveForOnlinePayment: true } : {}),
+          };
+
+          const isFoodGroup = group.kind === 'food';
+          let response: Response;
+          try {
+            if (isFoodGroup) {
+              const restaurantId =
+                group.items?.find((it: any) => it?.restaurantId)?.restaurantId ||
+                group.items?.[0]?.restaurantId;
+              if (!restaurantId) {
+                toast.error('Taom buyurtmasi uchun restoran topilmadi');
+                return false;
+              }
+              response = await fetch(
+                `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders/restaurant`,
+                {
+                  method: 'POST',
+                  headers: buildUserHeaders({
+                    'Content-Type': 'application/json',
+                  }),
+                  body: JSON.stringify({
+                    restaurantId: String(restaurantId),
+                    branchId: inferredBranchId ? String(inferredBranchId) : undefined,
+                    customerName,
+                    customerPhone,
+                    customerAddress: computedAddressText,
+                    items: mapFoodLineItems(group.items),
+                    totalPrice: gFinal,
+                    deliveryFee: gDelivery,
+                    paymentMethod,
+                    checkoutBatchId,
+                    ...(reserveForOnline
+                      ? {
+                          reserveForOnlinePayment: true,
+                          checkoutUserId: user?.id || undefined,
+                        }
+                      : {}),
+                  }),
+                },
+              );
+            } else {
+              response = await fetch(
+                `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders`,
+                {
+                  method: 'POST',
+                  headers: buildUserHeaders({
+                    'Content-Type': 'application/json',
+                  }),
+                  body: JSON.stringify(orderData),
+                },
+              );
+            }
+          } catch (e) {
+            console.error(e);
+            toast.error(`Buyurtma yuborilmadi (${group.kind})`);
+            return false;
+          }
+
+          if (!response.ok) {
+            const error = await response.json().catch(() => ({}));
+            console.error('❌ Order creation failed:', error);
+            toast.error(error.error || `${group.kind}: buyurtma yaratilmadi`);
+            return false;
+          }
+
+          const data = await response.json();
+          console.log('✅ Order created:', data);
+          const oid = data?.id || data?.order?.id || data?.data?.id;
+          const idStr = oid ? String(oid) : '';
+          if (!createdId) createdId = idStr;
+          if (idStr && !reserveForOnline) setOrderId(idStr);
+
+          if (idStr && group.kind !== 'food') {
+            void syncMarketplaceV2Order({
+              orderType: group.kind,
+              customerName,
+              customerPhone,
+              cartItems: group.items,
+              finalTotal: gFinal,
+              deliveryPrice: gDelivery,
+              paymentMethod,
+              promoCode: promoCode || null,
+              bonusUsed: i === 0 && useBonus ? bonusPoints : 0,
+              computedAddressText,
+              customerLat: resolvedCustomerLocation?.lat ?? null,
+              customerLng: resolvedCustomerLocation?.lng ?? null,
+              branchId: inferredBranchId,
+              deliveryZoneId: selectedZone?.id || null,
+              legacyOrderId: idStr,
+            });
           }
         }
 
-        const itemsForApi = isFood ? cartItems : mapCartItemsForOrdersApi(cartItems);
-
-        const orderData = {
-          customerName,
-          customerPhone,
-          orderType,
-          items: itemsForApi,
-          totalAmount: totalAmount,
-          deliveryPrice: selectedZone?.deliveryPrice || 0,
-          finalTotal,
-          paymentMethod,
-          promoCode: promoCode || null,
-          bonusUsed: useBonus ? bonusPoints : 0,
-          address: resolvedAddressPayload,
-          addressText: computedAddressText,
-          customerLocation: resolvedCustomerLocation,
-          addressType,
-          deliveryZone: selectedZone?.id || null,
-          zoneIp: String(selectedZone?.zoneIp || '').trim(),
-          branchId: inferredBranchId,
-          status: 'pending',
-          paymentStatus:
-            paymentMethod === 'click' ||
-            paymentMethod === 'click_card' ||
-            paymentMethod === 'payme' ||
-            paymentMethod === 'atmos'
-              ? 'paid'
-              : 'pending',
-          createdAt: new Date().toISOString(),
-        };
-
-        console.log('📦 Creating order with data:', orderData);
-
-        const response = await fetch(
-          isFood
-            ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders/restaurant`
-            : `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders`,
-          {
-            method: 'POST',
-            headers: buildUserHeaders({
-              'Content-Type': 'application/json',
-            }),
-            body: JSON.stringify(
-              isFood
-                ? (() => {
-                    const restaurantId =
-                      cartItems?.find((it: any) => it?.restaurantId)?.restaurantId ||
-                      cartItems?.[0]?.restaurantId;
-
-                    if (!restaurantId) {
-                      throw new Error('Taom buyurtma uchun restaurantId topilmadi');
-                    }
-
-                    return {
-                      restaurantId: String(restaurantId),
-                      branchId: inferredBranchId ? String(inferredBranchId) : undefined,
-                      customerName,
-                      customerPhone,
-                      customerAddress: computedAddressText,
-                      items: cartItems.map((it: any) => {
-                        const normalizedAdditionalProducts = (
-                          Array.isArray(it?.addons) ? it.addons : Array.isArray(it?.additionalProducts) ? it.additionalProducts : []
-                        ).map((a: any) => ({
-                          name: String(a?.name || a?.title || 'Qo‘shimcha'),
-                          price: Number(a?.price || 0),
-                          quantity: Number(a?.quantity || a?.count || 1),
-                        }));
-
-                        return {
-                          dishId: it?.dishDetails?.dishId || it?.dishId || it?.id,
-                          dishName: String(it?.name || it?.dishDetails?.restaurantName || 'Taom'),
-                          variantName: it?.variantDetails?.name || it?.variantName || '',
-                          quantity: Number(it?.quantity || 1),
-                          price: parseMoneyValue(it?.variantDetails?.price ?? it?.price ?? 0),
-                          additionalProducts: normalizedAdditionalProducts,
-                          addons: normalizedAdditionalProducts,
-                        };
-                      }),
-                      totalPrice: finalTotal,
-                      deliveryFee: selectedZone?.deliveryPrice || 0,
-                      paymentMethod,
-                    };
-                  })()
-                : orderData,
-            ),
-          },
-        );
-
-        if (!response.ok) {
-          const error = await response.json().catch(() => ({}));
-          console.error('❌ Order creation failed:', error);
-          toast.error(error.error || 'Xatolik yuz berdi');
-          setIsProcessing(false);
-          return;
-        }
-
-        const data = await response.json();
-        console.log('✅ Order created:', data);
-        createdId = data?.id || data?.data?.id || data?.order?.id || '';
-        setOrderId(createdId);
-        if (createdId && cartItems.length > 0 && String(orderType).toLowerCase() !== 'food') {
-          void syncMarketplaceV2Order({
-            orderType,
-            customerName,
-            customerPhone,
-            cartItems,
-            finalTotal,
-            deliveryPrice: selectedZone?.deliveryPrice || 0,
-            paymentMethod,
-            promoCode: promoCode || null,
-            bonusUsed: useBonus ? bonusPoints : 0,
-            computedAddressText,
-            customerLat: resolvedCustomerLocation?.lat ?? null,
-            customerLng: resolvedCustomerLocation?.lng ?? null,
-            branchId: inferredBranchId,
-            deliveryZoneId: selectedZone?.id || null,
-            legacyOrderId: String(createdId),
-          });
-        }
       }
 
       const rentalsOk = await submitKvRentals();
@@ -912,25 +1024,34 @@ export default function Checkout({
             "Asosiy buyurtma yaratildi, lekin ijara qismida xatolik. Qo'llab-quvvatlash bilan bog'laning.",
           );
         }
-        setIsProcessing(false);
-        return;
+        return false;
       }
 
-      onRentalSuccess?.();
-      onOrderSuccess?.();
-      setShowSuccess(true);
+      if (!opts?.skipSuccessUI) {
+        const batchCount = hasMarketCart ? splitCartIntoFulfillmentGroups(cartItems).length : 0;
+        const rentalCount = hasRentalLines ? rentalLineItems!.length : 0;
+        if (batchCount + rentalCount > 1) {
+          let msg = '';
+          if (batchCount > 0 && rentalCount > 0) {
+            msg = `${batchCount} ta mahsulot buyurtmasi va ${rentalCount} ta ijara alohida qabul qilindi — har biri alohida kuryer/zanjir.`;
+          } else if (batchCount > 1) {
+            msg = `${batchCount} ta alohida buyurtma yaratildi (market / do‘kon / taom) — bitta kuryer hammasini bir vaqtda olmaydi.`;
+          } else if (rentalCount > 1) {
+            msg = `${rentalCount} ta ijara buyurtmasi alohida yaratildi.`;
+          } else {
+            msg = 'Bir nechta alohida buyurtma qabul qilindi.';
+          }
+          toast.success(msg, { duration: 5500 });
+        }
 
-      setTimeout(() => {
-        onClose();
-        toast.success(
-          hasRentalLines
-            ? 'Buyurtma qabul qilindi! Ijara to‘lovlari profil va filial panelida ko‘rinadi. ✅'
-            : 'Buyurtma qabul qilindi! ✅',
-        );
-      }, 3000);
+        finalizeCheckoutSuccessUi();
+      }
+
+      return true;
     } catch (error) {
       console.error('Order error:', error);
       toast.error('Buyurtmani yuborishda xatolik');
+      return false;
     } finally {
       setIsProcessing(false);
     }
@@ -996,52 +1117,49 @@ export default function Checkout({
       return;
     }
 
-    // Ijara uchun to'lov qadamini o'tkazib, to'g'ridan-to'g'ri buyurtma qilish
+    const onlineMethods =
+      paymentMethod === 'click' ||
+      paymentMethod === 'click_card' ||
+      paymentMethod === 'payme' ||
+      paymentMethod === 'atmos';
+
+    // Ijara faqat: onlayn to‘lovda ham avval pending buyurtma, keyin provayder
     if (rentalOnlyCheckout) {
+      if (onlineMethods) {
+        const batchId = `chk_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+        const ok = await createOrder({
+          skipSuccessUI: true,
+          checkoutBatchId: batchId,
+          reserveForOnlinePayment: true,
+        });
+        if (ok) {
+          setOrderId(batchId);
+          toast.info('Buyurtma yaratildi', {
+            description: 'Endi onlayn to‘lovni yakunlang',
+          });
+        }
+        return;
+      }
       await createOrder();
       return;
     }
 
-    // For CLICK and CLICK Card - Generate orderId and wait for payment
-    if (paymentMethod === 'click' || paymentMethod === 'click_card') {
-      // Generate unique order ID
-      const newOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      setOrderId(newOrderId);
-      
-      toast.info('To\'lovni amalga oshiring', {
-        description: 'To\'lov muvaffaqiyatli bo\'lgandan keyin buyurtma yaratiladi',
+    if (onlineMethods) {
+      const batchId = `chk_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+      const ok = await createOrder({
+        skipSuccessUI: true,
+        checkoutBatchId: batchId,
+        reserveForOnlinePayment: true,
       });
-      
-      return; // Don't create order yet, wait for payment
+      if (ok) {
+        setOrderId(batchId);
+        toast.info('Buyurtma yaratildi', {
+          description: 'Endi onlayn to‘lovni yakunlang',
+        });
+      }
+      return;
     }
 
-    // For Payme - Generate orderId and wait for payment
-    if (paymentMethod === 'payme') {
-      // Generate unique order ID
-      const newOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      setOrderId(newOrderId);
-      
-      toast.info('To\'lovni amalga oshiring', {
-        description: 'To\'lov muvaffaqiyatli bo\'lgandan keyin buyurtma yaratiladi',
-      });
-      
-      return; // Don't create order yet, wait for payment
-    }
-
-    // For Atmos - Generate orderId and wait for payment
-    if (paymentMethod === 'atmos') {
-      // Generate unique order ID
-      const newOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      setOrderId(newOrderId);
-      
-      toast.info('To\'lovni amalga oshiring', {
-        description: 'To\'lov muvaffaqiyatli bo\'lgandan keyin buyurtma yaratiladi',
-      });
-      
-      return; // Don't create order yet, wait for payment
-    }
-
-    // For other payment methods - Create order immediately
     await createOrder();
   };
 
@@ -1223,16 +1341,45 @@ export default function Checkout({
           <div className="space-y-4">
             <h3 className="text-lg font-bold mb-4">To'lov usulini tanlang</h3>
 
+            {(fulfillmentGroupsPreview.length > 1 ||
+              (hasRentalLines && fulfillmentGroupsPreview.length > 0) ||
+              (hasRentalLines && (rentalLineItems?.length ?? 0) > 1)) && (
+              <div
+                className="p-4 rounded-xl border"
+                style={{
+                  background: isDark ? 'rgba(234, 179, 8, 0.12)' : 'rgba(234, 179, 8, 0.08)',
+                  borderColor: 'rgba(234, 179, 8, 0.45)',
+                }}
+              >
+                <p className="text-sm font-semibold text-amber-900 dark:text-amber-100">
+                  Bir nechta alohida buyurtma
+                </p>
+                <p className="text-xs mt-1 text-amber-900/80 dark:text-amber-100/80">
+                  Savat turlicha bo‘lsa (market, do‘kon, taom, ijara), har biri alohida buyurtma sifatida yuboriladi.
+                  Bitta kuryer barchasini bir vaqtda olib ketmaydi; har biri o‘z navbatida ishlanadi.
+                </p>
+              </div>
+            )}
+
             <div className="space-y-3">
-              {(isCashierQrFlow
-                ? [{ id: 'qr' as const, label: 'Filial kassasi QR to\'lov', icon: CreditCard, color: '#2563eb' }]
-                : [
-                    { id: 'cash' as const, label: 'Naqd to\'lov', icon: Wallet, color: '#10b981' },
-                    { id: 'click' as const, label: 'Click', icon: CreditCard, color: '#00a650' },
-                    { id: 'payme' as const, label: 'Payme', icon: CreditCard, color: '#00AACB' },
-                    { id: 'atmos' as const, label: 'Atmos', icon: CreditCard, color: '#1e40af' },
-                  ]
-              ).map(method => (
+              {(
+                [
+                  { id: 'cash' as const, label: 'Naqd to\'lov', icon: Wallet, color: '#10b981' },
+                  { id: 'click' as const, label: 'Click', icon: CreditCard, color: '#00a650' },
+                  { id: 'payme' as const, label: 'Payme', icon: CreditCard, color: '#00AACB' },
+                  { id: 'atmos' as const, label: 'Atmos', icon: CreditCard, color: '#1e40af' },
+                  ...(showKassaQrOption
+                    ? [
+                        {
+                          id: 'qr' as const,
+                          label: 'Filial kassasi QR (kassir cheki)',
+                          icon: CreditCard,
+                          color: '#2563eb',
+                        },
+                      ]
+                    : []),
+                ] as const
+              ).map((method) => (
                 <button
                   key={method.id}
                   onClick={() => setPaymentMethod(method.id)}
@@ -1259,7 +1406,7 @@ export default function Checkout({
               ))}
             </div>
 
-            {isCashierQrFlow && (
+            {showKassaQrOption && (
               <div
                 className="p-4 rounded-xl border"
                 style={{
@@ -1267,9 +1414,10 @@ export default function Checkout({
                   borderColor: '#2563eb',
                 }}
               >
-                <p className="text-sm font-medium">Bu bo'limda to'lov filial kassasi QR orqali qilinadi.</p>
+                <p className="text-sm font-medium">Do‘kon / restoran: QR yoki onlayn</p>
                 <p className="text-xs mt-1" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)' }}>
-                  Kassir chekni tasdiqlagandan keyin buyurtma kuryerga ko'rinadi.
+                  Payme, Click, Atmos yoki naqd tanlashingiz mumkin. «Filial kassasi QR»ni tanlasangiz, kassir chekni
+                  yuklagach buyurtma kuryerga ochiladi; do‘kon/restoran Telegramiga ham boradi.
                 </p>
               </div>
             )}
@@ -1603,7 +1751,7 @@ export default function Checkout({
                 >
                   <p className="text-sm font-medium mb-1">⚠️ Muhim</p>
                   <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                    To'lov muvaffaqiyatli bo'lgandan keyin buyurtma avtomatik yaratiladi
+                    Buyurtma allaqachon yaratilgan (to‘lov kutilmoqda). To‘lov tasdiqlangach holat yangilanadi.
                   </p>
                 </div>
 
@@ -1613,8 +1761,7 @@ export default function Checkout({
                   phone={customerPhone}
                   type={paymentMethod as 'click' | 'click_card'}
                   onSuccess={() => {
-                    // Payment successful - create order
-                    createOrder();
+                    finalizeCheckoutSuccessUi();
                   }}
                   onError={(error) => {
                     toast.error('To\'lov amalga oshmadi', {
@@ -1695,7 +1842,7 @@ export default function Checkout({
                     >
                       <p className="text-sm font-medium mb-1">⚠️ Muhim</p>
                       <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                        To'lov muvaffaqiyatli bo'lgandan keyin buyurtma avtomatik yaratiladi
+                        Buyurtma allaqachon yaratilgan (to‘lov kutilmoqda). To‘lov tasdiqlangach holat yangilanadi.
                       </p>
                     </div>
 
@@ -1705,8 +1852,7 @@ export default function Checkout({
                       phone={customerPhone}
                       customerName={customerName}
                       onSuccess={() => {
-                        // Payment successful - create order
-                        createOrder();
+                        finalizeCheckoutSuccessUi();
                       }}
                       onError={(error) => {
                         toast.error('To\'lov amalga oshmadi', {

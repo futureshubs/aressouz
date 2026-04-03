@@ -4,6 +4,7 @@ import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import {
   fetchAdminBranchInsights,
   type BranchInsightRow,
+  type BranchInsightsMeta,
   type InsightMetricsCore,
 } from './adminBranchInsightsApi';
 import { RefreshCw } from 'lucide-react';
@@ -17,6 +18,19 @@ const safeNum = (n: unknown) => {
 
 const formatSumUz = (n: number) =>
   new Intl.NumberFormat('uz-UZ', { maximumFractionDigits: 0 }).format(safeNum(n));
+
+const formatPct = (n: number, digits = 1) => {
+  const x = safeNum(n);
+  return `${x.toFixed(digits)}%`;
+};
+
+const pctDelta = (prev: number, next: number) => {
+  const p = safeNum(prev);
+  const n = safeNum(next);
+  if (p <= 0 && n <= 0) return 0;
+  if (p <= 0) return 100;
+  return ((n - p) / p) * 100;
+};
 
 const paymentLabelUz = (ps: string) => {
   const p = String(ps || '').toLowerCase();
@@ -54,11 +68,13 @@ function BreakdownTable({
   entries,
   isDark,
   labelFn,
+  valueFormatter,
 }: {
   title: string;
   entries: [string, number][];
   isDark: boolean;
   labelFn: (k: string) => string;
+  valueFormatter?: (v: number) => string;
 }) {
   if (entries.length === 0) return null;
   return (
@@ -74,7 +90,9 @@ function BreakdownTable({
         {entries.map(([k, v]) => (
           <div key={k} className="flex justify-between gap-2 text-sm">
             <span style={{ opacity: 0.85 }}>{labelFn(k)}</span>
-            <span className="font-medium tabular-nums">{v}</span>
+            <span className="font-medium tabular-nums">
+              {valueFormatter ? valueFormatter(v) : v}
+            </span>
           </div>
         ))}
       </div>
@@ -90,6 +108,7 @@ export default function AdminBranchStatistics() {
   const [globalM, setGlobalM] = useState<InsightMetricsCore | null>(null);
   const [branches, setBranches] = useState<BranchInsightRow[]>([]);
   const [generatedAt, setGeneratedAt] = useState<string | null>(null);
+  const [meta, setMeta] = useState<BranchInsightsMeta | null>(null);
   const [selectedId, setSelectedId] = useState<string>('__all__');
 
   const load = useCallback(async () => {
@@ -101,11 +120,13 @@ export default function AdminBranchStatistics() {
         setError(data.error || 'Maʼlumot olinmadi');
         setGlobalM(null);
         setBranches([]);
+        setMeta(null);
         return;
       }
       setGlobalM(data.global);
       setBranches(Array.isArray(data.branches) ? data.branches : []);
       setGeneratedAt(data.generatedAt || null);
+      setMeta(data.meta ?? null);
     } catch (e) {
       setError(e instanceof Error ? e.message : 'Xatolik');
     } finally {
@@ -149,6 +170,12 @@ export default function AdminBranchStatistics() {
           {generatedAt ? (
             <p className="text-xs mt-1" style={{ opacity: 0.5 }}>
               Yangilangan: {new Date(generatedAt).toLocaleString('uz-UZ')}
+            </p>
+          ) : null}
+          {meta && selectedId === '__all__' ? (
+            <p className="text-xs mt-1 font-mono" style={{ opacity: 0.45 }}>
+              KV: {meta.kvOrderRows ?? '—'} qator · dedup: {meta.dedupedOrders ?? '—'} · filiallar:{' '}
+              {meta.branchesWithOrders ?? '—'} / {meta.branchesInKv ?? '—'}
             </p>
           ) : null}
         </div>
@@ -220,6 +247,172 @@ export default function AdminBranchStatistics() {
             ))}
           </div>
 
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            {[
+              {
+                t: 'Noyob mijozlar (taxminiy)',
+                v: selectedMetrics.uniqueCustomers,
+                sub: 'Telefon / ism bo‘yicha',
+              },
+              {
+                t: "To'langan buyurtmalar",
+                v: selectedMetrics.paidOrderCount,
+                sub: formatPct(selectedMetrics.paidSharePct),
+              },
+              {
+                t: 'Yetkazilgan',
+                v: selectedMetrics.deliveredCount,
+                sub: formatPct(selectedMetrics.deliveredSharePct),
+              },
+              {
+                t: "O'rtacha chek (to'langan)",
+                v: `${formatSumUz(selectedMetrics.avgOrderValuePaid)} so'm`,
+                sub: `Jami o'rtacha: ${formatSumUz(selectedMetrics.avgOrderValueAll)}`,
+              },
+            ].map((c) => (
+              <div key={c.t} className="p-5 rounded-3xl border" style={cardStyle}>
+                <p className="text-sm mb-1" style={{ opacity: 0.65 }}>
+                  {c.t}
+                </p>
+                <p className="text-2xl font-bold tabular-nums">{c.v}</p>
+                {c.sub ? (
+                  <p className="text-xs mt-1" style={{ opacity: 0.5 }}>
+                    {c.sub}
+                  </p>
+                ) : null}
+              </div>
+            ))}
+          </div>
+
+          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+            <div className="p-5 rounded-3xl border" style={cardStyle}>
+              <h4 className="font-semibold text-sm mb-3">Haftalar taqqosi (14 kun ichida)</h4>
+              <p className="text-xs mb-3" style={{ opacity: 0.55 }}>
+                Oldingi 7 kun vs so‘nggi 7 kun (kunlik qator bo‘yicha)
+              </p>
+              <div className="grid grid-cols-2 gap-3 text-sm">
+                <div>
+                  <p style={{ opacity: 0.6 }}>Buyurtmalar</p>
+                  <p className="font-bold tabular-nums text-lg">
+                    {selectedMetrics.compareWeeks.ordersPrev7} →{' '}
+                    {selectedMetrics.compareWeeks.ordersLast7}
+                  </p>
+                  <p
+                    className="text-xs mt-1 tabular-nums"
+                    style={{
+                      color:
+                        pctDelta(
+                          selectedMetrics.compareWeeks.ordersPrev7,
+                          selectedMetrics.compareWeeks.ordersLast7,
+                        ) >= 0
+                          ? '#22c55e'
+                          : '#ef4444',
+                    }}
+                  >
+                    {formatPct(
+                      pctDelta(
+                        selectedMetrics.compareWeeks.ordersPrev7,
+                        selectedMetrics.compareWeeks.ordersLast7,
+                      ),
+                    )}{' '}
+                    o‘zgarish
+                  </p>
+                </div>
+                <div>
+                  <p style={{ opacity: 0.6 }}>To‘langan tushum</p>
+                  <p className="font-bold tabular-nums text-lg">
+                    {formatSumUz(selectedMetrics.compareWeeks.revenuePaidPrev7)} →{' '}
+                    {formatSumUz(selectedMetrics.compareWeeks.revenuePaidLast7)} so'm
+                  </p>
+                  <p
+                    className="text-xs mt-1 tabular-nums"
+                    style={{
+                      color:
+                        pctDelta(
+                          selectedMetrics.compareWeeks.revenuePaidPrev7,
+                          selectedMetrics.compareWeeks.revenuePaidLast7,
+                        ) >= 0
+                          ? '#22c55e'
+                          : '#ef4444',
+                    }}
+                  >
+                    {formatPct(
+                      pctDelta(
+                        selectedMetrics.compareWeeks.revenuePaidPrev7,
+                        selectedMetrics.compareWeeks.revenuePaidLast7,
+                      ),
+                    )}{' '}
+                    o‘zgarish
+                  </p>
+                </div>
+              </div>
+            </div>
+            <div className="p-5 rounded-3xl border" style={cardStyle}>
+              <h4 className="font-semibold text-sm mb-3">Sifat ko‘rsatkichlari</h4>
+              <div className="space-y-2 text-sm">
+                <div className="flex justify-between gap-2">
+                  <span style={{ opacity: 0.75 }}>Bekor qilish ulushi</span>
+                  <span className="font-medium tabular-nums">
+                    {formatPct(selectedMetrics.cancellationRatePct)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span style={{ opacity: 0.75 }}>To‘lov: to‘langan</span>
+                  <span className="font-medium tabular-nums">
+                    {formatPct(selectedMetrics.paidSharePct)}
+                  </span>
+                </div>
+                <div className="flex justify-between gap-2">
+                  <span style={{ opacity: 0.75 }}>Yetkazib berish</span>
+                  <span className="font-medium tabular-nums">
+                    {formatPct(selectedMetrics.deliveredSharePct)}
+                  </span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {selectedId === '__all__' &&
+          meta?.topBranchesByRevenue &&
+          meta.topBranchesByRevenue.length > 0 ? (
+            <div className="rounded-3xl border overflow-hidden" style={cardStyle}>
+              <div className="p-4 border-b" style={{ borderColor: cardStyle.borderColor }}>
+                <h3 className="font-bold">Tushum bo‘yicha TOP filiallar</h3>
+                <p className="text-xs mt-1" style={{ opacity: 0.55 }}>
+                  To‘langan daromad (server hisobi)
+                </p>
+              </div>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}>
+                      <th className="text-left p-3 font-semibold">#</th>
+                      <th className="text-left p-3 font-semibold">Filial</th>
+                      <th className="text-right p-3 font-semibold">To‘langan</th>
+                      <th className="text-right p-3 font-semibold">Buyurtmalar</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {meta.topBranchesByRevenue.map((row, i) => (
+                      <tr
+                        key={row.branchId || String(i)}
+                        className="border-t"
+                        style={{ borderColor: cardStyle.borderColor }}
+                      >
+                        <td className="p-3 tabular-nums opacity-60">{i + 1}</td>
+                        <td className="p-3 font-medium">{row.branchName}</td>
+                        <td className="p-3 text-right tabular-nums">
+                          {formatSumUz(row.revenuePaid)} so'm
+                        </td>
+                        <td className="p-3 text-right tabular-nums">{row.orderCount}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          ) : null}
+
           {selectedId === '__all__' ? (
             <div className="rounded-3xl border overflow-hidden" style={cardStyle}>
               <div className="p-4 border-b" style={{ borderColor: cardStyle.borderColor }}>
@@ -235,6 +428,10 @@ export default function AdminBranchStatistics() {
                       <th className="text-left p-3 font-semibold">Filial</th>
                       <th className="text-right p-3 font-semibold">Buyurtmalar</th>
                       <th className="text-right p-3 font-semibold">To‘langan</th>
+                      <th className="text-right p-3 font-semibold">To‘l. soni</th>
+                      <th className="text-right p-3 font-semibold">Mijoz</th>
+                      <th className="text-right p-3 font-semibold">O‘rt. chek</th>
+                      <th className="text-right p-3 font-semibold">Yetk. %</th>
                       <th className="text-right p-3 font-semibold">Bekor</th>
                     </tr>
                   </thead>
@@ -253,6 +450,14 @@ export default function AdminBranchStatistics() {
                         <td className="p-3 text-right tabular-nums">
                           {formatSumUz(b.revenuePaid)} so'm
                         </td>
+                        <td className="p-3 text-right tabular-nums">{b.paidOrderCount}</td>
+                        <td className="p-3 text-right tabular-nums">{b.uniqueCustomers}</td>
+                        <td className="p-3 text-right tabular-nums">
+                          {formatSumUz(b.avgOrderValuePaid)} so'm
+                        </td>
+                        <td className="p-3 text-right tabular-nums">
+                          {formatPct(b.deliveredSharePct, 0)}
+                        </td>
                         <td className="p-3 text-right tabular-nums">{b.cancelledCount}</td>
                       </tr>
                     ))}
@@ -262,7 +467,7 @@ export default function AdminBranchStatistics() {
             </div>
           ) : null}
 
-          <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-4">
             <BreakdownTable
               title="Holat bo‘yicha"
               entries={sortedEntries(selectedMetrics.byStatus)}
@@ -276,10 +481,17 @@ export default function AdminBranchStatistics() {
               labelFn={paymentLabelUz}
             />
             <BreakdownTable
-              title="Buyurtma turi"
+              title="Buyurtma turi (soni)"
               entries={sortedEntries(selectedMetrics.byOrderType)}
               isDark={isDark}
               labelFn={typeLabelUz}
+            />
+            <BreakdownTable
+              title="Tur bo‘yicha tushum (to‘langan)"
+              entries={sortedEntries(selectedMetrics.byOrderTypeRevenuePaid)}
+              isDark={isDark}
+              labelFn={typeLabelUz}
+              valueFormatter={(v) => `${formatSumUz(v)} so'm`}
             />
           </div>
         </>

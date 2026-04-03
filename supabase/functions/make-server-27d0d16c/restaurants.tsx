@@ -2,8 +2,79 @@ import { Hono } from 'npm:hono';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import * as r2 from './r2-storage.tsx';
+import * as telegram from './telegram.tsx';
+import { appendOrderToPaymentCheckoutBatch } from './payment-checkout-batch.ts';
 
 const app = new Hono();
+
+/** Admin/panel turli nomlarda saqlashi mumkin: telegramChatId, telegram_chat_id, tg_chat_id … */
+function pickTelegramChatIdFromEntity(entity: any): string {
+  if (!entity || typeof entity !== 'object') return '';
+  const raw =
+    entity.telegramChatId ??
+    entity.telegram_chat_id ??
+    entity.telegramChatID ??
+    entity.TelegramChatId ??
+    entity.telegram ??
+    entity.tgChatId ??
+    entity.tg_chat_id ??
+    '';
+  return String(raw ?? '').trim();
+}
+
+function pickRestaurantPaymentQrUrl(entity: any): string {
+  if (!entity || typeof entity !== 'object') return '';
+  return String(
+    entity?.paymentQrImage ||
+      entity?.paymentQRImage ||
+      entity?.payment_qr_image ||
+      entity?.paymentQr ||
+      entity?.qrImageUrl ||
+      entity?.qrCode ||
+      entity?.payment?.qrImageUrl ||
+      '',
+  ).trim();
+}
+
+/** Restoran «qabul qilgach» kassa Telegramiga summa + QR (to‘lov pending bo‘lsa). */
+async function notifyRestaurantCashierTelegramAccepted(restaurant: any, order: any): Promise<void> {
+  try {
+    const ps = String(order?.paymentStatus || '').toLowerCase().trim();
+    if (ps === 'paid' || ps === 'completed' || ps === 'success') return;
+    const chatId = pickTelegramChatIdFromEntity(restaurant);
+    if (!chatId) return;
+    const amount = Number(order?.totalPrice ?? order?.finalTotal ?? 0) || 0;
+    const pm = String(order?.paymentMethod || 'cash').toLowerCase();
+    const pmLabel =
+      pm === 'cash' || pm === 'naqd'
+        ? 'Naqd / kassa'
+        : pm === 'qr' || pm === 'qrcode'
+          ? 'Filial kassa QR'
+          : pm === 'payme'
+            ? 'Payme'
+            : pm === 'click' || pm === 'click_card'
+              ? 'Click'
+              : pm === 'atmos'
+                ? 'Atmos'
+                : pm || '—';
+    const orderRef = String(order?.id || '').replace(/^order:/, '').slice(-14);
+    const qrUrl =
+      String(order?.merchantPaymentQrUrl || '').trim() || pickRestaurantPaymentQrUrl(restaurant);
+    let text =
+      `<b>🍽 Kassa — restoran buyurtmani qabul qildi</b>\n\n` +
+      `Buyurtma: <b>#${orderRef}</b>\n` +
+      `Summa: <b>${amount.toLocaleString('uz-UZ')} so'm</b>\n` +
+      `To'lov: <b>${pmLabel}</b>\n` +
+      `Mijoz: ${String(order?.customerName || '—')} · ${String(order?.customerPhone || '—')}\n\n` +
+      `<i>Naqd / kassa QR: filial panelida chekni tasdiqlang — keyin kuryer buyurtmani oladi.</i>\n`;
+    if (qrUrl) {
+      text += `\n<a href="${qrUrl.replace(/"/g, '%22')}">To'lov QR</a>`;
+    }
+    await telegram.sendHtmlMessage({ type: 'restaurant', chatId, text });
+  } catch (e) {
+    console.warn('[notifyRestaurantCashierTelegramAccepted]', e);
+  }
+}
 
 function collectDishLikeHttpUrls(obj: unknown): Set<string> {
   const urls = new Set<string>();
@@ -419,6 +490,7 @@ app.patch('/restaurants/:restaurantId/orders/:orderId/status', async (c) => {
       return c.json({ success: false, error: 'Bu buyurtma ushbu restoranga tegishli emas' }, 403);
     }
 
+    const prevStatus = String(order.status || '').toLowerCase().trim();
     const nowIso = new Date().toISOString();
     const updated = {
       ...order,
@@ -435,6 +507,12 @@ app.patch('/restaurants/:restaurantId/orders/:orderId/status', async (c) => {
     };
 
     await kv.set(matchedKey, updated);
+    if (
+      (nextStatus === 'accepted' || nextStatus === 'confirmed') &&
+      (prevStatus === 'pending' || prevStatus === 'new' || prevStatus === '')
+    ) {
+      void notifyRestaurantCashierTelegramAccepted(resolved.record, updated).catch(() => {});
+    }
     return c.json({ success: true, data: updated });
   } catch (error) {
     console.error('Restoran order status yangilashda xato:', error);
@@ -489,6 +567,13 @@ app.post('/orders/restaurant', async (c) => {
 
     const orderId = `order:restaurant:${restaurantCanonicalId}:${Date.now()}`;
 
+    const pm = String(body.paymentMethod || 'cash').toLowerCase().trim();
+    const onlineGateway = ['payme', 'click', 'click_card', 'atmos', 'online'].includes(pm);
+    const isKassaQr = pm === 'qr' || pm === 'qrcode';
+    /** Avval noto‘g‘ri: onlayn to‘lovdan oldin «paid». Endi faqat provayder tasdig‘idan keyin paid. */
+    const paymentStatus = 'pending';
+    const paymentRequiresVerification = isKassaQr;
+
     const order = {
       id: orderId,
       orderType: 'food',
@@ -501,105 +586,91 @@ app.post('/orders/restaurant', async (c) => {
       totalPrice: body.totalPrice,
       deliveryFee: body.deliveryFee || 0,
       status: 'pending', // pending, accepted, preparing, delivering, delivered, cancelled
-      paymentStatus: 'pending', // pending, paid
-      paymentMethod: body.paymentMethod, // cash, card, online
-      paymentRequiresVerification: true,
+      paymentStatus,
+      paymentMethod: body.paymentMethod,
+      paymentRequiresVerification,
       merchantPaymentQrUrl: merchantPaymentQrUrl || null,
+      paymentFlow: 'platform_checkout',
+      ...(body.checkoutBatchId ? { checkoutBatchId: String(body.checkoutBatchId) } : {}),
       createdAt: new Date().toISOString(),
     };
 
     await kv.set(orderId, order);
 
-    // Telegram notification using RESTAURANT bot token
-    const chatIdRaw = restaurant?.telegramChatId;
-    const chatId = chatIdRaw != null ? String(chatIdRaw).trim() : '';
-    const botToken = Deno.env.get('TELEGRAM_RESTAURANT_BOT_TOKEN');
+    const batchId = body.checkoutBatchId ? String(body.checkoutBatchId).trim() : '';
+    const reserve =
+      body.reserveForOnlinePayment === true || body.awaitingOnlinePayment === true;
+    const checkoutUserId = String(body.checkoutUserId || body.userId || '').trim();
+    if (batchId && reserve && onlineGateway) {
+      await appendOrderToPaymentCheckoutBatch(batchId, order.id, checkoutUserId || 'unknown');
+    }
 
-    if (!botToken) {
-      console.warn('⚠️ TELEGRAM_RESTAURANT_BOT_TOKEN sozlanmagan — taom buyurtmasi Telegramga yuborilmaydi');
-    } else if (!chatId) {
+    const chatId = pickTelegramChatIdFromEntity(restaurant);
+    const pm = String(body.paymentMethod || '').toLowerCase();
+    const paymentLabel =
+      pm === 'cash' || pm === 'naqd'
+        ? 'Naqd pul'
+        : pm === 'qr' || pm === 'qrcode'
+          ? 'Filial/Restoran QR'
+          : pm === 'payme'
+            ? 'Payme'
+            : pm === 'click' || pm === 'click_card'
+              ? 'Click'
+              : pm === 'atmos'
+                ? 'Atmos'
+                : 'Karta / onlayn';
+
+    const itemsForTelegram = (Array.isArray(body.items) ? body.items : []).map((item: any) => {
+      const addons = Array.isArray(item?.additionalProducts)
+        ? item.additionalProducts
+        : Array.isArray(item?.addons)
+          ? item.addons
+          : Array.isArray(item?.extras)
+            ? item.extras
+            : [];
+      return {
+        name: String(item?.dishName || item?.name || 'Taom'),
+        variantName: String(item?.variantName || 'Standart'),
+        quantity: Number(item?.quantity || 1),
+        price: Number(item?.price || 0),
+        additionalProducts: addons.map((addon: any) => ({
+          name: String(addon?.name || "Qo'shimcha"),
+          price: Number(addon?.price || 0),
+          quantity: Number(addon?.quantity || addon?.count || 1),
+        })),
+      };
+    });
+
+    if (!chatId) {
       console.warn(
-        `⚠️ Restoran ${restaurantCanonicalId} uchun telegramChatId bo‘sh — bildirishnoma yuborilmaydi`
+        `⚠️ Restoran ${restaurantCanonicalId} uchun Telegram chat id topilmadi (telegramChatId / telegram_chat_id …)`,
       );
     } else {
-      const itemsText = (Array.isArray(body.items) ? body.items : [])
-        .map((item: any) => {
-          const addons = Array.isArray(item?.additionalProducts)
-            ? item.additionalProducts
-            : (Array.isArray(item?.addons)
-              ? item.addons
-              : (Array.isArray(item?.extras) ? item.extras : []));
-          const addonsText = addons.length
-            ? `\n  Qo'shimchalar:\n${addons
-                .map((addon: any) => {
-                  const addonQty = Number(addon?.quantity || 1);
-                  const addonPrice = Number(addon?.price || 0);
-                  return `  - ${addon?.name || 'Qo\'shimcha'} × ${addonQty} (${addonPrice.toLocaleString()} so'm)`;
-                })
-                .join('\n')}`
-            : '';
-
-          return `• ${item.dishName} ${item.variantName ? `(${item.variantName})` : ''} x${item.quantity} - ${Number(item.price || 0).toLocaleString()} so'm${addonsText}`;
-        })
-        .join('\n');
-
-      const message = `🍕 <b>YANGI TAOM BUYURTMASI!</b>
-
-📦 <b>Buyurtma #${orderId.slice(-6)}</b>
-🏪 <b>Restoran:</b> ${restaurant.name}
-
-━━━━━━━━━━━━━━━━━━
-
-👤 <b>MIJOZ MA'LUMOTLARI:</b>
-
-👨‍💼 <b>Ismi:</b> ${body.customerName}
-📞 <b>Telefon:</b> ${body.customerPhone}
-📍 <b>Manzil:</b> ${body.customerAddress}
-
-━━━━━━━━━━━━━━━━━━
-
-🍕 <b>TAOMLAR:</b>
-
-${itemsText}
-
-━━━━━━━━━━━━━━━━━━
-
-💰 <b>JAMI SUMMA:</b> ${Number(body.totalPrice || 0).toLocaleString()} so'm
-🚚 <b>Yetkazish:</b> ${Number(body.deliveryFee || 0).toLocaleString()} so'm
-💳 <b>To'lov usuli:</b> ${
-        String(body.paymentMethod || '').toLowerCase() === 'cash'
-          ? 'Naqd pul'
-          : String(body.paymentMethod || '').toLowerCase() === 'qr'
-            ? 'Filial/Restoran QR'
-            : 'Karta'
-      }
-
-━━━━━━━━━━━━━━━━━━
-
-⚡ <b>DIQQAT!</b>
-Buyurtmani qabul qilish yoki bekor qilish uchun iltimos /taom ga kiring va buyurtmani boshqaring.
-
-✅ Qabul qilish - Buyurtmani tasdiqlash
-❌ Bekor qilish - Buyurtmani rad etish`;
-
-      try {
-        const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            chat_id: chatId,
-            text: message,
-            parse_mode: 'HTML',
-          }),
-        });
-        const tgJson = await tgRes.json().catch(() => ({}));
-        if (!tgRes.ok) {
-          console.error('❌ Restoran bot Telegram API:', tgRes.status, JSON.stringify(tgJson));
-        } else {
-          console.log('✅ Restoran bot: Telegram xabar yuborildi!', tgJson?.result?.message_id);
-        }
-      } catch (err) {
-        console.error('❌ Restoran bot: Telegram xabar yuborishda xato:', err);
+      const orderNumberShort = orderId.replace(/^order:restaurant:[^:]+:/, '').slice(-10) || orderId.slice(-8);
+      const sent = await telegram.sendOrderNotification({
+        type: 'restaurant',
+        shopName: String(restaurant.name || 'Restoran'),
+        shopChatId: chatId,
+        orderNumber: orderNumberShort,
+        customerName: String(body.customerName || 'Mijoz'),
+        customerPhone: String(body.customerPhone || "Ko'rsatilmagan"),
+        customerAddress: String(body.customerAddress || "Ko'rsatilmagan"),
+        items: itemsForTelegram,
+        totalAmount: Number(body.totalPrice || 0),
+        deliveryMethod: `Yetkazish ${Number(body.deliveryFee || 0).toLocaleString()} so'm`,
+        paymentMethod: paymentLabel,
+        orderDate: new Date().toLocaleString('uz-UZ', {
+          day: '2-digit',
+          month: '2-digit',
+          year: 'numeric',
+          hour: '2-digit',
+          minute: '2-digit',
+        }),
+      });
+      if (sent) {
+        console.log('✅ Restoran: Telegram buyurtma xabari yuborildi');
+      } else {
+        console.error('❌ Restoran: Telegram xabar yuborilmadi (TELEGRAM_RESTAURANT_BOT_TOKEN yoki chat_id)');
       }
     }
 

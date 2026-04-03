@@ -40,6 +40,10 @@ import {
   normalizeKvTestModeForSave,
   resolveClickIsTestForInvoice,
 } from "./payment-kv-utils.ts";
+import {
+  appendOrderToPaymentCheckoutBatch,
+  getPaymentCheckoutBatch,
+} from "./payment-checkout-batch.ts";
 
 async function paycomCallOptsForReceiptId(receiptId: string) {
   try {
@@ -1383,6 +1387,54 @@ async function markKvOrderPaidFromGateway(
     kvPaymentStatus: 'paid',
     paymentRequiresVerification: false,
   });
+}
+
+async function markRentalKvOrderPaidFromGateway(
+  rentalKvKey: string,
+  extras: { paymeReceiptId?: string; clickTransId?: string | number },
+): Promise<void> {
+  const key = String(rentalKvKey || '').trim();
+  if (!key.startsWith('rental_order_')) return;
+  const row = await kv.get(key);
+  if (!row || typeof row !== 'object') {
+    console.warn('[gateway-paid] ijara buyurtmasi KV da topilmadi:', key);
+    return;
+  }
+  const r = row as Record<string, unknown>;
+  const nowIso = new Date().toISOString();
+  const prevPaid = ['paid', 'completed', 'success'].includes(
+    String(r.platformPaymentStatus || r.paymentStatus || '').toLowerCase().trim(),
+  );
+  if (prevPaid) return;
+  await kv.set(key, {
+    ...r,
+    platformPaymentStatus: 'paid',
+    paymentCompletedAt: nowIso,
+    updatedAt: nowIso,
+    ...(extras.paymeReceiptId ? { paymeReceiptId: extras.paymeReceiptId } : {}),
+    ...(extras.clickTransId != null ? { clickTransId: extras.clickTransId } : {}),
+  });
+}
+
+async function markKvOrdersPaidFromPaymentReference(
+  paymentRef: string,
+  extras: { paymeReceiptId?: string; clickTransId?: string | number },
+): Promise<void> {
+  const ref = String(paymentRef || '').trim();
+  if (!ref) return;
+  const batch = await getPaymentCheckoutBatch(ref);
+  if (batch && batch.orderIds.length > 0) {
+    for (const oid of batch.orderIds) {
+      const s = String(oid || '').trim();
+      if (s.startsWith('rental_order_')) {
+        await markRentalKvOrderPaidFromGateway(s, extras);
+      } else {
+        await markKvOrderPaidFromGateway(s, extras);
+      }
+    }
+    return;
+  }
+  await markKvOrderPaidFromGateway(ref, extras);
 }
 
 async function validateOrderOwnership(c: any, order: any) {
@@ -13246,8 +13298,8 @@ app.get("/make-server-27d0d16c/seller/products", async (c) => {
     }
 
     const products = await kv.getByPrefix('shop_product:');
-    const shopProducts = products.filter((p: any) => 
-      p.shopId === auth.shopId && !p.deleted
+    const shopProducts = products.filter(
+      (p: any) => sellerShopIdsMatch(p.shopId, auth.shopId) && !p.deleted,
     );
 
     // Calculate soldThisWeek for each product's variants
@@ -13362,7 +13414,7 @@ app.put("/make-server-27d0d16c/seller/products/:id", async (c) => {
     const id = c.req.param('id');
     const product = await kv.get(`shop_product:${id}`);
     
-    if (!product || product.shopId !== auth.shopId) {
+    if (!product || !sellerShopIdsMatch(product.shopId, auth.shopId)) {
       return c.json({ error: 'Mahsulot topilmadi' }, 404);
     }
 
@@ -13406,7 +13458,7 @@ app.delete("/make-server-27d0d16c/seller/products/:id", async (c) => {
     const id = c.req.param('id');
     const product = await kv.get(`shop_product:${id}`);
     
-    if (!product || product.shopId !== auth.shopId) {
+    if (!product || !sellerShopIdsMatch(product.shopId, auth.shopId)) {
       return c.json({ error: 'Mahsulot topilmadi' }, 404);
     }
 
@@ -13448,7 +13500,7 @@ app.patch("/make-server-27d0d16c/seller/products/:id/toggle", async (c) => {
     const id = c.req.param('id');
     const product = await kv.get(`shop_product:${id}`);
     
-    if (!product || product.shopId !== auth.shopId) {
+    if (!product || !sellerShopIdsMatch(product.shopId, auth.shopId)) {
       return c.json({ error: 'Mahsulot topilmadi' }, 404);
     }
 
@@ -13501,6 +13553,11 @@ const normalizeShopIdForSeller = (raw: unknown) =>
   String(raw ?? "")
     .trim()
     .replace(/^shop:/i, "");
+
+/** KV da `shopId` ba'zan `shop:xxx`, ba'zan `xxx` — sotuvchi ombor/mahsulot filtrlari uchun */
+function sellerShopIdsMatch(productOrOrderShopId: unknown, authShopId: unknown) {
+  return normalizeShopIdForSeller(productOrOrderShopId) === normalizeShopIdForSeller(authShopId);
+}
 
 function inferShopIdFromCustomerOrder(order: any): string {
   const top = order?.shopId;
@@ -13609,6 +13666,92 @@ async function resolveNormalizedShopIdForReceipt(order: any): Promise<string> {
   return "";
 }
 
+function pickPaymentQrUrlFromKvEntity(entity: any): string {
+  if (!entity || typeof entity !== "object") return "";
+  return String(
+    entity?.paymentQrImage ||
+      entity?.paymentQRImage ||
+      entity?.payment_qr_image ||
+      entity?.paymentQr ||
+      entity?.payment_qr ||
+      entity?.qrImageUrl ||
+      entity?.qrCode ||
+      entity?.qr_code ||
+      entity?.payment?.qrImage ||
+      entity?.payment?.qrImageUrl ||
+      entity?.payment?.qr ||
+      entity?.paymentDetails?.qrImageUrl ||
+      "",
+  ).trim();
+}
+
+/** Sotuvchi «qabul qilgach» kassa (Telegram) ga summa + QR eslatmasi — chek tasdiqlanguncha kuryer ko‘rmaydi. */
+async function notifyShopCashierTelegramSellerAccept(order: any): Promise<void> {
+  try {
+    const ot = String(order?.orderType || "shop").toLowerCase().trim();
+    if (ot !== "shop") return;
+    const ps = String(order?.paymentStatus || "").toLowerCase().trim();
+    if (ps === "paid" || ps === "completed" || ps === "success") return;
+
+    const normShop = await resolveNormalizedShopIdForReceipt(order);
+    const sidRaw =
+      normShop ||
+      inferShopIdFromCustomerOrder(order) ||
+      String(order?.shopId || "")
+        .trim()
+        .replace(/^shop:/i, "");
+    if (!sidRaw) return;
+
+    const shop = await loadShopKvRecordByNormalizedId(sidRaw);
+    const chatId = shop ? pickTelegramChatIdFromEntity(shop) : "";
+    if (!chatId) return;
+
+    const amount =
+      Number(order?.finalTotal ?? order?.totalAmount ?? order?.totalPrice ?? order?.total ?? 0) || 0;
+    const pm = String(order?.paymentMethod || "cash").toLowerCase().trim();
+    const pmLabel =
+      pm === "cash" || pm === "naqd"
+        ? "Naqd / kassa"
+        : pm === "qr" || pm === "qrcode"
+          ? "Filial kassa QR"
+          : pm === "payme"
+            ? "Payme"
+            : pm === "click" || pm === "click_card"
+              ? "Click"
+              : pm === "atmos"
+                ? "Atmos"
+                : pm || "—";
+
+    const orderRef = String(order?.orderNumber || order?.id || "—").replace(/^order:/, "");
+    const qrUrl =
+      String(order?.merchantPaymentQrUrl || "").trim() || pickPaymentQrUrlFromKvEntity(shop);
+    const custName = String(
+      order?.customerName || order?.customer?.name || order?.customer?.fullName || "—",
+    );
+    const custPhone = String(
+      order?.customerPhone || order?.customer?.phone || order?.customer?.tel || "—",
+    );
+
+    let text =
+      `<b>🏪 Kassa — sotuvchi buyurtmani qabul qildi</b>\n\n` +
+      `Buyurtma: <b>#${orderRef}</b>\n` +
+      `Summa: <b>${amount.toLocaleString("uz-UZ")} so'm</b>\n` +
+      `To'lov: <b>${pmLabel}</b>\n` +
+      `Mijoz: ${custName} · ${custPhone}\n\n` +
+      `<i>Naqd / kassa QR bo'lsa: filial panelida chekni yuklab tasdiqlang — shundan keyin kuryer «mavjud buyurtmalar»da ko'radi.</i>\n` +
+      `<i>Payme/Click/Atmos allaqachon to'langan bo'lsa, kuryer darhol ko'rishi mumkin.</i>\n`;
+
+    if (qrUrl) {
+      const safeUrl = qrUrl.replace(/"/g, "%22");
+      text += `\n<a href="${safeUrl}">To'lov QR (havola)</a>`;
+    }
+
+    await telegram.sendHtmlMessage({ type: "shop", chatId, text });
+  } catch (e) {
+    console.warn("[notifyShopCashierTelegramSellerAccept]", e);
+  }
+}
+
 function parseOrderKvValue(value: unknown): any | null {
   if (value == null) return null;
   if (typeof value === "string") {
@@ -13706,6 +13849,12 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
         updatedAt: new Date().toISOString(),
       };
       await kv.set(`shop_order:${id}`, updatedOrder);
+      if (nextStatus === "confirmed" || nextStatus === "accepted") {
+        const p = String(prevStatus || "").toLowerCase().trim();
+        if (p === "pending" || p === "new" || p === "") {
+          void notifyShopCashierTelegramSellerAccept({ ...updatedOrder, orderType: "shop" }).catch(() => {});
+        }
+      }
       return c.json({
         success: true,
         order: updatedOrder,
@@ -13750,6 +13899,13 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
       ],
     };
     await kv.set(record.key, updatedOrder);
+
+    if (nextStatus === "confirmed" || nextStatus === "accepted") {
+      const p = String(prevStatus || "").toLowerCase().trim();
+      if (p === "pending" || p === "new") {
+        void notifyShopCashierTelegramSellerAccept(updatedOrder).catch(() => {});
+      }
+    }
 
     try {
       await syncRelationalOrderFromLegacy({
@@ -13879,12 +14035,14 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
     await kv.set(`shop_order:${orderId}`, order);
 
     // Send Telegram notification if chat ID is configured
-    if (shop.telegramChatId) {
-      console.log(`📱 Sending Telegram notification to shop ${shop.name} (Chat ID: ${shop.telegramChatId})`);
+    const shopTgChat = pickTelegramChatIdFromEntity(shop);
+    if (shopTgChat) {
+      console.log(`📱 Sending Telegram notification to shop ${shop.name} (Chat ID: ${shopTgChat})`);
       
       const notificationSent = await telegram.sendOrderNotification({
+        type: 'shop',
         shopName: shop.name,
-        shopChatId: shop.telegramChatId,
+        shopChatId: shopTgChat,
         orderNumber,
         customerName: customer.name || 'Noma\'lum',
         customerPhone: customer.phone || 'Ko\'rsatilmagan',
@@ -13962,7 +14120,7 @@ app.get("/make-server-27d0d16c/seller/statistics", async (c) => {
 
     // Get all shop orders
     const allOrders = await kv.getByPrefix('shop_order:');
-    const shopOrders = allOrders.filter((o: any) => o.shopId === auth.shopId);
+    const shopOrders = allOrders.filter((o: any) => sellerShopIdsMatch(o.shopId, auth.shopId));
 
     // Calculate statistics
     let totalOrders = shopOrders.length;
@@ -13983,7 +14141,9 @@ app.get("/make-server-27d0d16c/seller/statistics", async (c) => {
 
     // Get products count
     const allProducts = await kv.getByPrefix('shop_product:');
-    const shopProducts = allProducts.filter((p: any) => p.shopId === auth.shopId && !p.deleted);
+    const shopProducts = allProducts.filter(
+      (p: any) => sellerShopIdsMatch(p.shopId, auth.shopId) && !p.deleted,
+    );
     const totalProducts = shopProducts.length;
 
     // Get total stock
@@ -14016,7 +14176,9 @@ app.get("/make-server-27d0d16c/seller/statistics", async (c) => {
 
 // ==================== SHOP INVENTORY (SELLER PANEL) ====================
 
-// Get shop inventory
+const LOW_STOCK_THRESHOLD = 5;
+
+// Get shop inventory (variantlar bo‘yicha real ombor)
 app.get("/make-server-27d0d16c/seller/inventory", async (c) => {
   try {
     const auth = await validateSellerSession(c);
@@ -14026,25 +14188,79 @@ app.get("/make-server-27d0d16c/seller/inventory", async (c) => {
     }
 
     const products = await kv.getByPrefix('shop_product:');
-    const inventory = products
-      .filter((p: any) => p.shopId === auth.shopId && !p.deleted)
-      .map((p: any) => ({
-        id: p.id,
-        name: p.name,
-        stock: p.stock || 0,
-        price: p.price,
-        category: p.category,
-        image: p.image,
-      }));
+    const shopProducts = products.filter(
+      (p: any) => sellerShopIdsMatch(p.shopId, auth.shopId) && !p.deleted,
+    );
 
-    return c.json({ success: true, inventory });
+    const items: any[] = [];
+    for (const p of shopProducts) {
+      const vars = Array.isArray(p.variants) && p.variants.length > 0 ? p.variants : null;
+      if (vars) {
+        vars.forEach((v: any, i: number) => {
+          const st = Number(v.stock ?? v.stockQuantity ?? 0);
+          items.push({
+            productId: p.id,
+            productName: String(p.name || 'Mahsulot'),
+            variantId: v.id != null && String(v.id) !== '' ? String(v.id) : '',
+            variantIndex: i,
+            variantLabel: String(v.name || '').trim() || `Variant ${i + 1}`,
+            stock: Number.isFinite(st) ? Math.max(0, Math.floor(st)) : 0,
+            price: Number(v.price) || 0,
+            image: (Array.isArray(v.images) && v.images[0]) || p.image || null,
+            barcode: String(v.barcode || ''),
+          });
+        });
+      } else {
+        const st = Number(p.stock ?? p.stockQuantity ?? 0);
+        items.push({
+          productId: p.id,
+          productName: String(p.name || 'Mahsulot'),
+          variantId: '',
+          variantIndex: 0,
+          variantLabel: 'Asosiy',
+          stock: Number.isFinite(st) ? Math.max(0, Math.floor(st)) : 0,
+          price: Number(p.price) || 0,
+          image: p.image || null,
+          barcode: '',
+        });
+      }
+    }
+
+    const totalUnits = items.reduce((s, it) => s + (it.stock || 0), 0);
+    const totalLines = items.length;
+    const lowStockLines = items.filter(
+      (it) => it.stock > 0 && it.stock <= LOW_STOCK_THRESHOLD,
+    ).length;
+    const outOfStockLines = items.filter((it) => it.stock <= 0).length;
+
+    const summary = {
+      totalLines,
+      totalUnits,
+      lowStockLines,
+      outOfStockLines,
+      lowStockThreshold: LOW_STOCK_THRESHOLD,
+    };
+
+    // Eski klientlar uchun `inventory` — mahsulot darajasida (ixcham)
+    const inventoryLegacy = shopProducts.map((p: any) => ({
+      id: p.id,
+      name: p.name,
+      stock: Array.isArray(p.variants) && p.variants.length > 0
+        ? p.variants.reduce((acc: number, v: any) => acc + (Number(v.stock ?? v.stockQuantity) || 0), 0)
+        : Number(p.stock ?? p.stockQuantity) || 0,
+      price: p.price,
+      category: p.category,
+      image: p.image,
+    }));
+
+    return c.json({ success: true, items, summary, inventory: inventoryLegacy });
   } catch (error: any) {
     console.error('Get inventory error:', error);
     return c.json({ error: 'Ombor ma\'lumotlarini olishda xatolik' }, 500);
   }
 });
 
-// Update product stock
+// Update stock: variantli mahsulotda variantId yoki variantIndex; aks holda product.stock
 app.put("/make-server-27d0d16c/seller/inventory/:id", async (c) => {
   try {
     const auth = await validateSellerSession(c);
@@ -14056,16 +14272,58 @@ app.put("/make-server-27d0d16c/seller/inventory/:id", async (c) => {
     const id = c.req.param('id');
     const product = await kv.get(`shop_product:${id}`);
     
-    if (!product || product.shopId !== auth.shopId) {
+    if (!product || !sellerShopIdsMatch(product.shopId, auth.shopId)) {
       return c.json({ error: 'Mahsulot topilmadi' }, 404);
     }
 
-    const { stock } = await c.req.json();
-    const updatedProduct = {
-      ...product,
-      stock: stock !== undefined ? stock : product.stock,
-      updatedAt: new Date().toISOString(),
-    };
+    const body = await c.req.json().catch(() => ({}));
+    const stockRaw = body.stock;
+    const stock = Math.max(0, Math.floor(Number(stockRaw)));
+    if (!Number.isFinite(stock)) {
+      return c.json({ error: 'Miqdor noto\'g\'ri' }, 400);
+    }
+
+    const variantId =
+      body.variantId != null && String(body.variantId).trim() !== ''
+        ? String(body.variantId).trim()
+        : null;
+    const variantIndexRaw = body.variantIndex;
+    const variantIndex =
+      variantIndexRaw !== undefined && variantIndexRaw !== null
+        ? Math.floor(Number(variantIndexRaw))
+        : null;
+
+    const variants = Array.isArray(product.variants) ? [...product.variants] : [];
+    let updatedProduct: any;
+
+    if (variants.length > 0) {
+      let idx = -1;
+      if (variantId) {
+        idx = variants.findIndex((v: any) => String(v?.id ?? '') === variantId);
+      }
+      if (idx < 0 && variantIndex !== null && Number.isFinite(variantIndex)) {
+        if (variantIndex >= 0 && variantIndex < variants.length) idx = variantIndex;
+      }
+      if (idx < 0) {
+        return c.json(
+          { error: 'Variant topilmadi — variantId yoki variantIndex yuboring' },
+          400,
+        );
+      }
+      const v = { ...variants[idx], stock };
+      variants[idx] = v;
+      updatedProduct = {
+        ...product,
+        variants,
+        updatedAt: new Date().toISOString(),
+      };
+    } else {
+      updatedProduct = {
+        ...product,
+        stock,
+        updatedAt: new Date().toISOString(),
+      };
+    }
 
     await kv.set(`shop_product:${id}`, updatedProduct);
 
@@ -14639,7 +14897,7 @@ app.post('/make-server-27d0d16c/payme/check-receipt', async (c) => {
           | { orderId?: string }
           | null;
         if (paidMeta?.orderId) {
-          await markKvOrderPaidFromGateway(String(paidMeta.orderId), {
+          await markKvOrdersPaidFromPaymentReference(String(paidMeta.orderId), {
             paymeReceiptId: receiptId,
           });
         }
@@ -14824,7 +15082,20 @@ app.post('/make-server-27d0d16c/atmos/create-transaction', async (c) => {
         400,
       );
     }
-    
+
+    const txId = String(result.transactionId ?? '').trim();
+    if (txId) {
+      try {
+        await kv.set(`atmos_transaction:${txId}`, {
+          orderId: oid,
+          amount: amountNum,
+          createdAt: new Date().toISOString(),
+        });
+      } catch (e) {
+        console.warn('[atmos] atmos_transaction KV saqlanmadi:', e);
+      }
+    }
+
     return c.json({
       success: true,
       transactionId: result.transactionId,
@@ -14854,7 +15125,20 @@ app.post('/make-server-27d0d16c/atmos/check-transaction', async (c) => {
     if (!result.success) {
       return c.json({ error: result.error || 'Tranzaksiya holatini olishda xatolik' }, 400);
     }
-    
+
+    if (result.isPaid) {
+      try {
+        const meta = (await kv.get(`atmos_transaction:${String(transactionId).trim()}`)) as
+          | { orderId?: string }
+          | null;
+        if (meta?.orderId) {
+          await markKvOrdersPaidFromPaymentReference(String(meta.orderId), {});
+        }
+      } catch (e) {
+        console.error('[atmos/check-transaction] buyurtmalarni paid qilishda xato:', e);
+      }
+    }
+
     return c.json({
       success: true,
       transaction: result.transaction,
@@ -17783,20 +18067,25 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
     
     const orderId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const normalizedOrderType = String(data.orderType || '').toLowerCase().trim();
-    const isCashierQrOrderType = normalizedOrderType !== 'market' && normalizedOrderType !== 'rental';
-    const normalizedPaymentMethod = isCashierQrOrderType
-      ? 'qr'
-      : String(data.paymentMethod || 'cash').toLowerCase().trim();
+    /** Mijoz tanlagan usul (naqd, payme, click, atmos, qr) — shop/food uchun ham majburiy QR emas */
+    const normalizedPaymentMethod = String(data.paymentMethod || 'cash').toLowerCase().trim();
     /** Checkout onlayn to‘lovda `paymentStatus: paid` yuboradi; avvaldoim `pending` qilib KV buzilgan edi. */
     const bodyPaymentNorm = normalizeIncomingOrderCreatePaymentStatus(data.paymentStatus);
     const cashLike =
       normalizedPaymentMethod === 'cash' ||
       normalizedPaymentMethod === 'naqd' ||
       normalizedPaymentMethod === 'cod';
+    const onlineGateway = ['payme', 'click', 'click_card', 'atmos', 'online'].includes(
+      normalizedPaymentMethod,
+    );
+    const reserveForOnlinePayment =
+      data.reserveForOnlinePayment === true || data.awaitingOnlinePayment === true;
     let paymentStatus: 'paid' | 'pending' | 'failed' | 'refunded';
     if (bodyPaymentNorm === 'failed' || bodyPaymentNorm === 'refunded') {
       paymentStatus = bodyPaymentNorm;
     } else if (cashLike) {
+      paymentStatus = 'pending';
+    } else if (reserveForOnlinePayment && onlineGateway) {
       paymentStatus = 'pending';
     } else {
       paymentStatus = bodyPaymentNorm === 'paid' ? 'paid' : 'pending';
@@ -17887,8 +18176,10 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
     if (!merchantPaymentQrUrl) {
       merchantPaymentQrUrl = pickQrImage(branch) || null;
     }
-    const paymentRequiresVerification =
-      isCashierQrOrderType || ONLINE_PAYMENT_METHODS.has(normalizedPaymentMethod) || normalizedPaymentMethod === 'qr';
+    const isKassaQr =
+      normalizedPaymentMethod === 'qr' || normalizedPaymentMethod === 'qrcode';
+    /** Faqat filial kassa QR: kassir chek yuklaguncha; payme/click/atmos to‘langan bo‘lsa tasdiq shart emas */
+    const paymentRequiresVerification = isKassaQr;
 
     // Market + naqd: filial "qabul qilish"gacha tayyorlovchi panelida ko‘rinmasin; onlayn to‘lov — darhol tayyorlovchiga.
     const marketCashHold =
@@ -17938,6 +18229,9 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       }],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
+      ...(data.checkoutBatchId ? { checkoutBatchId: String(data.checkoutBatchId) } : {}),
+      /** Kelajakdagi hisob-kitob: mijoz platformaga to‘laydi, tadbirkorga alohida to‘lov */
+      paymentFlow: 'platform_checkout',
       ...(marketCashHold ? { marketCashHold: true } : {}),
       ...(releasedToPreparerAt ? { releasedToPreparerAt } : {}),
     };
@@ -18095,6 +18389,11 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
 
     await kv.set(orderKey, order);
 
+    const batchIdForPay = data.checkoutBatchId ? String(data.checkoutBatchId).trim() : '';
+    if (batchIdForPay && reserveForOnlinePayment && onlineGateway) {
+      await appendOrderToPaymentCheckoutBatch(batchIdForPay, orderId, auth.userId);
+    }
+
     if (applyShopInventory && linesForShopInventory.length > 0) {
       const needByVariant = new Map<
         string,
@@ -18213,7 +18512,8 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
           }
         }
 
-        if (restaurant?.telegramChatId) {
+        const restaurantChatId = restaurant ? pickTelegramChatIdFromEntity(restaurant) : '';
+        if (restaurantChatId) {
           const itemsForTelegram = (Array.isArray(order.items) ? order.items : []).map((item: any) => ({
             name: String(item?.name || item?.title || item?.dishName || 'Taom'),
             variantName: String(item?.variantName || item?.size || 'Standart'),
@@ -18233,7 +18533,7 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
           const sent = await telegram.sendOrderNotification({
             type: 'restaurant',
             shopName: String(restaurant.name || restaurant.title || 'Restoran'),
-            shopChatId: String(restaurant.telegramChatId || ''),
+            shopChatId: restaurantChatId,
             orderNumber: String(order.orderNumber || order.id),
             customerName: String(order.customerName || 'Mijoz'),
             customerPhone: String(order.customerPhone || 'Ko‘rsatilmagan'),
@@ -18257,10 +18557,88 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
             console.log('✅ Food order Telegram notification yuborildi');
           }
         } else {
-          console.log('ℹ️ Food order: restaurant telegramChatId topilmadi');
+          console.log('ℹ️ Food order: restaurant Telegram chat id topilmadi (telegramChatId / telegram_chat_id va h.k.)');
         }
       } catch (telegramError) {
         console.log('⚠️ Food order telegram notify xatolik:', telegramError);
+      }
+    }
+
+    // Do'kon (shop): Checkout → POST /orders — /shop/orders emas; shu yerda Telegram
+    if (normalizedOrderType === 'shop' && inferredShopId) {
+      try {
+        const shop = await loadShopKvRecordByNormalizedId(String(inferredShopId));
+        const shopChatId = shop ? pickTelegramChatIdFromEntity(shop) : '';
+        if (shopChatId) {
+          const pm = String(order.paymentMethod || 'cash').toLowerCase();
+          const paymentLabel =
+            pm === 'cash' || pm === 'naqd'
+              ? 'Naqd pul'
+              : pm === 'qr' || pm === 'qrcode'
+                ? 'Filial kassa QR'
+                : pm === 'payme'
+                  ? 'Payme'
+                  : pm === 'click' || pm === 'click_card'
+                    ? 'Click'
+                    : pm === 'atmos'
+                      ? 'Atmos'
+                      : String(order.paymentMethod || 'Boshqa');
+
+          const itemsForTelegram = (Array.isArray(order.items) ? order.items : []).map((item: any) => {
+            const addonsSrc = Array.isArray(item?.addons)
+              ? item.addons
+              : Array.isArray(item?.additionalProducts)
+                ? item.additionalProducts
+                : [];
+            const basePrice = Number(item?.variantDetails?.price) || Number(item?.price) || 0;
+            return {
+              name: String(item?.name || item?.title || 'Mahsulot'),
+              variantName: String(
+                item?.variantDetails?.name || item?.variantName || item?.selectedVariantName || 'Standart',
+              ),
+              quantity: Number(item?.quantity || 1),
+              price: basePrice,
+              additionalProducts: addonsSrc.map((addon: any) => ({
+                name: String(addon?.name || addon?.title || "Qo'shimcha"),
+                price: Number(addon?.price || 0),
+                quantity: Number(addon?.quantity || addon?.count || 1),
+              })),
+            };
+          });
+
+          const sentShop = await telegram.sendOrderNotification({
+            type: 'shop',
+            shopName: String(shop?.name || "Do'kon"),
+            shopChatId: shopChatId,
+            orderNumber: String(order.orderNumber || order.id),
+            customerName: String(order.customerName || 'Mijoz'),
+            customerPhone: String(order.customerPhone || "Ko'rsatilmagan"),
+            customerAddress: String(order.addressText || order.address?.street || "Ko'rsatilmagan"),
+            items: itemsForTelegram,
+            totalAmount: Number(order.finalTotal || order.totalAmount || 0),
+            deliveryMethod: 'Yetkazib berish',
+            paymentMethod: paymentLabel,
+            orderDate: new Date(order.createdAt || Date.now()).toLocaleString('uz-UZ', {
+              day: '2-digit',
+              month: '2-digit',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit',
+            }),
+          });
+
+          if (!sentShop) {
+            console.log("⚠️ Shop order: Telegram xabar yuborilmadi (token yoki API)");
+          } else {
+            console.log("✅ Shop order: Telegram xabar yuborildi");
+          }
+        } else {
+          console.log(
+            `ℹ️ Shop order: Telegram chat id topilmadi (do'kon ${String(inferredShopId)} — telegramChatId maydonini tekshiring)`,
+          );
+        }
+      } catch (shopTgErr) {
+        console.log("⚠️ Shop order telegram notify xatolik:", shopTgErr);
       }
     }
     
@@ -18900,6 +19278,77 @@ app.get('/make-server-27d0d16c/orders/stats', async (c) => {
   }
 });
 
+/** Buyurtmadan mijozni noyob kalit (telefon ustuvor) */
+function adminInsightCustomerKey(o: any): string {
+  const ph = String(o?.customerPhone ?? o?.customer_phone ?? o?.phone ?? '').replace(/\D/g, '');
+  if (ph.length >= 9) return `p:${ph}`;
+  const nm = String(o?.customerName ?? o?.customer_name ?? '').trim().toLowerCase();
+  if (nm.length >= 2) return `n:${nm.slice(0, 80)}`;
+  return '';
+}
+
+function compareWeeksFromSeries14(series: Array<{ orders: number; revenuePaid: number }>) {
+  if (!Array.isArray(series) || series.length !== 14) {
+    return {
+      ordersPrev7: 0,
+      ordersLast7: 0,
+      revenuePaidPrev7: 0,
+      revenuePaidLast7: 0,
+    };
+  }
+  let ordersPrev7 = 0;
+  let ordersLast7 = 0;
+  let revenuePaidPrev7 = 0;
+  let revenuePaidLast7 = 0;
+  for (let i = 0; i < 7; i++) {
+    ordersPrev7 += series[i].orders || 0;
+    revenuePaidPrev7 += series[i].revenuePaid || 0;
+  }
+  for (let i = 7; i < 14; i++) {
+    ordersLast7 += series[i].orders || 0;
+    revenuePaidLast7 += series[i].revenuePaid || 0;
+  }
+  return { ordersPrev7, ordersLast7, revenuePaidPrev7, revenuePaidLast7 };
+}
+
+function sanitizeBranchInsightRow(m: any) {
+  const set = m._customerKeys;
+  const uniqueCustomers = set instanceof Set ? set.size : 0;
+  const {
+    _customerKeys: _omitCust,
+    orderCount: oc0,
+    paidOrderCount: pc0,
+    deliveredCount: dlv0,
+    cancelledCount: cc0,
+    revenuePaid: rp,
+    revenueAll: ra,
+    series14d,
+    ...rest
+  } = m;
+  const oc = Number(oc0) || 0;
+  const pc = Number(pc0) || 0;
+  const dlv = Number(dlv0) || 0;
+  const cc = Number(cc0) || 0;
+  const compareWeeks = compareWeeksFromSeries14(series14d || []);
+  return {
+    ...rest,
+    orderCount: oc,
+    paidOrderCount: pc,
+    deliveredCount: dlv,
+    cancelledCount: cc,
+    revenuePaid: rp,
+    revenueAll: ra,
+    series14d: series14d || [],
+    uniqueCustomers,
+    compareWeeks,
+    avgOrderValuePaid: pc > 0 ? rp / pc : 0,
+    avgOrderValueAll: oc > 0 ? ra / oc : 0,
+    cancellationRatePct: oc > 0 ? (cc / oc) * 100 : 0,
+    paidSharePct: oc > 0 ? (pc / oc) * 100 : 0,
+    deliveredSharePct: oc > 0 ? (dlv / oc) * 100 : 0,
+  };
+}
+
 /** Admin: barcha filiallar bo‘yicha buyurtma statistikasi va 14 kunlik qatorlar (KV) */
 app.get('/make-server-27d0d16c/admin/branch-insights', async (c) => {
   try {
@@ -18939,10 +19388,15 @@ app.get('/make-server-27d0d16c/admin/branch-insights', async (c) => {
       revenuePaid: 0,
       revenueAll: 0,
       cancelledCount: 0,
+      paidOrderCount: 0,
+      deliveredCount: 0,
       byOrderType: {} as Record<string, number>,
       byStatus: {} as Record<string, number>,
       byPaymentStatus: {} as Record<string, number>,
+      byOrderTypeRevenuePaid: {} as Record<string, number>,
       series14d: emptySeries(),
+      hourly24: Array.from({ length: 24 }, () => 0),
+      _customerKeys: new Set<string>(),
     });
 
     type M = ReturnType<typeof baseMetrics>;
@@ -18967,17 +19421,30 @@ app.get('/make-server-27d0d16c/admin/branch-insights', async (c) => {
       m.revenueAll += money;
       const ps = String(o.paymentStatus || 'pending');
       m.byPaymentStatus[ps] = (m.byPaymentStatus[ps] || 0) + 1;
-      if (ps === 'paid') m.revenuePaid += money;
+      if (ps === 'paid') {
+        m.revenuePaid += money;
+        m.paidOrderCount++;
+      }
 
       const st = String(o.status || 'pending');
+      const stLower = st.toLowerCase();
       m.byStatus[st] = (m.byStatus[st] || 0) + 1;
-      if (st === 'cancelled' || st === 'canceled') m.cancelledCount++;
+      if (stLower === 'cancelled' || stLower === 'canceled') m.cancelledCount++;
+      if (stLower === 'delivered') m.deliveredCount++;
 
       const ot = String(o.orderType || o.type || 'unknown');
       m.byOrderType[ot] = (m.byOrderType[ot] || 0) + 1;
+      if (ps === 'paid') {
+        m.byOrderTypeRevenuePaid[ot] = (m.byOrderTypeRevenuePaid[ot] || 0) + money;
+      }
+
+      const ck = adminInsightCustomerKey(o);
+      if (ck) m._customerKeys.add(ck);
 
       const t = new Date(o.createdAt || 0).getTime();
       if (Number.isFinite(t)) {
+        const hour = new Date(t).getUTCHours();
+        if (hour >= 0 && hour < 24) m.hourly24[hour] = (m.hourly24[hour] || 0) + 1;
         const day = new Date(t).toISOString().slice(0, 10);
         const idx = dayKeys.indexOf(day);
         if (idx >= 0) {
@@ -18993,13 +19460,33 @@ app.get('/make-server-27d0d16c/admin/branch-insights', async (c) => {
       bump(getBranch(bid), o);
     }
 
-    const branches = Array.from(byBranch.values()).sort((a, b) => b.orderCount - a.orderCount);
+    const branchesRaw = Array.from(byBranch.values()).sort((a, b) => b.orderCount - a.orderCount);
+    const branches = branchesRaw.map((row) => sanitizeBranchInsightRow(row));
+    const globalOut = sanitizeBranchInsightRow(global);
+
+    const topByRevenue = [...branches]
+      .filter((b) => b.orderCount > 0)
+      .sort((a, b) => b.revenuePaid - a.revenuePaid)
+      .slice(0, 8)
+      .map((b) => ({
+        branchId: b.branchId,
+        branchName: b.branchName,
+        revenuePaid: b.revenuePaid,
+        orderCount: b.orderCount,
+      }));
 
     return c.json({
       success: true,
       generatedAt: new Date().toISOString(),
-      global,
+      global: globalOut,
       branches,
+      meta: {
+        kvOrderRows: rows.length,
+        dedupedOrders: allOrders.length,
+        branchesInKv: branchRecords.length,
+        branchesWithOrders: branches.filter((b) => b.orderCount > 0).length,
+        topBranchesByRevenue: topByRevenue,
+      },
     });
   } catch (error: any) {
     console.error('Admin branch insights error:', error);

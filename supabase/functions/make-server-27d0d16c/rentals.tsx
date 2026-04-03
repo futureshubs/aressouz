@@ -1,6 +1,7 @@
 import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
 import * as r2 from "./r2-storage.tsx";
+import { appendOrderToPaymentCheckoutBatch } from "./payment-checkout-batch.ts";
 import { createClient } from "npm:@supabase/supabase-js@2";
 
 const app = new Hono();
@@ -444,6 +445,9 @@ app.post('/orders', async (c) => {
       branchId: body.branchId,
       productId: body.productId,
       productName: body.productName || '',
+      checkoutBatchId: body.checkoutBatchId ? String(body.checkoutBatchId).trim() : '',
+      paymentMethod: body.paymentMethod ? String(body.paymentMethod).trim() : '',
+      paymentFlow: body.paymentFlow ? String(body.paymentFlow).trim() : 'platform_checkout',
       quantity: qty,
       customerName: String(body.customerName || ''),
       customerPhone: String(body.customerPhone || ''),
@@ -476,6 +480,17 @@ app.post('/orders', async (c) => {
     };
 
     await kv.set(`rental_order_${body.branchId}_${orderId}`, order);
+
+    const batchId = body.checkoutBatchId ? String(body.checkoutBatchId).trim() : "";
+    const reserve =
+      body.reserveForOnlinePayment === true || body.awaitingOnlinePayment === true;
+    const pm = String(body.paymentMethod || "").toLowerCase().trim();
+    const onlineGateway = ["payme", "click", "click_card", "atmos", "online"].includes(pm);
+    if (batchId && reserve && onlineGateway) {
+      const rentalKvKey = `rental_order_${body.branchId}_${orderId}`;
+      const uid = String(body.checkoutUserId || body.customerUserId || "").trim() || "unknown";
+      await appendOrderToPaymentCheckoutBatch(batchId, rentalKvKey, uid);
+    }
 
     const pk = normalizePhoneDigits(order.customerPhone);
     if (pk) {

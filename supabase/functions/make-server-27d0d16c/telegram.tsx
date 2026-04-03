@@ -88,11 +88,14 @@ export async function sendOrderNotification(notification: OrderNotification): Pr
       })
       .join('\n\n');
 
+    const placeLabel = notification.type === 'restaurant' ? "Restoran" : "Do'kon";
+    const placeEmoji = notification.type === 'restaurant' ? '🏪' : '📍';
+
     // Create message
     const message = `
 🎉 <b>YANGI BUYURTMA!</b>
 
-📍 <b>Do'kon:</b> ${notification.shopName}
+${placeEmoji} <b>${placeLabel}:</b> ${notification.shopName}
 🔢 <b>Buyurtma raqami:</b> #${notification.orderNumber}
 📅 <b>Sana:</b> ${notification.orderDate}
 
@@ -120,7 +123,11 @@ ${itemsList}
 ━━━━━━━━━━━━━━━━━━
 
 ⚡ <b>DIQQAT!</b>
-Bu buyurtmani tasdiqlash yoki bekor qilish uchun /seller platformasiga kiring va buyurtmalar bo'limiga o'ting.
+${
+      notification.type === 'restaurant'
+        ? "Buyurtmani boshqarish uchun /taom (restoran paneli) yoki admin buyurtmalar bo'limiga kiring."
+        : "Bu buyurtmani tasdiqlash yoki bekor qilish uchun /seller platformasiga kiring va buyurtmalar bo'limiga o'ting."
+    }
 
 ✅ Tasdiqlash - Buyurtmani qabul qilish
 ❌ Bekor qilish - Buyurtmani rad etish
