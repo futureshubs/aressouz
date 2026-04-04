@@ -32,7 +32,8 @@ import {
   Activity,
   Bell,
   Play,
-  Pause
+  Pause,
+  QrCode,
 } from 'lucide-react';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildAdminHeaders, buildBranchHeaders } from '../../utils/requestAuth';
@@ -85,6 +86,7 @@ interface OrdersManagementProps {
     region: string;
     district: string;
     phone: string;
+    paymentQrImage?: string;
   };
   type?: 'all' | 'market' | 'shop' | 'rental' | 'food';
   authMode?: 'admin' | 'branch';
@@ -317,6 +319,34 @@ const formatOrderCardDate = (iso: string) => {
   });
 };
 
+const ONLINE_BRANCH_PAYMENT_METHODS = new Set(['click', 'click_card', 'payme', 'atmos']);
+
+const branchFoodCounterQrUrl = (order: Order, branchPaymentQr?: string) =>
+  String(
+    (order as any).merchantPaymentQrUrl ||
+      (order as any).merchant_payment_qr_url ||
+      branchPaymentQr ||
+      '',
+  ).trim();
+
+const showBranchFoodCounterQr = (order: Order, branchPaymentQr?: string) => {
+  if (order.type !== 'restaurant') return false;
+  const st = String(order.status || '').toLowerCase();
+  const afterAccept = ['accepted', 'confirmed', 'preparing', 'ready', 'delivering'].includes(st);
+  const pm = String(order.paymentMethod || '').toLowerCase();
+  const onlinePaid = order.paymentStatus === 'paid' && ONLINE_BRANCH_PAYMENT_METHODS.has(pm);
+  return afterAccept && onlinePaid && Boolean(branchFoodCounterQrUrl(order, branchPaymentQr));
+};
+
+const branchFoodCounterQrMissing = (order: Order, branchPaymentQr?: string) => {
+  if (order.type !== 'restaurant') return false;
+  const st = String(order.status || '').toLowerCase();
+  const afterAccept = ['accepted', 'confirmed', 'preparing', 'ready', 'delivering'].includes(st);
+  const pm = String(order.paymentMethod || '').toLowerCase();
+  const onlinePaid = order.paymentStatus === 'paid' && ONLINE_BRANCH_PAYMENT_METHODS.has(pm);
+  return afterAccept && onlinePaid && !branchFoodCounterQrUrl(order, branchPaymentQr);
+};
+
 export default function OrdersManagement({
   branchId,
   branchInfo,
@@ -332,6 +362,7 @@ export default function OrdersManagement({
   /** Admin panel: filial tanlanmaguncha barcha filiallar «jami» ko‘rinmasin */
   const [adminSelectedBranchId, setAdminSelectedBranchId] = useState('');
   const [adminBranches, setAdminBranches] = useState<{ id: string; name: string }[]>([]);
+  const [adminBranchesLoading, setAdminBranchesLoading] = useState(() => authMode === 'admin');
 
   const effectiveBranchFilter =
     authMode === 'branch'
@@ -369,8 +400,12 @@ export default function OrdersManagement({
   }, [autoRefresh, effectiveBranchFilter, authMode]);
 
   useEffect(() => {
-    if (authMode !== 'admin') return;
+    if (authMode !== 'admin') {
+      setAdminBranchesLoading(false);
+      return;
+    }
     let cancelled = false;
+    setAdminBranchesLoading(true);
     (async () => {
       try {
         const res = await fetch(
@@ -378,7 +413,11 @@ export default function OrdersManagement({
           { headers: buildAdminHeaders({ 'Content-Type': 'application/json' }) },
         );
         const data = await res.json().catch(() => ({}));
-        if (cancelled || !res.ok) return;
+        if (cancelled) return;
+        if (!res.ok) {
+          setAdminBranches([]);
+          return;
+        }
         const list = Array.isArray(data.branches) ? data.branches : [];
         setAdminBranches(
           list.map((b: { id?: string; name?: string; login?: string }) => ({
@@ -388,6 +427,8 @@ export default function OrdersManagement({
         );
       } catch {
         if (!cancelled) setAdminBranches([]);
+      } finally {
+        if (!cancelled) setAdminBranchesLoading(false);
       }
     })();
     return () => {
@@ -1527,6 +1568,51 @@ export default function OrdersManagement({
               </div>
             )}
 
+            {showBranchFoodCounterQr(selectedOrder, branchInfo?.paymentQrImage) && (
+              <div
+                style={{
+                  padding: '20px',
+                  borderRadius: '20px',
+                  backgroundColor: isDark ? 'rgba(20, 184, 166, 0.12)' : 'rgba(20, 184, 166, 0.08)',
+                  border: `1px solid ${accentColor.color}`,
+                }}
+              >
+                <p className="text-base font-bold mb-1 flex items-center gap-2">
+                  <QrCode className="w-5 h-5" style={{ color: accentColor.color }} />
+                  Kassa — to&apos;lov QR (taom)
+                </p>
+                <p className="text-xs mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.68)' }}>
+                  Mijoz Click / Payme / Atmos orqali to&apos;lagan. Buyurtma qabul qilingan — kassada QR ni
+                  ko&apos;rsating yoki skaner qiling.
+                </p>
+                <div className="flex justify-center">
+                  <img
+                    src={branchFoodCounterQrUrl(selectedOrder, branchInfo?.paymentQrImage)}
+                    alt="To'lov QR"
+                    className="max-w-[240px] w-full rounded-xl object-contain bg-white p-2"
+                    style={{
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'}`,
+                    }}
+                  />
+                </div>
+              </div>
+            )}
+
+            {branchFoodCounterQrMissing(selectedOrder, branchInfo?.paymentQrImage) && (
+              <div
+                className="text-sm"
+                style={{
+                  padding: '16px',
+                  borderRadius: '16px',
+                  backgroundColor: 'rgba(245, 158, 11, 0.15)',
+                  color: isDark ? 'rgba(255,255,255,0.92)' : 'rgba(0,0,0,0.85)',
+                }}
+              >
+                Kassa QR yo&apos;q: buyurtmada yoki filial sozlamalarida to&apos;lov QR rasmi (URL) ko&apos;rinmayapti.
+                Admin «Filiallar»da filial QR yoki restoran profilida to&apos;lov QR qo&apos;shing.
+              </div>
+            )}
+
             {/* Action Buttons */}
             {!readOnly && selectedOrder.status !== 'delivered' && selectedOrder.status !== 'cancelled' && (
               <div className="space-y-3 pt-2">
@@ -1566,7 +1652,8 @@ export default function OrdersManagement({
                       updateOrderStatus(
                         selectedOrder.id,
                         'confirmed',
-                        selectedOrder.type === 'shop' || selectedOrder.type === 'restaurant' ? 'qr' : undefined
+                        // Do‘kon: kassa QR tekshiruv oqimi. Taom: mijoz onlayn to‘lagan — paymentMethod ni «qr» ga almashtirmaymiz.
+                        selectedOrder.type === 'shop' ? 'qr' : undefined,
                       )
                     }
                     disabled={actionLoading}
@@ -1850,11 +1937,15 @@ export default function OrdersManagement({
                 </option>
               ))}
             </select>
-            {adminBranches.length === 0 && (
+            {adminBranchesLoading ? (
+              <p className="text-xs mt-2" style={{ opacity: 0.65 }}>
+                Filiallar ro‘yxati yuklanmoqda…
+              </p>
+            ) : adminBranches.length === 0 ? (
               <p className="text-xs mt-2" style={{ opacity: 0.65 }}>
                 Filiallar ro‘yxati yuklanmadi yoki hali filial yo‘q. «Filiallar» bo‘limida qo‘shing.
               </p>
-            )}
+            ) : null}
           </div>
         </div>
       )}

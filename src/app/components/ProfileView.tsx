@@ -1243,7 +1243,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
     <>
       {/* Main Scrollable Container — min-w-0: kichik ekran / Telegram ichida overflow oldini oladi */}
       <div
-        className={`min-h-0 w-full max-w-full min-w-0 ${isDark ? 'bg-black' : 'bg-background'}`}
+        className={`min-h-0 w-full max-w-full min-w-0 overflow-x-hidden ${isDark ? 'bg-black' : 'bg-background'}`}
         style={{
           WebkitOverflowScrolling: 'touch',
           scrollbarWidth: 'thin',
@@ -1984,7 +1984,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                             }}
                           >
                             <div
-                              className="size-14 sm:size-16 rounded-xl overflow-hidden flex-shrink-0 flex items-center justify-center"
+                              className="w-[4.75rem] h-[4.75rem] sm:w-24 sm:h-24 rounded-xl sm:rounded-2xl overflow-hidden flex-shrink-0 flex items-center justify-center"
                               style={{
                                 background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
                                 border: isDark ? '0.5px solid rgba(255,255,255,0.1)' : '0.5px solid rgba(0,0,0,0.06)',
@@ -1999,7 +1999,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                                 />
                               ) : (
                                 <Package
-                                  className="size-6 sm:size-7 opacity-35"
+                                  className="size-8 sm:size-9 opacity-35"
                                   strokeWidth={1.5}
                                   style={{ color: isDark ? '#fff' : '#111' }}
                                 />

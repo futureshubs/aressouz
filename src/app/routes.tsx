@@ -1,6 +1,7 @@
-import { createBrowserRouter } from 'react-router';
-import { Component, ErrorInfo, ReactNode, Suspense, lazy } from 'react';
+import { createBrowserRouter, useLocation } from 'react-router';
+import { ReactNode, Suspense, lazy } from 'react';
 import AppContent from './AppContent';
+import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { RouteChunkSkeleton } from './components/skeletons';
 import { LocationProvider } from './context/LocationContext';
 import { FavoritesProvider } from './context/FavoritesContext';
@@ -38,66 +39,14 @@ const withSuspense = (node: ReactNode) => (
   <Suspense fallback={<RouteChunkSkeleton />}>{node}</Suspense>
 );
 
-// Error Boundary Component (exported so App.tsx can wrap RouterProvider)
-export class ErrorBoundary extends Component<
-  { children: ReactNode },
-  { hasError: boolean; error: Error | null }
-> {
-  constructor(props: { children: ReactNode }) {
-    super(props);
-    this.state = { hasError: false, error: null };
-  }
-
-  static getDerivedStateFromError(error: Error) {
-    return { hasError: true, error };
-  }
-
-  componentDidCatch(error: Error, errorInfo: ErrorInfo) {
-    console.error('❌ ErrorBoundary caught error:', error, errorInfo);
-  }
-
-  render() {
-    if (this.state.hasError) {
-      return (
-        <div style={{
-          display: 'flex',
-          flexDirection: 'column',
-          alignItems: 'center',
-          justifyContent: 'center',
-          minHeight: '100vh',
-          padding: '20px',
-          background: '#000',
-          color: '#fff',
-          fontFamily: 'system-ui, -apple-system, sans-serif'
-        }}>
-          <h1 style={{ fontSize: '24px', marginBottom: '16px' }}>⚠️ Xatolik yuz berdi</h1>
-          <p style={{ marginBottom: '16px', opacity: 0.7 }}>{this.state.error?.message}</p>
-          <button
-            onClick={() => window.location.reload()}
-            style={{
-              padding: '12px 24px',
-              background: '#14b8a6',
-              color: '#fff',
-              border: 'none',
-              borderRadius: '8px',
-              cursor: 'pointer',
-              fontSize: '16px'
-            }}
-          >
-            Qayta yuklash
-          </button>
-        </div>
-      );
-    }
-
-    return this.props.children;
-  }
-}
+/** App.tsx — RouterProvider atrofida */
+export { RouteErrorBoundary as ErrorBoundary };
 
 // Main App Route Component
 function MainAppRoute() {
+  const location = useLocation();
   return (
-    <ErrorBoundary>
+    <RouteErrorBoundary resetKeys={[location.key]}>
       <LocationProvider>
         <FavoritesProvider>
           <RentalCartProvider>
@@ -105,25 +54,30 @@ function MainAppRoute() {
           </RentalCartProvider>
         </FavoritesProvider>
       </LocationProvider>
-    </ErrorBoundary>
+    </RouteErrorBoundary>
   );
 }
 
 function AppRoute({ children }: { children: React.ReactNode }) {
+  const location = useLocation();
   return (
-    <ErrorBoundary>
+    <RouteErrorBoundary resetKeys={[location.key]}>
       <LocationProvider>
         <FavoritesProvider>
           <RentalCartProvider>{children}</RentalCartProvider>
         </FavoritesProvider>
       </LocationProvider>
-    </ErrorBoundary>
+    </RouteErrorBoundary>
   );
 }
 
-// Admin Route Component
 function AdminRoute({ children }: { children: React.ReactNode }) {
-  return <ErrorBoundary>{children}</ErrorBoundary>;
+  const location = useLocation();
+  return (
+    <RouteErrorBoundary resetKeys={[location.pathname, location.key, location.search]}>
+      {children}
+    </RouteErrorBoundary>
+  );
 }
 
 // Router Configuration
@@ -134,11 +88,11 @@ export const router = createBrowserRouter([
   },
   {
     path: '/place/:shareCode',
-    element: <ErrorBoundary>{withSuspense(<SharePlacePage />)}</ErrorBoundary>,
+    element: <RouteErrorBoundary>{withSuspense(<SharePlacePage />)}</RouteErrorBoundary>,
   },
   {
     path: '/order-review/:token',
-    element: <ErrorBoundary>{withSuspense(<OrderReviewSharePage />)}</ErrorBoundary>,
+    element: <RouteErrorBoundary>{withSuspense(<OrderReviewSharePage />)}</RouteErrorBoundary>,
   },
   {
     path: '/share-target',

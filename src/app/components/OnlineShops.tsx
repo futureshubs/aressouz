@@ -381,7 +381,7 @@ export default function OnlineShops({
   };
 
   return (
-    <div className="min-h-screen" style={{ background: isDark ? '#000000' : '#f5f5f5' }}>
+    <div className="min-h-screen" style={{ background: isDark ? '#0a0a0a' : '#f5f5f5' }}>
       {/* Shop Banners - Only show if location selected */}
       {selectedRegionName && selectedDistrictName && (
         <div className="px-4 pt-4 pb-2">
@@ -1082,10 +1082,10 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
 
   return (
     <div 
-      className="fixed inset-0 z-50"
+      className="fixed inset-0 z-50 flex flex-col min-h-0 h-dvh max-h-dvh overflow-hidden"
       style={{ background: isDark ? '#0a0a0a' : '#ffffff' }}
     >
-      <div className="h-full overflow-y-auto pb-6">
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y pb-6 [-webkit-overflow-scrolling:touch]">
         {/* Close Button */}
         <button
           onClick={onClose}

@@ -139,7 +139,7 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
   const [filterStatus, setFilterStatus] = useState<'all' | 'completed' | 'pending' | 'failed' | 'refunded'>('all');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const visibilityRefetchTick = useVisibilityTick();
 
   const [paymeEnabled, setPaymeEnabled] = useState(false);

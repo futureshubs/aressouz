@@ -37,7 +37,8 @@ export function isBranchProductStorageId(value: unknown): boolean {
 /**
  * Server `resolveMarketCartBranchProductStorageId` — filial mahsuloti uchun UUID.
  */
-function isShopProductCartLine(item: any): boolean {
+export function isShopProductCartLine(item: any): boolean {
+  if (String(item?.source || '').toLowerCase().trim() === 'shop') return true;
   const pid = String(item?.id ?? item?.productId ?? '').trim();
   if (!pid) return false;
   if (pid.startsWith('shop_product:')) return true;
@@ -114,9 +115,9 @@ function buildOrderLine(item: any): Record<string, unknown> {
   const unit = lineUnitPrice(item);
   const uuid = resolveBranchProductUuid(item);
   const variants = Array.isArray(item?.variants) ? item.variants : [];
-  const sid = item?.selectedVariantId != null ? String(item.selectedVariantId) : '';
-  const vMatch = sid
-    ? variants.find((x: { id?: string }) => String(x?.id ?? '') === sid)
+  const variantSel = item?.selectedVariantId != null ? String(item.selectedVariantId) : '';
+  const vMatch = variantSel
+    ? variants.find((x: { id?: string }) => String(x?.id ?? '') === variantSel)
     : null;
   const vm = vMatch as { image?: string; images?: string[] } | undefined;
   const fromVariant =
@@ -137,7 +138,10 @@ function buildOrderLine(item: any): Record<string, unknown> {
     line.productUuid = uuid;
   }
   if (item.branchId) line.branchId = item.branchId;
-  if (item.shopId) line.shopId = item.shopId;
+  const src = String(item?.source ?? '').trim();
+  if (src) line.source = src;
+  const shopIdStr = String(item.shopId ?? item.product?.shopId ?? item.product?.shop_id ?? '').trim();
+  if (shopIdStr) line.shopId = shopIdStr;
   if (item.restaurantId) line.restaurantId = item.restaurantId;
   if (item.dishId) line.dishId = item.dishId;
   if (item.dishDetails) line.dishDetails = item.dishDetails;

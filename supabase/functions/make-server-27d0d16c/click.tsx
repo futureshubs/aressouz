@@ -30,7 +30,6 @@ import {
   coerceKvTestMode,
 } from './payment-kv-utils.ts';
 import { syncRelationalOrderFromLegacy } from '../_shared/db/orders.ts';
-import { getPaymentCheckoutBatch } from './payment-checkout-batch.ts';
 
 const click = new Hono();
 
@@ -47,77 +46,6 @@ function orderKvKeysForMainOrder(orderId: string): string[] {
     return [raw, `order:market:${stripped}`];
   }
   return [`order:${raw}`, `order:market:${raw}`];
-}
-
-/** `merchant_trans_id` = `checkoutBatchId` bo‘lsa, bir nechta KV buyurtmasini birgalikda paid qiladi. */
-async function syncClickPaidToKvOrders(
-  merchantTransId: string,
-  paidAtIso: string,
-  clickTransId: unknown,
-): Promise<void> {
-  const mt = String(merchantTransId || '').trim();
-  const batch = await getPaymentCheckoutBatch(mt);
-  const targets: string[] =
-    batch && batch.orderIds.length > 0 ? batch.orderIds.map((x) => String(x).trim()).filter(Boolean) : [mt];
-
-  for (const oid of targets) {
-    if (!oid) continue;
-    if (oid.startsWith('rental_order_')) {
-      const row = await kv.get(oid);
-      if (row && typeof row === 'object') {
-        const r = row as Record<string, unknown>;
-        const ps = String(r.platformPaymentStatus || r.paymentStatus || '').toLowerCase().trim();
-        if (['paid', 'completed', 'success'].includes(ps)) continue;
-        await kv.set(oid, {
-          ...r,
-          platformPaymentStatus: 'paid',
-          paymentCompletedAt: paidAtIso,
-          updatedAt: paidAtIso,
-          clickTransId,
-        });
-      }
-      continue;
-    }
-
-    let syncedMain: Record<string, unknown> | null = null;
-    for (const orderKey of orderKvKeysForMainOrder(oid)) {
-      const mainOrder = await kv.get(orderKey);
-      if (mainOrder && typeof mainOrder === 'object') {
-        const mo = mainOrder as Record<string, unknown>;
-        const hist = Array.isArray(mo.statusHistory) ? [...(mo.statusHistory as unknown[])] : [];
-        const prevPaid = ['paid', 'completed', 'success'].includes(
-          String(mo.paymentStatus || '').toLowerCase().trim(),
-        );
-        if (!prevPaid) {
-          hist.push({
-            status: mo.status,
-            timestamp: paidAtIso,
-            note: 'Onlayn to‘lov tasdiqlandi (Click)',
-          });
-        }
-        syncedMain = {
-          ...mo,
-          paymentStatus: 'paid',
-          paymentCompletedAt: paidAtIso,
-          paymentRequiresVerification: false,
-          clickTransId,
-          paidAt: paidAtIso,
-          updatedAt: paidAtIso,
-          statusHistory: hist,
-        };
-        await kv.set(orderKey, syncedMain);
-        break;
-      }
-    }
-    if (syncedMain) {
-      await syncRelationalOrderFromLegacy({
-        legacyOrderId: String(syncedMain.id ?? oid),
-        kvStatus: String(syncedMain.status ?? ''),
-        kvPaymentStatus: 'paid',
-        paymentRequiresVerification: false,
-      });
-    }
-  }
 }
 
 const CLICK_SERVICE_ID = (Deno.env.get('CLICK_SERVICE_ID') || '').trim();
@@ -570,7 +498,45 @@ click.post('/complete', async (c) => {
       }
     }
 
-    await syncClickPaidToKvOrders(orderId, paidAtIso, params.click_trans_id);
+    // Update main order (shop `order:id` va market `order:market:id`)
+    let syncedMain: Record<string, unknown> | null = null;
+    for (const orderKey of orderKvKeysForMainOrder(orderId)) {
+      const mainOrder = await kv.get(orderKey);
+      if (mainOrder && typeof mainOrder === 'object') {
+        const mo = mainOrder as Record<string, unknown>;
+        const hist = Array.isArray(mo.statusHistory) ? [...(mo.statusHistory as unknown[])] : [];
+        const prevPaid = ['paid', 'completed', 'success'].includes(
+          String(mo.paymentStatus || '').toLowerCase().trim(),
+        );
+        if (!prevPaid) {
+          hist.push({
+            status: mo.status,
+            timestamp: paidAtIso,
+            note: 'Onlayn to‘lov tasdiqlandi (Click)',
+          });
+        }
+        syncedMain = {
+          ...mo,
+          paymentStatus: 'paid',
+          paymentCompletedAt: paidAtIso,
+          paymentRequiresVerification: false,
+          clickTransId: params.click_trans_id,
+          paidAt: paidAtIso,
+          updatedAt: paidAtIso,
+          statusHistory: hist,
+        };
+        await kv.set(orderKey, syncedMain);
+        break;
+      }
+    }
+    if (syncedMain) {
+      await syncRelationalOrderFromLegacy({
+        legacyOrderId: String(syncedMain.id ?? orderId),
+        kvStatus: String(syncedMain.status ?? ''),
+        kvPaymentStatus: 'paid',
+        paymentRequiresVerification: false,
+      });
+    }
 
     console.log('✅ COMPLETE successful:', orderId);
 

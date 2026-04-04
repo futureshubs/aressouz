@@ -2,18 +2,47 @@ import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { Store, Utensils, BarChart3, TrendingUp, Plus, Edit2, Trash2, Power, PowerOff } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '/utils/supabase/info';
 import { AddRestaurantModal } from '../components/AddRestaurantModal';
 import { AddDishModal } from '../components/AddDishModal';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { restaurantMatchesBranchArea } from '../utils/locationMatching';
+
+function normalizeBranchIdLocal(raw: string | undefined): string {
+  if (raw == null || raw === '') return '';
+  let s = String(raw).trim();
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    /* ignore */
+  }
+  while (s.startsWith('branch:')) {
+    s = s.slice('branch:'.length).trim();
+  }
+  return s;
+}
 
 interface RestaurantManagementProps {
   branchId?: string;
+  branchRegionId?: string;
+  branchDistrictId?: string;
+  branchRegion?: string;
+  branchDistrict?: string;
 }
 
-export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
+export function RestaurantManagement({
+  branchId,
+  branchRegionId,
+  branchDistrictId,
+  branchRegion,
+  branchDistrict,
+}: RestaurantManagementProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
+  const apiBaseUrl =
+    typeof window !== 'undefined' && window.location.hostname === 'localhost'
+      ? DEV_API_BASE_URL
+      : API_BASE_URL;
   
   const [activeTab, setActiveTab] = useState<'dishes' | 'restaurants' | 'stats' | 'analytics'>('restaurants');
   const [restaurants, setRestaurants] = useState<any[]>([]);
@@ -21,13 +50,14 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
   const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null);
   const [showAddRestaurantModal, setShowAddRestaurantModal] = useState(false);
   const [showAddDishModal, setShowAddDishModal] = useState(false);
+  const [editingDish, setEditingDish] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [visibilityTick, setVisibilityTick] = useState(0);
   useVisibilityRefetch(() => setVisibilityTick((t) => t + 1));
 
   useEffect(() => {
     loadRestaurants();
-  }, [branchId, visibilityTick]);
+  }, [branchId, branchRegionId, branchDistrictId, branchRegion, branchDistrict, visibilityTick]);
 
   useEffect(() => {
     if (selectedRestaurant) {
@@ -39,11 +69,18 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
     try {
       setLoading(true);
       
-      // Build URL with branchId filter if provided
-      const url = branchId 
-        ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants?branchId=${branchId}`
-        : `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants`;
-      
+      let url = `${apiBaseUrl}/restaurants`;
+      if (branchId) {
+        const params = new URLSearchParams();
+        params.set('branchId', branchId);
+        params.set('forBranchPanel', '1');
+        if (branchRegionId) params.set('regionId', branchRegionId);
+        if (branchDistrictId) params.set('districtId', branchDistrictId);
+        if (branchRegion) params.set('region', branchRegion);
+        if (branchDistrict) params.set('district', branchDistrict);
+        url = `${apiBaseUrl}/restaurants?${params.toString()}`;
+      }
+
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`
@@ -53,15 +90,27 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
       const result = await response.json();
       
       if (result.success) {
-        // Filter by branchId on client side as backup
-        const filteredRestaurants = branchId 
-          ? result.data.filter((r: any) => r.branchId === branchId)
+        const want = normalizeBranchIdLocal(branchId);
+        const filteredRestaurants = want
+          ? result.data.filter((r: any) => {
+              if (normalizeBranchIdLocal(r.branchId) === want) return true;
+              if (normalizeBranchIdLocal(r.branchId) !== '') return false;
+              return restaurantMatchesBranchArea(r as Record<string, unknown>, {
+                regionId: branchRegionId,
+                districtId: branchDistrictId,
+                regionName: branchRegion,
+                districtName: branchDistrict,
+              });
+            })
           : result.data;
-        
+
         setRestaurants(filteredRestaurants);
-        if (filteredRestaurants.length > 0 && !selectedRestaurant) {
-          setSelectedRestaurant(filteredRestaurants[0].id);
-        }
+        setSelectedRestaurant((prev) => {
+          if (prev && filteredRestaurants.some((r: any) => r.id === prev)) {
+            return prev;
+          }
+          return filteredRestaurants.length > 0 ? filteredRestaurants[0].id : null;
+        });
       }
     } catch (error) {
       console.error('Load restaurants error:', error);
@@ -74,7 +123,7 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
   const loadDishes = async (restaurantId: string) => {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${restaurantId}/dishes`,
+        `${apiBaseUrl}/restaurants/${encodeURIComponent(restaurantId)}/dishes`,
         {
           headers: {
             'Authorization': `Bearer ${publicAnonKey}`
@@ -96,7 +145,7 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
   const toggleDishStatus = async (dishId: string, currentStatus: boolean) => {
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dishes/${dishId}/status`,
+        `${apiBaseUrl}/dishes/${encodeURIComponent(dishId)}/status`,
         {
           method: 'PATCH',
           headers: {
@@ -126,7 +175,7 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dishes/${dishId}`,
+        `${apiBaseUrl}/dishes/${encodeURIComponent(dishId)}`,
         {
           method: 'DELETE',
           headers: {
@@ -154,7 +203,7 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${restaurantId}`,
+        `${apiBaseUrl}/restaurants/${encodeURIComponent(restaurantId)}`,
         {
           method: 'DELETE',
           headers: {
@@ -167,6 +216,10 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
       
       if (result.success) {
         toast.success('Restoran o\'chirildi');
+        if (selectedRestaurant === restaurantId) {
+          setSelectedRestaurant(null);
+          setDishes([]);
+        }
         loadRestaurants();
       }
     } catch (error) {
@@ -281,6 +334,16 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
                         <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
                           {restaurant.type}
                         </p>
+                        {branchId &&
+                          normalizeBranchIdLocal(restaurant.branchId) !==
+                            normalizeBranchIdLocal(branchId) && (
+                            <p
+                              className="text-xs font-semibold mt-1"
+                              style={{ color: '#ca8a04' }}
+                            >
+                              Filial ID biriktirilmagan — mijozga mintaqangizda ko‘rinadi
+                            </p>
+                          )}
                       </div>
                     </div>
                     <div className="space-y-2 mb-4">
@@ -335,7 +398,10 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
               <div className="flex items-center justify-between mb-4">
                 <h2 className="text-2xl font-bold">Taomlar</h2>
                 <button
-                  onClick={() => setShowAddDishModal(true)}
+                  onClick={() => {
+                    setEditingDish(null);
+                    setShowAddDishModal(true);
+                  }}
                   className="px-5 py-3 rounded-xl font-bold flex items-center gap-2"
                   style={{ background: accentColor.color, color: '#ffffff' }}
                 >
@@ -465,10 +531,15 @@ export function RestaurantManagement({ branchId }: RestaurantManagementProps) {
       {showAddDishModal && selectedRestaurant && (
         <AddDishModal
           restaurantId={selectedRestaurant}
-          onClose={() => setShowAddDishModal(false)}
+          dish={editingDish || undefined}
+          onClose={() => {
+            setShowAddDishModal(false);
+            setEditingDish(null);
+          }}
           onSuccess={() => {
             loadDishes(selectedRestaurant);
             setShowAddDishModal(false);
+            setEditingDish(null);
           }}
         />
       )}

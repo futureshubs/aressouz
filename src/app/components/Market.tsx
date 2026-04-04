@@ -282,7 +282,7 @@ export default function Market() {
   });
 
   return (
-    <div className="min-h-screen" style={{ background: isDark ? '#000000' : '#f5f5f5' }}>
+    <div className="min-h-screen" style={{ background: isDark ? '#0a0a0a' : '#f5f5f5' }}>
       {/* Header Banner */}
       <div className="relative h-64 overflow-hidden">
         <div 
@@ -465,7 +465,7 @@ export default function Market() {
       {selectedBranch && (
         <div 
           className="fixed inset-0 z-50"
-          style={{ background: isDark ? '#000000' : '#ffffff' }}
+          style={{ background: isDark ? '#0a0a0a' : '#ffffff' }}
         >
           <div className="h-full overflow-y-auto pb-6">
             <button

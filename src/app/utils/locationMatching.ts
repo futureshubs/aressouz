@@ -70,3 +70,47 @@ export const matchesSelectedLocation = (
 
   return matchesAnyCandidate(collectFieldValues(item, districtFieldNames), selectedDistrictValues);
 };
+
+/**
+ * Filial paneli: branchId bo'sh restoranlarni filial hududida ko'rsatish (FoodsView bilan bir xil mintaqa).
+ * Kamida bitta viloyat va bitta tuman hint'i bo'lishi kerak.
+ */
+export function restaurantMatchesBranchArea(
+  item: LocationRecord,
+  opts: {
+    regionId?: string;
+    districtId?: string;
+    regionName?: string;
+    districtName?: string;
+  },
+): boolean {
+  const regionHints = [
+    opts.regionId,
+    opts.regionName,
+    getRegionNameById(opts.regionId),
+  ]
+    .map(normalizeLocationValue)
+    .filter(Boolean);
+  const districtHints = [
+    opts.districtId,
+    opts.districtName,
+    getDistrictNameById(opts.regionId, opts.districtId),
+  ]
+    .map(normalizeLocationValue)
+    .filter(Boolean);
+
+  if (regionHints.length === 0 || districtHints.length === 0) {
+    return false;
+  }
+
+  const regionMatches = matchesAnyCandidate(
+    collectFieldValues(item, ['region', 'regionId', 'region_id']),
+    regionHints,
+  );
+  if (!regionMatches) return false;
+
+  return matchesAnyCandidate(
+    collectFieldValues(item, ['district', 'districtId', 'district_id']),
+    districtHints,
+  );
+}

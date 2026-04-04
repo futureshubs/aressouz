@@ -83,6 +83,9 @@ function appVersionPlugin(): Plugin {
 }
 
 export default defineConfig({
+  optimizeDeps: {
+    include: ['react', 'react-dom', 'react/jsx-runtime'],
+  },
   plugins: [
     // The React and Tailwind plugins are both required for Make, even if
     // Tailwind is not being actively used – do not remove them

@@ -30,8 +30,8 @@ export const Header = memo(function Header({
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   
-  const headerBackground = isDark
-    ? '#000000'
+  const bgGradient = isDark 
+    ? 'linear-gradient(180deg, rgba(0, 0, 0, 0.98) 0%, rgba(0, 0, 0, 0.95) 50%, rgba(0, 0, 0, 0.9) 100%)'
     : 'linear-gradient(180deg, rgba(255, 255, 255, 0.98) 0%, rgba(249, 250, 251, 0.95) 50%, rgba(243, 244, 246, 0.9) 100%)';
     
   const textPrimary = isDark ? '#ffffff' : '#111827';
@@ -88,8 +88,8 @@ export const Header = memo(function Header({
         className="sticky z-50 transition-all duration-300"
         style={{
           top: 'var(--app-safe-top)',
-          background: headerBackground,
-          backdropFilter: isDark ? 'none' : 'blur(20px)',
+          background: bgGradient,
+          backdropFilter: 'blur(20px)',
           boxShadow: isDark
             ? '0 8px 32px rgba(0, 0, 0, 0.8), 0 4px 16px rgba(0, 0, 0, 0.6), 0 0 0 1px rgba(255, 255, 255, 0.05)'
             : '0 4px 24px rgba(0, 0, 0, 0.07), 0 2px 10px rgba(0, 0, 0, 0.04), 0 0 0 1px rgba(0, 0, 0, 0.06)',

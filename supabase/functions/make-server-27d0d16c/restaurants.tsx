@@ -2,79 +2,8 @@ import { Hono } from 'npm:hono';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import * as r2 from './r2-storage.tsx';
-import * as telegram from './telegram.tsx';
-import { appendOrderToPaymentCheckoutBatch } from './payment-checkout-batch.ts';
 
 const app = new Hono();
-
-/** Admin/panel turli nomlarda saqlashi mumkin: telegramChatId, telegram_chat_id, tg_chat_id … */
-function pickTelegramChatIdFromEntity(entity: any): string {
-  if (!entity || typeof entity !== 'object') return '';
-  const raw =
-    entity.telegramChatId ??
-    entity.telegram_chat_id ??
-    entity.telegramChatID ??
-    entity.TelegramChatId ??
-    entity.telegram ??
-    entity.tgChatId ??
-    entity.tg_chat_id ??
-    '';
-  return String(raw ?? '').trim();
-}
-
-function pickRestaurantPaymentQrUrl(entity: any): string {
-  if (!entity || typeof entity !== 'object') return '';
-  return String(
-    entity?.paymentQrImage ||
-      entity?.paymentQRImage ||
-      entity?.payment_qr_image ||
-      entity?.paymentQr ||
-      entity?.qrImageUrl ||
-      entity?.qrCode ||
-      entity?.payment?.qrImageUrl ||
-      '',
-  ).trim();
-}
-
-/** Restoran «qabul qilgach» kassa Telegramiga summa + QR (to‘lov pending bo‘lsa). */
-async function notifyRestaurantCashierTelegramAccepted(restaurant: any, order: any): Promise<void> {
-  try {
-    const ps = String(order?.paymentStatus || '').toLowerCase().trim();
-    if (ps === 'paid' || ps === 'completed' || ps === 'success') return;
-    const chatId = pickTelegramChatIdFromEntity(restaurant);
-    if (!chatId) return;
-    const amount = Number(order?.totalPrice ?? order?.finalTotal ?? 0) || 0;
-    const pm = String(order?.paymentMethod || 'cash').toLowerCase();
-    const pmLabel =
-      pm === 'cash' || pm === 'naqd'
-        ? 'Naqd / kassa'
-        : pm === 'qr' || pm === 'qrcode'
-          ? 'Filial kassa QR'
-          : pm === 'payme'
-            ? 'Payme'
-            : pm === 'click' || pm === 'click_card'
-              ? 'Click'
-              : pm === 'atmos'
-                ? 'Atmos'
-                : pm || '—';
-    const orderRef = String(order?.id || '').replace(/^order:/, '').slice(-14);
-    const qrUrl =
-      String(order?.merchantPaymentQrUrl || '').trim() || pickRestaurantPaymentQrUrl(restaurant);
-    let text =
-      `<b>🍽 Kassa — restoran buyurtmani qabul qildi</b>\n\n` +
-      `Buyurtma: <b>#${orderRef}</b>\n` +
-      `Summa: <b>${amount.toLocaleString('uz-UZ')} so'm</b>\n` +
-      `To'lov: <b>${pmLabel}</b>\n` +
-      `Mijoz: ${String(order?.customerName || '—')} · ${String(order?.customerPhone || '—')}\n\n` +
-      `<i>Naqd / kassa QR: filial panelida chekni tasdiqlang — keyin kuryer buyurtmani oladi.</i>\n`;
-    if (qrUrl) {
-      text += `\n<a href="${qrUrl.replace(/"/g, '%22')}">To'lov QR</a>`;
-    }
-    await telegram.sendHtmlMessage({ type: 'restaurant', chatId, text });
-  } catch (e) {
-    console.warn('[notifyRestaurantCashierTelegramAccepted]', e);
-  }
-}
 
 function collectDishLikeHttpUrls(obj: unknown): Set<string> {
   const urls = new Set<string>();
@@ -133,6 +62,85 @@ async function resolveRestaurantRecord(rawId: unknown): Promise<{ id: string; re
   return null;
 }
 
+/** Filial `branch_123` yoki `branch:branch_123` ko'rinishida saqlangan bo'lishi mumkin */
+function normalizeBranchIdForCompare(raw: unknown): string {
+  let s = String(raw ?? '').trim();
+  if (!s) return '';
+  try {
+    s = decodeURIComponent(s);
+  } catch {
+    /* query ba'zan allaqachon dekodlangan */
+  }
+  while (s.startsWith('branch:')) {
+    s = s.slice('branch:'.length).trim();
+  }
+  return s;
+}
+
+function restaurantMatchesBranchFilter(restaurantBranchId: unknown, queryBranchId: string): boolean {
+  const q = normalizeBranchIdForCompare(queryBranchId);
+  if (!q) return true;
+  const r = normalizeBranchIdForCompare(restaurantBranchId);
+  return r !== '' && r === q;
+}
+
+function normalizeLocToken(raw: unknown): string {
+  return String(raw ?? '')
+    .trim()
+    .toLowerCase()
+    .normalize('NFKD')
+    .replace(/[`'’‘ʻʼ-]/g, '')
+    .replace(/\s+/g, '');
+}
+
+function collectRestLocFields(r: any, keys: string[]): string[] {
+  const out: string[] = [];
+  for (const k of keys) {
+    const v = r?.[k];
+    if (v !== undefined && v !== null && String(v).trim() !== '') out.push(String(v));
+  }
+  return out;
+}
+
+/** branchId bo'sh restoran — filial hududi (viloyat+tuman) bilan FoodsView ga yaqin moslik */
+function restaurantMatchesLocationHints(
+  r: any,
+  regionHints: string[],
+  districtHints: string[],
+): boolean {
+  if (regionHints.length === 0 || districtHints.length === 0) return false;
+  const rf = collectRestLocFields(r, ['region', 'regionId', 'region_id']).map(normalizeLocToken).filter(Boolean);
+  const df = collectRestLocFields(r, ['district', 'districtId', 'district_id']).map(normalizeLocToken).filter(Boolean);
+  if (rf.length === 0 || df.length === 0) return false;
+  const regionOk = rf.some((v) =>
+    regionHints.some((h) => v === h || (h && (v.includes(h) || h.includes(v))))
+  );
+  const districtOk = df.some((v) =>
+    districtHints.some((h) => v === h || (h && (v.includes(h) || h.includes(v))))
+  );
+  return regionOk && districtOk;
+}
+
+function restaurantLegacyId(canonicalRestaurantId: string): string {
+  return canonicalRestaurantId.startsWith('restaurant:')
+    ? canonicalRestaurantId.slice('restaurant:'.length)
+    : canonicalRestaurantId;
+}
+
+async function listDishesForRestaurant(canonicalRestaurantId: string): Promise<any[]> {
+  const primary = await kv.getByPrefix(`dish:${canonicalRestaurantId}:`);
+  const legacy = restaurantLegacyId(canonicalRestaurantId);
+  const secondary =
+    legacy && legacy !== canonicalRestaurantId
+      ? await kv.getByPrefix(`dish:${legacy}:`)
+      : [];
+  const byId = new Map<string, any>();
+  for (const d of [...primary, ...secondary]) {
+    if (d?.id) byId.set(String(d.id), d);
+  }
+  return Array.from(byId.values());
+}
+
 function mergeOrdersLists(lists: any[][]): any[] {
   const byId = new Map<string, any>();
   for (const list of lists) {
@@ -161,9 +169,41 @@ async function listRestaurantOrders(canonicalRestaurantId: string): Promise<any[
 // ==================== RESTORANLAR ====================
 
 // Barcha restoranlarni olish
+// ?branchId= — shu filialga bog'langanlar
+// &forBranchPanel=1 — qo'shimcha: branchId bo'sh, lekin viloyat/tuman filial bilan mos restoranlar (mijoz ilovasida ko'rinadigan "yetimlar")
 app.get('/restaurants', async (c) => {
   try {
-    const restaurants = await kv.getByPrefix('restaurant:');
+    let restaurants = await kv.getByPrefix('restaurant:');
+    const branchQ = c.req.query('branchId');
+    if (branchQ != null && String(branchQ).trim() !== '') {
+      const want = String(branchQ).trim();
+      const forPanel = String(c.req.query('forBranchPanel') ?? '').trim() === '1';
+      const regionHints = [
+        c.req.query('regionId'),
+        c.req.query('region'),
+        c.req.query('regionName'),
+      ]
+        .map((x) => normalizeLocToken(String(x ?? '')))
+        .filter(Boolean);
+      const districtHints = [
+        c.req.query('districtId'),
+        c.req.query('district'),
+        c.req.query('districtName'),
+      ]
+        .map((x) => normalizeLocToken(String(x ?? '')))
+        .filter(Boolean);
+      const uniq = (a: string[]) => [...new Set(a)];
+      const rh = uniq(regionHints);
+      const dh = uniq(districtHints);
+      const allowOrphans = forPanel && rh.length > 0 && dh.length > 0;
+
+      restaurants = (restaurants || []).filter((r: any) => {
+        if (restaurantMatchesBranchFilter(r?.branchId, want)) return true;
+        if (!allowOrphans) return false;
+        if (normalizeBranchIdForCompare(r?.branchId) !== '') return false;
+        return restaurantMatchesLocationHints(r, rh, dh);
+      });
+    }
     return c.json({ success: true, data: restaurants });
   } catch (error) {
     console.error('Restoranlarni olishda xato:', error);
@@ -273,15 +313,17 @@ app.put('/restaurants/:id', async (c) => {
   try {
     const id = c.req.param('id');
     const body = await c.req.json();
-    
-    const existing = await kv.get(id);
-    if (!existing) {
+
+    const resolved = await resolveRestaurantRecord(id);
+    const key = resolved?.id ?? decodeURIComponent(String(id).trim());
+    const existing = resolved?.record ?? (await kv.get(key));
+    if (!existing || typeof existing !== 'object') {
       return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
     }
 
     const updated = { ...existing, ...body, updatedAt: new Date().toISOString() };
     await purgeRemovedRestaurantR2Media(existing, updated);
-    await kv.set(id, updated);
+    await kv.set(key, updated);
 
     return c.json({ success: true, data: updated });
   } catch (error) {
@@ -290,21 +332,22 @@ app.put('/restaurants/:id', async (c) => {
   }
 });
 
-// Restoran o'chirish
+// Restoran o'chirish (barcha taomlar — canonical va legacy kalit prefikslari bilan)
 app.delete('/restaurants/:id', async (c) => {
   try {
-    const id = c.req.param('id');
-    const existing = await kv.get(id);
-    
-    // Delete all dishes for this restaurant
-    const dishes = await kv.getByPrefix(`dish:${id}:`);
+    const rawParam = c.req.param('id');
+    const resolved = await resolveRestaurantRecord(rawParam);
+    const canonicalId = resolved?.id ?? decodeURIComponent(String(rawParam).trim());
+    const existing = resolved?.record ?? (await kv.get(canonicalId));
+
+    const dishes = await listDishesForRestaurant(canonicalId);
     for (const dish of dishes) {
       await purgeAllRestaurantR2Media(dish);
       await kv.del(dish.id);
     }
 
     if (existing) await purgeAllRestaurantR2Media(existing);
-    await kv.del(id);
+    await kv.del(canonicalId);
 
     return c.json({ success: true });
   } catch (error) {
@@ -318,8 +361,12 @@ app.delete('/restaurants/:id', async (c) => {
 // Restoran taomlarini olish
 app.get('/restaurants/:restaurantId/dishes', async (c) => {
   try {
-    const restaurantId = c.req.param('restaurantId');
-    const dishes = await kv.getByPrefix(`dish:${restaurantId}:`);
+    const raw = c.req.param('restaurantId');
+    const resolved = await resolveRestaurantRecord(raw);
+    if (!resolved) {
+      return c.json({ success: true, data: [] });
+    }
+    const dishes = await listDishesForRestaurant(resolved.id);
     return c.json({ success: true, data: dishes });
   } catch (error) {
     console.error('Taomlarni olishda xato:', error);
@@ -330,7 +377,12 @@ app.get('/restaurants/:restaurantId/dishes', async (c) => {
 // Taom qo'shish
 app.post('/restaurants/:restaurantId/dishes', async (c) => {
   try {
-    const restaurantId = c.req.param('restaurantId');
+    const raw = c.req.param('restaurantId');
+    const resolved = await resolveRestaurantRecord(raw);
+    if (!resolved) {
+      return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
+    }
+    const restaurantId = resolved.id;
     const body = await c.req.json();
     const dishId = `dish:${restaurantId}:${Date.now()}`;
     
@@ -490,7 +542,6 @@ app.patch('/restaurants/:restaurantId/orders/:orderId/status', async (c) => {
       return c.json({ success: false, error: 'Bu buyurtma ushbu restoranga tegishli emas' }, 403);
     }
 
-    const prevStatus = String(order.status || '').toLowerCase().trim();
     const nowIso = new Date().toISOString();
     const updated = {
       ...order,
@@ -507,12 +558,6 @@ app.patch('/restaurants/:restaurantId/orders/:orderId/status', async (c) => {
     };
 
     await kv.set(matchedKey, updated);
-    if (
-      (nextStatus === 'accepted' || nextStatus === 'confirmed') &&
-      (prevStatus === 'pending' || prevStatus === 'new' || prevStatus === '')
-    ) {
-      void notifyRestaurantCashierTelegramAccepted(resolved.record, updated).catch(() => {});
-    }
     return c.json({ success: true, data: updated });
   } catch (error) {
     console.error('Restoran order status yangilashda xato:', error);
@@ -568,11 +613,10 @@ app.post('/orders/restaurant', async (c) => {
     const orderId = `order:restaurant:${restaurantCanonicalId}:${Date.now()}`;
 
     const pm = String(body.paymentMethod || 'cash').toLowerCase().trim();
-    const onlineGateway = ['payme', 'click', 'click_card', 'atmos', 'online'].includes(pm);
-    const isKassaQr = pm === 'qr' || pm === 'qrcode';
-    /** Avval noto‘g‘ri: onlayn to‘lovdan oldin «paid». Endi faqat provayder tasdig‘idan keyin paid. */
-    const paymentStatus = 'pending';
-    const paymentRequiresVerification = isKassaQr;
+    const bodyPaid = String(body.paymentStatus || '').toLowerCase().trim() === 'paid';
+    const paymentStatus: 'pending' | 'paid' = bodyPaid ? 'paid' : 'pending';
+    const wantsQr = pm === 'qr' || pm === 'qrcode';
+    const paymentRequiresVerification = paymentStatus !== 'paid' && wantsQr;
 
     const order = {
       id: orderId,
@@ -587,89 +631,110 @@ app.post('/orders/restaurant', async (c) => {
       deliveryFee: body.deliveryFee || 0,
       status: 'pending', // pending, accepted, preparing, delivering, delivered, cancelled
       paymentStatus,
-      paymentMethod: body.paymentMethod,
+      paymentMethod: pm,
       paymentRequiresVerification,
       merchantPaymentQrUrl: merchantPaymentQrUrl || null,
-      paymentFlow: 'platform_checkout',
-      ...(body.checkoutBatchId ? { checkoutBatchId: String(body.checkoutBatchId) } : {}),
       createdAt: new Date().toISOString(),
     };
 
     await kv.set(orderId, order);
 
-    const batchId = body.checkoutBatchId ? String(body.checkoutBatchId).trim() : '';
-    const reserve =
-      body.reserveForOnlinePayment === true || body.awaitingOnlinePayment === true;
-    const checkoutUserId = String(body.checkoutUserId || body.userId || '').trim();
-    if (batchId && reserve && onlineGateway) {
-      await appendOrderToPaymentCheckoutBatch(batchId, order.id, checkoutUserId || 'unknown');
-    }
+    // Telegram notification using RESTAURANT bot token
+    const chatIdRaw = restaurant?.telegramChatId;
+    const chatId = chatIdRaw != null ? String(chatIdRaw).trim() : '';
+    const botToken = Deno.env.get('TELEGRAM_RESTAURANT_BOT_TOKEN');
 
-    const chatId = pickTelegramChatIdFromEntity(restaurant);
-    const paymentLabel =
-      pm === 'cash' || pm === 'naqd'
-        ? 'Naqd pul'
-        : pm === 'qr' || pm === 'qrcode'
-          ? 'Filial/Restoran QR'
-          : pm === 'payme'
-            ? 'Payme'
-            : pm === 'click' || pm === 'click_card'
-              ? 'Click'
-              : pm === 'atmos'
-                ? 'Atmos'
-                : 'Karta / onlayn';
-
-    const itemsForTelegram = (Array.isArray(body.items) ? body.items : []).map((item: any) => {
-      const addons = Array.isArray(item?.additionalProducts)
-        ? item.additionalProducts
-        : Array.isArray(item?.addons)
-          ? item.addons
-          : Array.isArray(item?.extras)
-            ? item.extras
-            : [];
-      return {
-        name: String(item?.dishName || item?.name || 'Taom'),
-        variantName: String(item?.variantName || 'Standart'),
-        quantity: Number(item?.quantity || 1),
-        price: Number(item?.price || 0),
-        additionalProducts: addons.map((addon: any) => ({
-          name: String(addon?.name || "Qo'shimcha"),
-          price: Number(addon?.price || 0),
-          quantity: Number(addon?.quantity || addon?.count || 1),
-        })),
-      };
-    });
-
-    if (!chatId) {
+    if (!botToken) {
+      console.warn('⚠️ TELEGRAM_RESTAURANT_BOT_TOKEN sozlanmagan — taom buyurtmasi Telegramga yuborilmaydi');
+    } else if (!chatId) {
       console.warn(
-        `⚠️ Restoran ${restaurantCanonicalId} uchun Telegram chat id topilmadi (telegramChatId / telegram_chat_id …)`,
+        `⚠️ Restoran ${restaurantCanonicalId} uchun telegramChatId bo‘sh — bildirishnoma yuborilmaydi`
       );
     } else {
-      const orderNumberShort = orderId.replace(/^order:restaurant:[^:]+:/, '').slice(-10) || orderId.slice(-8);
-      const sent = await telegram.sendOrderNotification({
-        type: 'restaurant',
-        shopName: String(restaurant.name || 'Restoran'),
-        shopChatId: chatId,
-        orderNumber: orderNumberShort,
-        customerName: String(body.customerName || 'Mijoz'),
-        customerPhone: String(body.customerPhone || "Ko'rsatilmagan"),
-        customerAddress: String(body.customerAddress || "Ko'rsatilmagan"),
-        items: itemsForTelegram,
-        totalAmount: Number(body.totalPrice || 0),
-        deliveryMethod: `Yetkazish ${Number(body.deliveryFee || 0).toLocaleString()} so'm`,
-        paymentMethod: paymentLabel,
-        orderDate: new Date().toLocaleString('uz-UZ', {
-          day: '2-digit',
-          month: '2-digit',
-          year: 'numeric',
-          hour: '2-digit',
-          minute: '2-digit',
-        }),
-      });
-      if (sent) {
-        console.log('✅ Restoran: Telegram buyurtma xabari yuborildi');
-      } else {
-        console.error('❌ Restoran: Telegram xabar yuborilmadi (TELEGRAM_RESTAURANT_BOT_TOKEN yoki chat_id)');
+      const itemsText = (Array.isArray(body.items) ? body.items : [])
+        .map((item: any) => {
+          const addons = Array.isArray(item?.additionalProducts)
+            ? item.additionalProducts
+            : (Array.isArray(item?.addons)
+              ? item.addons
+              : (Array.isArray(item?.extras) ? item.extras : []));
+          const addonsText = addons.length
+            ? `\n  Qo'shimchalar:\n${addons
+                .map((addon: any) => {
+                  const addonQty = Number(addon?.quantity || 1);
+                  const addonPrice = Number(addon?.price || 0);
+                  return `  - ${addon?.name || 'Qo\'shimcha'} × ${addonQty} (${addonPrice.toLocaleString()} so'm)`;
+                })
+                .join('\n')}`
+            : '';
+
+          return `• ${item.dishName} ${item.variantName ? `(${item.variantName})` : ''} x${item.quantity} - ${Number(item.price || 0).toLocaleString()} so'm${addonsText}`;
+        })
+        .join('\n');
+
+      const message = `🍕 <b>YANGI TAOM BUYURTMASI!</b>
+
+📦 <b>Buyurtma #${orderId.slice(-6)}</b>
+🏪 <b>Restoran:</b> ${restaurant.name}
+
+━━━━━━━━━━━━━━━━━━
+
+👤 <b>MIJOZ MA'LUMOTLARI:</b>
+
+👨‍💼 <b>Ismi:</b> ${body.customerName}
+📞 <b>Telefon:</b> ${body.customerPhone}
+📍 <b>Manzil:</b> ${body.customerAddress}
+
+━━━━━━━━━━━━━━━━━━
+
+🍕 <b>TAOMLAR:</b>
+
+${itemsText}
+
+━━━━━━━━━━━━━━━━━━
+
+💰 <b>JAMI SUMMA:</b> ${Number(body.totalPrice || 0).toLocaleString()} so'm
+🚚 <b>Yetkazish:</b> ${Number(body.deliveryFee || 0).toLocaleString()} so'm
+💳 <b>To'lov usuli:</b> ${
+        pm === 'cash' || pm === 'naqd'
+          ? 'Naqd pul'
+          : pm === 'qr' || pm === 'qrcode'
+            ? 'Filial/Restoran QR'
+            : pm === 'payme'
+              ? 'Payme'
+              : pm === 'click' || pm === 'click_card'
+                ? 'Click'
+                : pm === 'atmos'
+                  ? 'Atmos'
+                  : pm || 'Karta'
+      }
+
+━━━━━━━━━━━━━━━━━━
+
+⚡ <b>DIQQAT!</b>
+Buyurtmani qabul qilish yoki bekor qilish uchun iltimos /taom ga kiring va buyurtmani boshqaring.
+
+✅ Qabul qilish - Buyurtmani tasdiqlash
+❌ Bekor qilish - Buyurtmani rad etish`;
+
+      try {
+        const tgRes = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            text: message,
+            parse_mode: 'HTML',
+          }),
+        });
+        const tgJson = await tgRes.json().catch(() => ({}));
+        if (!tgRes.ok) {
+          console.error('❌ Restoran bot Telegram API:', tgRes.status, JSON.stringify(tgJson));
+        } else {
+          console.log('✅ Restoran bot: Telegram xabar yuborildi!', tgJson?.result?.message_id);
+        }
+      } catch (err) {
+        console.error('❌ Restoran bot: Telegram xabar yuborishda xato:', err);
       }
     }
 

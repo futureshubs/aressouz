@@ -23,6 +23,7 @@ type OperatorSupportTabsProps = {
     region?: string;
     district?: string;
     phone?: string;
+    paymentQrImage?: string;
   };
   role?: 'operator' | 'support';
 };
@@ -251,7 +252,18 @@ export function OperatorSupportTabs({ branchId, branchInfo, role = 'operator' }:
       )}
 
       {activeTab === 'orders_food' && (
-        <OrdersManagement branchId={branchId} branchInfo={branchInfo as any} type="food" authMode="branch" readOnly />
+        <OrdersManagement
+          branchId={branchId}
+          branchInfo={{
+            region: branchInfo?.region ?? '',
+            district: branchInfo?.district ?? '',
+            phone: branchInfo?.phone ?? '',
+            paymentQrImage: branchInfo?.paymentQrImage,
+          }}
+          type="food"
+          authMode="branch"
+          readOnly
+        />
       )}
 
       {activeTab === 'chat' && <Chat branchId={branchId} branchInfo={branchInfo as any} />}

@@ -111,7 +111,7 @@ export function Cart({ items, isOpen, onClose, onUpdateQuantity, onRemoveItem, o
 
       {/* Cart Panel - Full screen on mobile */}
       <div 
-        className="fixed right-0 top-[var(--app-safe-top)] bottom-[var(--app-safe-bottom)] w-full sm:max-w-md border-l z-50 shadow-2xl flex flex-col"
+        className="fixed right-0 top-[var(--app-safe-top)] bottom-[var(--app-safe-bottom)] left-0 sm:left-auto w-full sm:max-w-md border-l z-50 shadow-2xl flex flex-col min-h-0 max-h-[100dvh]"
         style={{
           background: bgGradient,
           borderColor: borderColor,
@@ -152,7 +152,7 @@ export function Cart({ items, isOpen, onClose, onUpdateQuantity, onRemoveItem, o
         </div>
 
         {/* Items */}
-        <div className="flex-1 overflow-y-auto p-4 sm:p-6 space-y-3 sm:space-y-4">
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y p-4 sm:p-6 space-y-3 sm:space-y-4 [-webkit-overflow-scrolling:touch]">
           {items.length === 0 && rentalItems.length === 0 ? (
             <div className="flex flex-col items-center justify-center h-full text-center px-4">
               <div 
@@ -181,9 +181,11 @@ export function Cart({ items, isOpen, onClose, onUpdateQuantity, onRemoveItem, o
                     )
                   : null;
                 
-                // Use variant data or fallback to item data
+                // Use variant data or fallback to item data (taom: `variants` bo‘lmasa ham `item.image` — variant rasmi)
                 const displayPrice = selectedVariant?.price ?? item.price;
-                const displayImage = selectedVariant?.image || item.image;
+                const displayImage =
+                  String(selectedVariant?.image || '').trim() ||
+                  String(item.image || '').trim();
                 const displayOldPrice = selectedVariant?.oldPrice ?? item.oldPrice;
                 const stockCount = selectedVariant?.stockQuantity ?? item.stockCount ?? 999999;
                 

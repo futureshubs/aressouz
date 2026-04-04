@@ -24,7 +24,12 @@ interface Product {
 
 interface ShopViewProps {
   platform: Platform;
-  onAddToCart: (product: Product) => void;
+  onAddToCart: (
+    product: Product,
+    quantity?: number,
+    variantId?: string,
+    variantName?: string,
+  ) => void;
   shopProducts: Product[];
 }
 
@@ -368,8 +373,8 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
           product={selectedProduct}
           isOpen={true}
           onClose={() => setSelectedProduct(null)}
-          onAddToCart={(product, quantity) => {
-            onAddToCart(product);
+          onAddToCart={(product, quantity, variantId, variantName) => {
+            onAddToCart(product, quantity, variantId, variantName);
           }}
           source="shop"
           storeName="TechMart Elektronika"

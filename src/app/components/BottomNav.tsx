@@ -92,9 +92,9 @@ export const BottomNav = memo(function BottomNav({ activeTab, onTabChange, onAdd
                    md:max-w-xl lg:max-w-2xl"
         style={{
           background: isDark
-            ? '#000000'
+            ? 'linear-gradient(135deg, rgba(30, 30, 30, 0.95), rgba(20, 20, 20, 0.98))'
             : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(249, 250, 251, 0.98))',
-          backdropFilter: isDark ? 'none' : 'blur(30px)',
+          backdropFilter: 'blur(30px)',
           boxShadow: isDark
             ? `0 20px 60px rgba(0, 0, 0, 0.9), 0 8px 24px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px ${accentColor.color}20`
             : `0 20px 60px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 0 0 1px ${accentColor.color}15`,

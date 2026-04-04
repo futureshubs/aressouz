@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { 
   ShoppingCart, Package, BarChart3, TrendingUp, DollarSign, Power, LogOut, 
   Bell, Plus, X, Upload, Trash2, Clock, Flame, Star, CheckCircle, XCircle,
-  ChefHat, Users, TrendingDown, Calendar
+  ChefHat, Users, TrendingDown, Calendar, Edit2, QrCode
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
@@ -31,8 +31,9 @@ export default function RestaurantPanel() {
   const [stats, setStats] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   
-  // Add Dish Modal
+  // Add / edit dish modal
   const [showAddDish, setShowAddDish] = useState(false);
+  const [editingDishId, setEditingDishId] = useState<string | null>(null);
   const [newDish, setNewDish] = useState({
     name: '',
     image: '',
@@ -136,6 +137,78 @@ export default function RestaurantPanel() {
     }
   };
 
+  const emptyNewDish = () => ({
+    name: '',
+    image: '',
+    images: [] as string[],
+    kcal: '',
+    description: '',
+    ingredients: '',
+    weight: '',
+    extras: [] as any[],
+    variants: [] as any[],
+    isPopular: false,
+    isNatural: false,
+  });
+
+  const closeAddDishModal = () => {
+    setShowAddDish(false);
+    setEditingDishId(null);
+    setNewDish(emptyNewDish());
+  };
+
+  const dishToForm = (dish: any) => {
+    const imgs =
+      Array.isArray(dish.images) && dish.images.length > 0
+        ? [...dish.images]
+        : dish.image
+          ? [dish.image]
+          : [];
+    const ing = dish.ingredients;
+    const ingredientsStr = Array.isArray(ing)
+      ? ing.map((x: any) => String(x)).join(', ')
+      : ing != null && ing !== ''
+        ? String(ing)
+        : '';
+    let variants = (Array.isArray(dish.variants) ? dish.variants : []).map((v: any) => ({
+      name: String(v.name ?? ''),
+      image: String(v.image ?? ''),
+      price: v.price != null && v.price !== '' ? String(v.price) : '',
+      prepTime: String(v.prepTime ?? ''),
+    }));
+    if (variants.length === 0) {
+      variants = [
+        {
+          name: 'Standart',
+          image: String(dish.image ?? imgs[0] ?? ''),
+          price:
+            dish.price != null && dish.price !== ''
+              ? String(dish.price)
+              : '',
+          prepTime: '',
+        },
+      ];
+    }
+    return {
+      name: String(dish.name ?? ''),
+      image: String(dish.image ?? imgs[0] ?? ''),
+      images: imgs,
+      kcal: dish.kcal != null && dish.kcal !== '' ? String(dish.kcal) : '',
+      description: String(dish.description ?? ''),
+      ingredients: ingredientsStr,
+      weight: dish.weight != null && dish.weight !== '' ? String(dish.weight) : '',
+      extras: Array.isArray(dish.additionalProducts)
+        ? dish.additionalProducts.map((e: any) => ({
+            name: String(e.name ?? ''),
+            price: e.price != null && e.price !== '' ? String(e.price) : '',
+          }))
+        : [],
+      variants,
+      isPopular: Boolean(dish.isPopular),
+      isNatural: Boolean(dish.isNatural),
+    };
+  };
+
   const toggleDishStatus = async (dishId: string, currentStatus: boolean) => {
     try {
       const response = await fetch(
@@ -170,6 +243,39 @@ export default function RestaurantPanel() {
     cancelled: orders.filter((o) => o.status === 'cancelled' || o.status === 'rejected').length,
   };
 
+  const restaurantOrderPaymentLabel = (order: any) => {
+    const pm = String(order?.paymentMethod || '').toLowerCase();
+    if (pm === 'cash') return 'Naqd pul';
+    if (pm === 'payme') return 'Payme';
+    if (pm === 'click' || pm === 'click_card') return 'Click';
+    if (pm === 'atmos') return 'Atmos';
+    if (pm === 'qr') return 'Kassa QR (oldingi)';
+    return order?.paymentMethod ? String(order.paymentMethod) : 'Karta / boshqa';
+  };
+
+  const counterQrUrlForOrder = (order: any) =>
+    String(order?.merchantPaymentQrUrl || restaurant?.paymentQrImage || '').trim();
+
+  const showCounterQrAfterAccept = (order: any) => {
+    const st = String(order?.status || '').toLowerCase();
+    const afterAccept = ['accepted', 'confirmed', 'preparing', 'ready'].includes(st);
+    const pm = String(order?.paymentMethod || '').toLowerCase();
+    const onlinePaid =
+      order?.paymentStatus === 'paid' &&
+      ['click', 'click_card', 'payme', 'atmos'].includes(pm);
+    return afterAccept && onlinePaid && Boolean(counterQrUrlForOrder(order));
+  };
+
+  const needsCounterQrButMissing = (order: any) => {
+    const st = String(order?.status || '').toLowerCase();
+    const afterAccept = ['accepted', 'confirmed', 'preparing', 'ready'].includes(st);
+    const pm = String(order?.paymentMethod || '').toLowerCase();
+    const onlinePaid =
+      order?.paymentStatus === 'paid' &&
+      ['click', 'click_card', 'payme', 'atmos'].includes(pm);
+    return afterAccept && onlinePaid && !counterQrUrlForOrder(order);
+  };
+
   const filteredOrders = orders.filter((order) => {
     if (ordersCategory === 'all') return true;
     if (ordersCategory === 'new') return order.status === 'pending';
@@ -179,7 +285,7 @@ export default function RestaurantPanel() {
     return true;
   });
 
-  const addDish = async () => {
+  const saveDish = async () => {
     if (!newDish.name) {
       toast.error('Taom nomini kiriting!');
       return;
@@ -195,55 +301,48 @@ export default function RestaurantPanel() {
       return;
     }
 
+    const payload = {
+      name: newDish.name,
+      images: newDish.images,
+      image: newDish.image,
+      kcal: newDish.kcal,
+      description: newDish.description,
+      ingredients: newDish.ingredients,
+      weight: newDish.weight,
+      additionalProducts: newDish.extras,
+      variants: newDish.variants,
+      isPopular: newDish.isPopular,
+      isNatural: newDish.isNatural,
+    };
+
+    const isEdit = Boolean(editingDishId);
+    const url = isEdit
+      ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dishes/${encodeURIComponent(editingDishId!)}`
+      : `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(restaurant.id)}/dishes`;
+
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(restaurant.id)}/dishes`,
-        {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            ...edgeFnHeaders,
-          },
-          body: JSON.stringify({
-            name: newDish.name,
-            images: newDish.images, // Convert to array
-            image: newDish.image, // Also send single image for compatibility
-            kcal: newDish.kcal,
-            description: newDish.description,
-            ingredients: newDish.ingredients,
-            weight: newDish.weight,
-            additionalProducts: newDish.extras,
-            variants: newDish.variants,
-            isPopular: newDish.isPopular,
-            isNatural: newDish.isNatural
-          })
-        }
-      );
+      const response = await fetch(url, {
+        method: isEdit ? 'PUT' : 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          ...edgeFnHeaders,
+        },
+        body: JSON.stringify(payload),
+      });
 
       const result = await response.json();
       
       if (result.success) {
-        toast.success('Taom qo\'shildi!');
+        toast.success(isEdit ? 'Taom yangilandi!' : 'Taom qo\'shildi!');
         setShowAddDish(false);
-        setNewDish({
-          name: '',
-          image: '',
-          images: [],
-          kcal: '',
-          description: '',
-          ingredients: '',
-          weight: '',
-          extras: [],
-          variants: [],
-          isPopular: false,
-          isNatural: false
-        });
+        setEditingDishId(null);
+        setNewDish(emptyNewDish());
         loadData(restaurant.id);
       } else {
         toast.error(result.error || 'Xatolik yuz berdi!');
       }
     } catch (error) {
-      console.error('Add dish error:', error);
+      console.error('Save dish error:', error);
       toast.error('Xatolik yuz berdi!');
     }
   };
@@ -648,10 +747,53 @@ export default function RestaurantPanel() {
                       ))}
                     </div>
 
+                    {showCounterQrAfterAccept(order) && (
+                      <div
+                        className="mb-4 p-4 rounded-xl border"
+                        style={{
+                          background: isDark ? 'rgba(20, 184, 166, 0.12)' : 'rgba(20, 184, 166, 0.08)',
+                          borderColor: accentColor.color,
+                        }}
+                      >
+                        <h4 className="font-bold mb-1 flex items-center gap-2">
+                          <QrCode className="w-5 h-5" style={{ color: accentColor.color }} />
+                          Kassa — to&apos;lov QR
+                        </h4>
+                        <p className="text-xs mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
+                          Mijoz Click / Payme / Atmos orqali to&apos;lagan. Buyurtmani qabul qildingiz — kassada shu
+                          restoran QR kodini ko&apos;rsating yoki skaner qiling.
+                        </p>
+                        <div className="flex justify-center">
+                          <img
+                            src={counterQrUrlForOrder(order)}
+                            alt="To'lov QR"
+                            className="max-w-[240px] w-full rounded-xl object-contain bg-white p-2"
+                            style={{ border: `1px solid ${isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)'}` }}
+                          />
+                        </div>
+                      </div>
+                    )}
+
+                    {needsCounterQrButMissing(order) && (
+                      <div
+                        className="mb-4 p-3 rounded-xl text-sm"
+                        style={{
+                          background: 'rgba(245, 158, 11, 0.15)',
+                          color: isDark ? 'rgba(255,255,255,0.9)' : 'rgba(0,0,0,0.85)',
+                        }}
+                      >
+                        Kassa QR yo&apos;q: restoran profilida to&apos;lov QR rasmi yuklanmagan. Admin yoki «Restoran
+                        qo&apos;shish» sozlamalarida QR URL qo&apos;shing.
+                      </div>
+                    )}
+
                     <div className="flex items-center justify-between pt-4 border-t" style={{ borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }}>
                       <div>
                         <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                          To'lov: {order.paymentMethod === 'cash' ? 'Naqd pul' : 'Karta'}
+                          To&apos;lov: {restaurantOrderPaymentLabel(order)}
+                          {order.paymentStatus === 'paid' && (
+                            <span className="ml-2 text-green-500 font-semibold">• To&apos;langan</span>
+                          )}
                         </p>
                         <p className="font-bold text-xl" style={{ color: accentColor.color }}>
                           {order.totalPrice.toLocaleString()} so'm
@@ -704,7 +846,12 @@ export default function RestaurantPanel() {
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold">Taomlar</h2>
               <button
-                onClick={() => setShowAddDish(true)}
+                type="button"
+                onClick={() => {
+                  setEditingDishId(null);
+                  setNewDish(emptyNewDish());
+                  setShowAddDish(true);
+                }}
                 className="px-4 py-2 rounded-xl font-bold flex items-center gap-2"
                 style={{ background: accentColor.color, color: '#ffffff' }}
               >
@@ -748,17 +895,36 @@ export default function RestaurantPanel() {
                         🔥 {dish.kcal} kcal
                       </p>
                     )}
-                    <button
-                      onClick={() => toggleDishStatus(dish.id, dish.isActive)}
-                      className="w-full px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2"
-                      style={{
-                        background: dish.isActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
-                        color: dish.isActive ? '#ef4444' : '#10b981'
-                      }}
-                    >
-                      <Power className="w-4 h-4" />
-                      {dish.isActive ? 'Stop' : 'Faol'}
-                    </button>
+                    <div className="flex flex-col gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingDishId(dish.id);
+                          setNewDish(dishToForm(dish));
+                          setShowAddDish(true);
+                        }}
+                        className="w-full px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2"
+                        style={{
+                          background: `${accentColor.color}22`,
+                          color: accentColor.color,
+                        }}
+                      >
+                        <Edit2 className="w-4 h-4" />
+                        Tahrirlash
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => toggleDishStatus(dish.id, dish.isActive)}
+                        className="w-full px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2"
+                        style={{
+                          background: dish.isActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
+                          color: dish.isActive ? '#ef4444' : '#10b981'
+                        }}
+                      >
+                        <Power className="w-4 h-4" />
+                        {dish.isActive ? 'Stop' : 'Faol'}
+                      </button>
+                    </div>
                   </div>
                 </div>
               ))}
@@ -1018,8 +1184,10 @@ export default function RestaurantPanel() {
             style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
           >
             <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold">Taom qo'shish</h2>
-              <button onClick={() => setShowAddDish(false)}>
+              <h2 className="text-2xl font-bold">
+                {editingDishId ? 'Taomni tahrirlash' : 'Taom qo\'shish'}
+              </h2>
+              <button type="button" onClick={closeAddDishModal}>
                 <X className="w-6 h-6" />
               </button>
             </div>
@@ -1396,7 +1564,8 @@ export default function RestaurantPanel() {
               {/* Actions */}
               <div className="flex items-center gap-3 pt-4">
                 <button
-                  onClick={() => setShowAddDish(false)}
+                  type="button"
+                  onClick={closeAddDishModal}
                   className="flex-1 px-4 py-3 rounded-xl font-bold"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'
@@ -1405,7 +1574,8 @@ export default function RestaurantPanel() {
                   Bekor qilish
                 </button>
                 <button
-                  onClick={addDish}
+                  type="button"
+                  onClick={saveDish}
                   className="flex-1 px-4 py-3 rounded-xl font-bold"
                   style={{ background: accentColor.color, color: '#ffffff' }}
                 >

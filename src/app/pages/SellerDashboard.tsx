@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router';
+import { RouteErrorBoundary } from '../components/RouteErrorBoundary';
 import { useTheme } from '../context/ThemeContext';
 import { 
   LayoutDashboard, 
@@ -389,11 +390,7 @@ export default function SellerDashboard() {
         toast.error(data.error || 'Holatni yangilab bo‘lmadi');
         return;
       }
-      if (String(status).toLowerCase() === 'cancelled') {
-        toast.success('Buyurtma bekor qilindi, ombor qayta hisoblandi');
-      } else {
-        toast.success('Buyurtma yangilandi');
-      }
+      toast.success('Buyurtma yangilandi');
       const list = await fetchSellerOrders(sellerInfo.token);
       setOrders(list);
     } catch (e) {
@@ -673,6 +670,7 @@ export default function SellerDashboard() {
               />
             </div>
           ) : (
+            <RouteErrorBoundary resetKeys={[activeTab]} embedded>
             <>
               {/* Dashboard Tab */}
               {activeTab === 'dashboard' && (
@@ -793,7 +791,30 @@ export default function SellerDashboard() {
                         const firstVariant = product.variants?.[0];
                         const displayImage = firstVariant?.images?.[0] || product.image;
                         const displayPrice = firstVariant?.price || product.price;
-                        const totalStock = product.variants?.reduce((sum: number, v: any) => sum + (v.stock || 0), 0) || 0;
+                        const variantsList = Array.isArray(product.variants) ? product.variants : [];
+                        const variantStockRows = variantsList.map((v: any, i: number) => {
+                          const n = Math.floor(
+                            Number(v?.stock ?? v?.stockQuantity ?? v?.stockCount ?? 0),
+                          );
+                          const st = Number.isFinite(n) ? Math.max(0, n) : 0;
+                          const label = String(v?.name || `Variant ${i + 1}`).trim() || `Variant ${i + 1}`;
+                          return { st, label };
+                        });
+                        const totalStock =
+                          variantStockRows.length > 0
+                            ? variantStockRows.reduce((sum, row) => sum + row.st, 0)
+                            : (() => {
+                                const raw = Math.floor(
+                                  Number(
+                                    product?.stock ?? product?.stockQuantity ?? product?.stockCount ?? 0,
+                                  ),
+                                );
+                                return Number.isFinite(raw) ? Math.max(0, raw) : 0;
+                              })();
+                        const outOfStockLabels = variantStockRows.filter((r) => r.st === 0).map((r) => r.label);
+                        const outOfStockVariantCount = outOfStockLabels.length;
+                        const hasPartialOutOfStock = totalStock > 0 && outOfStockVariantCount > 0;
+                        const allVariantsOut = variantStockRows.length > 0 && outOfStockVariantCount === variantStockRows.length;
                         
                         return (
                           <div
@@ -814,12 +835,28 @@ export default function SellerDashboard() {
                                   alt={product.name}
                                   className="w-full h-48 object-cover rounded-xl"
                                 />
-                                {totalStock === 0 && (
-                                  <div 
-                                    className="absolute top-2 right-2 px-3 py-1 rounded-lg text-xs font-bold"
-                                    style={{ background: 'rgba(239, 68, 68, 0.9)', color: '#ffffff' }}
+                                {(totalStock === 0 || hasPartialOutOfStock) && (
+                                  <div
+                                    className="absolute top-2 right-2 max-w-[min(100%,14rem)] px-2.5 py-1 rounded-lg text-[10px] sm:text-xs font-bold leading-tight text-right"
+                                    style={{
+                                      background:
+                                        totalStock === 0 || allVariantsOut
+                                          ? 'rgba(239, 68, 68, 0.92)'
+                                          : 'rgba(245, 158, 11, 0.92)',
+                                      color: '#ffffff',
+                                    }}
                                   >
-                                    Tugagan
+                                    {totalStock === 0 || allVariantsOut ? (
+                                      'Tugagan'
+                                    ) : outOfStockVariantCount === 1 ? (
+                                      <>
+                                        Qisman: «{outOfStockLabels[0]}» tugagan
+                                      </>
+                                    ) : (
+                                      <>
+                                        Qisman: {outOfStockVariantCount} ta variant tugagan
+                                      </>
+                                    )}
                                   </div>
                                 )}
                               </div>
@@ -856,11 +893,27 @@ export default function SellerDashboard() {
                                   </p>
                                   <p className="text-sm font-bold">{product.variants?.length || 0} ta</p>
                                 </div>
-                                <div>
+                                <div className="min-w-0">
                                   <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
                                     Ombor
                                   </p>
-                                  <p className="text-sm font-bold">{totalStock} dona</p>
+                                  <p className="text-sm font-bold">{totalStock} dona (jami)</p>
+                                  {hasPartialOutOfStock && (
+                                    <p
+                                      className="text-[10px] sm:text-xs font-semibold mt-1 leading-snug line-clamp-2"
+                                      style={{ color: '#f87171' }}
+                                      title={outOfStockLabels.join(', ')}
+                                    >
+                                      {outOfStockVariantCount === 1
+                                        ? `«${outOfStockLabels[0]}» — 0 (tugagan)`
+                                        : `${outOfStockVariantCount} ta variant: 0 (tugagan)`}
+                                    </p>
+                                  )}
+                                  {totalStock === 0 && variantStockRows.length > 0 && !hasPartialOutOfStock && (
+                                    <p className="text-[10px] sm:text-xs font-semibold mt-1" style={{ color: '#f87171' }}>
+                                      Barcha variantlar tugagan
+                                    </p>
+                                  )}
                                 </div>
                               </div>
 
@@ -909,24 +962,6 @@ export default function SellerDashboard() {
               {/* Orders Tab — mijozlar ilovadan bergan do‘kon buyurtmalari + eski shop_order */}
               {activeTab === 'orders' && (
                 <div className="space-y-4">
-                  <div
-                    className="p-4 rounded-2xl border text-sm"
-                    style={{
-                      background: isDark ? 'rgba(59, 130, 246, 0.1)' : 'rgba(59, 130, 246, 0.06)',
-                      borderColor: isDark ? 'rgba(59, 130, 246, 0.35)' : 'rgba(59, 130, 246, 0.25)',
-                    }}
-                  >
-                    <p className="font-semibold text-blue-800 dark:text-blue-100">Kuryer va kassa</p>
-                    <p className="mt-1 opacity-90 dark:text-blue-50/90">
-                      <b>Payme / Click / Atmos</b> bilan to‘langan buyurtma «Qabul qilish»dan keyin kuryer
-                      «mavjud buyurtmalar»da ko‘rinadi. <b>Naqd yoki kassa QR</b> bo‘lsa, avval filial kassasi
-                      chekni tasdiqlashi kerak — shundan keyin kuryer olib ketadi.
-                    </p>
-                    <p className="mt-2 opacity-85 dark:text-blue-50/85">
-                      «Qabul qilish» berganingizda (to‘lov hali kassa bo‘yicha bo‘lsa) do‘kon Telegramiga summa
-                      va QR eslatmasi yuboriladi.
-                    </p>
-                  </div>
                   <div className="flex flex-wrap gap-2">
                     {(
                       [
@@ -1053,84 +1088,30 @@ export default function SellerDashboard() {
                           )}
                           <div className="flex flex-wrap gap-2">
                             {(st === 'pending' || st === 'new') && (
-                              <>
-                                <button
-                                  type="button"
-                                  disabled={!!orderActionId}
-                                  onClick={() => oid && handleSellerOrderStatus(oid, 'confirmed')}
-                                  className="px-4 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                                  style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
-                                >
-                                  {orderActionId === oid ? (
-                                    <Loader2 className="w-4 h-4 animate-spin inline" />
-                                  ) : (
-                                    'Qabul qilish'
-                                  )}
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={!!orderActionId}
-                                  onClick={() => {
-                                    if (
-                                      !oid ||
-                                      !confirm(
-                                        'Buyurtmani bekor qilasizmi? Ombordagi qoldiq qayta tiklanadi.',
-                                      )
-                                    ) {
-                                      return;
-                                    }
-                                    void handleSellerOrderStatus(oid, 'cancelled');
-                                  }}
-                                  className="px-4 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 border"
-                                  style={{
-                                    background: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.08)',
-                                    color: '#ef4444',
-                                    borderColor: 'rgba(239, 68, 68, 0.35)',
-                                  }}
-                                >
-                                  {orderActionId === oid ? (
-                                    <Loader2 className="w-4 h-4 animate-spin inline" />
-                                  ) : (
-                                    'Bekor qilish'
-                                  )}
-                                </button>
-                              </>
+                              <button
+                                type="button"
+                                disabled={!!orderActionId}
+                                onClick={() => oid && handleSellerOrderStatus(oid, 'confirmed')}
+                                className="px-4 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                                style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                              >
+                                {orderActionId === oid ? (
+                                  <Loader2 className="w-4 h-4 animate-spin inline" />
+                                ) : (
+                                  'Qabul qilish'
+                                )}
+                              </button>
                             )}
                             {(st === 'confirmed' || st === 'accepted' || st === 'preparing') && (
-                              <>
-                                <button
-                                  type="button"
-                                  disabled={!!orderActionId}
-                                  onClick={() => oid && handleSellerOrderStatus(oid, 'ready')}
-                                  className="px-4 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
-                                  style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)' }}
-                                >
-                                  Tayyor (kuryer olishi mumkin)
-                                </button>
-                                <button
-                                  type="button"
-                                  disabled={!!orderActionId}
-                                  onClick={() => {
-                                    if (
-                                      !oid ||
-                                      !confirm(
-                                        'Buyurtmani bekor qilasizmi? Ombor qayta tiklanadi (agar mahsulot chiqarilgan bo‘lsa, tekshiring).',
-                                      )
-                                    ) {
-                                      return;
-                                    }
-                                    void handleSellerOrderStatus(oid, 'cancelled');
-                                  }}
-                                  className="px-4 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50 border"
-                                  style={{
-                                    background: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.08)',
-                                    color: '#ef4444',
-                                    borderColor: 'rgba(239, 68, 68, 0.35)',
-                                  }}
-                                >
-                                  Bekor qilish
-                                </button>
-                              </>
+                              <button
+                                type="button"
+                                disabled={!!orderActionId}
+                                onClick={() => oid && handleSellerOrderStatus(oid, 'ready')}
+                                className="px-4 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                                style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)' }}
+                              >
+                                Tayyor
+                              </button>
                             )}
                           </div>
                         </div>
@@ -1341,6 +1322,7 @@ export default function SellerDashboard() {
                 </div>
               )}
             </>
+            </RouteErrorBoundary>
           )}
         </div>
       </main>

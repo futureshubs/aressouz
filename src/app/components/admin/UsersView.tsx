@@ -111,7 +111,7 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
   const [users, setUsers] = useState<UserData[]>([]);
   const [filteredUsers, setFilteredUsers] = useState<UserData[]>([]);
   const [searchQuery, setSearchQuery] = useState('');
-  const [isLoading, setIsLoading] = useState(false);
+  const [isLoading, setIsLoading] = useState(true);
   const [selectedFilter, setSelectedFilter] = useState<'all' | 'active' | 'blocked'>('all');
   
   // View user details modal

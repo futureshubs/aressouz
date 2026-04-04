@@ -421,9 +421,12 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                       )}
                       <div 
                         className="absolute top-2 left-2 px-2 py-1 rounded-lg text-xs font-bold"
-                        style={{ background: accentColor.color, color: '#fff' }}
+                        style={{
+                          background: restaurant.isActive ? accentColor.color : 'rgba(107,114,128,0.9)',
+                          color: '#fff',
+                        }}
                       >
-                        OPEN
+                        {restaurant.isActive ? 'OCHIQ' : 'YOPILGAN'}
                       </div>
                     </div>
 

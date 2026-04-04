@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { X } from 'lucide-react';
 import { Header } from './components/Header';
 import { Hero } from './components/Hero';
 import { ViewToggle } from './components/ViewToggle';
@@ -107,8 +108,11 @@ interface CartItem extends Product {
   quantity: number;
   selectedVariantId?: string; // Add variant tracking
   selectedVariantName?: string; // For display
+  /** Taom KV kaliti (checkout — hech qachon vaqtinchalik savat id ishlatilmasin) */
+  dishId?: string;
   // Food-specific fields
   dishDetails?: {
+    dishId?: string;
     restaurantName?: string;
     prepTime?: string;
     weight?: string;
@@ -124,6 +128,31 @@ interface CartItem extends Product {
     price: number;
     quantity: number;
   }[];
+}
+
+/**
+ * Taom: bir xil taom + variant + qo'shimcha = bitta qator (miqdor qo'shiladi);
+ * boshqa variant / qo'shimcha = alohida qator. Savat `id` checkout uchun emas — `dishId` alohida.
+ */
+function stableFoodCartLineNumericId(
+  dishId: string,
+  variantLabel: string,
+  addons: { name?: string; quantity?: number }[],
+): number {
+  const addonSig = addons
+    .map((a) =>
+      `${String(a.name ?? '').trim()}:${Math.max(1, Math.floor(Number(a.quantity) || 1))}`,
+    )
+    .sort()
+    .join('|');
+  const s = `${String(dishId).trim()}\u0000${String(variantLabel).trim()}\u0000${addonSig}`;
+  let h = 2166136261 >>> 0;
+  for (let i = 0; i < s.length; i++) {
+    h ^= s.charCodeAt(i);
+    h = Math.imul(h, 16777619) >>> 0;
+  }
+  const n = h % 2000000000;
+  return n > 0 ? n : 1;
 }
 
 /** Bozor/do‘kon: tanlangan variant narxi + `variantDetails` — savat/checkout `item.price` faqat birinchi variant bo‘lib qolmasin */
@@ -593,7 +622,18 @@ export default function AppContent() {
     : allProducts;
 
   const handleAddToCart = (product: Product, quantity: number = 1, variantId?: string, variantName?: string) => {
-    const cartKey = variantId ? `${product.id}_${variantId}` : `${product.id}_default`;
+    let vid = variantId != null ? String(variantId).trim() : '';
+    if (
+      (!vid || vid === '0') &&
+      Array.isArray(product.variants) &&
+      product.variants.length === 1
+    ) {
+      const only = product.variants[0];
+      if (only?.id != null && String(only.id).trim() !== '') {
+        vid = String(only.id);
+      }
+    }
+    const cartKey = vid ? `${product.id}_${vid}` : `${product.id}_default`;
     const existing = cartItems.find((item) => {
       const itemKey = item.selectedVariantId
         ? `${item.id}_${item.selectedVariantId}`
@@ -601,7 +641,7 @@ export default function AppContent() {
       return itemKey === cartKey;
     });
     const currentQty = existing ? existing.quantity : 0;
-    const check = canAddQuantity(product, variantId, currentQty, quantity);
+    const check = canAddQuantity(product, vid || variantId, currentQty, quantity);
     if (!check.ok) {
       toast.error(check.message);
       return;
@@ -626,7 +666,7 @@ export default function AppContent() {
         });
       }
 
-      const line = buildCartLinePricing(product, variantId, variantName);
+      const line = buildCartLinePricing(product, vid || variantId, variantName);
       return [
         ...prev,
         {
@@ -634,7 +674,7 @@ export default function AppContent() {
           price: line.unitPrice,
           oldPrice: line.oldPrice ?? product.oldPrice,
           quantity,
-          selectedVariantId: variantId,
+          selectedVariantId: vid || variantId,
           selectedVariantName: line.selectedVariantName ?? variantName,
           variantDetails: line.variantDetails,
         },
@@ -999,18 +1039,49 @@ export default function AppContent() {
           </main>
         )}
 
-        {/* Profil Modal - Full Screen */}
+        {/* Profil Modal — yuqori qator scroll tashqarisida: kontent pt orqasiga chiqib ketmasin */}
         {isProfileOpen && (
           <div
-            className={`fixed inset-0 z-[100] flex flex-col overflow-hidden ${isDark ? 'bg-black' : 'bg-background'}`}
+            className={`fixed inset-0 z-[100] flex flex-col overflow-hidden overscroll-none ${isDark ? 'bg-black' : 'bg-background'}`}
             style={{
-              paddingTop: 'var(--app-safe-top)',
               paddingRight: 'var(--app-safe-right)',
               paddingBottom: 'var(--app-safe-bottom)',
               paddingLeft: 'var(--app-safe-left)',
             }}
           >
-            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain max-sm:pt-12 min-w-0">
+            <div
+              className={`shrink-0 z-[110] flex items-center ${isDark ? 'bg-black' : 'bg-background'}`}
+              style={{
+                paddingTop: 'max(0.75rem, var(--app-safe-top))',
+                paddingLeft: 'max(0.75rem, var(--app-safe-left))',
+                paddingRight: 'max(0.75rem, var(--app-safe-right))',
+                paddingBottom: '0.75rem',
+                borderBottom: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={() => {
+                  setIsProfileOpen(false);
+                  setProfileOrderCategoryPreset(undefined);
+                }}
+                className="p-2.5 rounded-2xl transition-all active:scale-90"
+                style={{
+                  background: isDark
+                    ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08))'
+                    : 'linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(249, 250, 251, 0.9))',
+                  backdropFilter: 'blur(20px)',
+                  boxShadow: isDark
+                    ? '0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25)'
+                    : '0 4px 16px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9)',
+                  border: isDark ? '0.5px solid rgba(255, 255, 255, 0.2)' : '0.5px solid rgba(0, 0, 0, 0.1)',
+                }}
+                aria-label="Yopish"
+              >
+                <X className={`size-5 ${isDark ? 'text-white' : 'text-gray-900'}`} strokeWidth={2.5} />
+              </button>
+            </div>
+            <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y min-w-0 [-webkit-overflow-scrolling:touch]">
               <ProfileView
                 initialOrderCategory={profileOrderCategoryPreset}
                 onOpenBonus={() => {
@@ -1020,36 +1091,6 @@ export default function AppContent() {
                 }}
               />
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                setIsProfileOpen(false);
-                setProfileOrderCategoryPreset(undefined);
-              }}
-              className="fixed z-[110] p-2.5 rounded-2xl transition-all active:scale-90"
-              style={{
-                top: 'calc(1.5rem + var(--app-safe-top))',
-                left: 'calc(1rem + var(--app-safe-left))',
-                background: isDark
-                  ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.15), rgba(255, 255, 255, 0.08))'
-                  : 'linear-gradient(145deg, rgba(255, 255, 255, 0.95), rgba(249, 250, 251, 0.9))',
-                backdropFilter: 'blur(20px)',
-                boxShadow: isDark
-                  ? '0 4px 16px rgba(0, 0, 0, 0.4), inset 0 1px 0 rgba(255, 255, 255, 0.25)'
-                  : '0 4px 16px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.9)',
-                border: isDark ? '0.5px solid rgba(255, 255, 255, 0.2)' : '0.5px solid rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <svg
-                className={`size-5 ${isDark ? 'text-white' : 'text-gray-900'}`}
-                fill="none"
-                viewBox="0 0 24 24"
-                stroke="currentColor"
-                strokeWidth={2.5}
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
           </div>
         )}
 
@@ -1102,15 +1143,35 @@ export default function AppContent() {
               });
               
               const restaurantName = dish.restaurantName || dish.restaurantId;
-              
-              // Create a rich cart item with full details
+
+              const variantLabel =
+                String(variant?.name ?? '').trim() ||
+                `n${parseMoneyValue(variant.price)}_${String(variant?.prepTime ?? '').trim()}`;
+              const addonRows = additionalProducts.map((addon: any) => ({
+                name: addon.name,
+                quantity: Number(addon.quantity) || 1,
+              }));
+              const lineId = stableFoodCartLineNumericId(String(dish.id), variantLabel, addonRows);
+
+              const variantImg = String((variant as any)?.image ?? '').trim();
+              const firstDishImg =
+                Array.isArray(dish.images) && dish.images[0]
+                  ? String(dish.images[0]).trim()
+                  : '';
+              const lineImage =
+                variantImg ||
+                firstDishImg ||
+                'https://images.unsplash.com/photo-1546069901-ba9599a7e63c';
+
               const vStock = (variant as any)?.stockQuantity ?? (variant as any)?.stockCount;
               const dStock = (dish as any)?.stockQuantity ?? (dish as any)?.stockCount;
+              const dishIdStr = String(dish.id);
               const dishAsProduct = {
-                id: Date.now() + Math.random(), // Unique ID
+                id: lineId,
+                dishId: dishIdStr,
                 name: dish.name,
-                price: totalItemPrice, // Total price per unit (dish + addons)
-                image: variant.image || dish.images[0] || 'https://images.unsplash.com/photo-1546069901-ba9599a7e63c',
+                price: totalItemPrice,
+                image: lineImage,
                 categoryId: 'taomlar',
                 catalogId: 'foods',
                 rating: 5,
@@ -1126,8 +1187,8 @@ export default function AppContent() {
                   : Number.isFinite(Number(dStock))
                     ? { stockQuantity: Math.floor(Number(dStock)) }
                     : {}),
-                // Food-specific details
                 dishDetails: {
+                  dishId: dishIdStr,
                   restaurantName,
                   prepTime: variant.prepTime,
                   weight: dish.weight,
@@ -1141,10 +1202,10 @@ export default function AppContent() {
                 addons: additionalProducts.map((addon: any) => ({
                   name: addon.name,
                   price: parseMoneyValue(addon.price),
-                  quantity: Number(addon.quantity) || 1, // Ensure number!
+                  quantity: Number(addon.quantity) || 1,
                 })),
               };
-              
+
               handleAddToCart(dishAsProduct, quantity);
               
               // Open cart automatically

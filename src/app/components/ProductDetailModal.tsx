@@ -79,6 +79,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
   onClose, 
   onAddToCart,
   source = 'market',
+  storeName,
   cartItems,
   onUpdateQuantity,
   onRemoveItem
@@ -279,6 +280,20 @@ export const ProductDetailModal = memo(function ProductDetailModal({
       toast.error('Moderatsiya xatolik yuz berdi');
     }
   };
+
+  useEffect(() => {
+    if (!isOpen) return;
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtml = html.style.overflow;
+    const prevBody = body.style.overflow;
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    return () => {
+      html.style.overflow = prevHtml;
+      body.style.overflow = prevBody;
+    };
+  }, [isOpen]);
 
   if (!isOpen) return null;
 
@@ -482,7 +497,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
 
   return (
     <div 
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center"
+      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center overflow-hidden"
       onClick={onClose}
     >
       {/* Backdrop */}
@@ -492,15 +507,15 @@ export const ProductDetailModal = memo(function ProductDetailModal({
 
       {/* Modal Content */}
       <div 
-        className="relative w-full sm:max-w-lg md:max-w-2xl lg:max-w-3xl mx-auto h-[95vh] sm:h-auto sm:max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl"
+        className="relative w-full sm:max-w-lg md:max-w-2xl lg:max-w-3xl mx-auto flex flex-col h-[95dvh] max-h-[95dvh] sm:h-auto sm:max-h-[90vh] overflow-hidden rounded-t-3xl sm:rounded-3xl min-h-0"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
         }}
         onClick={(e) => e.stopPropagation()}
       >
-        {/* Header - Fixed */}
+        {/* Header */}
         <div 
-          className="sticky top-0 z-20 flex items-center justify-between p-3 sm:p-4"
+          className="shrink-0 z-20 flex items-center justify-between p-3 sm:p-4"
           style={{
             background: isDark ? '#0a0a0a' : '#ffffff',
           }}
@@ -552,8 +567,9 @@ export const ProductDetailModal = memo(function ProductDetailModal({
           </div>
         </div>
 
+        <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
         {/* Content */}
-        <div className="px-3 sm:px-4 md:px-6 pb-24 sm:pb-28">
+        <div className="px-3 sm:px-4 md:px-6 pb-4 sm:pb-6">
           {/* Store Badge - New */}
           {source === 'shop' && storeName && (
             <div 
@@ -604,7 +620,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
           <div 
             className={`relative w-full rounded-xl sm:rounded-2xl overflow-hidden mb-3 sm:mb-4 mx-auto ${
               source === 'shop'
-                ? 'max-w-md h-40 sm:h-44 md:h-48'
+                ? 'min-h-[min(42dvh,380px)] max-h-[min(52dvh,480px)] sm:min-h-[min(44dvh,400px)] sm:max-h-[min(50dvh,520px)] aspect-[4/3] sm:aspect-[16/10] max-w-2xl'
                 : 'aspect-[4/3] sm:aspect-video max-w-full'
             }`}
             style={{
@@ -617,9 +633,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
             <img 
               src={currentImage} 
               alt={product.name}
-              className={`w-full h-full object-cover mx-auto ${
-                source === 'shop' ? '' : 'max-w-[500px] max-h-[500px]'
-              }`}
+              className="w-full h-full object-cover object-center"
             />
             
             {/* Image Indicators (Dots) - only for shop products with multiple images */}
@@ -646,12 +660,12 @@ export const ProductDetailModal = memo(function ProductDetailModal({
           </div>
 
           {/* Variant Thumbnails */}
-          <div className="flex items-center gap-1.5 sm:gap-2 mb-4 sm:mb-6">
+          <div className="flex items-center gap-2 sm:gap-2.5 mb-4 sm:mb-6 overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory scrollbar-hide overscroll-x-contain">
             {variants.map((variant) => (
               <button
                 key={variant.id}
                 onClick={() => setSelectedVariant(variant.id)}
-                className="relative w-16 sm:w-20 aspect-square rounded-lg sm:rounded-xl overflow-hidden transition-all"
+                className="relative flex-shrink-0 w-[5.5rem] h-[5.5rem] sm:w-28 sm:h-28 rounded-2xl overflow-hidden transition-all snap-start"
                 style={{
                   background: isDark ? '#1a1a1a' : '#f9fafb',
                   border: selectedVariant === variant.id 
@@ -1385,10 +1399,11 @@ export const ProductDetailModal = memo(function ProductDetailModal({
             )}
           </div>
         </div>
+        </div>
 
-        {/* Bottom Fixed Bar */}
+        {/* Bottom bar — flex ichida, alohida scroll yo‘q */}
         <div 
-          className="fixed bottom-0 left-0 right-0 p-3 sm:p-4 border-t"
+          className="shrink-0 p-3 sm:p-4 border-t pb-[max(0.75rem,var(--app-safe-bottom,0px))]"
           onClick={(e) => e.stopPropagation()}
           style={{
             background: isDark ? '#0a0a0a' : '#ffffff',

@@ -1,8 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { X, Upload, Utensils, Plus, Trash2, Star, Leaf } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '/utils/supabase/info';
 
 export function AddDishModal({ 
   restaurantId, 
@@ -17,20 +17,46 @@ export function AddDishModal({
 }) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
-  
-  const [formData, setFormData] = useState({
-    name: dish?.name || '',
-    images: dish?.images || [],
-    kcal: dish?.kcal || 0,
-    calories: dish?.calories || 0,
-    description: dish?.description || '',
-    ingredients: dish?.ingredients || [],
-    weight: dish?.weight || '',
-    additionalProducts: dish?.additionalProducts || [],
-    variants: dish?.variants || [],
-    isPopular: dish?.isPopular || false,
-    isNatural: dish?.isNatural || false,
-  });
+  const apiBaseUrl =
+    typeof window !== 'undefined' && window.location.hostname === 'localhost'
+      ? DEV_API_BASE_URL
+      : API_BASE_URL;
+
+  const dishFormDefaults = (d: typeof dish) => {
+    const hasVariants = Array.isArray(d?.variants) && d!.variants.length > 0;
+    const fallbackVariant = d
+      ? {
+          name: 'Standart',
+          price: Number((d as any)?.variants?.[0]?.price ?? (d as any)?.price) || 0,
+          prepTime: String((d as any)?.variants?.[0]?.prepTime ?? ''),
+          image: String((d as any)?.variants?.[0]?.image ?? (d as any)?.image ?? ''),
+        }
+      : null;
+    return {
+      name: d?.name || '',
+      images:
+        Array.isArray(d?.images) && d.images.length > 0
+          ? d.images
+          : d?.image
+            ? [d.image]
+            : [],
+      kcal: d?.kcal || 0,
+      calories: d?.calories || 0,
+      description: d?.description || '',
+      ingredients: Array.isArray(d?.ingredients) ? d.ingredients : [],
+      weight: d?.weight || '',
+      additionalProducts: Array.isArray(d?.additionalProducts) ? d.additionalProducts : [],
+      variants: hasVariants ? d!.variants : d && fallbackVariant ? [fallbackVariant] : [],
+      isPopular: Boolean(d?.isPopular),
+      isNatural: Boolean(d?.isNatural),
+    };
+  };
+
+  const [formData, setFormData] = useState(() => dishFormDefaults(dish));
+
+  useEffect(() => {
+    setFormData(dishFormDefaults(dish));
+  }, [dish?.id]);
 
   const [newIngredient, setNewIngredient] = useState('');
   const [newAdditional, setNewAdditional] = useState({ name: '', price: 0 });
@@ -45,7 +71,7 @@ export function AddDishModal({
       uploadFormData.append('file', file);
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/public/upload`,
+        `${apiBaseUrl}/public/upload`,
         {
           method: 'POST',
           headers: {
@@ -143,8 +169,8 @@ export function AddDishModal({
       setIsSubmitting(true);
       
       const url = dish
-        ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dishes/${dish.id}`
-        : `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${restaurantId}/dishes`;
+        ? `${apiBaseUrl}/dishes/${encodeURIComponent(dish.id)}`
+        : `${apiBaseUrl}/restaurants/${encodeURIComponent(restaurantId)}/dishes`;
       
       const response = await fetch(url, {
         method: dish ? 'PUT' : 'POST',

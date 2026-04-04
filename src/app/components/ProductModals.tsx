@@ -161,14 +161,29 @@ export function ProductDetailModal({
     }
   };
 
+  /** Orqa sahifa scroll bilan ikki marta scroll bo‘lmasin */
+  useEffect(() => {
+    const html = document.documentElement;
+    const body = document.body;
+    const prevHtml = html.style.overflow;
+    const prevBody = body.style.overflow;
+    html.style.overflow = 'hidden';
+    body.style.overflow = 'hidden';
+    return () => {
+      html.style.overflow = prevHtml;
+      body.style.overflow = prevBody;
+    };
+  }, []);
+
   return (
-    <div 
-      className="fixed inset-0 z-[100] overflow-y-auto"
+    <div
+      className="fixed inset-0 z-[100] flex flex-col min-h-0 h-dvh max-h-dvh overflow-hidden"
       style={{ background: isDark ? '#000000' : '#ffffff' }}
     >
       {/* Header */}
       <div 
-        className="sticky top-0 z-10 px-4 py-3 flex items-center justify-between backdrop-blur-xl"
+        className="shrink-0 z-20 px-4 py-3 flex items-center justify-between backdrop-blur-xl"
+        style={{ paddingTop: 'max(0.75rem, var(--app-safe-top, 0px))' }}
         style={{ 
           background: isDark ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)',
           borderBottom: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
@@ -226,9 +241,10 @@ export function ProductDetailModal({
         </div>
       </div>
 
-      {/* Image Gallery — katta ekranda kvadrat bo‘lib ketmasin */}
+      <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
+      {/* Image Gallery — kattaroq, konteynerni to‘ldirib ko‘rsatish */}
       <div
-        className="relative w-full max-w-lg sm:max-w-xl mx-auto h-48 sm:h-56 md:h-60 bg-black/5 overflow-hidden"
+        className="relative w-full max-w-2xl mx-auto min-h-[min(42dvh,380px)] max-h-[min(52dvh,480px)] sm:min-h-[min(44dvh,400px)] sm:max-h-[min(50dvh,520px)] aspect-[4/3] sm:aspect-[16/10] bg-black/40 overflow-hidden"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -238,7 +254,7 @@ export function ProductDetailModal({
             <img 
               src={images[Math.min(currentImageIndex, images.length - 1)]} 
               alt={product.name}
-              className="w-full h-full max-h-full object-contain"
+              className="w-full h-full object-cover object-center"
             />
             
             {/* Navigation Arrows */}
@@ -317,10 +333,10 @@ export function ProductDetailModal({
       </div>
 
       {/* Content */}
-      <div className="px-4 py-6 space-y-6">
+      <div className="px-4 py-6 space-y-6 pb-4">
         {/* Variant Thumbnails - only if multiple variants */}
         {variants.length > 1 && (
-          <div className="flex items-center gap-2 overflow-x-auto pb-2">
+          <div className="flex items-center gap-2.5 sm:gap-3 overflow-x-auto pb-2 snap-x snap-mandatory">
             {variants.map((variant) => (
               <button
                 key={variant.id}
@@ -328,7 +344,7 @@ export function ProductDetailModal({
                   setSelectedVariant(variant.id);
                   setCurrentImageIndex(0);
                 }}
-                className="relative flex-shrink-0 w-20 aspect-square rounded-xl overflow-hidden transition-all"
+                className="relative flex-shrink-0 w-[5.5rem] h-[5.5rem] sm:w-28 sm:h-28 rounded-2xl overflow-hidden transition-all snap-start"
                 style={{
                   background: isDark ? '#1a1a1a' : '#f9fafb',
                   border: selectedVariant === variant.id 
@@ -342,7 +358,7 @@ export function ProductDetailModal({
                   className="w-full h-full object-cover"
                 />
                 <div 
-                  className="absolute bottom-0.5 left-0.5 right-0.5 text-center py-0.5 rounded-md text-[9px] font-bold truncate px-1"
+                  className="absolute bottom-0.5 left-0.5 right-0.5 text-center py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold truncate px-1"
                   style={{
                     background: selectedVariant === variant.id 
                       ? accentColor.color 
@@ -774,16 +790,15 @@ export function ProductDetailModal({
           </div>
         )}
 
-        {/* Spacer for fixed button */}
-        <div className="h-20" />
+      </div>
       </div>
 
-      {/* Fixed Bottom Button */}
+      {/* Pastki panel — flex ichida, alohida scroll yo‘q */}
       <div 
-        className="fixed bottom-0 left-0 right-0 p-4 backdrop-blur-xl z-10 space-y-3"
+        className="shrink-0 px-4 pt-4 space-y-3 border-t backdrop-blur-xl z-10 pb-[max(1rem,var(--app-safe-bottom,0px))]"
         style={{ 
           background: isDark ? 'rgba(0, 0, 0, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          borderTop: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
         }}
       >
         {/* Stock Badge - Hidden */}

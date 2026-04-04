@@ -741,7 +741,13 @@ export default function BranchDashboard() {
           )}
 
           {activeTab === 'foods' && branchInfo && (
-            <RestaurantManagement branchId={branchInfo.id} />
+            <RestaurantManagement
+              branchId={branchInfo.id}
+              branchRegionId={branchInfo.regionId}
+              branchDistrictId={branchInfo.districtId}
+              branchRegion={branchInfo.region}
+              branchDistrict={branchInfo.district}
+            />
           )}
 
           {activeTab === 'rentals' && branchInfo && (
@@ -850,7 +856,8 @@ export default function BranchDashboard() {
               branchInfo={{
                 region: branchInfo.region,
                 district: branchInfo.district,
-                phone: branchInfo.phone
+                phone: branchInfo.phone,
+                paymentQrImage: branchInfo.paymentQrImage,
               }}
               type="food"
               authMode="branch"

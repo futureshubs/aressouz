@@ -12,6 +12,16 @@ function tryNonNegativeInt(...raw: unknown[]): number | null {
   return null;
 }
 
+/** Hech bo‘lmaganda bitta variantda stock maydonlari berilganmi (0 ham «aniq»). */
+function anyVariantHasExplicitStock(variantList: unknown[]): boolean {
+  for (const vv of variantList) {
+    if (!vv || typeof vv !== 'object') continue;
+    const v = vv as Record<string, unknown>;
+    if (tryNonNegativeInt(v.stock, v.stockQuantity, v.stockCount) !== null) return true;
+  }
+  return false;
+}
+
 /**
  * Bitta variant uchun qoldiq (market: `stockQuantity`, do‘kon: `stock` / `stockCount`).
  * Bir nechta variant bo‘lsa **mahsulot** darajasidagi `stockCount` / `stockQuantity` ishlatilmasin —
@@ -34,6 +44,11 @@ export function getVariantStockQuantity(variant: unknown, product: unknown): num
     return tryNonNegativeInt(p?.stockQuantity, p?.stockCount, p?.stock) ?? 0;
   }
 
+  // Bir nechta variant, lekin shu variantda raqam yo‘q; boshqa variantlarda ham yo‘q — umumiy ombor (legacy API).
+  if (!anyVariantHasExplicitStock(variantList)) {
+    return tryNonNegativeInt(p?.stockQuantity, p?.stockCount, p?.stock) ?? 0;
+  }
+
   return 0;
 }
 
@@ -43,17 +58,30 @@ export function getVariantStockQuantity(variant: unknown, product: unknown): num
  */
 export function getEffectiveProductStockQuantity(product: any): number {
   if (!product) return 0;
-  const level = Number(product.stockQuantity ?? product.stockCount ?? product.stock);
-  if (Number.isFinite(level) && level > 0) {
-    return Math.max(0, Math.floor(level));
-  }
   const variants = Array.isArray(product.variants) ? product.variants : [];
-  let sum = 0;
-  for (const v of variants) {
-    const n = Number(v?.stock ?? v?.stockQuantity ?? v?.stockCount);
-    if (Number.isFinite(n) && n > 0) sum += Math.floor(n);
+  if (variants.length > 0) {
+    let sum = 0;
+    let anyExplicit = false;
+    for (const v of variants) {
+      const n = tryNonNegativeInt(
+        (v as Record<string, unknown>)?.stock,
+        (v as Record<string, unknown>)?.stockQuantity,
+        (v as Record<string, unknown>)?.stockCount,
+      );
+      if (n !== null) {
+        anyExplicit = true;
+        sum += n;
+      }
+    }
+    if (anyExplicit) return sum;
   }
-  return sum;
+  return (
+    tryNonNegativeInt(
+      (product as Record<string, unknown>)?.stockQuantity,
+      (product as Record<string, unknown>)?.stockCount,
+      (product as Record<string, unknown>)?.stock,
+    ) ?? 0
+  );
 }
 
 export function isFoodCartItem(item: any): boolean {

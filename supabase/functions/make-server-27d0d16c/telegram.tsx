@@ -10,6 +10,14 @@ const TELEGRAM_RESTAURANT_BOT_TOKEN = Deno.env.get('TELEGRAM_RESTAURANT_BOT_TOKE
 
 type NotificationType = 'shop' | 'restaurant';
 
+/** HTML parse_mode uchun — < > & bo‘lsa Telegram 400 qaytaradi (test oddiy matn bilan o‘tadi). */
+function escapeTelegramHtml(s: string): string {
+  return String(s ?? '')
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;');
+}
+
 /** Raqamli chat / supergroup yoki @username */
 export function isValidTelegramTarget(chatId: string): boolean {
   const s = String(chatId || '').trim();
@@ -79,33 +87,43 @@ export async function sendOrderNotification(notification: OrderNotification): Pr
               .map((addon) => {
                 const addonQty = Number(addon?.quantity || 1);
                 const addonPrice = Number(addon?.price || 0);
-                return `   - ${addon?.name || 'Qo\'shimcha'} × ${addonQty} (${addonPrice.toLocaleString()} so'm)`;
+                const an = escapeTelegramHtml(String(addon?.name || "Qo'shimcha"));
+                return `   - ${an} × ${addonQty} (${addonPrice.toLocaleString()} so'm)`;
               })
               .join('\n')}`
           : '';
 
-        return `${index + 1}. ${item.name} (${item.variantName})\n   ${item.quantity} ta × ${item.price.toLocaleString()} so'm = ${(item.quantity * item.price).toLocaleString()} so'm${addonsText}`;
+        const nm = escapeTelegramHtml(String(item.name || ''));
+        const vn = escapeTelegramHtml(String(item.variantName || ''));
+
+        return `${index + 1}. ${nm} (${vn})\n   ${item.quantity} ta × ${item.price.toLocaleString()} so'm = ${(item.quantity * item.price).toLocaleString()} so'm${addonsText}`;
       })
       .join('\n\n');
 
-    const placeLabel = notification.type === 'restaurant' ? "Restoran" : "Do'kon";
-    const placeEmoji = notification.type === 'restaurant' ? '🏪' : '📍';
+    const shopNameEsc = escapeTelegramHtml(String(notification.shopName || ''));
+    const orderNumEsc = escapeTelegramHtml(String(notification.orderNumber || ''));
+    const orderDateEsc = escapeTelegramHtml(String(notification.orderDate || ''));
+    const custNameEsc = escapeTelegramHtml(String(notification.customerName || ''));
+    const custPhoneEsc = escapeTelegramHtml(String(notification.customerPhone || ''));
+    const custAddrEsc = escapeTelegramHtml(String(notification.customerAddress || ''));
+    const deliveryEsc = escapeTelegramHtml(String(notification.deliveryMethod || ''));
+    const paymentEsc = escapeTelegramHtml(String(notification.paymentMethod || ''));
 
     // Create message
     const message = `
 🎉 <b>YANGI BUYURTMA!</b>
 
-${placeEmoji} <b>${placeLabel}:</b> ${notification.shopName}
-🔢 <b>Buyurtma raqami:</b> #${notification.orderNumber}
-📅 <b>Sana:</b> ${notification.orderDate}
+📍 <b>Do'kon:</b> ${shopNameEsc}
+🔢 <b>Buyurtma raqami:</b> #${orderNumEsc}
+📅 <b>Sana:</b> ${orderDateEsc}
 
 ━━━━━━━━━━━━━━━━━━
 
 👤 <b>MIJOZ MA'LUMOTLARI:</b>
 
-👨‍💼 <b>Ismi:</b> ${notification.customerName}
-📞 <b>Telefon:</b> ${notification.customerPhone}
-📍 <b>Manzil:</b> ${notification.customerAddress}
+👨‍💼 <b>Ismi:</b> ${custNameEsc}
+📞 <b>Telefon:</b> ${custPhoneEsc}
+📍 <b>Manzil:</b> ${custAddrEsc}
 
 ━━━━━━━━━━━━━━━━━━
 
@@ -117,17 +135,13 @@ ${itemsList}
 
 💰 <b>JAMI SUMMA:</b> ${notification.totalAmount.toLocaleString()} so'm
 
-🚚 <b>Yetkazib berish:</b> ${notification.deliveryMethod}
-💳 <b>To'lov usuli:</b> ${notification.paymentMethod}
+🚚 <b>Yetkazib berish:</b> ${deliveryEsc}
+💳 <b>To'lov usuli:</b> ${paymentEsc}
 
 ━━━━━━━━━━━━━━━━━━
 
 ⚡ <b>DIQQAT!</b>
-${
-      notification.type === 'restaurant'
-        ? "Buyurtmani boshqarish uchun /taom (restoran paneli) yoki admin buyurtmalar bo'limiga kiring."
-        : "Bu buyurtmani tasdiqlash yoki bekor qilish uchun /seller platformasiga kiring va buyurtmalar bo'limiga o'ting."
-    }
+Bu buyurtmani tasdiqlash yoki bekor qilish uchun /seller platformasiga kiring va buyurtmalar bo'limiga o'ting.
 
 ✅ Tasdiqlash - Buyurtmani qabul qilish
 ❌ Bekor qilish - Buyurtmani rad etish

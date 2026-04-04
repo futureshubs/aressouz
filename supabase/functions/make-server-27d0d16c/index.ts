@@ -40,10 +40,6 @@ import {
   normalizeKvTestModeForSave,
   resolveClickIsTestForInvoice,
 } from "./payment-kv-utils.ts";
-import {
-  appendOrderToPaymentCheckoutBatch,
-  getPaymentCheckoutBatch,
-} from "./payment-checkout-batch.ts";
 
 async function paycomCallOptsForReceiptId(receiptId: string) {
   try {
@@ -1387,54 +1383,6 @@ async function markKvOrderPaidFromGateway(
     kvPaymentStatus: 'paid',
     paymentRequiresVerification: false,
   });
-}
-
-async function markRentalKvOrderPaidFromGateway(
-  rentalKvKey: string,
-  extras: { paymeReceiptId?: string; clickTransId?: string | number },
-): Promise<void> {
-  const key = String(rentalKvKey || '').trim();
-  if (!key.startsWith('rental_order_')) return;
-  const row = await kv.get(key);
-  if (!row || typeof row !== 'object') {
-    console.warn('[gateway-paid] ijara buyurtmasi KV da topilmadi:', key);
-    return;
-  }
-  const r = row as Record<string, unknown>;
-  const nowIso = new Date().toISOString();
-  const prevPaid = ['paid', 'completed', 'success'].includes(
-    String(r.platformPaymentStatus || r.paymentStatus || '').toLowerCase().trim(),
-  );
-  if (prevPaid) return;
-  await kv.set(key, {
-    ...r,
-    platformPaymentStatus: 'paid',
-    paymentCompletedAt: nowIso,
-    updatedAt: nowIso,
-    ...(extras.paymeReceiptId ? { paymeReceiptId: extras.paymeReceiptId } : {}),
-    ...(extras.clickTransId != null ? { clickTransId: extras.clickTransId } : {}),
-  });
-}
-
-async function markKvOrdersPaidFromPaymentReference(
-  paymentRef: string,
-  extras: { paymeReceiptId?: string; clickTransId?: string | number },
-): Promise<void> {
-  const ref = String(paymentRef || '').trim();
-  if (!ref) return;
-  const batch = await getPaymentCheckoutBatch(ref);
-  if (batch && batch.orderIds.length > 0) {
-    for (const oid of batch.orderIds) {
-      const s = String(oid || '').trim();
-      if (s.startsWith('rental_order_')) {
-        await markRentalKvOrderPaidFromGateway(s, extras);
-      } else {
-        await markKvOrderPaidFromGateway(s, extras);
-      }
-    }
-    return;
-  }
-  await markKvOrderPaidFromGateway(ref, extras);
 }
 
 async function validateOrderOwnership(c: any, order: any) {
@@ -3318,6 +3266,32 @@ async function calculateSoldThisWeek(productId: string, variantId?: string): Pro
   }
 }
 
+/**
+ * Do‘kon mahsuloti (KV): har variantda `stock` va `stockQuantity` bir xil raqam bo‘lsin;
+ * `stockQuantity` (mahsulot darajasi) — barcha variantlar yig‘indisi (seller panel «Ombor» bilan mos).
+ * Oldin faqat birinchi variant olinardi — qolganlari 0 ko‘rinib «Tugagan» chiqarardi.
+ */
+function normalizeShopProductForPublicResponse(product: any): { base: any; totalStock: number } {
+  const rawVars = Array.isArray(product?.variants) ? product.variants : [];
+  if (rawVars.length === 0) {
+    const t = Math.max(
+      0,
+      Math.floor(Number(product?.stock ?? product?.stockQuantity ?? product?.stockCount ?? 0)),
+    );
+    return { base: { ...product }, totalStock: Number.isFinite(t) ? t : 0 };
+  }
+  const normalizedVariants = rawVars.map((v: any) => {
+    const st = Math.max(
+      0,
+      Math.floor(Number(v?.stock ?? v?.stockQuantity ?? v?.stockCount ?? 0)),
+    );
+    const n = Number.isFinite(st) ? st : 0;
+    return { ...v, stock: n, stockQuantity: n };
+  });
+  const totalStock = normalizedVariants.reduce((s, v) => s + (Number(v.stock) || 0), 0);
+  return { base: { ...product, variants: normalizedVariants }, totalStock };
+}
+
 // Get all products (Market + Shops combined)
 app.get("/make-server-27d0d16c/products", async (c) => {
   try {
@@ -3382,24 +3356,25 @@ app.get("/make-server-27d0d16c/products", async (c) => {
         return true;
       })
       .map((product: any) => {
-        const firstVariant = product.variants?.[0];
-        const stats = reviewStats.get(String(product.id || ''));
-        const rating = stats?.count ? Number((stats.total / stats.count).toFixed(1)) : Number(product.rating || 0);
-        const reviewCount = stats?.count || Number(product.reviewCount || 0);
+        const { base, totalStock } = normalizeShopProductForPublicResponse(product);
+        const firstVariant = base.variants?.[0];
+        const stats = reviewStats.get(String(base.id || ''));
+        const rating = stats?.count ? Number((stats.total / stats.count).toFixed(1)) : Number(base.rating || 0);
+        const reviewCount = stats?.count || Number(base.reviewCount || 0);
         
         return {
-          ...product,
+          ...base,
           source: 'shop',
           price: firstVariant?.price || 0,
           oldPrice: firstVariant?.oldPrice || null,
           image: firstVariant?.images?.[0] || null,
-          stockQuantity: firstVariant?.stock || 0,
-          variantsCount: product.variants?.length || 0,
-          category: product.category || 'Do\'kon',
-          shopName: product.shopName || null, // Add shop name for display
+          stockQuantity: totalStock,
+          variantsCount: base.variants?.length || 0,
+          category: base.category || 'Do\'kon',
+          shopName: base.shopName || null, // Add shop name for display
           rating,
           reviewCount,
-          isNew: product.createdAt && new Date(product.createdAt) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
+          isNew: base.createdAt && new Date(base.createdAt) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000),
           isBestseller: false,
         };
       });
@@ -10126,6 +10101,7 @@ const resolveMarketCartBranchProductStorageId = (line: any): string => {
 
 /** Savat qatori onlayn do‘kon mahsuloti (KV `shop_product:...`). */
 const isShopProductCartLine = (line: any): boolean => {
+  if (String(line?.source || "").toLowerCase().trim() === "shop") return true;
   const pid = String(line?.id ?? line?.productId ?? "").trim();
   if (!pid) return false;
   if (pid.startsWith("shop_product:")) return true;
@@ -10294,6 +10270,68 @@ const parseCoordsFromAddressText = (text: string): { lat: number; lng: number } 
   if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
   return { lat, lng };
 };
+
+/** Telegram / matn: oxiridagi «(lat, lng)» qavsini olib tashlash — to‘liq manzil matni qolsin. */
+const stripTrailingCoordinateParen = (text: string): string => {
+  return String(text || '')
+    .replace(/\s*\(\s*-?\d+(?:\.\d+)?\s*,\s*-?\d+(?:\.\d+)?\s*\)\s*$/u, '')
+    .trim();
+};
+
+/**
+ * Buyurtma: mijoz manzilini Telegram va ko‘rsatish uchun — street/building/apartment/note + addressText;
+ * kordinatalar chiqarilmaydi (order.customerLocation / address.lat saqlanadi).
+ */
+function formatHumanOrderAddressForTelegram(order: any): string {
+  const oa = order?.address;
+  const chunks: string[] = [];
+  if (oa && typeof oa === 'object' && !Array.isArray(oa)) {
+    for (const k of ['street', 'building', 'apartment', 'note'] as const) {
+      const p = String((oa as any)[k] ?? '')
+        .trim()
+        .replace(/\s*[\r\n]+\s*/g, ', ')
+        .replace(/\s{2,}/g, ' ');
+      if (p) chunks.push(p);
+    }
+  }
+  const fromObj = chunks.join(', ').trim();
+  const at = stripTrailingCoordinateParen(String(order?.addressText ?? '').trim());
+  if (fromObj && at) {
+    if (fromObj.includes(at) || at.includes(fromObj)) {
+      return fromObj.length >= at.length ? fromObj : at;
+    }
+    return `${at}, ${fromObj}`;
+  }
+  const ca = stripTrailingCoordinateParen(String(order?.customerAddress ?? '').trim());
+  return fromObj || at || ca || 'Ko‘rsatilmagan';
+}
+
+function formatCustomerAddressForTelegram(customer: any): string {
+  if (customer == null) return 'Ko‘rsatilmagan';
+  if (typeof customer === 'string') {
+    return stripTrailingCoordinateParen(customer) || 'Ko‘rsatilmagan';
+  }
+  if (typeof customer !== 'object') return 'Ko‘rsatilmagan';
+  const rawAddr = (customer as any).address;
+  if (typeof rawAddr === 'string' && rawAddr.trim()) {
+    return stripTrailingCoordinateParen(rawAddr.trim()) || 'Ko‘rsatilmagan';
+  }
+  if (rawAddr && typeof rawAddr === 'object' && !Array.isArray(rawAddr)) {
+    return formatHumanOrderAddressForTelegram({
+      address: rawAddr,
+      addressText: (customer as any).addressText,
+    });
+  }
+  return formatHumanOrderAddressForTelegram({
+    address: {
+      street: (customer as any).street,
+      building: (customer as any).building,
+      apartment: (customer as any).apartment,
+      note: (customer as any).note,
+    },
+    addressText: (customer as any).addressText,
+  });
+}
 
 const tryParseCustomerCoordsFromOrderText = (order: any) => {
   const parts = [order.customerAddress, order.addressText, typeof order.address === 'string' ? order.address : ''].map(
@@ -13612,6 +13650,79 @@ async function loadShopKvRecordByNormalizedId(normalizedId: string): Promise<any
 }
 
 /**
+ * Bitta savat qatori uchun do‘kon ID (maydondagi shopId yoki `shop_product:*` KV).
+ * `isShopProductCartLine` ga bog‘lanmasdan UUID / turli id formatlarini sinaymiz.
+ */
+async function resolveShopIdFromSingleShopProductLine(line: any): Promise<string | null> {
+  if (!line || typeof line !== "object") return null;
+  const explicit = normalizeShopIdForSeller(
+    String(
+      (line as any).shopId ??
+        (line as any).shop_id ??
+        (line as any).product?.shopId ??
+        (line as any).product?.shop_id ??
+        "",
+    ).trim(),
+  );
+  if (explicit) return explicit;
+
+  const raw = String((line as any)?.id ?? (line as any)?.productId ?? "").trim();
+  if (!raw) return null;
+
+  const keysToTry = new Set<string>();
+  keysToTry.add(raw.startsWith("shop_product:") ? raw : `shop_product:${raw}`);
+  if (!raw.startsWith("shop_product:") && raw.includes("shop_product-")) {
+    keysToTry.add(`shop_product:${raw}`);
+  }
+  for (const key of keysToTry) {
+    if (key.replace("shop_product:", "").length < 2) continue;
+    const product = await kv.get(key);
+    if (!product || product.deleted) continue;
+    const sid = String(product.shopId ?? (product as any).shop_id ?? "").trim();
+    if (sid) {
+      const norm = normalizeShopIdForSeller(sid);
+      return norm || null;
+    }
+  }
+  return null;
+}
+
+/**
+ * Checkout ko‘pincha `shopId` yubormaydi; qatorlar orqali `shop_product:*` dan topish.
+ */
+async function resolveShopIdFromShopProductOrderLines(
+  items: unknown,
+  preInferred: string | null | undefined,
+): Promise<string | null> {
+  const fromPre =
+    preInferred != null && String(preInferred).trim() !== ""
+      ? normalizeShopIdForSeller(preInferred)
+      : "";
+  if (fromPre) return fromPre;
+
+  const arr = Array.isArray(items) ? items : [];
+  for (const line of arr) {
+    const sid = await resolveShopIdFromSingleShopProductLine(line);
+    if (sid) return sid;
+  }
+  return null;
+}
+
+/** Telegram: bir buyurtmadagi do‘kon qatorlarini shopId bo‘yicha guruhlash. */
+async function groupShopLinesByShopIdForTelegram(lines: any[]): Promise<Map<string, any[]>> {
+  const m = new Map<string, any[]>();
+  for (const line of lines) {
+    const sid = await resolveShopIdFromSingleShopProductLine(line);
+    if (!sid) continue;
+    const norm = normalizeShopIdForSeller(sid);
+    if (!norm) continue;
+    if (!m.has(norm)) m.set(norm, []);
+    m.get(norm)!.push(line);
+  }
+  return m;
+}
+
+/**
  * Kassa cheki: do‘kon Telegram chat — asosiy do‘kon yozuvi yoki filialda yagona telegramli do‘kon.
  */
 async function resolveShopTelegramTargetForReceipt(args: {
@@ -13647,6 +13758,145 @@ async function resolveShopTelegramTargetForReceipt(args: {
   };
 }
 
+/** POST /orders: do‘kon uchun Telegram (TELEGRAM_BOT_TOKEN). */
+async function sendShopOrderTelegramNotification(params: {
+  order: any;
+  data: any;
+  branchId: string | null | undefined;
+  orderIdForLog: string;
+  lines: any[];
+  shopIdNormHint: string | null | undefined;
+  totalAmount: number;
+  contextLabel?: string;
+}): Promise<void> {
+  const { order, data, branchId, orderIdForLog, lines, shopIdNormHint, totalAmount, contextLabel } = params;
+  try {
+    let shopIdNorm = normalizeShopIdForSeller(String(shopIdNormHint || "").trim());
+    if (!shopIdNorm) {
+      const r = await resolveShopIdFromShopProductOrderLines(lines, null);
+      shopIdNorm = normalizeShopIdForSeller(String(r || ""));
+    }
+    if (!shopIdNorm) {
+      console.log("ℹ️ Do'kon Telegram: shopId topilmadi", { orderIdForLog, contextLabel });
+      return;
+    }
+
+    let shopRecord: any = await loadShopKvRecordByNormalizedId(shopIdNorm);
+    let tgChat = shopRecord ? pickTelegramChatIdFromEntity(shopRecord) : "";
+    let tgShopName = String(shopRecord?.name || "Do'kon").trim() || "Do'kon";
+
+    if (!tgChat && shopIdNorm && branchId) {
+      const fallback = await resolveShopTelegramTargetForReceipt({
+        normalizedShopId: shopIdNorm,
+        branchId,
+      });
+      if (fallback?.chatId) {
+        tgChat = fallback.chatId;
+        tgShopName = String(fallback.shopName || tgShopName);
+      }
+    }
+
+    if (!tgChat) {
+      console.log("ℹ️ Do'kon Telegram: chat ID yo'q (telegramChatId sozlang)", {
+        shopIdNorm,
+        orderIdForLog,
+        contextLabel,
+      });
+      return;
+    }
+
+    const itemsForTelegram = (Array.isArray(lines) ? lines : []).map((item: any) => ({
+      name: String(item?.name || item?.title || item?.product?.name || "Mahsulot"),
+      variantName: String(
+        item?.variantName ||
+          item?.selectedVariantName ||
+          item?.variant?.name ||
+          item?.variantDetails?.name ||
+          "Standart",
+      ),
+      quantity: Math.max(1, Number(item?.quantity || 1)),
+      price: Number(item?.price ?? item?.unitPrice ?? 0),
+      additionalProducts: (
+        Array.isArray(item?.additionalProducts)
+          ? item.additionalProducts
+          : Array.isArray(item?.addons)
+            ? item.addons
+            : Array.isArray(item?.extras)
+              ? item.extras
+              : []
+      ).map((addon: any) => ({
+        name: String(addon?.name || "Qo'shimcha"),
+        price: Number(addon?.price || 0),
+        quantity: Number(addon?.quantity || 1),
+      })),
+    }));
+
+    const payUz: Record<string, string> = {
+      cash: "Naqd",
+      naqd: "Naqd",
+      click: "Click",
+      click_card: "Click (karta)",
+      payme: "Payme",
+      atmos: "Atmos",
+      qr: "Kassa QR",
+      qrcode: "Kassa QR",
+    };
+    const pmRaw = String(order.paymentMethod || "cash").toLowerCase();
+    let paymentLabel = payUz[pmRaw] || order.paymentMethod || "Naqd";
+    if (order.paymentStatus === "paid" && !payUz[pmRaw]) {
+      paymentLabel = `${paymentLabel} (to‘langan)`;
+    }
+
+    const addr = formatHumanOrderAddressForTelegram(order);
+
+    const telegramItems =
+      itemsForTelegram.length > 0
+        ? itemsForTelegram
+        : [
+            {
+              name: "Buyurtma",
+              variantName: "—",
+              quantity: 1,
+              price: Number(totalAmount || order.finalTotal || order.totalAmount || 0),
+            },
+          ];
+
+    const sent = await telegram.sendOrderNotification({
+      type: "shop",
+      shopName: tgShopName,
+      shopChatId: tgChat,
+      orderNumber: String(order.orderNumber || order.id),
+      customerName: String(order.customerName || "Mijoz"),
+      customerPhone: String(order.customerPhone || "Ko‘rsatilmagan"),
+      customerAddress: addr,
+      items: telegramItems,
+      totalAmount: Number(totalAmount || order.finalTotal || order.totalAmount || 0),
+      deliveryMethod:
+        String(data?.addressType || "").toLowerCase() === "pickup" ? "Olib ketish" : "Yetkazib berish",
+      paymentMethod: paymentLabel,
+      orderDate: new Date(order.createdAt || Date.now()).toLocaleString("uz-UZ", {
+        day: "2-digit",
+        month: "2-digit",
+        year: "numeric",
+        hour: "2-digit",
+        minute: "2-digit",
+      }),
+    });
+
+    if (!sent) {
+      console.warn("⚠️ Do'kon Telegram: yuborilmadi (token yoki API)", {
+        shopIdNorm,
+        orderIdForLog,
+        contextLabel,
+      });
+    } else {
+      console.log("✅ Do'kon Telegram yuborildi", { shopIdNorm, orderIdForLog, contextLabel });
+    }
+  } catch (e) {
+    console.warn("⚠️ sendShopOrderTelegramNotification:", e);
+  }
+}
+
 async function resolveNormalizedShopIdForReceipt(order: any): Promise<string> {
   const top = String(order?.shopId || "").trim();
   if (top) return normalizeShopIdForSeller(top);
@@ -13664,92 +13914,6 @@ async function resolveNormalizedShopIdForReceipt(order: any): Promise<string> {
     }
   }
   return "";
-}
-
-function pickPaymentQrUrlFromKvEntity(entity: any): string {
-  if (!entity || typeof entity !== "object") return "";
-  return String(
-    entity?.paymentQrImage ||
-      entity?.paymentQRImage ||
-      entity?.payment_qr_image ||
-      entity?.paymentQr ||
-      entity?.payment_qr ||
-      entity?.qrImageUrl ||
-      entity?.qrCode ||
-      entity?.qr_code ||
-      entity?.payment?.qrImage ||
-      entity?.payment?.qrImageUrl ||
-      entity?.payment?.qr ||
-      entity?.paymentDetails?.qrImageUrl ||
-      "",
-  ).trim();
-}
-
-/** Sotuvchi «qabul qilgach» kassa (Telegram) ga summa + QR eslatmasi — chek tasdiqlanguncha kuryer ko‘rmaydi. */
-async function notifyShopCashierTelegramSellerAccept(order: any): Promise<void> {
-  try {
-    const ot = String(order?.orderType || "shop").toLowerCase().trim();
-    if (ot !== "shop") return;
-    const ps = String(order?.paymentStatus || "").toLowerCase().trim();
-    if (ps === "paid" || ps === "completed" || ps === "success") return;
-
-    const normShop = await resolveNormalizedShopIdForReceipt(order);
-    const sidRaw =
-      normShop ||
-      inferShopIdFromCustomerOrder(order) ||
-      String(order?.shopId || "")
-        .trim()
-        .replace(/^shop:/i, "");
-    if (!sidRaw) return;
-
-    const shop = await loadShopKvRecordByNormalizedId(sidRaw);
-    const chatId = shop ? pickTelegramChatIdFromEntity(shop) : "";
-    if (!chatId) return;
-
-    const amount =
-      Number(order?.finalTotal ?? order?.totalAmount ?? order?.totalPrice ?? order?.total ?? 0) || 0;
-    const pm = String(order?.paymentMethod || "cash").toLowerCase().trim();
-    const pmLabel =
-      pm === "cash" || pm === "naqd"
-        ? "Naqd / kassa"
-        : pm === "qr" || pm === "qrcode"
-          ? "Filial kassa QR"
-          : pm === "payme"
-            ? "Payme"
-            : pm === "click" || pm === "click_card"
-              ? "Click"
-              : pm === "atmos"
-                ? "Atmos"
-                : pm || "—";
-
-    const orderRef = String(order?.orderNumber || order?.id || "—").replace(/^order:/, "");
-    const qrUrl =
-      String(order?.merchantPaymentQrUrl || "").trim() || pickPaymentQrUrlFromKvEntity(shop);
-    const custName = String(
-      order?.customerName || order?.customer?.name || order?.customer?.fullName || "—",
-    );
-    const custPhone = String(
-      order?.customerPhone || order?.customer?.phone || order?.customer?.tel || "—",
-    );
-
-    let text =
-      `<b>🏪 Kassa — sotuvchi buyurtmani qabul qildi</b>\n\n` +
-      `Buyurtma: <b>#${orderRef}</b>\n` +
-      `Summa: <b>${amount.toLocaleString("uz-UZ")} so'm</b>\n` +
-      `To'lov: <b>${pmLabel}</b>\n` +
-      `Mijoz: ${custName} · ${custPhone}\n\n` +
-      `<i>Naqd / kassa QR bo'lsa: filial panelida chekni yuklab tasdiqlang — shundan keyin kuryer «mavjud buyurtmalar»da ko'radi.</i>\n` +
-      `<i>Payme/Click/Atmos allaqachon to'langan bo'lsa, kuryer darhol ko'rishi mumkin.</i>\n`;
-
-    if (qrUrl) {
-      const safeUrl = qrUrl.replace(/"/g, "%22");
-      text += `\n<a href="${safeUrl}">To'lov QR (havola)</a>`;
-    }
-
-    await telegram.sendHtmlMessage({ type: "shop", chatId, text });
-  } catch (e) {
-    console.warn("[notifyShopCashierTelegramSellerAccept]", e);
-  }
 }
 
 function parseOrderKvValue(value: unknown): any | null {
@@ -13849,12 +14013,6 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
         updatedAt: new Date().toISOString(),
       };
       await kv.set(`shop_order:${id}`, updatedOrder);
-      if (nextStatus === "confirmed" || nextStatus === "accepted") {
-        const p = String(prevStatus || "").toLowerCase().trim();
-        if (p === "pending" || p === "new" || p === "") {
-          void notifyShopCashierTelegramSellerAccept({ ...updatedOrder, orderType: "shop" }).catch(() => {});
-        }
-      }
       return c.json({
         success: true,
         order: updatedOrder,
@@ -13899,13 +14057,6 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
       ],
     };
     await kv.set(record.key, updatedOrder);
-
-    if (nextStatus === "confirmed" || nextStatus === "accepted") {
-      const p = String(prevStatus || "").toLowerCase().trim();
-      if (p === "pending" || p === "new") {
-        void notifyShopCashierTelegramSellerAccept(updatedOrder).catch(() => {});
-      }
-    }
 
     try {
       await syncRelationalOrderFromLegacy({
@@ -14034,19 +14185,18 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
 
     await kv.set(`shop_order:${orderId}`, order);
 
-    // Send Telegram notification if chat ID is configured
-    const shopTgChat = pickTelegramChatIdFromEntity(shop);
-    if (shopTgChat) {
-      console.log(`📱 Sending Telegram notification to shop ${shop.name} (Chat ID: ${shopTgChat})`);
-      
+    const legacyShopTg = pickTelegramChatIdFromEntity(shop);
+    if (legacyShopTg) {
+      console.log(`📱 Sending Telegram notification to shop ${shop.name} (Chat ID: ${legacyShopTg})`);
+
       const notificationSent = await telegram.sendOrderNotification({
         type: 'shop',
-        shopName: shop.name,
-        shopChatId: shopTgChat,
+        shopName: String(shop.name || 'Do\'kon'),
+        shopChatId: legacyShopTg,
         orderNumber,
         customerName: customer.name || 'Noma\'lum',
         customerPhone: customer.phone || 'Ko\'rsatilmagan',
-        customerAddress: customer.address || 'Ko\'rsatilmagan',
+        customerAddress: formatCustomerAddressForTelegram(customer),
         items: items.map((item: any) => ({
           name: item.name || 'Mahsulot',
           variantName: item.variantName || 'Standart',
@@ -14056,12 +14206,12 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
         totalAmount,
         deliveryMethod: delivery.method || 'Yetkazib berish',
         paymentMethod: payment.method || 'Naqd',
-        orderDate: new Date().toLocaleString('uz-UZ', { 
+        orderDate: new Date().toLocaleString('uz-UZ', {
           day: '2-digit',
-          month: '2-digit', 
+          month: '2-digit',
           year: 'numeric',
           hour: '2-digit',
-          minute: '2-digit'
+          minute: '2-digit',
         }),
       });
 
@@ -14071,7 +14221,7 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
         console.log(`⚠️ Failed to send Telegram notification for order ${orderNumber}`);
       }
     } else {
-      console.log(`ℹ️ No Telegram chat ID configured for shop ${shop.name}`);
+      console.log(`ℹ️ No Telegram chat ID configured for shop ${shop.name} (telegramChatId / telegram_chat_id)`);
     }
 
     return c.json({ 
@@ -14366,23 +14516,23 @@ app.get("/make-server-27d0d16c/shops/:shopId/products", async (c) => {
         return true;
       })
       .map((product: any) => {
-        // Flatten first variant data to product level for easier display
-        const firstVariant = product.variants?.[0];
+        const { base, totalStock } = normalizeShopProductForPublicResponse(product);
+        const firstVariant = base.variants?.[0];
         
         return {
-          ...product,
+          ...base,
           // Add flattened fields from first variant
           price: firstVariant?.price || 0,
           oldPrice: firstVariant?.oldPrice || null,
           image: firstVariant?.images?.[0] || null,
-          stockQuantity: firstVariant?.stock || 0,
-          variantsCount: product.variants?.length || 0,
+          stockQuantity: totalStock,
+          variantsCount: base.variants?.length || 0,
           // Add display-ready fields
-          category: product.category || 'Mahsulot',
-          shopName: product.shopName || null, // Add shop name for display
+          category: base.category || 'Mahsulot',
+          shopName: base.shopName || null, // Add shop name for display
           rating: 4.8, // Default rating - can be updated with real reviews later
           reviewCount: Math.floor(Math.random() * 500) + 100, // Random for demo
-          isNew: product.createdAt && new Date(product.createdAt) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // New if created in last 7 days
+          isNew: base.createdAt && new Date(base.createdAt) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // New if created in last 7 days
           isBestseller: false, // Can be updated based on sales data later
         };
       });
@@ -14897,7 +15047,7 @@ app.post('/make-server-27d0d16c/payme/check-receipt', async (c) => {
           | { orderId?: string }
           | null;
         if (paidMeta?.orderId) {
-          await markKvOrdersPaidFromPaymentReference(String(paidMeta.orderId), {
+          await markKvOrderPaidFromGateway(String(paidMeta.orderId), {
             paymeReceiptId: receiptId,
           });
         }
@@ -15082,20 +15232,7 @@ app.post('/make-server-27d0d16c/atmos/create-transaction', async (c) => {
         400,
       );
     }
-
-    const txId = String(result.transactionId ?? '').trim();
-    if (txId) {
-      try {
-        await kv.set(`atmos_transaction:${txId}`, {
-          orderId: oid,
-          amount: amountNum,
-          createdAt: new Date().toISOString(),
-        });
-      } catch (e) {
-        console.warn('[atmos] atmos_transaction KV saqlanmadi:', e);
-      }
-    }
-
+    
     return c.json({
       success: true,
       transactionId: result.transactionId,
@@ -15125,20 +15262,7 @@ app.post('/make-server-27d0d16c/atmos/check-transaction', async (c) => {
     if (!result.success) {
       return c.json({ error: result.error || 'Tranzaksiya holatini olishda xatolik' }, 400);
     }
-
-    if (result.isPaid) {
-      try {
-        const meta = (await kv.get(`atmos_transaction:${String(transactionId).trim()}`)) as
-          | { orderId?: string }
-          | null;
-        if (meta?.orderId) {
-          await markKvOrdersPaidFromPaymentReference(String(meta.orderId), {});
-        }
-      } catch (e) {
-        console.error('[atmos/check-transaction] buyurtmalarni paid qilishda xato:', e);
-      }
-    }
-
+    
     return c.json({
       success: true,
       transaction: result.transaction,
@@ -18067,7 +18191,7 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
     
     const orderId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     const normalizedOrderType = String(data.orderType || '').toLowerCase().trim();
-    /** Mijoz tanlagan usul (naqd, payme, click, atmos, qr) — shop/food uchun ham majburiy QR emas */
+    /** Mijoz tanlagan usul (do‘kon/taom uchun ham market kabi: naqd, payme, click, atmos, qr) */
     const normalizedPaymentMethod = String(data.paymentMethod || 'cash').toLowerCase().trim();
     /** Checkout onlayn to‘lovda `paymentStatus: paid` yuboradi; avvaldoim `pending` qilib KV buzilgan edi. */
     const bodyPaymentNorm = normalizeIncomingOrderCreatePaymentStatus(data.paymentStatus);
@@ -18075,25 +18199,18 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       normalizedPaymentMethod === 'cash' ||
       normalizedPaymentMethod === 'naqd' ||
       normalizedPaymentMethod === 'cod';
-    const onlineGateway = ['payme', 'click', 'click_card', 'atmos', 'online'].includes(
-      normalizedPaymentMethod,
-    );
-    const reserveForOnlinePayment =
-      data.reserveForOnlinePayment === true || data.awaitingOnlinePayment === true;
     let paymentStatus: 'paid' | 'pending' | 'failed' | 'refunded';
     if (bodyPaymentNorm === 'failed' || bodyPaymentNorm === 'refunded') {
       paymentStatus = bodyPaymentNorm;
     } else if (cashLike) {
-      paymentStatus = 'pending';
-    } else if (reserveForOnlinePayment && onlineGateway) {
       paymentStatus = 'pending';
     } else {
       paymentStatus = bodyPaymentNorm === 'paid' ? 'paid' : 'pending';
     }
     const branchId = await inferOrderBranchId(data);
     const branch = branchId ? await kv.get(`branch:${branchId}`) : null;
-    const inferredShopId = (() => {
-      if (data.orderType !== 'shop') return null;
+    let inferredShopId: string | null = (() => {
+      if (normalizedOrderType !== 'shop') return null;
       const items = Array.isArray(data.items) ? data.items : [];
       const first = items[0] || null;
       const candidates = [
@@ -18111,6 +18228,11 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
 
       return shopId || null;
     })();
+
+    if (normalizedOrderType === 'shop') {
+      const fromProducts = await resolveShopIdFromShopProductOrderLines(data.items, inferredShopId);
+      if (fromProducts) inferredShopId = fromProducts;
+    }
     const inferredRestaurantId = (() => {
       if (normalizedOrderType !== 'food' && normalizedOrderType !== 'restaurant') return null;
       const items = Array.isArray(data.items) ? data.items : [];
@@ -18176,19 +18298,25 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
     if (!merchantPaymentQrUrl) {
       merchantPaymentQrUrl = pickQrImage(branch) || null;
     }
-    const isKassaQr =
+    /** Faqat kassa QR oqimi: chek yuklanmaguncha «to‘langan» deb qabul qilinmaydi. Onlayn to‘lov allaqachon paid. */
+    const wantsCashierQrReceipt =
       normalizedPaymentMethod === 'qr' || normalizedPaymentMethod === 'qrcode';
-    /** Faqat filial kassa QR: kassir chek yuklaguncha; payme/click/atmos to‘langan bo‘lsa tasdiq shart emas */
-    const paymentRequiresVerification = isKassaQr;
+    const paymentRequiresVerification = paymentStatus !== 'paid' && wantsCashierQrReceipt;
 
     // Market + naqd: filial "qabul qilish"gacha tayyorlovchi panelida ko‘rinmasin; onlayn to‘lov — darhol tayyorlovchiga.
     const marketCashHold =
       normalizedOrderType === 'market' &&
       (normalizedPaymentMethod === 'cash' || normalizedPaymentMethod === 'naqd');
+    const shopOrFoodOnlinePaid =
+      (normalizedOrderType === 'shop' || normalizedOrderType === 'food') &&
+      paymentStatus === 'paid' &&
+      ONLINE_PAYMENT_METHODS.has(normalizedPaymentMethod);
     const releasedToPreparerAt =
       normalizedOrderType === 'market' && !marketCashHold
         ? new Date().toISOString()
-        : undefined;
+        : shopOrFoodOnlinePaid
+          ? new Date().toISOString()
+          : undefined;
 
     const order = {
       id: orderId,
@@ -18229,9 +18357,6 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       }],
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
-      ...(data.checkoutBatchId ? { checkoutBatchId: String(data.checkoutBatchId) } : {}),
-      /** Kelajakdagi hisob-kitob: mijoz platformaga to‘laydi, tadbirkorga alohida to‘lov */
-      paymentFlow: 'platform_checkout',
       ...(marketCashHold ? { marketCashHold: true } : {}),
       ...(releasedToPreparerAt ? { releasedToPreparerAt } : {}),
     };
@@ -18389,11 +18514,6 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
 
     await kv.set(orderKey, order);
 
-    const batchIdForPay = data.checkoutBatchId ? String(data.checkoutBatchId).trim() : '';
-    if (batchIdForPay && reserveForOnlinePayment && onlineGateway) {
-      await appendOrderToPaymentCheckoutBatch(batchIdForPay, orderId, auth.userId);
-    }
-
     if (applyShopInventory && linesForShopInventory.length > 0) {
       const needByVariant = new Map<
         string,
@@ -18512,8 +18632,8 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
           }
         }
 
-        const restaurantChatId = restaurant ? pickTelegramChatIdFromEntity(restaurant) : '';
-        if (restaurantChatId) {
+        const restTg = restaurant ? pickTelegramChatIdFromEntity(restaurant) : '';
+        if (restaurant && restTg) {
           const itemsForTelegram = (Array.isArray(order.items) ? order.items : []).map((item: any) => ({
             name: String(item?.name || item?.title || item?.dishName || 'Taom'),
             variantName: String(item?.variantName || item?.size || 'Standart'),
@@ -18533,11 +18653,11 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
           const sent = await telegram.sendOrderNotification({
             type: 'restaurant',
             shopName: String(restaurant.name || restaurant.title || 'Restoran'),
-            shopChatId: restaurantChatId,
+            shopChatId: restTg,
             orderNumber: String(order.orderNumber || order.id),
             customerName: String(order.customerName || 'Mijoz'),
             customerPhone: String(order.customerPhone || 'Ko‘rsatilmagan'),
-            customerAddress: String(order.addressText || order.address?.street || 'Ko‘rsatilmagan'),
+            customerAddress: formatHumanOrderAddressForTelegram(order),
             items: itemsForTelegram,
             totalAmount: Number(order.finalTotal || order.totalAmount || 0),
             deliveryMethod: 'Yetkazib berish',
@@ -18557,91 +18677,46 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
             console.log('✅ Food order Telegram notification yuborildi');
           }
         } else {
-          console.log('ℹ️ Food order: restaurant Telegram chat id topilmadi (telegramChatId / telegram_chat_id va h.k.)');
+          console.log('ℹ️ Food order: restaurant Telegram chat topilmadi (telegramChatId / telegram_chat_id)');
         }
       } catch (telegramError) {
         console.log('⚠️ Food order telegram notify xatolik:', telegramError);
       }
     }
 
-    // Do'kon (shop): Checkout → POST /orders — /shop/orders emas; shu yerda Telegram
-    if (normalizedOrderType === 'shop' && inferredShopId) {
-      try {
-        const shop = await loadShopKvRecordByNormalizedId(String(inferredShopId));
-        const shopChatId = shop ? pickTelegramChatIdFromEntity(shop) : '';
-        if (shopChatId) {
-          const pm = String(order.paymentMethod || 'cash').toLowerCase();
-          const paymentLabel =
-            pm === 'cash' || pm === 'naqd'
-              ? 'Naqd pul'
-              : pm === 'qr' || pm === 'qrcode'
-                ? 'Filial kassa QR'
-                : pm === 'payme'
-                  ? 'Payme'
-                  : pm === 'click' || pm === 'click_card'
-                    ? 'Click'
-                    : pm === 'atmos'
-                      ? 'Atmos'
-                      : String(order.paymentMethod || 'Boshqa');
-
-          const itemsForTelegram = (Array.isArray(order.items) ? order.items : []).map((item: any) => {
-            const addonsSrc = Array.isArray(item?.addons)
-              ? item.addons
-              : Array.isArray(item?.additionalProducts)
-                ? item.additionalProducts
-                : [];
-            const basePrice = Number(item?.variantDetails?.price) || Number(item?.price) || 0;
-            return {
-              name: String(item?.name || item?.title || 'Mahsulot'),
-              variantName: String(
-                item?.variantDetails?.name || item?.variantName || item?.selectedVariantName || 'Standart',
-              ),
-              quantity: Number(item?.quantity || 1),
-              price: basePrice,
-              additionalProducts: addonsSrc.map((addon: any) => ({
-                name: String(addon?.name || addon?.title || "Qo'shimcha"),
-                price: Number(addon?.price || 0),
-                quantity: Number(addon?.quantity || addon?.count || 1),
-              })),
-            };
-          });
-
-          const sentShop = await telegram.sendOrderNotification({
-            type: 'shop',
-            shopName: String(shop?.name || "Do'kon"),
-            shopChatId: shopChatId,
-            orderNumber: String(order.orderNumber || order.id),
-            customerName: String(order.customerName || 'Mijoz'),
-            customerPhone: String(order.customerPhone || "Ko'rsatilmagan"),
-            customerAddress: String(order.addressText || order.address?.street || "Ko'rsatilmagan"),
-            items: itemsForTelegram,
-            totalAmount: Number(order.finalTotal || order.totalAmount || 0),
-            deliveryMethod: 'Yetkazib berish',
-            paymentMethod: paymentLabel,
-            orderDate: new Date(order.createdAt || Date.now()).toLocaleString('uz-UZ', {
-              day: '2-digit',
-              month: '2-digit',
-              year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
-            }),
-          });
-
-          if (!sentShop) {
-            console.log("⚠️ Shop order: Telegram xabar yuborilmadi (token yoki API)");
-          } else {
-            console.log("✅ Shop order: Telegram xabar yuborildi");
-          }
-        } else {
-          console.log(
-            `ℹ️ Shop order: Telegram chat id topilmadi (do'kon ${String(inferredShopId)} — telegramChatId maydonini tekshiring)`,
-          );
-        }
-      } catch (shopTgErr) {
-        console.log("⚠️ Shop order telegram notify xatolik:", shopTgErr);
+    // Do'kon: Telegram (TELEGRAM_BOT_TOKEN). orderType=shop yoki market buyurtmada shop_product qatorlari.
+    if (normalizedOrderType === 'shop') {
+      await sendShopOrderTelegramNotification({
+        order,
+        data,
+        branchId,
+        orderIdForLog: orderId,
+        lines: Array.isArray(order.items) ? order.items : [],
+        shopIdNormHint: order.shopId || inferredShopId,
+        totalAmount: Number(order.finalTotal || order.totalAmount || 0),
+        contextLabel: 'orderType=shop',
+      });
+    } else if (normalizedOrderType === 'market' && flaggedShopLines.length > 0) {
+      const groups = await groupShopLinesByShopIdForTelegram(flaggedShopLines);
+      for (const [sidNorm, gLines] of groups) {
+        const subtotal = gLines.reduce(
+          (s, it) =>
+            s + Number(it?.price ?? it?.unitPrice ?? 0) * Math.max(1, Number(it?.quantity ?? 1)),
+          0,
+        );
+        await sendShopOrderTelegramNotification({
+          order,
+          data,
+          branchId,
+          orderIdForLog: orderId,
+          lines: gLines,
+          shopIdNormHint: sidNorm,
+          totalAmount: subtotal > 0 ? subtotal : Number(order.finalTotal || order.totalAmount || 0),
+          contextLabel: 'orderType=market+shop_lines',
+        });
       }
     }
-    
+
     console.log('✅ Order created successfully:', orderId);
     console.log('📦 Order key:', orderKey);
     console.log('📦 Order details:', {

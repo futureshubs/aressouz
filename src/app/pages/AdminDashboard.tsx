@@ -17,6 +17,7 @@ import {
   BarChart3,
   LineChart,
   Shield,
+  Loader2,
 } from 'lucide-react';
 import BranchesView from '../components/admin/BranchesView';
 import UsersView from '../components/admin/UsersView';
@@ -77,8 +78,10 @@ export default function AdminDashboard() {
     totalRevenue: 0,
   });
   const [recentActivity, setRecentActivity] = useState<RecentActivityRow[]>([]);
+  const [statsLoading, setStatsLoading] = useState(true);
 
-  const loadStats = useCallback(async () => {
+  const loadStats = useCallback(async (opts?: { soft?: boolean }) => {
+    if (!opts?.soft) setStatsLoading(true);
     try {
       const [branchesResponse, usersResponse, ordersStatsResponse] = await Promise.all([
         fetch(`https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branches`, {
@@ -119,6 +122,8 @@ export default function AdminDashboard() {
       setRecentActivity(recent);
     } catch (error) {
       console.error('Error loading stats:', error);
+    } finally {
+      if (!opts?.soft) setStatsLoading(false);
     }
   }, []);
 
@@ -144,7 +149,7 @@ export default function AdminDashboard() {
   }, [navigate, loadStats]);
 
   useVisibilityRefetch(() => {
-    void loadStats();
+    void loadStats({ soft: true });
   });
 
   const handleLogout = () => {
@@ -403,53 +408,71 @@ export default function AdminDashboard() {
             <div className="space-y-6">
               {/* Stats Cards */}
               <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
-                {statsCards.map((stat, index) => {
-                  const Icon = stat.icon;
-                  const TrendIcon = stat.isPositive ? TrendingUp : TrendingDown;
-                  return (
-                    <div
-                      key={index}
-                      className="p-6 rounded-3xl border"
-                      style={{
-                        background: isDark 
-                          ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
-                          : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-                        borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                        boxShadow: isDark
-                          ? '0 10px 30px rgba(0, 0, 0, 0.3)'
-                          : '0 10px 30px rgba(0, 0, 0, 0.05)',
-                      }}
-                    >
-                      <div className="flex items-start justify-between mb-4">
-                        <div 
-                          className="p-3 rounded-2xl"
-                          style={{ background: `${stat.color}20` }}
-                        >
-                          <Icon className="w-6 h-6" style={{ color: stat.color }} />
+                {statsLoading
+                  ? Array.from({ length: 4 }).map((_, index) => (
+                      <div
+                        key={`st-sk-${index}`}
+                        className="p-6 rounded-3xl border animate-pulse"
+                        style={{
+                          background: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+                        }}
+                      >
+                        <div className="flex items-start justify-between mb-4">
+                          <div className="h-12 w-12 rounded-2xl bg-white/10" />
+                          <div className="h-6 w-14 rounded-lg bg-white/10" />
                         </div>
-                        <div 
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium"
+                        <div className="h-4 w-24 rounded bg-white/10 mb-2" />
+                        <div className="h-8 w-32 rounded-lg bg-white/10" />
+                      </div>
+                    ))
+                  : statsCards.map((stat, index) => {
+                      const Icon = stat.icon;
+                      const TrendIcon = stat.isPositive ? TrendingUp : TrendingDown;
+                      return (
+                        <div
+                          key={index}
+                          className="p-6 rounded-3xl border"
                           style={{
-                            background: stat.isPositive 
-                              ? 'rgba(16, 185, 129, 0.1)' 
-                              : 'rgba(239, 68, 68, 0.1)',
-                            color: stat.isPositive ? '#10b981' : '#ef4444',
+                            background: isDark
+                              ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
+                              : 'linear-gradient(145deg, #ffffff, #f9fafb)',
+                            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                            boxShadow: isDark
+                              ? '0 10px 30px rgba(0, 0, 0, 0.3)'
+                              : '0 10px 30px rgba(0, 0, 0, 0.05)',
                           }}
                         >
-                          <TrendIcon className="w-3 h-3" />
-                          {stat.trend}
+                          <div className="flex items-start justify-between mb-4">
+                            <div
+                              className="p-3 rounded-2xl"
+                              style={{ background: `${stat.color}20` }}
+                            >
+                              <Icon className="w-6 h-6" style={{ color: stat.color }} />
+                            </div>
+                            <div
+                              className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-medium"
+                              style={{
+                                background: stat.isPositive
+                                  ? 'rgba(16, 185, 129, 0.1)'
+                                  : 'rgba(239, 68, 68, 0.1)',
+                                color: stat.isPositive ? '#10b981' : '#ef4444',
+                              }}
+                            >
+                              <TrendIcon className="w-3 h-3" />
+                              {stat.trend}
+                            </div>
+                          </div>
+                          <p
+                            className="text-sm mb-1"
+                            style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
+                          >
+                            {stat.title}
+                          </p>
+                          <p className="text-2xl font-bold">{stat.value}</p>
                         </div>
-                      </div>
-                      <p 
-                        className="text-sm mb-1"
-                        style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                      >
-                        {stat.title}
-                      </p>
-                      <p className="text-2xl font-bold">{stat.value}</p>
-                    </div>
-                  );
-                })}
+                      );
+                    })}
               </div>
 
               {/* Recent Activity */}
@@ -465,7 +488,14 @@ export default function AdminDashboard() {
               >
                 <h3 className="text-lg font-bold mb-4">So'nggi buyurtmalar (KV)</h3>
                 <div className="space-y-3">
-                  {recentActivity.length === 0 ? (
+                  {statsLoading ? (
+                    <div className="flex flex-col items-center justify-center py-10 gap-3">
+                      <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} />
+                      <p className="text-sm" style={{ opacity: 0.6 }}>
+                        Yuklanmoqda…
+                      </p>
+                    </div>
+                  ) : recentActivity.length === 0 ? (
                     <p className="text-sm" style={{ opacity: 0.6 }}>
                       Hozircha yozuvlar yo'q yoki buyurtmalar boshqa saqlanmagan bo'lishi mumkin.
                     </p>
@@ -506,12 +536,18 @@ export default function AdminDashboard() {
             </div>
           )}
 
-          {activeTab === 'branches' && <BranchesView onStatsUpdate={loadStats} />}
+          {activeTab === 'branches' && (
+            <BranchesView onStatsUpdate={() => void loadStats({ soft: true })} />
+          )}
           {activeTab === 'statistics' && <AdminBranchStatistics />}
           {activeTab === 'analytics' && <AdminBranchAnalytics />}
           {activeTab === 'orders' && <OrdersManagement />}
-          {activeTab === 'users' && <UsersView onStatsUpdate={loadStats} />}
-          {activeTab === 'payments' && <PaymentsView onStatsUpdate={loadStats} />}
+          {activeTab === 'users' && (
+            <UsersView onStatsUpdate={() => void loadStats({ soft: true })} />
+          )}
+          {activeTab === 'payments' && (
+            <PaymentsView onStatsUpdate={() => void loadStats({ soft: true })} />
+          )}
           {activeTab === 'security' && <AdminSecurityView />}
         </div>
       </main>

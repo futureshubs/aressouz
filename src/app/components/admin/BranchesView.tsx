@@ -65,7 +65,9 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
   });
 
   const [availableDistricts, setAvailableDistricts] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
+  const [isSavingBranch, setIsSavingBranch] = useState(false);
+  /** Ro‘yxat API dan kelguncha — «hozircha yo‘q» erta chiqmasin */
+  const [isListLoading, setIsListLoading] = useState(true);
   
   // Delete confirmation dialog state
   const [deleteConfirmation, setDeleteConfirmation] = useState<{
@@ -100,6 +102,7 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
   }, [formData.regionId]);
 
   const loadBranches = async () => {
+    setIsListLoading(true);
     try {
       console.log('📦 Loading branches from Supabase...');
       
@@ -139,6 +142,8 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
     } catch (error) {
       console.error('❌ Error loading branches:', error);
       toast.error('Filiallarni yuklashda xatolik');
+    } finally {
+      setIsListLoading(false);
     }
   };
 
@@ -153,7 +158,7 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
       return;
     }
 
-    setIsLoading(true);
+    setIsSavingBranch(true);
 
     try {
       const region = regions.find(r => r.id === formData.regionId);
@@ -239,7 +244,7 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
       console.error('❌ Error saving branch:', error);
       toast.error('Saqlashda xatolik');
     } finally {
-      setIsLoading(false);
+      setIsSavingBranch(false);
     }
   };
 
@@ -372,7 +377,7 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
             className="text-sm"
             style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
           >
-            Jami {branches.length} ta filial
+            {isListLoading ? 'Yuklanmoqda…' : `Jami ${branches.length} ta filial`}
           </p>
         </div>
         <button
@@ -394,7 +399,34 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
 
       {/* Branches Grid */}
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 lg:gap-6">
-        {branches.map((branch) => (
+        {isListLoading && branches.length === 0
+          ? Array.from({ length: 6 }).map((_, i) => (
+              <div
+                key={`sk-${i}`}
+                className="p-6 rounded-3xl border animate-pulse"
+                style={{
+                  background: isDark ? 'rgba(255, 255, 255, 0.04)' : 'rgba(0, 0, 0, 0.03)',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
+                }}
+              >
+                <div className="flex justify-between mb-4">
+                  <div className="h-12 w-12 rounded-2xl bg-white/10" />
+                  <div className="flex gap-2">
+                    <div className="h-9 w-9 rounded-xl bg-white/10" />
+                    <div className="h-9 w-9 rounded-xl bg-white/10" />
+                  </div>
+                </div>
+                <div className="h-6 w-3/4 rounded-lg bg-white/10 mb-4" />
+                <div className="space-y-2">
+                  <div className="h-4 w-full rounded bg-white/10" />
+                  <div className="h-4 w-5/6 rounded bg-white/10" />
+                  <div className="h-4 w-4/6 rounded bg-white/10" />
+                </div>
+              </div>
+            ))
+          : null}
+        {!isListLoading || branches.length > 0
+          ? branches.map((branch) => (
           <div
             key={branch.id}
             className="p-6 rounded-3xl border group"
@@ -497,11 +529,12 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
               </p>
             </div>
           </div>
-        ))}
+        ))
+          : null}
       </div>
 
       {/* Empty State */}
-      {branches.length === 0 && (
+      {!isListLoading && branches.length === 0 && (
         <div 
           className="text-center py-12 rounded-3xl border"
           style={{
@@ -790,17 +823,17 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
                 </button>
                 <button
                   type="submit"
-                  disabled={isLoading}
+                  disabled={isSavingBranch}
                   className="flex-1 py-3 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:cursor-not-allowed"
                   style={{
                     background: accentColor.gradient,
                     color: '#ffffff',
                     boxShadow: `0 4px 16px ${accentColor.color}40`,
-                    opacity: isLoading ? 0.7 : 1,
+                    opacity: isSavingBranch ? 0.7 : 1,
                   }}
                 >
-                  {isLoading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                  {isLoading ? 'Saqlanmoqda...' : 'Saqlash'}
+                  {isSavingBranch ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
+                  {isSavingBranch ? 'Saqlanmoqda...' : 'Saqlash'}
                 </button>
               </div>
             </form>

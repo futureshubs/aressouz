@@ -8,11 +8,13 @@
     "dev": "vite",
     "test": "vitest run",
     "test:watch": "vitest",
-    "supabase:deploy": "supabase functions deploy make-server-27d0d16c --project-ref wnondmqmuvjugbomyolz && supabase functions deploy api --project-ref wnondmqmuvjugbomyolz && supabase functions deploy supabase-edge-function --project-ref wnondmqmuvjugbomyolz",
+    "supabase:deploy": "npx --yes supabase functions deploy make-server-27d0d16c --project-ref wnondmqmuvjugbomyolz && npx --yes supabase functions deploy api --project-ref wnondmqmuvjugbomyolz && npx --yes supabase functions deploy supabase-edge-function --project-ref wnondmqmuvjugbomyolz",
     "deploy:supabase": "npm run supabase:deploy",
-    "supabase:deploy:server": "supabase functions deploy make-server-27d0d16c --project-ref wnondmqmuvjugbomyolz"
+    "supabase:deploy:server": "npx --yes supabase functions deploy make-server-27d0d16c --project-ref wnondmqmuvjugbomyolz"
   },
   "dependencies": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1",
     "@emotion/react": "11.14.0",
     "@emotion/styled": "11.14.1",
     "@mui/icons-material": "7.3.5",
@@ -89,14 +91,6 @@
   "peerDependencies": {
     "react": "18.3.1",
     "react-dom": "18.3.1"
-  },
-  "peerDependenciesMeta": {
-    "react": {
-      "optional": true
-    },
-    "react-dom": {
-      "optional": true
-    }
   },
   "pnpm": {
     "overrides": {

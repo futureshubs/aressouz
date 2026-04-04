@@ -169,3 +169,75 @@ export async function resolveRegionDistrictFromCoords(
     return { regionId: fallbackRegion, districtId: fallbackDistrict };
   }
 }
+
+const nominatimHeaders = {
+  'User-Agent': 'AresSouz/1.0 (marketplace)',
+} as const;
+
+/**
+ * GPS nuqtasi uchun matnli manzil (ko‘cha, mahalla, aholi punkti) — checkout / Telegram.
+ * Kordinata o‘rniga Nominatim `address` yoki `display_name`.
+ */
+export async function reverseGeocodeDisplayLine(lat: number, lng: number): Promise<string | null> {
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (Math.abs(lat) > 90 || Math.abs(lng) > 180) return null;
+
+  try {
+    const url =
+      `https://nominatim.openstreetmap.org/reverse?format=json` +
+      `&lat=${encodeURIComponent(String(lat))}&lon=${encodeURIComponent(String(lng))}` +
+      `&accept-language=uz,ru,en&addressdetails=1`;
+    const response = await fetch(url, { headers: nominatimHeaders });
+    if (!response.ok) return null;
+    const data = await response.json();
+    const a = data.address || {};
+
+    const houseRoad = [String(a.house_number || '').trim(), String(a.road || '').trim()]
+      .filter(Boolean)
+      .join(' ')
+      .trim();
+
+    const parts: string[] = [];
+    if (houseRoad) parts.push(houseRoad);
+
+    const localityKeys = [
+      'neighbourhood',
+      'suburb',
+      'quarter',
+      'city_block',
+      'city_district',
+      'hamlet',
+      'village',
+      'town',
+      'city',
+      'municipality',
+    ] as const;
+    const seen = new Set(parts.map((p) => p.toLowerCase()));
+    for (const k of localityKeys) {
+      const v = String(a[k] || '').trim();
+      if (!v) continue;
+      const low = v.toLowerCase();
+      if (seen.has(low)) continue;
+      if ([...seen].some((s) => s.includes(low) || low.includes(s))) continue;
+      parts.push(v);
+      seen.add(low);
+    }
+
+    const state = String(a.state || a.province || a.region || '').trim();
+    if (state) {
+      const low = state.toLowerCase();
+      if (![...seen].some((s) => s.includes(low) || low.includes(s))) {
+        parts.push(state);
+      }
+    }
+
+    const composed = parts.join(', ').trim();
+    if (composed.length >= 6) return composed;
+
+    const display = String(data.display_name || '').trim();
+    if (display.length >= 6) return display;
+    return null;
+  } catch {
+    return null;
+  }
+}
