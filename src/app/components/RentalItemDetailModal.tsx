@@ -179,14 +179,12 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
             boxShadow: isDark ? '0 25px 50px rgba(0,0,0,0.5)' : '0 25px 50px rgba(0,0,0,0.12)',
           }}
         >
-        {/* Bitta scroll: rasm + barcha ma’lumot; pastki CTA alohida */}
-        <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] touch-pan-y">
-        {/* Image — 6:5, scroll bilan birga harakatlanadi */}
+        {/* Image — 6:5 (600×500 ga mos), to‘liq ko‘rinish (contain), ramka nisbatga mos */}
         <div
-          className="relative mx-auto w-full max-w-[600px] overflow-hidden sm:rounded-t-3xl"
+          className="relative mx-auto w-full max-w-[600px] shrink-0 overflow-hidden sm:rounded-t-3xl"
           style={{
             aspectRatio: '6 / 5',
-            maxHeight: 'min(520px, 55dvh)',
+            maxHeight: 'min(500px, 48dvh)',
             background: isDark ? '#0c0c0c' : '#ececee',
           }}
         >
@@ -299,7 +297,9 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
           )}
         </div>
 
-          <div className="px-5 py-4 sm:px-6 sm:py-5">
+        {/* Scroll: batafsil; pastki savat — alohida, scroll bo‘lmaydi */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 py-4 sm:px-6 sm:py-5 [-webkit-overflow-scrolling:touch]">
           {/* Title & Location */}
           <div className="mb-6">
             <h2 
@@ -504,7 +504,7 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
                 Sharhlar ({ratings.length})
               </h3>
               
-              <div className="space-y-3">
+              <div className="space-y-3 max-h-80 overflow-y-auto">
                 {ratings.slice(0, 5).map((review: any) => (
                   <div
                     key={review.id}
@@ -562,7 +562,6 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
             </div>
           )}
           </div>
-        </div>
 
           {/* Pastki panel: har doim ko‘rinadi, scroll emas */}
           <div
@@ -605,6 +604,7 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
               Savatga qo&apos;shish
             </button>
           </div>
+        </div>
         </div>
       </div>
     </div>
