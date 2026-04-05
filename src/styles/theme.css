@@ -340,6 +340,13 @@
 }
 
 /* Filial / admin / sotuvchi / restoran panellar: faqat kontent zonasi scroll */
+/* Asosiy ilova (AppContent): mobil ichki scroll — momentum / pan-y */
+.app-main-scroll {
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+  overscroll-behavior-y: contain;
+}
+
 .app-panel-viewport {
   height: 100dvh;
   max-height: 100dvh;
