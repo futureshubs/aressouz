@@ -11,9 +11,10 @@ import * as telegram from "./telegram.tsx";
 import restaurantRoutes from "./restaurants.tsx";
 import rentalRoutes from "./rentals.tsx";
 import auctionRoutes from "./auction.tsx";
-import bonusRoutes from "./bonus.tsx";
+import bonusRoutes, { deductBonusForOrderPurchase, getUserBonusData } from "./bonus.tsx";
 import bannerRoutes from "./banners.tsx";
 import * as aresso from "./aresso.tsx";
+import * as businessHours from "./businessHours.ts";
 import clickRoutes from "./click.tsx";
 import {
   buildPaycomCheckoutLink,
@@ -78,7 +79,11 @@ import * as atmos from "./atmos.tsx";
 import preparersRoutes from "./preparers.tsx";
 import twoFactorRoutes from "./twoFactor.tsx";
 import {
+  assertBranch2FANotLocked,
   branchRequiresTwoFactor,
+  clearBranch2FALoginLockout,
+  getBranch2FALockoutMeta,
+  recordBranch2FALoginFailure,
   verifyBranchTwoFactorLogin,
 } from "./twoFactor.tsx";
 import relationalRoutes from "./relational-routes.ts";
@@ -93,6 +98,8 @@ import {
   resolveCreatedTimestamp,
   computeCashierAmount,
   extractRestaurantIdFromOrder,
+  toIsoSafe,
+  toIsoSafeOrNow,
 } from "./services/payments-logic.ts";
 import {
   DEFAULT_MARKET_CATALOGS,
@@ -101,6 +108,11 @@ import {
   MARKET_CATALOG_SEED_VERSION_KEY,
   mergeMarketCatalogTrees,
 } from "./market-catalog-seeds.ts";
+import {
+  clampPlatformCommissionPercent,
+  isPlatformCommissionRequired,
+  validateVariantCommissionsForSave,
+} from "./platform-commission.ts";
 
 const app = new Hono();
 
@@ -1413,6 +1425,38 @@ async function validateOrderOwnership(c: any, order: any) {
   }
 
   return { success: true, mode: 'owner', userId: auth.userId };
+}
+
+/** Filial bekorida qator mahsulotlari uchun ~24 soat KV yozuvi (keyinroq katalog API bilan «tugagan» filtri). */
+async function applyOrderCancelOneDayLineCooldown(order: any) {
+  try {
+    const bid = String(order?.branchId || '').trim();
+    if (!bid || !Array.isArray(order?.items)) return;
+    const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
+    const ot = String(order.orderType || order.type || '').toLowerCase();
+    const isFoodish = ot === 'food' || ot === 'restaurant';
+    for (const it of order.items) {
+      if (!it || typeof it !== 'object') continue;
+      const line = it as Record<string, unknown>;
+      let lineKey = '';
+      if (ot === 'market') {
+        lineKey = String(line.productUuid || line.productId || line.id || '').trim();
+      } else if (ot === 'shop') {
+        lineKey = String(line.id || line.productId || line.shopProductId || '').trim();
+      } else if (isFoodish) {
+        lineKey = String(line.dishId || line.id || '').trim();
+      }
+      if (!lineKey || lineKey.length < 2) continue;
+      const safeKey = lineKey.replace(/[^a-zA-Z0-9._:-]/g, '_').slice(0, 200);
+      await kv.set(`branch_line_cooldown_v1:${bid}:${ot || 'x'}:${safeKey}`, {
+        until,
+        createdAt: new Date().toISOString(),
+        sourceOrderId: String(order.id || order.orderId || ''),
+      });
+    }
+  } catch (e) {
+    console.warn('[cooldown] applyOrderCancelOneDayLineCooldown:', e);
+  }
 }
 
 const buildCommunityRoomId = (regionId: string, districtId: string) =>
@@ -10124,6 +10168,131 @@ const orderLineVariantKey = (line: any): string => {
   return vidRaw != null && String(vidRaw).trim() !== "" ? String(vidRaw).trim() : "__first__";
 };
 
+async function resolveDishRecordForFoodLine(line: any): Promise<any | null> {
+  const idLike = String(line?.id ?? "").trim();
+  const idIfDish = idLike.startsWith("dish:") ? idLike : "";
+  const raw = String(line?.dishDetails?.dishId ?? line?.dishId ?? idIfDish ?? "").trim();
+  if (!raw) return null;
+  const keys = raw.startsWith("dish:") ? [raw] : [raw, `dish:${raw}`];
+  for (const k of keys) {
+    const d = await kv.get(k);
+    if (d && !d.deleted) return d;
+  }
+  return null;
+}
+
+/** Do‘kon/taom qatorlari uchun platforma ulushi (buyurtmada snapshot). */
+async function enrichOrderItemsWithPlatformCommission(
+  items: any[],
+  orderType: string,
+): Promise<
+  | {
+      ok: true;
+      items: any[];
+      platformCommissionTotalUzs: number;
+      merchantGoodsPayoutUzs: number;
+      commissionableItemsSubtotalUzs: number;
+      /** Filial market mahsulotlari: variantdagi foida narx × miqdor (faqat filial analitikasi). */
+      branchMarketProfitTotalUzs: number;
+    }
+  | { ok: false; error: string }
+> {
+  const required = isPlatformCommissionRequired();
+  const ot = String(orderType || "").toLowerCase().trim();
+  let platformTotal = 0;
+  let commissionableSubtotal = 0;
+  let branchMarketProfitTotalUzs = 0;
+  const out: any[] = [];
+
+  for (const line of items) {
+    const qty = Math.max(1, Math.floor(Number(line?.quantity ?? 1)));
+    const qtyMarket = Math.max(0, Math.floor(Number(line?.quantity ?? 1)));
+    const unitPrice = Number(line?.price ?? line?.unitPrice ?? 0);
+    const lineSubtotal = Math.max(0, unitPrice * qty);
+    let pct = 0;
+    let appliesCommission = false;
+    let marketProfitFields: Record<string, number> = {};
+
+    if (ot === "market" && !isShopProductCartLine(line) && qtyMarket > 0) {
+      const storageId = resolveMarketCartBranchProductStorageId(line);
+      if (storageId) {
+        const bp = await kv.get(`branchproduct:${storageId}`);
+        const variant = bp
+          ? resolveShopProductVariantForOrder(bp, orderLineVariantKey(line))
+          : null;
+        const perUnit = Math.max(
+          0,
+          Math.round(Number(variant?.profitPrice ?? variant?.profit_price ?? 0)),
+        );
+        const lineProfit = Math.round(perUnit * qtyMarket);
+        branchMarketProfitTotalUzs += lineProfit;
+        marketProfitFields = {
+          branchMarketProfitPerUnitUzs: perUnit,
+          branchMarketProfitLineUzs: lineProfit,
+        };
+      }
+    }
+
+    if (isShopProductCartLine(line) || ot === "shop") {
+      appliesCommission = true;
+      const pid = String(line?.id ?? line?.productId ?? "").trim();
+      const key = shopProductKvKeyFromPid(pid);
+      if (key) {
+        const product = await kv.get(key);
+        const variant = product
+          ? resolveShopProductVariantForOrder(product, orderLineVariantKey(line))
+          : null;
+        pct = clampPlatformCommissionPercent(variant?.commission);
+      }
+    } else if (ot === "food" || ot === "restaurant") {
+      appliesCommission = true;
+      const dish = await resolveDishRecordForFoodLine(line);
+      const variant = dish
+        ? resolveShopProductVariantForOrder(
+            { variants: Array.isArray(dish.variants) ? dish.variants : [] },
+            orderLineVariantKey(line),
+          )
+        : null;
+      pct = clampPlatformCommissionPercent(
+        variant?.commission ?? dish?.platformCommissionPercent,
+      );
+    }
+
+    if (appliesCommission && required && pct < 1) {
+      return {
+        ok: false,
+        error:
+          "Platformaga berish % kamida 1% bo‘lishi kerak (har bir do‘kon/taom varianti). Sozlamalar: 2026-06-01 dan keyin majburiy.",
+      };
+    }
+
+    const linePlatform = Math.round((lineSubtotal * pct) / 100);
+    platformTotal += linePlatform;
+    if (appliesCommission) commissionableSubtotal += lineSubtotal;
+
+    out.push({
+      ...line,
+      ...(appliesCommission
+        ? {
+            platformCommissionPercent: pct,
+            platformCommissionUzs: linePlatform,
+            merchantLinePayoutUzs: Math.max(0, lineSubtotal - linePlatform),
+          }
+        : {}),
+      ...marketProfitFields,
+    });
+  }
+
+  return {
+    ok: true,
+    items: out,
+    platformCommissionTotalUzs: platformTotal,
+    commissionableItemsSubtotalUzs: commissionableSubtotal,
+    merchantGoodsPayoutUzs: Math.max(0, commissionableSubtotal - platformTotal),
+    branchMarketProfitTotalUzs,
+  };
+}
+
 const shopProductKvKeyFromPid = (pid: string): string => {
   const p = String(pid || "").trim();
   if (!p) return "";
@@ -10204,6 +10373,34 @@ const isPaidLikeStatus = (raw: unknown) => {
   const ps = String(raw || "").toLowerCase().trim();
   return ps === "paid" || ps === "completed" || ps === "success";
 };
+
+/** Filial / bekor — naqd usullar */
+function isCashLikePaymentMethodRaw(pmRaw: unknown): boolean {
+  const pmNorm = String(pmRaw ?? "").toLowerCase().trim();
+  const pmCompact = pmNorm.replace(/\s+/g, "");
+  if (
+    pmCompact === "cash" ||
+    pmCompact === "naqd" ||
+    pmCompact === "naqdpul" ||
+    pmCompact === "cod"
+  ) {
+    return true;
+  }
+  if (pmNorm.includes("naqd") || pmNorm.includes("naqt")) return true;
+  if (pmNorm.includes("cash")) return true;
+  return false;
+}
+
+/** Taom: `order:id` bilan restoran ro'yxati kalitini sinxronlash */
+async function syncFoodOrderMirrorKv(order: any): Promise<void> {
+  const mk = order?.foodOrderMirrorKey;
+  if (typeof mk !== "string" || !mk.trim()) return;
+  try {
+    await kv.set(mk.trim(), order);
+  } catch (e) {
+    console.warn("[foodOrderMirror] sync failed:", e);
+  }
+}
 
 /**
  * Tayyorlovchi `ready` qilgach market/ijara kuryerga chiqishi uchun:
@@ -10792,6 +10989,33 @@ app.get("/make-server-27d0d16c/branch/dashboard/stats", async (c) => {
       .filter((o: any) => String(o.paymentStatus || "").toLowerCase() === "paid")
       .reduce((sum: number, o: any) => sum + Number(o.totalAmount || 0), 0);
 
+    const platformCommissionToday = todayOrders
+      .filter((o: any) => String(o.paymentStatus || "").toLowerCase() === "paid")
+      .reduce((sum: number, o: any) => sum + Number(o.platformCommissionTotalUzs || 0), 0);
+
+    const platformCommissionAllTime = branchOrders
+      .filter((o: any) => String(o.paymentStatus || "").toLowerCase() === "paid")
+      .reduce((sum: number, o: any) => sum + Number(o.platformCommissionTotalUzs || 0), 0);
+
+    const paidMarketToday = todayOrders.filter(
+      (o: any) =>
+        String(o.orderType || "").toLowerCase() === "market" &&
+        String(o.paymentStatus || "").toLowerCase() === "paid",
+    );
+    const paidMarketAll = branchOrders.filter(
+      (o: any) =>
+        String(o.orderType || "").toLowerCase() === "market" &&
+        String(o.paymentStatus || "").toLowerCase() === "paid",
+    );
+    const marketBranchProfitToday = paidMarketToday.reduce(
+      (sum: number, o: any) => sum + Number(o.branchMarketProfitTotalUzs || 0),
+      0,
+    );
+    const marketBranchProfitAllTime = paidMarketAll.reduce(
+      (sum: number, o: any) => sum + Number(o.branchMarketProfitTotalUzs || 0),
+      0,
+    );
+
     const uniqueUsersToday = new Set(
       todayOrders.map((o: any) => String(o.userId || "")).filter(Boolean),
     ).size;
@@ -10806,6 +11030,10 @@ app.get("/make-server-27d0d16c/branch/dashboard/stats", async (c) => {
         totalProducts: branchProducts.length,
         activeUsersToday: uniqueUsersToday,
         revenueToday,
+        platformCommissionToday,
+        platformCommissionAllTime,
+        marketBranchProfitToday,
+        marketBranchProfitAllTime,
       },
     });
   } catch (error: any) {
@@ -10836,13 +11064,53 @@ app.post("/make-server-27d0d16c/branch/session", async (c) => {
 
     const branchId = branch.id;
     if (await branchRequiresTwoFactor(branchId)) {
+      const lockPreview = await getBranch2FALockoutMeta(branchId);
       if (!twoFactorToken) {
+        if (lockPreview.locked && lockPreview.lockedUntil) {
+          return c.json(
+            {
+              success: false,
+              needsTwoFactor: true,
+              branchId,
+              lockout: true,
+              twoFactorLockedUntil: lockPreview.lockedUntil,
+              twoFactorLockoutMessage: lockPreview.message,
+            },
+            200,
+          );
+        }
         return c.json({ success: false, needsTwoFactor: true, branchId }, 200);
       }
+
+      const lock = await assertBranch2FANotLocked(branchId);
+      if (!lock.ok) {
+        return c.json(
+          {
+            error: lock.error,
+            lockout: true,
+            lockedUntil: lock.lockedUntil,
+            retryAfterMs: lock.retryAfterMs,
+          },
+          423,
+        );
+      }
+
       const twoFa = await verifyBranchTwoFactorLogin(branchId, twoFactorToken);
       if (!twoFa.ok) {
-        return c.json({ error: twoFa.error || '2FA kod noto‘g‘ri' }, 401);
+        const rec = await recordBranch2FALoginFailure(branchId);
+        return c.json(
+          {
+            error: twoFa.error || "2FA kod noto‘g‘ri",
+            attemptsRemaining: rec.attemptsRemaining,
+            ...(rec.justLocked && rec.lockedUntil
+              ? { lockout: true, lockedUntil: rec.lockedUntil }
+              : {}),
+          },
+          401,
+        );
       }
+
+      await clearBranch2FALoginLockout(branchId);
     }
 
     const token = `branch-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
@@ -11048,10 +11316,10 @@ app.get("/make-server-27d0d16c/staff", async (c) => {
       .filter((s: any) => s.branchId === branchId);
 
     staff.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-    const payload = staff.map((s: any) => ({
-      ...s,
-      role: s.role,
-    }));
+    const payload = staff.map((s: any) => {
+      const { password: _pw, ...safe } = s || {};
+      return { ...safe, role: s.role };
+    });
     return c.json({ success: true, staff: payload });
   } catch (error: any) {
     console.log('Get staff error:', error);
@@ -11077,6 +11345,35 @@ app.post("/make-server-27d0d16c/staff/register", async (c) => {
     const address = String(body.address || body.manzil || '').trim();
     const gender = String(body.gender || body.jins || '').trim();
     const birthDate = String(body.birthDate || body.birth || body.tugilganKun || body.tugulganKun || '').trim();
+
+    const monthlySalary = Number(body.monthlySalary ?? body.salary ?? body.maosh ?? body.oylik);
+    if (!Number.isFinite(monthlySalary) || monthlySalary < 0) {
+      return c.json({ error: "Oylik maosh noto'g'ri (0 yoki musbat son)" }, 400);
+    }
+
+    const normalizeWorkTimeHHMM = (raw: unknown): string => {
+      const s = String(raw ?? '').trim();
+      if (!s) return '';
+      const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?(?:\s*[AaPp][Mm])?/);
+      if (!m) return '';
+      let h = Number(m[1]);
+      let min = Number(m[2]);
+      if (!Number.isFinite(h) || !Number.isFinite(min)) return '';
+      h = Math.min(23, Math.max(0, Math.floor(h)));
+      min = Math.min(59, Math.max(0, Math.floor(min)));
+      return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+    };
+
+    const wsIn = body.workSchedule && typeof body.workSchedule === 'object' ? body.workSchedule : null;
+    let workStart = normalizeWorkTimeHHMM(wsIn?.start ?? body.workStart ?? body.ishBoshlanishi);
+    let workEnd = normalizeWorkTimeHHMM(wsIn?.end ?? body.workEnd ?? body.ishTugashi);
+    if (!workStart) workStart = '09:00';
+    if (!workEnd) workEnd = '18:00';
+    const daysRaw = Array.isArray(wsIn?.days) ? wsIn.days : Array.isArray(body.workDays) ? body.workDays : [];
+    const workDays = daysRaw.map((d: any) => String(d).toLowerCase().trim()).filter(Boolean);
+    if (!workDays.length) {
+      return c.json({ error: 'Ish kunlari kamida bittasi tanlanishi kerak' }, 400);
+    }
 
     if (!role || !login || !password || !firstName || !lastName || !phone || !address || !gender || !birthDate) {
       return c.json({ error: "To'liq ma'lumot majburiy" }, 400);
@@ -11107,6 +11404,8 @@ app.post("/make-server-27d0d16c/staff/register", async (c) => {
       address,
       gender,
       birthDate,
+      monthlySalary,
+      workSchedule: { start: workStart, end: workEnd, days: workDays },
       status: 'active',
       deleted: false,
       createdAt: now,
@@ -11117,6 +11416,153 @@ app.post("/make-server-27d0d16c/staff/register", async (c) => {
   } catch (error: any) {
     console.log('Staff register error:', error);
     return c.json({ error: "Xodim ro'yxatga olishda xatolik" }, 500);
+  }
+});
+
+// Staff update (filial paneli)
+app.put("/make-server-27d0d16c/staff/:id", async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error }, 403);
+    }
+
+    const staffId = String(c.req.param('id') || '').trim();
+    if (!staffId) {
+      return c.json({ error: 'staffId kerak' }, 400);
+    }
+
+    const existing = await kv.get(buildStaffKey(staffId));
+    if (!existing || existing.deleted || existing.branchId !== branchAuth.branchId) {
+      return c.json({ error: 'Xodim topilmadi' }, 404);
+    }
+
+    const body = await c.req.json();
+
+    const roleIn = body.role !== undefined ? normalizeStaffRole(body.role) : (existing.role as StaffRole);
+    if (!roleIn) {
+      return c.json({ error: 'Rol noto‘g‘ri' }, 400);
+    }
+
+    const firstName = body.firstName !== undefined ? String(body.firstName).trim() : existing.firstName;
+    const lastName = body.lastName !== undefined ? String(body.lastName).trim() : existing.lastName;
+    const phone = body.phone !== undefined ? String(body.phone).trim() : existing.phone;
+    const address = body.address !== undefined ? String(body.address).trim() : existing.address;
+    const gender = body.gender !== undefined ? String(body.gender).trim() : existing.gender;
+    const birthDate = body.birthDate !== undefined ? String(body.birthDate).trim() : existing.birthDate;
+    const login = body.login !== undefined ? String(body.login).trim() : existing.login;
+
+    if (!firstName || !lastName || !phone || !address || !gender || !birthDate || !login) {
+      return c.json({ error: "To'liq ma'lumot majburiy" }, 400);
+    }
+
+    let monthlySalary = existing.monthlySalary;
+    if (body.monthlySalary !== undefined || body.salary !== undefined || body.maosh !== undefined) {
+      const n = Number(body.monthlySalary ?? body.salary ?? body.maosh ?? existing.monthlySalary);
+      if (!Number.isFinite(n) || n < 0) {
+        return c.json({ error: "Oylik maosh noto'g'ri" }, 400);
+      }
+      monthlySalary = n;
+    }
+
+    let workSchedule = existing.workSchedule || { start: '', end: '', days: [] };
+    if (body.workSchedule && typeof body.workSchedule === 'object') {
+      const start = String(body.workSchedule.start || '').trim();
+      const end = String(body.workSchedule.end || '').trim();
+      const days = Array.isArray(body.workSchedule.days)
+        ? body.workSchedule.days.map((d: any) => String(d).toLowerCase().trim()).filter(Boolean)
+        : workSchedule.days;
+      workSchedule = {
+        start: start || workSchedule.start,
+        end: end || workSchedule.end,
+        days: days.length ? days : workSchedule.days,
+      };
+    } else if (body.workStart !== undefined || body.workEnd !== undefined || body.workDays !== undefined) {
+      const start = body.workStart !== undefined ? String(body.workStart).trim() : workSchedule.start;
+      const end = body.workEnd !== undefined ? String(body.workEnd).trim() : workSchedule.end;
+      const days =
+        Array.isArray(body.workDays) && body.workDays.length
+          ? body.workDays.map((d: any) => String(d).toLowerCase().trim()).filter(Boolean)
+          : workSchedule.days;
+      workSchedule = { start, end, days };
+    }
+
+    const defaultDays = ['mon', 'tue', 'wed', 'thu', 'fri'];
+    if (!workSchedule.start) workSchedule.start = '09:00';
+    if (!workSchedule.end) workSchedule.end = '18:00';
+    if (!Array.isArray(workSchedule.days) || !workSchedule.days.length) {
+      workSchedule.days = defaultDays;
+    }
+
+    const allStaff = await kv.getByPrefix('staff:');
+    const loginTaken = allStaff.some(
+      (s: any) => s && !s.deleted && s.branchId === branchAuth.branchId && s.login === login && s.id !== staffId,
+    );
+    if (loginTaken) {
+      return c.json({ error: 'Bu login band' }, 400);
+    }
+
+    const newPassword = body.password !== undefined ? String(body.password).trim() : '';
+    if (newPassword && newPassword.length < 4) {
+      return c.json({ error: 'Yangi parol juda qisqa' }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const updated = {
+      ...existing,
+      role: roleIn,
+      firstName,
+      lastName,
+      phone,
+      address,
+      gender,
+      birthDate,
+      login,
+      monthlySalary,
+      workSchedule,
+      updatedAt: now,
+      ...(newPassword ? { password: newPassword } : {}),
+    };
+
+    await kv.set(buildStaffKey(staffId), updated);
+    const { password: _p, ...safe } = updated;
+    return c.json({ success: true, staff: safe });
+  } catch (error: any) {
+    console.log('Staff update error:', error);
+    return c.json({ error: "Xodimni yangilashda xatolik" }, 500);
+  }
+});
+
+// Staff delete (soft)
+app.delete("/make-server-27d0d16c/staff/:id", async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error }, 403);
+    }
+
+    const staffId = String(c.req.param('id') || '').trim();
+    if (!staffId) {
+      return c.json({ error: 'staffId kerak' }, 400);
+    }
+
+    const existing = await kv.get(buildStaffKey(staffId));
+    if (!existing || existing.deleted || existing.branchId !== branchAuth.branchId) {
+      return c.json({ error: 'Xodim topilmadi' }, 404);
+    }
+
+    const now = new Date().toISOString();
+    await kv.set(buildStaffKey(staffId), {
+      ...existing,
+      deleted: true,
+      status: 'inactive',
+      updatedAt: now,
+    });
+
+    return c.json({ success: true, message: "Xodim o'chirildi" });
+  } catch (error: any) {
+    console.log('Staff delete error:', error);
+    return c.json({ error: "Xodimni o'chirishda xatolik" }, 500);
   }
 });
 
@@ -11144,11 +11590,6 @@ app.post("/make-server-27d0d16c/staff/login", async (c) => {
     const staff = allStaff[0];
 
     const role = staff.role as StaffRole;
-
-    // Cashier login not enabled (per your request)
-    if (role === 'cashier') {
-      return c.json({ error: 'Kassa uchun login parol keyinroq qilinadi' }, 403);
-    }
 
     // Accountant/Bogalter: allow selecting a branch at login
     if (role === 'accountant') {
@@ -12276,12 +12717,35 @@ app.post("/make-server-27d0d16c/courier/orders/:id/delivered", async (c) => {
       pmRaw.includes('naqd') ||
       pmRaw.includes('naqt') ||
       pmRaw.includes('cash');
+    const finalTotalNum =
+      Number(
+        orderRecord.order.finalTotal ??
+          orderRecord.order.totalAmount ??
+          orderRecord.order.totalPrice ??
+          orderRecord.order.total ??
+          orderRecord.order.grandTotal ??
+          0,
+      ) || 0;
+    const deliveryFeeNum =
+      Number(
+        orderRecord.order.deliveryPrice ??
+          orderRecord.order.deliveryFee ??
+          orderRecord.order.delivery_fee ??
+          0,
+      ) || 0;
+    /** Naqd: kuryer yetkazish haqini o‘zi saqlaydi, qolgani kassaga topshiriladi. */
+    const courierCashHandoffExpectedUzs = isCashLike ? Math.max(0, finalTotalNum - deliveryFeeNum) : 0;
+    const courierCashHandoffStatus = isCashLike ? 'pending_cashier' : 'not_applicable';
+
     const updatedOrder = {
       ...orderRecord.order,
       /** Mijoz mahsulotni ko‘rib tasdiqlaguncha yakuniy holat — keyin `delivered`. */
       status: 'awaiting_receipt',
       courierWorkflowStatus: 'delivered',
       handedToCustomerAt: deliveredAt,
+      courierCashHandoffExpectedUzs,
+      courierCashHandoffStatus,
+      courierCashHandedToCashierAt: isCashLike ? null : orderRecord.order.courierCashHandedToCashierAt ?? null,
       // Naqd: to‘lov mijoz buyurtmani tasdiqlaguncha pending (bekor qilsa — to‘lanmagan hisoblanadi).
       paymentStatus: isCashLike
         ? String(orderRecord.order.paymentStatus || '').toLowerCase().trim() === 'paid'
@@ -13379,7 +13843,18 @@ app.post("/make-server-27d0d16c/seller/products", async (c) => {
       variantsCount: productData.variants?.length,
     });
     console.log('📦 Full product data:', JSON.stringify(productData, null, 2));
-    
+
+    const vchk = validateVariantCommissionsForSave(productData.variants, "Mahsulot");
+    if (!vchk.ok) {
+      return c.json({ error: vchk.error }, 400);
+    }
+    if (Array.isArray(productData.variants)) {
+      productData.variants = productData.variants.map((v: any) => ({
+        ...v,
+        commission: clampPlatformCommissionPercent(v?.commission ?? v?.platformCommissionPercent),
+      }));
+    }
+
     const productId = `shop_product-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
     console.log('🆔 Generated product ID:', productId);
     
@@ -13457,7 +13932,19 @@ app.put("/make-server-27d0d16c/seller/products/:id", async (c) => {
     }
 
     const updateData = await c.req.json();
-    
+
+    const mergedVariants = updateData.variants ?? product.variants;
+    const vchk = validateVariantCommissionsForSave(mergedVariants, "Mahsulot");
+    if (!vchk.ok) {
+      return c.json({ error: vchk.error }, 400);
+    }
+    if (Array.isArray(updateData.variants)) {
+      updateData.variants = updateData.variants.map((v: any) => ({
+        ...v,
+        commission: clampPlatformCommissionPercent(v?.commission ?? v?.platformCommissionPercent),
+      }));
+    }
+
     // Ensure shopName is preserved or updated
     const shop = await kv.get(`shop:${auth.shopId}`);
     const shopName = shop?.name || product.shopName || null;
@@ -13957,6 +14444,12 @@ app.get("/make-server-27d0d16c/seller/orders", async (c) => {
       if (!order || order.deleted) continue;
       const ot = String(order.orderType || "").toLowerCase().trim();
       if (ot !== "shop") continue;
+      if (
+        !order.releasedToPreparerAt &&
+        isCashLikePaymentMethodRaw(order.paymentMethod ?? order.payment_method)
+      ) {
+        continue;
+      }
       const sid = inferShopIdFromCustomerOrder(order);
       if (normalizeShopIdForSeller(sid) !== sellerShopNorm) continue;
       const oid = String(order.id || "").trim();
@@ -14004,13 +14497,21 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
       if (nextStatus === "cancelled" && prevStatus !== "cancelled") {
         await restoreInventoryFromOrder(legacy);
       }
+      const nowLeg = new Date().toISOString();
+      const wasPaidLeg =
+        nextStatus === "cancelled" &&
+        prevStatus !== "cancelled" &&
+        isPaidLikeStatus(legacy.paymentStatus);
       const updatedOrder = {
         ...legacy,
         status,
         ...(nextStatus === "cancelled" && prevStatus !== "cancelled"
-          ? { inventoryRestoredOnCancel: true }
+          ? {
+              inventoryRestoredOnCancel: true,
+              ...(wasPaidLeg ? { refundPending: true, refundRequestedAt: nowLeg } : {}),
+            }
           : {}),
-        updatedAt: new Date().toISOString(),
+        updatedAt: nowLeg,
       };
       await kv.set(`shop_order:${id}`, updatedOrder);
       return c.json({
@@ -14040,11 +14541,18 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
     }
 
     const now = new Date().toISOString();
+    const wasPaidOnCancel =
+      nextStatus === "cancelled" &&
+      prevStatus !== "cancelled" &&
+      isPaidLikeStatus(order.paymentStatus);
     const updatedOrder = {
       ...order,
       status,
       ...(nextStatus === "cancelled" && prevStatus !== "cancelled"
-        ? { inventoryRestoredOnCancel: true }
+        ? {
+            inventoryRestoredOnCancel: true,
+            ...(wasPaidOnCancel ? { refundPending: true, refundRequestedAt: now } : {}),
+          }
         : {}),
       updatedAt: now,
       statusHistory: [
@@ -14057,6 +14565,7 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
       ],
     };
     await kv.set(record.key, updatedOrder);
+    await syncFoodOrderMirrorKv(updatedOrder);
 
     try {
       await syncRelationalOrderFromLegacy({
@@ -16412,6 +16921,7 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
     };
 
     for (const order of allOrdersRaw) {
+      try {
       if (!order) {
         bumpDrop('null_order', 'null');
         continue;
@@ -16601,11 +17111,14 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
         description: String(order.notes || ''),
         transactionId: order.paymentTransactionId ? String(order.paymentTransactionId) : undefined,
         paymentGateway: String(order.paymentMethod || uiMethod),
-        createdAt: createdAt ? new Date(createdAt).toISOString() : new Date().toISOString(),
-        updatedAt: order.updatedAt ? new Date(order.updatedAt).toISOString() : new Date().toISOString(),
-        completedAt: completedAt ? new Date(completedAt).toISOString() : undefined,
-        refundedAt: refundedAt ? new Date(refundedAt).toISOString() : undefined,
+        createdAt: toIsoSafeOrNow(createdAt),
+        updatedAt: toIsoSafeOrNow(order.updatedAt),
+        completedAt: toIsoSafe(completedAt),
+        refundedAt: toIsoSafe(refundedAt),
         failureReason: uiStatus === 'failed' ? String(order.paymentFailureReason || order.paymentError || '') : undefined,
+        platformCommissionTotalUzs: Number(order.platformCommissionTotalUzs || 0) || 0,
+        merchantGoodsPayoutUzs: Number(order.merchantGoodsPayoutUzs || 0) || 0,
+        commissionableItemsSubtotalUzs: Number(order.commissionableItemsSubtotalUzs || 0) || 0,
         metadata: {
           items: metadataItems,
           deliveryFee,
@@ -16614,6 +17127,9 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
           tax,
         },
       });
+      } catch (rowErr: any) {
+        console.error('[payments/list] row skip:', String((order as any)?.id ?? ''), rowErr?.message ?? rowErr);
+      }
     }
 
     // Sort newest first
@@ -16694,7 +17210,8 @@ app.post("/make-server-27d0d16c/payments/create", async (c) => {
   try {
     console.log('💳 Payment creation request received');
     
-    const { amount, orderId, description, returnUrl, userId, userPhone } = await c.req.json();
+    const { amount, orderId, description, returnUrl, userId, userPhone, paymentMethod } =
+      await c.req.json();
 
     if (!amount || !orderId) {
       return c.json({ error: 'Summa va buyurtma ID majburiy' }, 400);
@@ -16705,37 +17222,45 @@ app.post("/make-server-27d0d16c/payments/create", async (c) => {
       return c.json({ error: 'Minimal summa 1,000 so\'m' }, 400);
     }
 
-    // DEMO MODE: Return mock payment immediately
-    const DEMO_MODE = true;
-    if (DEMO_MODE) {
+    const pm = String(paymentMethod || "").toLowerCase().trim();
+    const envForceDemo = Deno.env.get("ARESSO_PAYMENTS_DEMO") === "true";
+    /** Atmos va bank kartasi (card / click_card) — demo; Payme, Click hamyoni — haqiqiy ARESSO */
+    const useDemoPayment =
+      envForceDemo || pm === "atmos" || pm === "card" || pm === "click_card";
+
+    if (useDemoPayment) {
       const mockPaymentId = `DEMO_PAY_${Date.now()}`;
       const mockPaymentUrl = `https://demo-payment.aresso.uz/pay/${mockPaymentId}`;
-      
-      console.log('🎭 DEMO MODE ACTIVE: Creating mock payment');
-      console.log('  Payment ID:', mockPaymentId);
-      console.log('  Amount:', amount, 'so\'m');
-      
-      // Store payment in KV
+
+      console.log("🎭 Demo/simulated payment:", { paymentId: mockPaymentId, amount, pm, envForceDemo });
+
       const paymentData = {
         paymentId: mockPaymentId,
         orderId,
         amount,
-        status: 'pending',
+        status: "pending",
         userId,
         userPhone,
         description: description || `Buyurtma #${orderId}`,
         createdAt: new Date().toISOString(),
         isDemoMode: true,
+        ...(pm ? { paymentMethod: pm } : {}),
       };
-      
+
       await kv.set(`payment:${mockPaymentId}`, JSON.stringify(paymentData));
       await kv.set(`order:${orderId}:payment`, mockPaymentId);
-      
+      await kv.set(`payment_order:${orderId}`, {
+        paymentId: mockPaymentId,
+        orderId,
+      });
+
       return c.json({
         success: true,
         paymentId: mockPaymentId,
         paymentUrl: mockPaymentUrl,
-        message: 'Demo to\'lov yaratildi (haqiqiy pul yechilmaydi)',
+        message: envForceDemo
+          ? "Demo to‘lov (ARESSO_PAYMENTS_DEMO=true)"
+          : "Simulyatsiya: atmos/karta — haqiqiy integratsiya alohida",
       });
     }
 
@@ -16757,6 +17282,7 @@ app.post("/make-server-27d0d16c/payments/create", async (c) => {
       returnUrl,
       userId,
       userPhone,
+      ...(paymentMethod ? { paymentMethod: String(paymentMethod).toLowerCase() } : {}),
     });
 
     if (!result.success) {
@@ -16777,6 +17303,7 @@ app.post("/make-server-27d0d16c/payments/create", async (c) => {
       userPhone,
       description,
       createdAt: new Date().toISOString(),
+      ...(paymentMethod ? { paymentMethod: String(paymentMethod).toLowerCase() } : {}),
     };
 
     await kv.set(`payment:${result.paymentId}`, paymentData);
@@ -16813,47 +17340,49 @@ app.get("/make-server-27d0d16c/payments/:paymentId/status", async (c) => {
       return c.json({ error: 'To\'lov ID majburiy' }, 400);
     }
 
-    // Get payment from KV
-    const paymentData = await kv.get(`payment:${paymentId}`);
+    let paymentData: any = await kv.get(`payment:${paymentId}`);
+    if (typeof paymentData === "string") {
+      try {
+        paymentData = JSON.parse(paymentData);
+      } catch {
+        paymentData = null;
+      }
+    }
 
-    if (!paymentData) {
-      return c.json({ 
+    if (!paymentData || typeof paymentData !== "object") {
+      return c.json({
         success: false,
-        error: 'To\'lov topilmadi' 
+        error: "To'lov topilmadi",
       }, 404);
     }
 
-    // DEMO MODE: Auto-mark as paid
-    const DEMO_MODE = true;
-    if (DEMO_MODE || paymentId.startsWith('DEMO_PAY_')) {
-      console.log('🎭 DEMO MODE: Auto-marking payment as paid');
-      
+    if (paymentId.startsWith("DEMO_PAY_")) {
+      console.log("🎭 Demo payment: auto-mark paid");
+
       const updatedPaymentData = {
         ...paymentData,
-        status: 'paid',
+        status: "paid",
         paidAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      
+
       await kv.set(`payment:${paymentId}`, updatedPaymentData);
-      
+
       return c.json({
         success: true,
         paymentId,
-        status: 'paid',
+        status: "paid",
         amount: paymentData.amount,
         orderId: paymentData.orderId,
         paidAt: updatedPaymentData.paidAt,
-        message: 'Demo to\'lov muvaffaqiyatli yakunlandi',
+        message: "Demo to'lov muvaffaqiyatli yakunlandi",
       });
     }
 
-    // Check status via ARESSO
     const statusResult = await aresso.checkPaymentStatus(paymentId);
 
     if (!statusResult.success) {
-      console.error('❌ ARESSO status check failed:', statusResult.error);
-      // Return cached status
+      console.error("❌ ARESSO status check failed:", statusResult.error);
       return c.json({
         success: true,
         paymentId,
@@ -16863,7 +17392,6 @@ app.get("/make-server-27d0d16c/payments/:paymentId/status", async (c) => {
       });
     }
 
-    // Update payment status in KV
     const updatedPaymentData = {
       ...paymentData,
       status: statusResult.status,
@@ -16873,7 +17401,7 @@ app.get("/make-server-27d0d16c/payments/:paymentId/status", async (c) => {
 
     await kv.set(`payment:${paymentId}`, updatedPaymentData);
 
-    console.log('✅ Payment status updated:', statusResult.status);
+    console.log("✅ Payment status updated:", statusResult.status);
 
     return c.json({
       success: true,
@@ -18161,6 +18689,61 @@ app.get("/make-server-27d0d16c/orders", async (c) => {
   }
 });
 
+async function assertBusinessHoursForStandardOrder(args: {
+  orderType: string;
+  deliveryZoneId?: string | null;
+  shopId: string | null;
+  restaurantId: string | null;
+}): Promise<{ error: string; opensAt: string | null } | null> {
+  const ref = new Date();
+  const zid = args.deliveryZoneId != null ? String(args.deliveryZoneId).trim() : '';
+  if (zid) {
+    const zone = await kv.get(`delivery-zone:${zid}`);
+    const ev = businessHours.evaluateHourStrings(
+      businessHours.collectHourStringsFromRecord(zone as Record<string, unknown>),
+      ref,
+    );
+    if (!ev.allowed) {
+      return {
+        error: `Yetkazib berish zonasi hozir ochiq emas${ev.label ? ` (ish vaqti: ${ev.label})` : ''}.`,
+        opensAt: ev.nextOpenIso,
+      };
+    }
+  }
+  if (args.orderType === 'shop' && args.shopId) {
+    const sid = businessHours.normalizeShopKey(String(args.shopId));
+    if (sid) {
+      const shop = await kv.get(`shop:${sid}`);
+      const ev = businessHours.evaluateHourStrings(
+        businessHours.collectHourStringsFromRecord(shop as Record<string, unknown>),
+        ref,
+      );
+      if (!ev.allowed) {
+        return {
+          error: `Do‘kon hozir buyurtma qabul qilmaydi${ev.label ? ` (ish vaqti: ${ev.label})` : ''}.`,
+          opensAt: ev.nextOpenIso,
+        };
+      }
+    }
+  }
+  if ((args.orderType === 'food' || args.orderType === 'restaurant') && args.restaurantId) {
+    const rid = String(args.restaurantId).trim();
+    const key = rid.startsWith('restaurant:') ? rid : `restaurant:${rid}`;
+    const restaurant = await kv.get(key);
+    const ev = businessHours.evaluateHourStrings(
+      businessHours.collectHourStringsFromRecord(restaurant as Record<string, unknown>),
+      ref,
+    );
+    if (!ev.allowed) {
+      return {
+        error: `Restoran hozir buyurtma qabul qilmaydi${ev.label ? ` (ish vaqti: ${ev.label})` : ''}.`,
+        opensAt: ev.nextOpenIso,
+      };
+    }
+  }
+  return null;
+}
+
 // Create new order (GENERAL - Market, Food, Rental)
 app.post("/make-server-27d0d16c/orders", async (c) => {
   try {
@@ -18185,12 +18768,42 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       return c.json({ error: 'Buyurtma uchun kamida bitta mahsulot kerak' }, 400);
     }
 
-    if (!data.orderType || !['market', 'shop', 'food', 'rental'].includes(data.orderType)) {
+    const rawOrderType = String(data.orderType || '').toLowerCase().trim();
+    if (!rawOrderType || !['market', 'shop', 'food', 'rental', 'restaurant'].includes(rawOrderType)) {
       return c.json({ error: 'Buyurtma turi noto\'g\'ri' }, 400);
     }
-    
+
     const orderId = `${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
-    const normalizedOrderType = String(data.orderType || '').toLowerCase().trim();
+    /** v2 / mijoz ba'zan `restaurant` yuboradi — ichki logika `food` bilan bir xil */
+    const normalizedOrderType = rawOrderType === 'restaurant' ? 'food' : rawOrderType;
+
+    const commissionPack = await enrichOrderItemsWithPlatformCommission(
+      Array.isArray(data.items) ? data.items : [],
+      normalizedOrderType,
+    );
+    if (!commissionPack.ok) {
+      return c.json({ error: commissionPack.error }, 400);
+    }
+
+    const bonusUsedAmt = Math.max(0, Math.floor(Number(data.bonusUsed) || 0));
+    if (bonusUsedAmt > 0) {
+      try {
+        const bd = await getUserBonusData(auth.userId);
+        const bal = Math.floor(Number(bd.balance) || 0);
+        if (bal < bonusUsedAmt) {
+          return c.json(
+            {
+              error: `Bonus balansi yetarli emas. Mavjud: ${bal} so'm, so'ralgan: ${bonusUsedAmt} so'm`,
+            },
+            400,
+          );
+        }
+      } catch (bonusPreErr) {
+        console.error('[orders] bonus pre-check', bonusPreErr);
+        return c.json({ error: 'Bonus balansini tekshirishda xatolik' }, 500);
+      }
+    }
+
     /** Mijoz tanlagan usul (do‘kon/taom uchun ham market kabi: naqd, payme, click, atmos, qr) */
     const normalizedPaymentMethod = String(data.paymentMethod || 'cash').toLowerCase().trim();
     /** Checkout onlayn to‘lovda `paymentStatus: paid` yuboradi; avvaldoim `pending` qilib KV buzilgan edi. */
@@ -18254,6 +18867,24 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       extractCustomerLocation(data) ||
       (data.deliveryZone ? getZoneCenter(await kv.get(`delivery-zone:${data.deliveryZone}`)) : null);
     const zoneRecord = data.deliveryZone ? await kv.get(`delivery-zone:${data.deliveryZone}`) : null;
+
+    const hoursBlock = await assertBusinessHoursForStandardOrder({
+      orderType: normalizedOrderType,
+      deliveryZoneId: data.deliveryZone,
+      shopId: inferredShopId,
+      restaurantId: inferredRestaurantId,
+    });
+    if (hoursBlock) {
+      return c.json(
+        {
+          error: hoursBlock.error,
+          errorCode: 'outside_business_hours',
+          opensAt: hoursBlock.opensAt,
+        },
+        409,
+      );
+    }
+
     const addressText = typeof data.address === 'object'
       ? [
           data.address?.street,
@@ -18307,6 +18938,9 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
     const marketCashHold =
       normalizedOrderType === 'market' &&
       (normalizedPaymentMethod === 'cash' || normalizedPaymentMethod === 'naqd');
+    const branchCashHold =
+      (normalizedOrderType === 'shop' || normalizedOrderType === 'food') &&
+      (normalizedPaymentMethod === 'cash' || normalizedPaymentMethod === 'naqd');
     const shopOrFoodOnlinePaid =
       (normalizedOrderType === 'shop' || normalizedOrderType === 'food') &&
       paymentStatus === 'paid' &&
@@ -18318,6 +18952,15 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
           ? new Date().toISOString()
           : undefined;
 
+    const foodOrderMirrorKey =
+      normalizedOrderType === 'food' && inferredRestaurantId
+        ? (() => {
+            const rid = String(inferredRestaurantId).trim();
+            const canon = rid.startsWith('restaurant:') ? rid : `restaurant:${rid}`;
+            return `order:restaurant:${canon}:${orderId}`;
+          })()
+        : null;
+
     const order = {
       id: orderId,
       orderNumber: `ORD-${Date.now()}`,
@@ -18325,7 +18968,11 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       customerName: data.customerName || userProfile?.name || userProfile?.firstName || 'Mijoz',
       customerPhone: data.customerPhone || userProfile?.phone || '',
       orderType: normalizedOrderType, // market, shop, food, rental
-      items: data.items,
+      items: commissionPack.items,
+      platformCommissionTotalUzs: commissionPack.platformCommissionTotalUzs,
+      merchantGoodsPayoutUzs: commissionPack.merchantGoodsPayoutUzs,
+      commissionableItemsSubtotalUzs: commissionPack.commissionableItemsSubtotalUzs,
+      branchMarketProfitTotalUzs: Number(commissionPack.branchMarketProfitTotalUzs) || 0,
       totalAmount: Number(data.totalAmount) || 0,
       deliveryPrice: Number(data.deliveryPrice) || 0,
       finalTotal: Number(data.finalTotal) || 0,
@@ -18336,7 +18983,7 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       merchantPaymentQrUrl,
       paymentRequiresVerification,
       promoCode: data.promoCode || null,
-      bonusUsed: Number(data.bonusUsed) || 0,
+      bonusUsed: bonusUsedAmt,
       address: data.address,
       addressText,
       addressType: data.addressType,
@@ -18358,6 +19005,8 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       ...(marketCashHold ? { marketCashHold: true } : {}),
+      ...(branchCashHold ? { branchCashHold: true } : {}),
+      ...(foodOrderMirrorKey ? { foodOrderMirrorKey } : {}),
       ...(releasedToPreparerAt ? { releasedToPreparerAt } : {}),
     };
     
@@ -18366,7 +19015,7 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       ? `order:market:${orderId}` 
       : `order:${orderId}`;
 
-    const itemsArr = Array.isArray(data.items) ? data.items : [];
+    const itemsArr = commissionPack.items;
     const flaggedShopLines = itemsArr.filter(isShopProductCartLine);
     const applyShopInventory =
       normalizedOrderType === 'shop' || flaggedShopLines.length > 0;
@@ -18513,6 +19162,28 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
     }
 
     await kv.set(orderKey, order);
+    if (foodOrderMirrorKey) {
+      await kv.set(foodOrderMirrorKey, order);
+    }
+
+    if (bonusUsedAmt > 0) {
+      try {
+        const deduct = await deductBonusForOrderPurchase(
+          auth.userId,
+          bonusUsedAmt,
+          orderId,
+          'Buyurtmada bonus ishlatildi',
+        );
+        if (!deduct.ok) {
+          console.error('[orders] bonus deduct failed after order save', deduct.error, {
+            orderId,
+            bonusUsedAmt,
+          });
+        }
+      } catch (bonusDeductErr) {
+        console.error('[orders] bonus deduct exception', bonusDeductErr, { orderId, bonusUsedAmt });
+      }
+    }
 
     if (applyShopInventory && linesForShopInventory.length > 0) {
       const needByVariant = new Map<
@@ -18927,6 +19598,7 @@ app.get('/make-server-27d0d16c/orders/branch', async (c) => {
 
     const branchId = branchAuth.branchId;
     const type = (c.req.query('type') || 'all') ? String(c.req.query('type')).trim() : 'all';
+    const refundQueue = String(c.req.query('refundQueue') || '').trim() === '1';
 
     const rows = await kv.getByPrefixWithKeys('order:');
     let orders = rows
@@ -18934,18 +19606,29 @@ app.get('/make-server-27d0d16c/orders/branch', async (c) => {
       .filter((o): o is NonNullable<typeof o> => o != null)
       .filter((o: any) => o.branchId === branchId);
 
-    const orderTypeMap: Record<string, string> = {
-      all: '',
-      market: 'market',
-      shop: 'shop',
-      rental: 'rental',
-      food: 'food',
-      restaurant: 'food', // food orders backendda `food` turi bilan saqlanadi; restaurant UI uchun alohida ko'rinish bo'lishi mumkin
-    };
+    if (refundQueue) {
+      orders = orders.filter((o: any) => {
+        const st = String(o.status || '').toLowerCase();
+        if (st !== 'cancelled' && st !== 'canceled') return false;
+        if (o.refundPending !== true) return false;
+        if (o.refundResolvedAt) return false;
+        const ot = String(o.orderType || '').toLowerCase();
+        return ot === 'market' || ot === 'shop' || ot === 'food';
+      });
+    } else {
+      const orderTypeMap: Record<string, string> = {
+        all: '',
+        market: 'market',
+        shop: 'shop',
+        rental: 'rental',
+        food: 'food',
+        restaurant: 'food', // food orders backendda `food` turi bilan saqlanadi; restaurant UI uchun alohida ko'rinish bo'lishi mumkin
+      };
 
-    const normalizedType = orderTypeMap[type] ?? '';
-    if (normalizedType) {
-      orders = orders.filter((o: any) => o.orderType === normalizedType);
+      const normalizedType = orderTypeMap[type] ?? '';
+      if (normalizedType) {
+        orders = orders.filter((o: any) => o.orderType === normalizedType);
+      }
     }
 
     const sortedOrders = [...orders].sort(
@@ -18959,7 +19642,171 @@ app.get('/make-server-27d0d16c/orders/branch', async (c) => {
   }
 });
 
-// Filial: naqd market buyurtmani qabul qilib tayyorlovchiga chiqarish
+/** Kassa: kuryer naqd pulini qabul qilish (mahsulot summasi, yetkazish kuryerda qoladi). */
+app.get('/make-server-27d0d16c/branch/courier-cash-handoffs', async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error }, 403);
+    }
+    const branchId = String(branchAuth.branchId || '');
+    const scope = String(c.req.query('scope') || 'pending').toLowerCase();
+
+    const rows = await kv.getByPrefixWithKeys('order:');
+    let orders = rows
+      .map(({ key, value }) => normalizeOrderRowForAdmin(value, key))
+      .filter((o): o is NonNullable<typeof o> => o != null)
+      .filter((o: any) => String(o.branchId || '') === branchId)
+      .filter((o: any) => {
+        const st = String(o.courierCashHandoffStatus || '');
+        if (scope === 'pending') return st === 'pending_cashier';
+        if (scope === 'history') return st === 'cashier_received';
+        return st === 'pending_cashier' || st === 'cashier_received';
+      });
+
+    orders.sort(
+      (a: any, b: any) =>
+        new Date(b.deliveredAt || b.handedToCustomerAt || b.updatedAt || 0).getTime() -
+        new Date(a.deliveredAt || a.handedToCustomerAt || a.updatedAt || 0).getTime(),
+    );
+
+    const marketHandoffs = orders.slice(0, 200).map((o: any) => ({
+      id: o.id,
+      orderNumber: o.orderNumber,
+      customerName: o.customerName || o.customer_name || '',
+      customerPhone: o.customerPhone || o.customer_phone || o.phone || '',
+      courierCashHandoffExpectedUzs: Number(o.courierCashHandoffExpectedUzs || 0),
+      courierCashHandoffStatus: o.courierCashHandoffStatus,
+      courierCashHandedToCashierAt: o.courierCashHandedToCashierAt || null,
+      assignedCourierId: o.assignedCourierId || null,
+      deliveredAt: o.deliveredAt || o.handedToCustomerAt || null,
+      paymentMethod: o.paymentMethod || o.payment_method || '',
+      finalTotal: Number(o.finalTotal ?? o.totalAmount ?? o.total ?? 0) || 0,
+      deliveryFee:
+        Number(o.deliveryPrice ?? o.deliveryFee ?? o.delivery_fee ?? 0) || 0,
+      handoffKind: 'market' as const,
+    }));
+
+    const rentalRows = (await kv.getByPrefix(`rental_order_${branchId}_`)) || [];
+    const rentalHandoffs: any[] = [];
+    for (const ro of rentalRows) {
+      if (!ro || String(ro.branchId || '') !== branchId) continue;
+      const st = String(ro.courierCashHandoffStatus || '');
+      if (scope === 'pending' && st !== 'pending_cashier') continue;
+      if (scope === 'history' && st !== 'cashier_received') continue;
+      if (
+        scope !== 'pending' &&
+        scope !== 'history' &&
+        st !== 'pending_cashier' &&
+        st !== 'cashier_received'
+      ) {
+        continue;
+      }
+      const sortAt =
+        st === 'pending_cashier'
+          ? ro.pickupCompletedAt || ro.updatedAt
+          : ro.courierCashHandedToCashierAt || ro.updatedAt;
+      rentalHandoffs.push({
+        id: ro.id,
+        orderNumber: ro.productName ? `Ijara · ${String(ro.productName)}` : 'Ijara',
+        customerName: ro.customerName || '',
+        customerPhone: ro.customerPhone || '',
+        courierCashHandoffExpectedUzs: Number(ro.courierCashHandoffExpectedUzs || 0),
+        courierCashHandoffStatus: ro.courierCashHandoffStatus,
+        courierCashHandedToCashierAt: ro.courierCashHandedToCashierAt || null,
+        assignedCourierId: ro.deliveryCourierId || null,
+        deliveredAt: ro.pickupCompletedAt || null,
+        paymentMethod: ro.paymentMethod || '',
+        finalTotal: Number(ro.totalPrice ?? 0) || 0,
+        deliveryFee: Number(ro.deliveryPrice ?? ro.deliveryFee ?? 0) || 0,
+        handoffKind: 'rental' as const,
+        __sortMs: new Date(sortAt || 0).getTime(),
+      });
+    }
+
+    const merged = [
+      ...marketHandoffs.map((h: any) => ({
+        ...h,
+        __sortMs: new Date(h.deliveredAt || 0).getTime(),
+      })),
+      ...rentalHandoffs,
+    ].sort((a: any, b: any) => (b.__sortMs || 0) - (a.__sortMs || 0));
+
+    const handoffs = merged.slice(0, 200).map(({ __sortMs, ...rest }: any) => rest);
+
+    return c.json({ success: true, handoffs, total: handoffs.length });
+  } catch (error: any) {
+    console.error('courier-cash-handoffs GET:', error);
+    return c.json({ error: 'Naqd topshiruvlarni olishda xatolik' }, 500);
+  }
+});
+
+app.post('/make-server-27d0d16c/branch/courier-cash-handoffs/:orderId/confirm', async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error }, 403);
+    }
+    const orderId = String(c.req.param('orderId') || '').trim();
+    if (!orderId) {
+      return c.json({ error: 'Buyurtma ID kerak' }, 400);
+    }
+    const record = await getOrderRecord(orderId);
+    if (record?.order) {
+      const o = record.order;
+      if (String(o.branchId || '') !== String(branchAuth.branchId || '')) {
+        return c.json({ error: "Bu filial uchun ruxsat yo'q" }, 403);
+      }
+      if (String(o.courierCashHandoffStatus || '') !== 'pending_cashier') {
+        return c.json({
+          success: true,
+          message: 'Allaqachon qabul qilingan yoki naqd topshiruv talab qilinmaydi',
+          order: o,
+        });
+      }
+      const now = new Date().toISOString();
+      const updated = {
+        ...o,
+        courierCashHandoffStatus: 'cashier_received',
+        courierCashHandedToCashierAt: now,
+        updatedAt: now,
+      };
+      await kv.set(record.key, updated);
+      return c.json({ success: true, order: updated, handoffKind: 'market' });
+    }
+
+    const rKey = `rental_order_${branchAuth.branchId}_${orderId}`;
+    const rental = await kv.get(rKey);
+    if (!rental) {
+      return c.json({ error: 'Buyurtma topilmadi' }, 404);
+    }
+    if (String(rental.branchId || '') !== String(branchAuth.branchId || '')) {
+      return c.json({ error: "Bu filial uchun ruxsat yo'q" }, 403);
+    }
+    if (String(rental.courierCashHandoffStatus || '') !== 'pending_cashier') {
+      return c.json({
+        success: true,
+        message: 'Allaqachon qabul qilingan yoki naqd topshiruv talab qilinmaydi',
+        order: rental,
+        handoffKind: 'rental',
+      });
+    }
+    const nowR = new Date().toISOString();
+    const updatedRental = {
+      ...rental,
+      courierCashHandoffStatus: 'cashier_received',
+      courierCashHandedToCashierAt: nowR,
+      updatedAt: nowR,
+    };
+    await kv.set(rKey, updatedRental);
+    return c.json({ success: true, order: updatedRental, handoffKind: 'rental' });
+  } catch (error: any) {
+    console.error('courier-cash-handoffs confirm:', error);
+    return c.json({ error: 'Qabul qilishda xatolik' }, 500);
+  }
+});
+
+// Filial: naqd buyurtmani qabul qilib tayyorlovchi / sotuvchi / restoran jarayoniga chiqarish
 app.post('/make-server-27d0d16c/orders/:orderId/release-to-preparer', async (c) => {
   try {
     const branchAuth = await validateBranchSession(c);
@@ -18982,27 +19829,23 @@ app.post('/make-server-27d0d16c/orders/:orderId/release-to-preparer', async (c) 
       return c.json({ error: "Bu filial uchun ruxsat yo'q" }, 403);
     }
     const keyStr = String(record.key || '');
-    const isMarketOrder =
-      String(o.orderType || o.type || '').toLowerCase() === 'market' ||
-      keyStr.startsWith('order:market:');
-    if (!isMarketOrder) {
-      return c.json({ error: 'Faqat market buyurtmalari' }, 400);
+    const ot = String(o.orderType || o.type || '').toLowerCase();
+    const isMarketOrder = ot === 'market' || keyStr.startsWith('order:market:');
+    const isShopOrder = ot === 'shop';
+    const isFoodOrder = ot === 'food' || ot === 'restaurant';
+    if (!isMarketOrder && !isShopOrder && !isFoodOrder) {
+      return c.json({ error: 'Faqat market, do‘kon yoki taom buyurtmalari' }, 400);
     }
-    const pmRaw = o.paymentMethod ?? o.payment_method;
-    const pmNorm = String(pmRaw ?? '').toLowerCase().trim();
-    const pmCompact = pmNorm.replace(/\s+/g, '');
-    const cashLike =
-      pmCompact === 'cash' ||
-      pmCompact === 'naqd' ||
-      pmCompact === 'naqdpul' ||
-      pmNorm.includes('naqd') ||
-      pmNorm.includes('naqt') ||
-      pmNorm.includes('cash');
-    if (!cashLike) {
+    if (!isCashLikePaymentMethodRaw(o.paymentMethod ?? o.payment_method)) {
       return c.json({ error: "Faqat naqd to'lov bilan buyurtmalar" }, 400);
     }
     if (o.releasedToPreparerAt) {
       return c.json({ success: true, order: o, alreadyReleased: true });
+    }
+
+    const st = String(o.status || '').toLowerCase();
+    if (st === 'cancelled' || st === 'canceled') {
+      return c.json({ error: 'Buyurtma bekor qilingan' }, 400);
     }
 
     const now = new Date().toISOString();
@@ -19015,14 +19858,140 @@ app.post('/make-server-27d0d16c/orders/:orderId/release-to-preparer', async (c) 
         {
           status: o.status || 'new',
           timestamp: now,
-          note: "Filial qabul qildi — tayyorlovchiga yuborildi",
+          note:
+            isShopOrder
+              ? "Filial qabul qildi — do‘kon paneliga chiqarildi"
+              : isFoodOrder
+                ? "Filial qabul qildi — restoran paneliga chiqarildi"
+                : "Filial qabul qildi — tayyorlovchiga yuborildi",
         },
       ],
     };
     await kv.set(record.key, updated);
+    await syncFoodOrderMirrorKv(updated);
     return c.json({ success: true, order: updated });
   } catch (error: any) {
     console.error('release-to-preparer error:', error);
+    return c.json({ error: error?.message || 'Xatolik' }, 500);
+  }
+});
+
+// Filial: kutilayotgan buyurtmani bekor qilish (naqd — oddiy; to‘langan — qaytarish navbatiga)
+app.post('/make-server-27d0d16c/orders/:orderId/cancel-by-branch', async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error }, 403);
+    }
+
+    const orderId = String(c.req.param('orderId') || '').trim();
+    if (!orderId) {
+      return c.json({ error: 'Buyurtma ID kerak' }, 400);
+    }
+
+    const record = await getOrderRecord(orderId);
+    if (!record?.order) {
+      return c.json({ error: 'Buyurtma topilmadi' }, 404);
+    }
+
+    const o = record.order as Record<string, any>;
+    if (String(o.branchId || '') !== String(branchAuth.branchId || '')) {
+      return c.json({ error: "Bu filial uchun ruxsat yo'q" }, 403);
+    }
+
+    const ot = String(o.orderType || o.type || '').toLowerCase();
+    if (ot !== 'market' && ot !== 'shop' && ot !== 'food' && ot !== 'restaurant') {
+      return c.json({ error: 'Faqat market / do‘kon / taom buyurtmalari' }, 400);
+    }
+
+    const st = String(o.status || '').toLowerCase();
+    if (st === 'cancelled' || st === 'canceled') {
+      return c.json({ success: true, order: o, alreadyCancelled: true });
+    }
+
+    const terminal = new Set([
+      'delivered',
+      'completed',
+      'with_courier',
+      'delivering',
+      'ready',
+      'preparing',
+    ]);
+    if (terminal.has(st)) {
+      return c.json(
+        { error: 'Buyurtma allaqachon jarayonda — filialdan bekor qilib bo‘lmaydi' },
+        400,
+      );
+    }
+
+    const pmRaw = o.paymentMethod ?? o.payment_method;
+    const cashLike = isCashLikePaymentMethodRaw(pmRaw);
+    const paidLike = isPaidLikeStatus(o.paymentStatus);
+    const cashHeldAtBranch = cashLike && !o.releasedToPreparerAt;
+    const pmLower = String(pmRaw || '').toLowerCase().trim();
+    const looksOnlinePaid =
+      ONLINE_PAYMENT_METHODS.has(pmLower) ||
+      ['uzum', 'humo', 'stripe', 'apple', 'google'].some((x) => pmLower.includes(x)) ||
+      pmLower === 'qr' ||
+      pmLower === 'qrcode';
+    const earlyPaidCancel =
+      paidLike &&
+      ['new', 'pending', 'confirmed'].includes(st) &&
+      looksOnlinePaid;
+
+    if (!cashHeldAtBranch && !earlyPaidCancel) {
+      return c.json(
+        { error: 'Filial ushbu buyurtmani hozircha bekor qila olmaydi' },
+        400,
+      );
+    }
+
+    if (!o.inventoryRestoredOnCancel) {
+      await restoreInventoryFromOrder(o);
+    }
+
+    const now = new Date().toISOString();
+    const refundPending = paidLike;
+    const updated = {
+      ...o,
+      status: 'cancelled',
+      inventoryRestoredOnCancel: true,
+      refundPending,
+      cancelledByBranchAt: now,
+      cancellationSource: 'branch',
+      updatedAt: now,
+      statusHistory: [
+        ...(Array.isArray(o.statusHistory) ? o.statusHistory : []),
+        {
+          status: 'cancelled',
+          timestamp: now,
+          note: refundPending
+            ? "Filial bekor qildi — onlayn to‘lov qaytarishini tekshiring"
+            : "Filial bekor qildi (naqd)",
+        },
+      ],
+    };
+
+    await kv.set(record.key, updated);
+    await syncFoodOrderMirrorKv(updated);
+    await applyOrderCancelOneDayLineCooldown(updated);
+
+    try {
+      await syncRelationalOrderFromLegacy({
+        legacyOrderId: String(updated.id ?? orderId),
+        kvStatus: 'cancelled',
+        kvPaymentStatus: String(updated.paymentStatus || 'pending'),
+        paymentRequiresVerification: Boolean(
+          updated.paymentRequiresVerification ?? o.paymentRequiresVerification,
+        ),
+      });
+    } catch (e) {
+      console.warn('[cancel-by-branch] v2 sync:', e);
+    }
+
+    return c.json({ success: true, order: updated, refundPending });
+  } catch (error: any) {
+    console.error('cancel-by-branch error:', error);
     return c.json({ error: error?.message || 'Xatolik' }, 500);
   }
 });
@@ -19462,6 +20431,7 @@ app.get('/make-server-27d0d16c/admin/branch-insights', async (c) => {
       orderCount: 0,
       revenuePaid: 0,
       revenueAll: 0,
+      platformCommissionUzs: 0,
       cancelledCount: 0,
       paidOrderCount: 0,
       deliveredCount: 0,
@@ -19511,6 +20481,11 @@ app.get('/make-server-27d0d16c/admin/branch-insights', async (c) => {
       m.byOrderType[ot] = (m.byOrderType[ot] || 0) + 1;
       if (ps === 'paid') {
         m.byOrderTypeRevenuePaid[ot] = (m.byOrderTypeRevenuePaid[ot] || 0) + money;
+      }
+
+      const plat = Number(o.platformCommissionTotalUzs);
+      if (Number.isFinite(plat) && plat > 0) {
+        m.platformCommissionUzs = (m.platformCommissionUzs || 0) + plat;
       }
 
       const ck = adminInsightCustomerKey(o);
@@ -19731,14 +20706,24 @@ app.post('/make-server-27d0d16c/orders/cancel', async (c) => {
         {
           status: 'cancelled',
           timestamp: new Date().toISOString(),
-          note: access.mode === 'admin' ? 'Admin tomonidan bekor qilindi' : 'Mijoz tomonidan bekor qilindi',
+          note:
+            access.mode === 'admin'
+              ? 'Admin tomonidan bekor qilindi'
+              : access.mode === 'branch'
+                ? 'Filial tomonidan bekor qilindi'
+                : 'Mijoz tomonidan bekor qilindi',
         },
       ],
     };
     await kv.set(orderRecord.key, updatedOrder);
     await detachBagFromOrderInternal(orderId, {
-      actorType: access.mode === 'admin' ? 'admin' : 'user',
-      actorId: access.userId || null,
+      actorType: access.mode === 'admin' ? 'admin' : access.mode === 'branch' ? 'branch' : 'user',
+      actorId:
+        access.mode === 'admin'
+          ? access.userId || null
+          : access.mode === 'branch'
+            ? (access as { branchId?: string }).branchId || null
+            : access.userId || null,
       note: 'Buyurtma bekor qilingani uchun so‘mka bo‘shatildi',
     });
     
@@ -19751,6 +20736,10 @@ app.post('/make-server-27d0d16c/orders/cancel', async (c) => {
       });
     } catch {
       /* v2 ixtiyoriy */
+    }
+
+    if (access.mode === 'branch') {
+      await applyOrderCancelOneDayLineCooldown(updatedOrder);
     }
 
     console.log('✅ Order cancelled successfully');
@@ -20646,9 +21635,27 @@ app.get('/make-server-27d0d16c/analytics', async (c) => {
     const previousStart = new Date(previousEnd.getTime() - ((rangeDays - 1) * DAY_MS));
     previousStart.setHours(0, 0, 0, 0);
 
+    const orderTypeRaw = normalizeValue(c.req.query('orderType') || 'all');
+    const orderTypeFilter: 'all' | 'food' | 'market' | 'shop' | 'rental' =
+      orderTypeRaw === 'food' || orderTypeRaw === 'restaurant'
+        ? 'food'
+        : orderTypeRaw === 'market' || orderTypeRaw === 'shop' || orderTypeRaw === 'rental'
+          ? (orderTypeRaw as 'market' | 'shop' | 'rental')
+          : 'all';
+
+    const orderMatchesVertical = (order: any) => {
+      if (orderTypeFilter === 'all') return true;
+      const ot = normalizeValue(order?.orderType || order?.type || '');
+      if (orderTypeFilter === 'food') return ot === 'food' || ot === 'restaurant';
+      return ot === orderTypeFilter;
+    };
+
     const branchProducts = (await kv.getByPrefix('branchproduct:')).filter((product: any) => product?.branchId === branchId);
-    const sales = (await kv.getByPrefix('sale:')).filter((sale: any) => sale?.branchId === branchId);
-    const orders = (await kv.getByPrefix('order:')).filter((order: any) => order?.branchId === branchId);
+    const salesAll = (await kv.getByPrefix('sale:')).filter((sale: any) => sale?.branchId === branchId);
+    const ordersAll = (await kv.getByPrefix('order:')).filter((order: any) => order?.branchId === branchId);
+    const ordersForMetrics = ordersAll.filter(orderMatchesVertical);
+    const salesForMetrics =
+      orderTypeFilter === 'food' || orderTypeFilter === 'shop' || orderTypeFilter === 'rental' ? [] : salesAll;
     const categoriesData = await kv.get('categories');
 
     const categoryLabelById = new Map<string, string>();
@@ -20895,11 +21902,11 @@ app.get('/make-server-27d0d16c/analytics', async (c) => {
         }
       };
 
-      for (const sale of sales) {
+      for (const sale of salesForMetrics) {
         applyTransaction(sale, `sale:${sale?.id || ''}`, 'sale');
       }
 
-      for (const order of orders) {
+      for (const order of ordersForMetrics) {
         applyTransaction(order, `order:${order?.id || ''}`, 'order');
       }
 
@@ -20935,6 +21942,7 @@ app.get('/make-server-27d0d16c/analytics', async (c) => {
         topProducts,
         categoryStats: normalizedCategoryStats,
         dailyStats,
+        uniqueLineItemKinds: productStats.size,
       };
     };
 
@@ -20962,13 +21970,18 @@ app.get('/make-server-27d0d16c/analytics', async (c) => {
       .sort((a, b) => a.label.localeCompare(b.label, 'uz'))
       .filter((item) => item.label);
 
+    const totalProductsOut =
+      orderTypeFilter === 'food'
+        ? Math.max(0, Number((currentMetrics as any).uniqueLineItemKinds || 0))
+        : totalProducts;
+
     return c.json({
       success: true,
       data: {
         totalRevenue: currentMetrics.totalRevenue,
         totalOrders: currentMetrics.totalOrders,
         totalCustomers: currentMetrics.totalCustomers,
-        totalProducts,
+        totalProducts: totalProductsOut,
         revenueGrowth: buildGrowth(currentMetrics.totalRevenue, previousMetrics.totalRevenue),
         ordersGrowth: buildGrowth(currentMetrics.totalOrders, previousMetrics.totalOrders),
         customersGrowth: buildGrowth(currentMetrics.totalCustomers, previousMetrics.totalCustomers),
@@ -21146,9 +22159,27 @@ app.get('/make-server-27d0d16c/statistics', async (c) => {
       return roundToOne(Math.min(5, Math.max(0, value)));
     };
 
+    const orderTypeRaw = normalizeValue(c.req.query('orderType') || 'all');
+    const orderTypeFilter: 'all' | 'food' | 'market' | 'shop' | 'rental' =
+      orderTypeRaw === 'food' || orderTypeRaw === 'restaurant'
+        ? 'food'
+        : orderTypeRaw === 'market' || orderTypeRaw === 'shop' || orderTypeRaw === 'rental'
+          ? (orderTypeRaw as 'market' | 'shop' | 'rental')
+          : 'all';
+
+    const orderMatchesVertical = (order: any) => {
+      if (orderTypeFilter === 'all') return true;
+      const ot = normalizeValue(order?.orderType || order?.type || '');
+      if (orderTypeFilter === 'food') return ot === 'food' || ot === 'restaurant';
+      return ot === orderTypeFilter;
+    };
+
     const branchProducts = (await kv.getByPrefix('branchproduct:')).filter((product: any) => product?.branchId === branchId);
-    const sales = (await kv.getByPrefix('sale:')).filter((sale: any) => sale?.branchId === branchId);
-    const orders = (await kv.getByPrefix('order:')).filter((order: any) => order?.branchId === branchId);
+    const salesAll = (await kv.getByPrefix('sale:')).filter((sale: any) => sale?.branchId === branchId);
+    const ordersAll = (await kv.getByPrefix('order:')).filter((order: any) => order?.branchId === branchId);
+    const ordersForStats = ordersAll.filter(orderMatchesVertical);
+    const salesForStats =
+      orderTypeFilter === 'food' || orderTypeFilter === 'shop' || orderTypeFilter === 'rental' ? [] : salesAll;
 
     const productById = new Map<string, any>();
     for (const product of branchProducts) {
@@ -21250,11 +22281,11 @@ app.get('/make-server-27d0d16c/statistics', async (c) => {
         }
       };
 
-      for (const sale of sales) {
+      for (const sale of salesForStats) {
         applyRecord(sale, 'sale');
       }
 
-      for (const order of orders) {
+      for (const order of ordersForStats) {
         if (CANCELLED_ORDER_STATUSES.has(normalizeValue(order?.status))) {
           applyRecord(order, 'order');
           continue;

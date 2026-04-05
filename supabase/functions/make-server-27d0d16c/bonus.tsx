@@ -46,7 +46,7 @@ async function retryOperation<T>(
 }
 
 // Get user bonus data from KV store with retry
-async function getUserBonusData(userId: string) {
+export async function getUserBonusData(userId: string) {
   const key = `bonus:${userId}`;
   console.log('📊 Getting bonus data for user:', userId);
   
@@ -232,62 +232,142 @@ function getTodayString(): string {
   return now.toISOString().split('T')[0]; // YYYY-MM-DD
 }
 
-// ==================== ROUTES ====================
+const REFERRAL_REWARD_UZS = 500;
+const REFERRAL_CODE_CHARS = "ABCDEFGHJKLMNPQRSTUVWXYZ23456789";
 
-// GET /bonus/:phone - Get user bonus data by phone
-app.get('/bonus/:phone', async (c) => {
-  try {
-    const phone = c.req.param('phone');
-    console.log('📊 GET /bonus/:phone - Fetching bonus data by phone:', phone);
-    
-    if (!phone) {
-      return c.json({ 
-        success: false, 
-        error: 'Telefon raqam majburiy' 
-      }, 400);
-    }
-
-    // Find user by phone
-    const phoneData = await kv.get(`user_phone:${phone}`);
-    
-    if (!phoneData || !phoneData.userId) {
-      console.log('⚠️ User not found for phone:', phone);
-      // Return default empty bonus data instead of error
-      return c.json({
-        success: true,
-        bonus: {
-          balance: 0,
-          totalEarned: 0,
-          dailyTaps: 0,
-          bonusTaps: 0,
-          points: 0, // For compatibility
-        },
-      });
-    }
-
-    console.log('✅ User found:', phoneData.userId);
-    const bonusData = await getUserBonusData(phoneData.userId);
-    
-    // Add points field for compatibility
-    const responseData = {
-      ...bonusData,
-      points: bonusData.balance, // Map balance to points for compatibility
-    };
-    
-    console.log('✅ Bonus data retrieved:', responseData);
-    
-    return c.json({
-      success: true,
-      bonus: responseData,
-    });
-  } catch (error) {
-    console.error('❌ Error fetching bonus by phone:', error);
-    return c.json({
-      success: false,
-      error: `Bonus ma'lumotlarini yuklashda xatolik: ${error.message}`,
-    }, 500);
+function randomReferralCode(): string {
+  let s = "";
+  for (let i = 0; i < 8; i++) {
+    s += REFERRAL_CODE_CHARS[Math.floor(Math.random() * REFERRAL_CODE_CHARS.length)];
   }
-});
+  return s;
+}
+
+async function ensureReferralCode(userId: string): Promise<string> {
+  const existing = await kv.get(`bonus_referral:${userId}`);
+  const c = existing?.code != null ? String(existing.code).trim().toUpperCase() : "";
+  if (c.length >= 6) return c;
+
+  for (let attempt = 0; attempt < 24; attempt++) {
+    const code = randomReferralCode();
+    const taken = await kv.get(`bonus_referral_lookup:${code}`);
+    if (taken) continue;
+    const now = new Date().toISOString();
+    await retryOperation(async () => await kv.set(`bonus_referral_lookup:${code}`, { userId }), 3, 500);
+    await retryOperation(async () => await kv.set(`bonus_referral:${userId}`, { code, createdAt: now }), 3, 500);
+    return code;
+  }
+  throw new Error("Referral kod yaratilmadi");
+}
+
+function maskPhoneDisplay(phone: string | undefined): string {
+  const p = String(phone || "").replace(/\D/g, "");
+  if (p.length < 9) return "•••••••";
+  return `${p.slice(0, 5)} ••• ${p.slice(-2)}`;
+}
+
+function displayNameFromProfile(prof: any): string {
+  if (!prof) return "Foydalanuvchi";
+  const fn = String(prof.firstName || "").trim();
+  const ln = String(prof.lastName || "").trim();
+  const full = `${fn} ${ln}`.trim();
+  if (full) return fn ? (ln ? `${fn} ${ln.charAt(0)}.` : fn) : "Foydalanuvchi";
+  return maskPhoneDisplay(prof.phone);
+}
+
+/** Do‘st birinchi marta tapdan pul yig‘ganda — taklif qiluvchiga 500 so‘m (bir marta). */
+async function tryPayReferralReward(
+  refereeUserId: string,
+  prevTotalEarned: number,
+  newTotalEarned: number,
+): Promise<void> {
+  if (prevTotalEarned > 0 || newTotalEarned <= 0) return;
+
+  const ref = await kv.get(`bonus_referee:${refereeUserId}`);
+  if (!ref || ref.rewardPaid || !ref.referrerId) return;
+
+  const referrerId = String(ref.referrerId);
+  if (!referrerId || referrerId === refereeUserId) return;
+
+  const referrerData = await getUserBonusData(referrerId);
+  const updatedReferrer = {
+    ...referrerData,
+    balance: (Number(referrerData.balance) || 0) + REFERRAL_REWARD_UZS,
+    totalEarned: (Number(referrerData.totalEarned) || 0) + REFERRAL_REWARD_UZS,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await retryOperation(async () => await kv.set(`bonus:${referrerId}`, updatedReferrer), 3, 500);
+
+  const hKey = `bonus_history:${referrerId}:${Date.now()}`;
+  await retryOperation(
+    async () =>
+      await kv.set(hKey, {
+        userId: referrerId,
+        type: "referral_reward",
+        amount: REFERRAL_REWARD_UZS,
+        description: `Do‘stingiz birinchi tap mukofoti (${refereeUserId.slice(0, 8)}…)`,
+        refereeUserId,
+        balanceAfter: updatedReferrer.balance,
+        timestamp: new Date().toISOString(),
+      }),
+    3,
+    500,
+  );
+
+  await retryOperation(
+    async () =>
+      await kv.set(`bonus_referee:${refereeUserId}`, {
+        ...ref,
+        rewardPaid: true,
+        rewardPaidAt: new Date().toISOString(),
+      }),
+    3,
+    500,
+  );
+
+  console.log("✅ Referral reward paid", { referrerId, refereeUserId, REFERRAL_REWARD_UZS });
+}
+
+async function buildLeaderboardRows(): Promise<
+  Array<{
+    userId: string;
+    balance: number;
+    totalEarned: number;
+    dailyTaps: number;
+    displayName: string;
+    phoneMasked: string;
+  }>
+> {
+  const rows = await kv.getByPrefixWithKeys("bonus:");
+  const raw = rows.filter((r) => /^bonus:[^:]+$/.test(r.key));
+  const mapped = raw.map((r) => {
+    const userId = r.key.slice("bonus:".length);
+    const v = r.value && typeof r.value === "object" ? r.value : {};
+    return {
+      userId,
+      balance: Number((v as any).balance) || 0,
+      totalEarned: Number((v as any).totalEarned) || 0,
+      dailyTaps: Number((v as any).dailyTaps) || 0,
+      displayName: "Foydalanuvchi",
+      phoneMasked: "•••",
+    };
+  });
+  mapped.sort((a, b) => b.balance - a.balance || b.totalEarned - a.totalEarned);
+
+  const top = mapped.slice(0, 120);
+  await Promise.all(
+    top.map(async (row) => {
+      const prof = await kv.get(`user:${row.userId}`);
+      row.displayName = displayNameFromProfile(prof);
+      row.phoneMasked = maskPhoneDisplay(prof?.phone);
+    }),
+  );
+  return top;
+}
+
+// ==================== ROUTES ====================
+// Eslatma: `/bonus/:phone` dinamik marshrut oxirida — aks holda `leaderboard`, `history` phone deb ushlanadi.
 
 // GET /bonus - Get user bonus data
 app.get('/bonus', async (c) => {
@@ -355,8 +435,9 @@ app.post('/bonus/tap', async (c) => {
     const applyCount = Math.min(tapCount, availableTaps);
     
     // Process taps (batched)
+    const prevTotalEarned = Number(bonusData.totalEarned) || 0;
     const newBalance = bonusData.balance + (TAP_VALUE * applyCount);
-    const newTotalEarned = bonusData.totalEarned + (TAP_VALUE * applyCount);
+    const newTotalEarned = prevTotalEarned + (TAP_VALUE * applyCount);
     let newDailyTaps = bonusData.dailyTaps;
     let newBonusTaps = bonusData.bonusTaps;
 
@@ -385,6 +466,8 @@ app.post('/bonus/tap', async (c) => {
     
     // Save tap history
     await saveTapHistory(user.id, TAP_VALUE * applyCount, newBalance);
+
+    await tryPayReferralReward(user.id, prevTotalEarned, newTotalEarned);
     
     console.log('✅ Tap processed successfully:', {
       balance: newBalance,
@@ -596,31 +679,153 @@ app.get('/bonus/history', async (c) => {
   }
 });
 
-// GET /bonus/leaderboard - Get top bonus earners
+// GET /bonus/leaderboard — balans bo‘yicha reyting (ism/telefon xira)
 app.get('/bonus/leaderboard', async (c) => {
   try {
     console.log('🏆 GET /bonus/leaderboard - Fetching leaderboard');
-    
-    const prefix = 'bonus:';
-    const allBonusData = await kv.getByPrefix(prefix);
-    
-    // KV store returns parsed JSONB, sort by totalEarned
-    const leaderboard = allBonusData
-      .sort((a, b) => b.totalEarned - a.totalEarned)
-      .slice(0, 100); // Top 100
-    
-    console.log('✅ Leaderboard retrieved:', leaderboard.length, 'users');
-    
+
+    const leaderboard = await buildLeaderboardRows();
+    const top = leaderboard.slice(0, 100);
+
+    let me: { rank: number; balance: number; totalEarned: number; userId: string } | null = null;
+    const authed = await validateUser(c);
+    if (authed?.id) {
+      const idx = leaderboard.findIndex((r) => r.userId === authed.id);
+      if (idx >= 0) {
+        me = {
+          rank: idx + 1,
+          balance: leaderboard[idx].balance,
+          totalEarned: leaderboard[idx].totalEarned,
+          userId: authed.id,
+        };
+      } else {
+        const solo = await getUserBonusData(authed.id);
+        me = {
+          rank: leaderboard.length + 1,
+          balance: Number(solo.balance) || 0,
+          totalEarned: Number(solo.totalEarned) || 0,
+          userId: authed.id,
+        };
+      }
+    }
+
     return c.json({
       success: true,
-      leaderboard,
+      leaderboard: top,
+      me,
     });
-  } catch (error) {
+  } catch (error: any) {
     console.error('❌ Error fetching leaderboard:', error);
     return c.json({
       success: false,
       error: `Reyting jadvalini yuklashda xatolik: ${error.message}`,
     }, 500);
+  }
+});
+
+// GET /bonus/referral — mening kodim, takliflar ro‘yxati
+app.get('/bonus/referral', async (c) => {
+  try {
+    const user = await validateUser(c);
+    if (!user) {
+      return c.json({ success: false, error: 'Unauthorized - Tizimga kiring' }, 401);
+    }
+
+    const code = await ensureReferralCode(user.id);
+    const myReferee = await kv.get(`bonus_referee:${user.id}`);
+    const rows = await kv.getByPrefixWithKeys('bonus_referee:');
+    const invited = rows.filter((r) => r.value && String(r.value.referrerId) === String(user.id));
+
+    let earnedUzs = 0;
+    const referees: Array<{ maskedName: string; rewardPaid: boolean; appliedAt?: string }> = [];
+    for (const row of invited) {
+      const refereeId = row.key.replace('bonus_referee:', '');
+      if (!refereeId) continue;
+      const paid = Boolean(row.value.rewardPaid);
+      if (paid) earnedUzs += REFERRAL_REWARD_UZS;
+      const prof = await kv.get(`user:${refereeId}`);
+      referees.push({
+        maskedName: displayNameFromProfile(prof),
+        rewardPaid: paid,
+        appliedAt: row.value.appliedAt,
+      });
+    }
+
+    return c.json({
+      success: true,
+      code,
+      rewardPerFriendUzs: REFERRAL_REWARD_UZS,
+      referrerLinked: Boolean(myReferee),
+      appliedReferralCode: myReferee?.codeUsed != null ? String(myReferee.codeUsed) : null,
+      stats: {
+        invited: invited.length,
+        rewarded: invited.filter((x) => x.value.rewardPaid).length,
+        earnedUzs,
+      },
+      referees,
+    });
+  } catch (error: any) {
+    console.error('❌ referral get:', error);
+    return c.json({ success: false, error: error.message || 'Xatolik' }, 500);
+  }
+});
+
+// POST /bonus/referral/apply — do‘st kodi (faqat hali tapdan pul yig‘maganlar)
+app.post('/bonus/referral/apply', async (c) => {
+  try {
+    const user = await validateUser(c);
+    if (!user) {
+      return c.json({ success: false, error: 'Unauthorized - Tizimga kiring' }, 401);
+    }
+
+    const body = await c.req.json().catch(() => ({}));
+    const rawCode = String(body?.code || '').trim().toUpperCase().replace(/[^A-Z0-9]/g, '');
+    if (rawCode.length < 8) {
+      return c.json({ success: false, error: 'Kod 8 belgidan iborat bo‘lishi kerak' }, 400);
+    }
+
+    const existingRef = await kv.get(`bonus_referee:${user.id}`);
+    if (existingRef) {
+      return c.json({ success: false, error: 'Siz allaqachon referal kodini ulagansiz' }, 400);
+    }
+
+    const lookup = await kv.get(`bonus_referral_lookup:${rawCode}`);
+    const referrerId = lookup?.userId != null ? String(lookup.userId) : '';
+    if (!referrerId) {
+      return c.json({ success: false, error: 'Bunday kod topilmadi' }, 404);
+    }
+    if (referrerId === user.id) {
+      return c.json({ success: false, error: 'O‘z kodingizni kirita olmaysiz' }, 400);
+    }
+
+    const bonusState = await getUserBonusData(user.id);
+    if ((Number(bonusState.totalEarned) || 0) > 0) {
+      return c.json({
+        success: false,
+        error: 'Referal kodi faqat hali «tap» dan pul yig‘magan yangi akkauntlar uchun',
+      }, 400);
+    }
+
+    const now = new Date().toISOString();
+    await retryOperation(
+      async () =>
+        await kv.set(`bonus_referee:${user.id}`, {
+          referrerId,
+          appliedAt: now,
+          rewardPaid: false,
+          codeUsed: rawCode,
+        }),
+      3,
+      500,
+    );
+
+    return c.json({
+      success: true,
+      message: `Kod qabul qilindi! Birinchi tap mukofotingizdan keyin do‘stingizga ${REFERRAL_REWARD_UZS} so‘m tushadi.`,
+    });
+  } catch (error: any) {
+    console.error('❌ referral apply:', error);
+    return c.json({ success: false, error: error.message || 'Xatolik' }, 500);
   }
 });
 
@@ -706,5 +911,102 @@ app.post('/bonus/reward-purchase', async (c) => {
     }, 500);
   }
 });
+
+// GET /bonus/:phone - Get user bonus data by phone (faqat raqam — oxirida bo‘lishi kerak)
+app.get('/bonus/:phone', async (c) => {
+  try {
+    const phone = c.req.param('phone');
+    console.log('📊 GET /bonus/:phone - Fetching bonus data by phone:', phone);
+
+    if (!phone) {
+      return c.json({
+        success: false,
+        error: 'Telefon raqam majburiy',
+      }, 400);
+    }
+
+    const phoneData = await kv.get(`user_phone:${phone}`);
+
+    if (!phoneData || !phoneData.userId) {
+      console.log('⚠️ User not found for phone:', phone);
+      return c.json({
+        success: true,
+        bonus: {
+          balance: 0,
+          totalEarned: 0,
+          dailyTaps: 0,
+          bonusTaps: 0,
+          points: 0,
+        },
+      });
+    }
+
+    console.log('✅ User found:', phoneData.userId);
+    const bonusData = await getUserBonusData(phoneData.userId);
+
+    const responseData = {
+      ...bonusData,
+      points: bonusData.balance,
+    };
+
+    console.log('✅ Bonus data retrieved:', responseData);
+
+    return c.json({
+      success: true,
+      bonus: responseData,
+    });
+  } catch (error) {
+    console.error('❌ Error fetching bonus by phone:', error);
+    return c.json({
+      success: false,
+      error: `Bonus ma'lumotlarini yuklashda xatolik: ${(error as Error).message}`,
+    }, 500);
+  }
+});
+
+/** Buyurtma yaratilganda KV balansdan yechish + tarix (checkout `bonusUsed` bilan) */
+export async function deductBonusForOrderPurchase(
+  userId: string,
+  amountUzs: number,
+  orderId: string,
+  description?: string,
+): Promise<
+  { ok: true; skipped: true } | { ok: true; newBalance: number } | { ok: false; error: string }
+> {
+  const amt = Math.max(0, Math.floor(Number(amountUzs) || 0));
+  if (amt <= 0) return { ok: true, skipped: true };
+
+  const bonusData = await getUserBonusData(userId);
+  const bal = Math.floor(Number(bonusData.balance) || 0);
+  if (bal < amt) {
+    return {
+      ok: false,
+      error: `Yetarli bonus yo'q. Mavjud: ${bal}, kerak: ${amt}`,
+    };
+  }
+
+  const newBalance = bal - amt;
+  const updatedData = {
+    ...bonusData,
+    balance: newBalance,
+    updatedAt: new Date().toISOString(),
+  };
+
+  await retryOperation(async () => await kv.set(`bonus:${userId}`, updatedData), 3, 500);
+
+  const historyKey = `bonus_history:${userId}:${Date.now()}`;
+  const historyData = {
+    userId,
+    type: 'used',
+    amount: -amt,
+    orderId: orderId || null,
+    description: description || 'Buyurtmada bonus ishlatildi',
+    balanceAfter: newBalance,
+    timestamp: new Date().toISOString(),
+  };
+  await retryOperation(async () => await kv.set(historyKey, historyData), 3, 500);
+
+  return { ok: true, newBalance };
+}
 
 export default app;

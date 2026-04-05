@@ -80,8 +80,8 @@ async function generateTOTP(secret: string, timeStep: number = 30): Promise<stri
   return code.toString().padStart(6, '0');
 }
 
-// Verify TOTP code (with time window tolerance)
-async function verifyTOTP(secret: string, token: string, window: number = 1): Promise<boolean> {
+// Verify TOTP code (RFC 6238 / Google Authenticator: 30s, 6 digits, SHA1; ±window qadam — soat siljishiga chidamli)
+async function verifyTOTP(secret: string, token: string, window: number = 2): Promise<boolean> {
   const timeStep = 30;
   const currentTime = Math.floor(Date.now() / 1000 / timeStep);
   
@@ -108,6 +108,154 @@ async function verifyTOTP(secret: string, token: string, window: number = 1): Pr
   }
   
   return false;
+}
+
+// ==================== Filial login: 2FA noto‘g‘ri urinishlar + bloklash ====================
+const BRANCH_2FA_LOCK_KV = (branchId: string) => `2fa:branch-login-lockout:${branchId}`;
+const BRANCH_2FA_MAX_FAILS = 3;
+const MS_DAY = 86_400_000;
+const MS_WEEK = 7 * MS_DAY;
+/** ~10 yil (kabisa bilan) */
+const MS_TEN_YEAR = Math.floor(10 * 365.25 * MS_DAY);
+
+type Branch2FALockState = {
+  failures: number;
+  /** 0 = keyingi blok 1 kun; 1 = 1 hafta; 2+ = 10 yil */
+  strike: number;
+  lockedUntil: string | null;
+};
+
+function lockDurationMsForStrike(strike: number): number {
+  if (strike <= 0) return MS_DAY;
+  if (strike === 1) return MS_WEEK;
+  return MS_TEN_YEAR;
+}
+
+function formatLockoutMessageUz(lockedUntilIso: string): string {
+  const until = new Date(lockedUntilIso).getTime();
+  if (!Number.isFinite(until)) {
+    return "2FA urinishlari vaqtincha bloklangan. Keyinroq qayta urinib ko‘ring.";
+  }
+  const d = new Date(until);
+  const human = d.toLocaleString("uz-UZ", {
+    dateStyle: "medium",
+    timeStyle: "short",
+  });
+  return `Juda ko‘p noto‘g‘ri kod. 2FA bloklangan. Qayta urinish: ${human}`;
+}
+
+export async function getBranch2FALoginLockState(branchId: string): Promise<Branch2FALockState> {
+  const key = BRANCH_2FA_LOCK_KV(branchId);
+  const raw = await kv.get(key);
+  if (!raw || typeof raw !== "object") {
+    return { failures: 0, strike: 0, lockedUntil: null };
+  }
+  const lockedUntil = raw.lockedUntil != null ? String(raw.lockedUntil) : null;
+  const now = Date.now();
+  if (lockedUntil) {
+    const untilMs = new Date(lockedUntil).getTime();
+    if (Number.isFinite(untilMs) && now >= untilMs) {
+      const next: Branch2FALockState = {
+        failures: 0,
+        strike: Math.min(3, Math.max(0, Number(raw.strike) || 0)),
+        lockedUntil: null,
+      };
+      await kv.set(key, next);
+      return next;
+    }
+  }
+  return {
+    failures: Math.max(0, Number(raw.failures) || 0),
+    strike: Math.min(3, Math.max(0, Number(raw.strike) || 0)),
+    lockedUntil,
+  };
+}
+
+export async function assertBranch2FANotLocked(
+  branchId: string,
+): Promise<
+  | { ok: true }
+  | { ok: false; error: string; lockedUntil: string; retryAfterMs: number }
+> {
+  const state = await getBranch2FALoginLockState(branchId);
+  if (!state.lockedUntil) return { ok: true };
+  const untilMs = new Date(state.lockedUntil).getTime();
+  const now = Date.now();
+  if (!Number.isFinite(untilMs) || now >= untilMs) {
+    return { ok: true };
+  }
+  return {
+    ok: false,
+    error: formatLockoutMessageUz(state.lockedUntil),
+    lockedUntil: state.lockedUntil,
+    retryAfterMs: Math.max(0, untilMs - now),
+  };
+}
+
+export type Branch2FAFailureRecord = {
+  justLocked: boolean;
+  lockedUntil: string | null;
+  /** Ushbu muvaffaqiyatsiz urinishdan keyin yana nechta noto‘g‘ri kod qabul qilinsa bloklanadi (0 = hozir bloklandi) */
+  attemptsRemaining: number;
+};
+
+export async function recordBranch2FALoginFailure(branchId: string): Promise<Branch2FAFailureRecord> {
+  const key = BRANCH_2FA_LOCK_KV(branchId);
+  let state = await getBranch2FALoginLockState(branchId);
+  if (state.lockedUntil) {
+    const untilMs = new Date(state.lockedUntil).getTime();
+    if (Number.isFinite(untilMs) && Date.now() < untilMs) {
+      return {
+        justLocked: false,
+        lockedUntil: state.lockedUntil,
+        attemptsRemaining: 0,
+      };
+    }
+  }
+
+  state.failures += 1;
+  if (state.failures >= BRANCH_2FA_MAX_FAILS) {
+    const dur = lockDurationMsForStrike(state.strike);
+    const lockedUntil = new Date(Date.now() + dur).toISOString();
+    state.lockedUntil = lockedUntil;
+    state.failures = 0;
+    state.strike = Math.min(state.strike + 1, 3);
+    await kv.set(key, state);
+    return {
+      justLocked: true,
+      lockedUntil,
+      attemptsRemaining: 0,
+    };
+  }
+
+  await kv.set(key, state);
+  return {
+    justLocked: false,
+    lockedUntil: null,
+    attemptsRemaining: BRANCH_2FA_MAX_FAILS - state.failures,
+  };
+}
+
+export async function clearBranch2FALoginLockout(branchId: string): Promise<void> {
+  await kv.del(BRANCH_2FA_LOCK_KV(branchId));
+}
+
+export async function getBranch2FALockoutMeta(branchId: string): Promise<{
+  locked: boolean;
+  lockedUntil: string | null;
+  message?: string;
+}> {
+  const state = await getBranch2FALoginLockState(branchId);
+  if (!state.lockedUntil) return { locked: false, lockedUntil: null };
+  const untilMs = new Date(state.lockedUntil).getTime();
+  if (!Number.isFinite(untilMs) || Date.now() >= untilMs) {
+    return { locked: false, lockedUntil: null };
+  }
+  return {
+    locked: true,
+    lockedUntil: state.lockedUntil,
+    message: formatLockoutMessageUz(state.lockedUntil),
+  };
 }
 
 export async function branchRequiresTwoFactor(branchId: string): Promise<boolean> {
@@ -137,7 +285,13 @@ export async function verifyBranchTwoFactorLogin(
     return { ok: true };
   }
 
-  const isValid = await verifyTOTP(twoFactorData.secret, normalizedToken);
+  const digitsOnly = normalizedToken.replace(/\D/g, "");
+  const totpCode = digitsOnly.length === 6 ? digitsOnly : "";
+  if (!totpCode) {
+    return { ok: false, error: "Kod noto‘g‘ri (6 raqamli authenticator kodi yoki backup kod)" };
+  }
+
+  const isValid = await verifyTOTP(twoFactorData.secret, totpCode, 2);
 
   if (!isValid) {
     return { ok: false, error: "Kod noto'g'ri" };
@@ -170,9 +324,11 @@ twoFactor.post('/enable', async (c) => {
     const backupCodes = generateBackupCodes(10);
 
     // Generate QR code data (otpauth URL)
-    const issuer = 'Online Shop';
+    const issuer = 'Filial Panel';
     const accountName = branchName || branchId;
-    const otpauthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}?secret=${secret}&issuer=${encodeURIComponent(issuer)}`;
+    const otpauthUrl =
+      `otpauth://totp/${encodeURIComponent(issuer)}:${encodeURIComponent(accountName)}` +
+      `?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
 
     // Save 2FA data (but not enabled yet - needs verification)
     const twoFactorData = {
@@ -220,7 +376,12 @@ twoFactor.post('/verify-and-enable', async (c) => {
     }
 
     // Verify token
-    const isValid = await verifyTOTP(twoFactorData.secret, token);
+    const tokenDigits = String(token || "").trim().replace(/\D/g, "");
+    const totpTry = tokenDigits.length === 6 ? tokenDigits : "";
+    if (!totpTry) {
+      return c.json({ error: '6 raqamli kod kiriting' }, 400);
+    }
+    const isValid = await verifyTOTP(twoFactorData.secret, totpTry, 2);
 
     if (!isValid) {
       console.log('❌ Invalid 2FA token');
@@ -341,12 +502,36 @@ twoFactor.post('/verify', async (c) => {
       return c.json({ error: 'Branch ID va token majburiy' }, 400);
     }
 
+    const lock = await assertBranch2FANotLocked(branchId);
+    if (!lock.ok) {
+      return c.json(
+        {
+          error: lock.error,
+          lockout: true,
+          lockedUntil: lock.lockedUntil,
+          retryAfterMs: lock.retryAfterMs,
+        },
+        423,
+      );
+    }
+
     const result = await verifyBranchTwoFactorLogin(branchId, token);
     if (!result.ok) {
       console.log('❌ Invalid 2FA token');
-      return c.json({ error: result.error || 'Kod noto\'g\'ri' }, 400);
+      const rec = await recordBranch2FALoginFailure(branchId);
+      return c.json(
+        {
+          error: result.error || 'Kod noto\'g\'ri',
+          attemptsRemaining: rec.attemptsRemaining,
+          ...(rec.justLocked && rec.lockedUntil
+            ? { lockout: true, lockedUntil: rec.lockedUntil }
+            : {}),
+        },
+        401,
+      );
     }
 
+    await clearBranch2FALoginLockout(branchId);
     console.log('✅ 2FA token verified successfully');
 
     return c.json({

@@ -22,8 +22,18 @@ export async function submitRentalOrdersQuick(params: {
   customerEmail?: string;
   /** Kirgan foydalanuvchi ID — ijara to‘lovi pushlari uchun */
   customerUserId?: string;
+  paymentMethod?: string;
+  deliveryPrice?: number;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
-  const { rentalLineItems, customerName, customerPhone, customerEmail = '', customerUserId } = params;
+  const {
+    rentalLineItems,
+    customerName,
+    customerPhone,
+    customerEmail = '',
+    customerUserId,
+    paymentMethod = 'cash',
+    deliveryPrice = 0,
+  } = params;
   const name = customerName.trim();
   const phone = formatProfilePhone(String(customerPhone || '').trim());
 
@@ -56,6 +66,7 @@ export async function submitRentalOrdersQuick(params: {
           branchId,
           productId: line.item.id,
           productName: line.item.name,
+          productImage: (line.item as { image?: string }).image || '',
           quantity: 1,
           customerName: name,
           customerPhone: phone,
@@ -70,6 +81,8 @@ export async function submitRentalOrdersQuick(params: {
           contractStartDate: contractIso,
           deliveryZoneSummary: '',
           ...(customerUserId ? { customerUserId } : {}),
+          paymentMethod,
+          deliveryPrice: Math.max(0, Math.round(Number(deliveryPrice) || 0)),
         }),
       },
     );

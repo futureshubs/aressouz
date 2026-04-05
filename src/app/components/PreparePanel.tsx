@@ -8,7 +8,7 @@ import {
   Package, CheckCircle, Clock,
   XCircle, Phone, MapPin, RefreshCw,
   User, Moon, Sun, Check, Scan, BarChart3, Award,
-  TrendingUp, Activity, DollarSign, BriefcaseBusiness
+  TrendingUp, Activity, DollarSign, BriefcaseBusiness, Loader2,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
@@ -106,10 +106,12 @@ type SwipeConfirmProps = {
   isDark: boolean;
   gradient: string;
   disabled?: boolean;
+  /** Qabul yuborilayotganda — tugma bloklanadi va aylanuvchi indikator */
+  busy?: boolean;
   onConfirm: () => void;
 };
 
-function SwipeConfirm({ label, isDark, gradient, disabled = false, onConfirm }: SwipeConfirmProps) {
+function SwipeConfirm({ label, isDark, gradient, disabled = false, busy = false, onConfirm }: SwipeConfirmProps) {
   const trackRef = useRef<HTMLDivElement | null>(null);
   const [dragging, setDragging] = useState(false);
   const [dragX, setDragX] = useState(0);
@@ -123,14 +125,14 @@ function SwipeConfirm({ label, isDark, gradient, disabled = false, onConfirm }: 
   };
 
   const begin = (clientX: number) => {
-    if (disabled) return;
+    if (disabled || busy) return;
     setDragging(true);
     setStartX(clientX);
     setStartDragX(dragX);
   };
 
   const move = (clientX: number) => {
-    if (!dragging || disabled) return;
+    if (!dragging || disabled || busy) return;
     const next = Math.max(0, Math.min(maxDrag(), startDragX + (clientX - startX)));
     setDragX(next);
   };
@@ -154,7 +156,7 @@ function SwipeConfirm({ label, isDark, gradient, disabled = false, onConfirm }: 
       ref={trackRef}
       className="relative h-12 rounded-2xl overflow-hidden select-none"
       style={{
-        background: disabled
+        background: disabled || busy
           ? (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)')
           : gradient,
       }}
@@ -164,11 +166,13 @@ function SwipeConfirm({ label, isDark, gradient, disabled = false, onConfirm }: 
       onPointerLeave={end}
     >
       <div className="absolute inset-0 flex items-center justify-center">
-        <span className="font-bold text-white">{label}</span>
+        <span className="font-bold text-white px-10 text-center text-sm sm:text-base">
+          {busy ? 'Yuborilmoqda…' : label}
+        </span>
       </div>
       <button
         type="button"
-        disabled={disabled}
+        disabled={disabled || busy}
         onPointerDown={(e) => begin(e.clientX)}
         className="absolute top-[3px] left-[3px] w-[42px] h-[42px] rounded-xl flex items-center justify-center border"
         style={{
@@ -180,7 +184,11 @@ function SwipeConfirm({ label, isDark, gradient, disabled = false, onConfirm }: 
         }}
         aria-label={label}
       >
-        <Check className="w-5 h-5" style={{ color: '#2563eb' }} />
+        {busy ? (
+          <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#2563eb' }} />
+        ) : (
+          <Check className="w-5 h-5" style={{ color: '#2563eb' }} />
+        )}
       </button>
     </div>
   );
@@ -226,140 +234,138 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
   const [selectedReadyBagId, setSelectedReadyBagId] = useState('');
   const [loadingReadyBags, setLoadingReadyBags] = useState(false);
   const [submittingReady, setSubmittingReady] = useState(false);
+  const [acceptingOrderId, setAcceptingOrderId] = useState<string | null>(null);
+  const [listRefreshing, setListRefreshing] = useState(false);
 
   useEffect(() => {
-    loadOrders();
-    // Refresh every 15 seconds
-    const interval = setInterval(loadOrders, 15000);
-    return () => clearInterval(interval);
+    void loadOrders({ silent: false });
   }, []);
 
-  const loadOrders = async (retryCount = 0) => {
+  const loadOrders = async (opts?: { silent?: boolean }): Promise<void> => {
+    const silent = opts?.silent === true;
+    if (!silent) setIsLoading(true);
     try {
-      setIsLoading(true);
-      
-      console.log('🔍 Loading orders for preparer:', preparer);
-      console.log('🔍 Preparer ID:', preparer.id);
-      console.log('🔍 Retry count:', retryCount);
-      
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/preparers/${preparer.id}/orders`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      for (let attempt = 0; attempt < 3; attempt++) {
+        try {
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/preparers/${preparer.id}/orders`,
+            {
+              headers: {
+                Authorization: `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+              },
+            },
+          );
 
-      console.log('📡 Response status:', response.status);
+          if (response.ok) {
+            const data = await response.json();
+            const allowedOrders = (data.orders || []).filter((order: Order) => {
+              if (shouldHideMarketCashBeforeBranchAccept(order)) return false;
+              const t = String(order.orderType || order.type || 'market').toLowerCase();
+              return t === 'market' || t === 'rental';
+            });
+            const dedupedOrders = Array.from(
+              new Map(allowedOrders.map((order: Order) => [order.id, order])).values(),
+            );
+            setOrders(dedupedOrders);
+            return;
+          }
 
-      if (response.ok) {
-        const data = await response.json();
-        console.log('✅ Orders data received:', data);
-        const allowedOrders = (data.orders || []).filter((order: Order) => {
-          if (shouldHideMarketCashBeforeBranchAccept(order)) return false;
-          const t = String(order.orderType || order.type || 'market').toLowerCase();
-          return t === 'market' || t === 'rental';
-        });
-        const dedupedOrders = Array.from(
-          new Map(allowedOrders.map((order: Order) => [order.id, order])).values()
-        );
-        setOrders(dedupedOrders);
-        setIsLoading(false);
-      } else {
-        const errorText = await response.text();
-        console.error('❌ Error response:', errorText);
-        
-        // Retry up to 3 times with exponential backoff
-        if (retryCount < 3) {
-          const delay = Math.pow(2, retryCount) * 1000; // 1s, 2s, 4s
-          console.log(`⚠️ Retrying in ${delay}ms... (attempt ${retryCount + 1}/3)`);
-          setTimeout(() => loadOrders(retryCount + 1), delay);
-        } else {
-          toast.error('Buyurtmalarni yuklashda xatolik. Sahifani yangilang.');
-          setIsLoading(false);
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 1000));
+            continue;
+          }
+          toast.error('Buyurtmalarni yuklashda xatolik. Qayta urinib ko‘ring.');
+          return;
+        } catch (e) {
+          console.error('Load orders error:', e);
+          if (attempt < 2) {
+            await new Promise((r) => setTimeout(r, Math.pow(2, attempt) * 1000));
+            continue;
+          }
+          toast.error('Internet aloqasida muammo. Qayta urinib ko‘ring.');
+          return;
         }
       }
-    } catch (error) {
-      console.error('❌ Load orders error:', error);
-      
-      // Retry up to 3 times
-      if (retryCount < 3) {
-        const delay = Math.pow(2, retryCount) * 1000;
-        console.log(`⚠️ Retrying in ${delay}ms... (attempt ${retryCount + 1}/3)`);
-        setTimeout(() => loadOrders(retryCount + 1), delay);
-      } else {
-        toast.error('Internet aloqasida muammo. Sahifani yangilang.');
-        setIsLoading(false);
-      }
+    } finally {
+      if (!silent) setIsLoading(false);
     }
   };
 
   useVisibilityRefetch(() => {
-    void loadOrders(0);
+    void loadOrders({ silent: true });
   });
 
   const updateOrderStatus = async (
     orderId: string,
     newStatus: string,
     options?: { bagId?: string; rackId?: string },
-    retryCount = 0,
   ): Promise<boolean> => {
-    try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/preparers/${preparer.id}/orders/${orderId}/status`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
+    for (let retry = 0; retry < 3; retry++) {
+      try {
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/preparers/${preparer.id}/orders/${orderId}/status`,
+          {
+            method: 'POST',
+            headers: {
+              Authorization: `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+              status: newStatus,
+              ...(options?.bagId ? { bagId: options.bagId } : {}),
+              ...(options?.rackId ? { rackId: options.rackId } : {}),
+            }),
           },
-          body: JSON.stringify({
-            status: newStatus,
-            ...(options?.bagId ? { bagId: options.bagId } : {}),
-            ...(options?.rackId ? { rackId: options.rackId } : {}),
-          }),
-        }
-      );
+        );
 
-      if (response.ok) {
-        toast.success('Status o\'zgartirildi ✅');
-        if (newStatus === 'ready') {
-          setReadyBagModalOrder(null);
-          setReadyBagOptions([]);
-          setSelectedReadyBagId('');
+        if (response.ok) {
+          toast.success('Status o‘zgartirildi ✅');
+          if (newStatus === 'ready') {
+            setReadyBagModalOrder(null);
+            setReadyBagOptions([]);
+            setSelectedReadyBagId('');
+          }
+          await loadOrders({ silent: true });
+          setSelectedOrder(null);
+          return true;
         }
-        loadOrders();
-        setSelectedOrder(null);
-        return true;
-      }
-      const error = await response.json();
 
-      if (retryCount < 2) {
-        const delay = Math.pow(2, retryCount) * 500;
-        console.log(`⚠️ Retrying status update in ${delay}ms...`);
-        setTimeout(() => updateOrderStatus(orderId, newStatus, options, retryCount + 1), delay);
+        let errMsg = 'Status o‘zgartirishda xatolik';
+        try {
+          const error = await response.json();
+          errMsg = error.error || errMsg;
+        } catch {
+          /* ignore */
+        }
+
+        if (retry < 2) {
+          await new Promise((r) => setTimeout(r, Math.pow(2, retry) * 500));
+          continue;
+        }
+        toast.error(errMsg);
+        return false;
+      } catch (error) {
+        console.error('Update status error:', error);
+        if (retry < 2) {
+          await new Promise((r) => setTimeout(r, Math.pow(2, retry) * 500));
+          continue;
+        }
+        toast.error('Internet aloqasida muammo');
         return false;
       }
-      toast.error(error.error || 'Status o\'zgartirishda xatolik');
-      return false;
-    } catch (error) {
-      console.error('Update status error:', error);
-
-      if (retryCount < 2) {
-        const delay = Math.pow(2, retryCount) * 500;
-        console.log(`⚠️ Retrying status update in ${delay}ms...`);
-        setTimeout(() => updateOrderStatus(orderId, newStatus, options, retryCount + 1), delay);
-        return false;
-      }
-      toast.error('Internet aloqasida muammo');
-      return false;
     }
+    return false;
   };
 
-  const acceptOrder = (order: Order) => {
-    updateOrderStatus(order.id, 'preparing');
+  const acceptOrder = async (order: Order) => {
+    if (acceptingOrderId) return;
+    setAcceptingOrderId(order.id);
+    try {
+      await updateOrderStatus(order.id, 'preparing');
+    } finally {
+      setAcceptingOrderId(null);
+    }
   };
 
   const openReadyBagModal = async (order: Order) => {
@@ -672,7 +678,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
 
   return (
     <div 
-      className="min-h-screen pb-24"
+      className="min-h-dvh pb-24 sm:pb-28 max-[639px]:pb-[max(6rem,calc(6rem+env(safe-area-inset-bottom,0px)))]"
       style={{
         background: isDark ? '#000' : '#f5f5f5',
         color: textColor,
@@ -686,24 +692,31 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
         }}
       >
-        <div className="p-4">
+        <div className="p-3 sm:p-4 pt-[max(0.75rem,env(safe-area-inset-top,0px))]">
           {/* Top Row */}
-          <div className="flex items-center justify-between mb-4">
-            <div>
-              <h1 className="text-xl font-bold">Tayyorlovchi Panel</h1>
-              <p className="text-sm" style={{ color: mutedTextColor }}>
+          <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
+            <div className="min-w-0 flex-1">
+              <h1 className="text-lg sm:text-xl font-bold leading-tight">Tayyorlovchi panel</h1>
+              <p className="text-xs sm:text-sm mt-0.5 truncate" style={{ color: mutedTextColor }}>
                 {preparer.name}
               </p>
             </div>
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 shrink-0">
               <button
-                onClick={loadOrders}
-                className="p-3 rounded-xl transition-all active:scale-95"
+                type="button"
+                aria-label="Ro‘yxatni yangilash"
+                disabled={listRefreshing}
+                onClick={() => {
+                  if (listRefreshing) return;
+                  setListRefreshing(true);
+                  void loadOrders({ silent: true }).finally(() => setListRefreshing(false));
+                }}
+                className="p-3 rounded-xl transition-all active:scale-95 disabled:opacity-50"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                 }}
               >
-                <RefreshCw className="w-5 h-5" />
+                <RefreshCw className={`w-5 h-5 ${listRefreshing ? 'animate-spin' : ''}`} />
               </button>
               <button
                 onClick={toggleTheme}
@@ -723,7 +736,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
 
           {/* Order Sub-Tabs (only show when in orders tab) */}
           {activeMainTab === 'orders' && (
-            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 sm:gap-2">
               {Object.entries(orderTabConfig).map(([key, config]) => {
                 const Icon = config.icon;
                 const isActive = activeOrderTab === key;
@@ -774,7 +787,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
       </div>
 
       {/* Content Area */}
-      <div className="p-4 pb-24">
+      <div className="p-3 sm:p-4 pb-24 sm:pb-28">
         {/* Orders Tab */}
         {activeMainTab === 'orders' && (
           <>
@@ -797,7 +810,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-3 sm:gap-4">
                 {filteredOrders.map(order => {
                   const config = orderTabConfig[activeOrderTab];
                   const Icon = config.icon;
@@ -822,31 +835,31 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
                     >
                       {/* Order Header */}
                       <div 
-                        className="p-4"
+                        className="p-3 sm:p-4"
                         style={{
                           background: `linear-gradient(135deg, ${config.color}40, ${config.color}20)`,
                           borderBottom: `2px solid ${config.color}`,
                         }}
                       >
-                        <div className="flex items-center justify-between">
-                          <div className="flex items-center gap-3">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <div className="flex items-center gap-2 sm:gap-3 min-w-0">
                             <div
-                              className="w-14 h-14 rounded-2xl flex items-center justify-center"
+                              className="w-11 h-11 sm:w-14 sm:h-14 rounded-2xl flex items-center justify-center shrink-0"
                               style={{ 
                                 background: isDark ? 'rgba(0, 0, 0, 0.3)' : 'rgba(255, 255, 255, 0.5)',
                               }}
                             >
-                              <Icon className="w-7 h-7" style={{ color: config.color }} />
+                              <Icon className="w-6 h-6 sm:w-7 sm:h-7" style={{ color: config.color }} />
                             </div>
-                            <div>
-                              <h3 className="text-lg font-bold">{order.orderNumber}</h3>
-                              <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
+                            <div className="min-w-0">
+                              <h3 className="text-base sm:text-lg font-bold truncate">{order.orderNumber}</h3>
+                              <p className="text-[11px] sm:text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
                                 {new Date(order.createdAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
                               </p>
                             </div>
                           </div>
                           <div
-                            className="px-4 py-2 rounded-xl font-bold text-sm"
+                            className="px-3 py-1.5 sm:px-4 sm:py-2 rounded-xl font-bold text-xs sm:text-sm shrink-0"
                             style={{
                               background: config.color,
                               color: '#fff',
@@ -858,7 +871,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
                       </div>
 
                       {/* Order Body */}
-                      <div className="p-4 space-y-4">
+                      <div className="p-3 sm:p-4 space-y-3 sm:space-y-4">
                         {/* Customer Info */}
                         <div className="space-y-2">
                           <div className="flex items-center gap-2">
@@ -968,17 +981,19 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
                             label="Surib qabul qiling"
                             isDark={isDark}
                             gradient={`linear-gradient(135deg, ${accentColor.color}, ${accentColor.color}dd)`}
-                            onConfirm={() => acceptOrder(order)}
+                            busy={acceptingOrderId === order.id}
+                            disabled={acceptingOrderId !== null && acceptingOrderId !== order.id}
+                            onConfirm={() => void acceptOrder(order)}
                           />
                         )}
 
                         {activeOrderTab === 'preparing' && (
-                          <div className="grid grid-cols-2 gap-2">
+                          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
                             <button
                               onClick={() => {
                                 startScanner(order);
                               }}
-                              className="py-3 rounded-2xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
+                              className="py-3 rounded-2xl text-sm sm:text-base font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
                               style={{
                                 background: accentColor.gradient,
                                 color: '#fff',
@@ -989,7 +1004,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
                             </button>
                             <button
                               onClick={() => openReadyBagModal(order)}
-                              className="py-3 rounded-2xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
+                              className="py-3 rounded-2xl text-sm sm:text-base font-bold transition-all active:scale-95 flex items-center justify-center gap-2"
                               style={{
                                 background: `linear-gradient(135deg, ${orderTabConfig.ready.color}, ${orderTabConfig.ready.color}dd)`,
                                 color: '#fff',

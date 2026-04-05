@@ -4,7 +4,24 @@ import { toast } from 'sonner';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildBranchHeaders } from '../../utils/requestAuth';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
-import { Users, Plus, LogOut, Search, Filter, Trash2, Key, User, Phone, MapPin, Shield, Calendar } from 'lucide-react';
+import {
+  Users,
+  Plus,
+  Search,
+  Filter,
+  Trash2,
+  Key,
+  User,
+  Phone,
+  MapPin,
+  Shield,
+  Calendar,
+  Edit2,
+  Clock,
+  DollarSign,
+  Loader2,
+  X,
+} from 'lucide-react';
 
 type StaffRole = 'warehouse' | 'operator' | 'cashier' | 'accountant' | 'support';
 
@@ -16,6 +33,18 @@ const roleLabel: Record<StaffRole, string> = {
   support: '5. Support',
 };
 
+const WEEKDAYS: { key: string; label: string }[] = [
+  { key: 'mon', label: 'Du' },
+  { key: 'tue', label: 'Se' },
+  { key: 'wed', label: 'Ch' },
+  { key: 'thu', label: 'Pa' },
+  { key: 'fri', label: 'Ju' },
+  { key: 'sat', label: 'Sha' },
+  { key: 'sun', label: 'Ya' },
+];
+
+type StaffWorkSchedule = { start: string; end: string; days: string[] };
+
 type StaffRecord = {
   id: string;
   branchId: string;
@@ -25,8 +54,34 @@ type StaffRecord = {
   phone: string;
   address?: string;
   login?: string;
+  gender?: string;
+  birthDate?: string;
+  monthlySalary?: number;
+  workSchedule?: StaffWorkSchedule;
   createdAt?: string;
+  updatedAt?: string;
 };
+
+const defaultWorkDays = () => ['mon', 'tue', 'wed', 'thu', 'fri'];
+
+/** `<input type="time">` ba’zi brauzerlarda bo‘sh yoki `HH:mm:ss` qaytarishi mumkin */
+function normalizeWorkTimeHHMM(raw: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{1,2}):(\d{2})(?::\d{2})?/);
+  if (!m) return '';
+  const h = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+  const min = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+  return `${String(h).padStart(2, '0')}:${String(min).padStart(2, '0')}`;
+}
+
+function formatWorkScheduleShort(ws?: StaffWorkSchedule) {
+  if (!ws?.start || !ws?.end) return '—';
+  const dayLabels = (ws.days || [])
+    .map((d) => WEEKDAYS.find((w) => w.key === d)?.label || d)
+    .join(', ');
+  return `${ws.start}–${ws.end}${dayLabels ? ` · ${dayLabels}` : ''}`;
+}
 
 export function StaffManagement({ branchId }: { branchId: string; branchInfo?: any }) {
   const { theme, accentColor } = useTheme();
@@ -49,7 +104,32 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
     role: 'warehouse' as StaffRole,
     login: '',
     password: '',
+    monthlySalary: '',
+    workStart: '09:00',
+    workEnd: '18:00',
+    workDays: defaultWorkDays(),
   });
+
+  const [editing, setEditing] = useState<StaffRecord | null>(null);
+  const [editForm, setEditForm] = useState({
+    firstName: '',
+    lastName: '',
+    phone: '',
+    address: '',
+    gender: 'male',
+    birthDate: '',
+    role: 'warehouse' as StaffRole,
+    login: '',
+    newPassword: '',
+    monthlySalary: '',
+    workStart: '09:00',
+    workEnd: '18:00',
+    workDays: defaultWorkDays(),
+  });
+
+  const [submittingAdd, setSubmittingAdd] = useState(false);
+  const [savingEditId, setSavingEditId] = useState<string | null>(null);
+  const [deletingId, setDeletingId] = useState<string | null>(null);
 
   const filteredStaff = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -73,15 +153,13 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
       setIsLoading(true);
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/staff?branchId=${encodeURIComponent(branchId)}`,
-        { headers: buildBranchHeaders({ 'Content-Type': 'application/json' }) }
+        { headers: buildBranchHeaders({ 'Content-Type': 'application/json' }) },
       );
       const raw = await res.text().catch(() => '');
       let data: any = null;
       try {
         data = raw ? JSON.parse(raw) : null;
       } catch {
-        // HTML/oddiy text qaytsa, parse qilib bo'lmaydi.
-        // Status/preview bilan aniqroq xabar beramiz.
         const preview = raw ? raw.slice(0, 200) : 'empty response';
         throw new Error(`Server javobi JSON emas. status=${res.status}, preview=${preview}`);
       }
@@ -108,59 +186,217 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [branchId, visibilityRefetchTick]);
 
+  const toggleWorkDay = (days: string[], key: string) =>
+    days.includes(key) ? days.filter((d) => d !== key) : [...days, key].sort(
+      (a, b) => WEEKDAYS.findIndex((w) => w.key === a) - WEEKDAYS.findIndex((w) => w.key === b),
+    );
+
+  const openEdit = (s: StaffRecord) => {
+    const ws = s.workSchedule;
+    setEditing(s);
+    setEditForm({
+      firstName: s.firstName,
+      lastName: s.lastName,
+      phone: s.phone,
+      address: s.address || '',
+      gender: s.gender || 'male',
+      birthDate: s.birthDate || '',
+      role: s.role,
+      login: s.login || '',
+      newPassword: '',
+      monthlySalary: String(s.monthlySalary ?? ''),
+      workStart: ws?.start || '09:00',
+      workEnd: ws?.end || '18:00',
+      workDays: ws?.days?.length ? [...ws.days] : defaultWorkDays(),
+    });
+  };
+
+  const closeEdit = () => {
+    setEditing(null);
+    setSavingEditId(null);
+  };
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!editing) return;
+
+    const required = ['firstName', 'lastName', 'phone', 'address', 'birthDate', 'login'] as const;
+    for (const key of required) {
+      if (!String(editForm[key] || '').trim()) {
+        toast.error('Iltimos, barcha majburiy maydonlarni to‘ldiring');
+        return;
+      }
+    }
+    if (!editForm.workDays.length) {
+      toast.error('Kamida bitta ish kuni tanlang');
+      return;
+    }
+    const editWorkStart = normalizeWorkTimeHHMM(editForm.workStart) || '09:00';
+    const editWorkEnd = normalizeWorkTimeHHMM(editForm.workEnd) || '18:00';
+    const salaryNum = Number(String(editForm.monthlySalary).replace(/\s/g, '').replace(/,/g, '.'));
+    if (!Number.isFinite(salaryNum) || salaryNum < 0) {
+      toast.error('Oylik maosh noto‘g‘ri');
+      return;
+    }
+
+    setSavingEditId(editing.id);
+    try {
+      const body: Record<string, unknown> = {
+        firstName: editForm.firstName.trim(),
+        lastName: editForm.lastName.trim(),
+        phone: editForm.phone.trim(),
+        address: editForm.address.trim(),
+        gender: editForm.gender,
+        birthDate: editForm.birthDate,
+        role: editForm.role,
+        login: editForm.login.trim(),
+        monthlySalary: salaryNum,
+        workStart: editWorkStart,
+        workEnd: editWorkEnd,
+        workSchedule: {
+          start: editWorkStart,
+          end: editWorkEnd,
+          days: editForm.workDays,
+        },
+      };
+      if (editForm.newPassword.trim()) {
+        body.password = editForm.newPassword.trim();
+      }
+
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/staff/${encodeURIComponent(editing.id)}`,
+        {
+          method: 'PUT',
+          headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify(body),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || 'Yangilash muvaffaqiyatsiz');
+      }
+      toast.success('Xodim yangilandi');
+      closeEdit();
+      await loadStaff();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(dataErrorMessage(err, 'Saqlashda xatolik'));
+    } finally {
+      setSavingEditId(null);
+    }
+  };
+
+  const removeStaff = async (s: StaffRecord) => {
+    const ok = window.confirm(
+      `${s.firstName} ${s.lastName} — rostdan ham o‘chirilsinmi? Login bilan kirish ham to‘xtaydi.`,
+    );
+    if (!ok) return;
+
+    setDeletingId(s.id);
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/staff/${encodeURIComponent(s.id)}`,
+        {
+          method: 'DELETE',
+          headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        throw new Error(data?.error || 'O‘chirish muvaffaqiyatsiz');
+      }
+      toast.success('Xodim o‘chirildi');
+      if (editing?.id === s.id) closeEdit();
+      await loadStaff();
+    } catch (err: any) {
+      console.error(err);
+      toast.error(dataErrorMessage(err, 'O‘chirishda xatolik'));
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
   const register = async (e: React.FormEvent) => {
     e.preventDefault();
 
-    const required = ['firstName', 'lastName', 'phone', 'address', 'birthDate', 'login', 'password'];
+    const required = ['firstName', 'lastName', 'phone', 'address', 'birthDate', 'login', 'password'] as const;
     for (const key of required) {
-      // @ts-ignore
       if (!String(form[key] || '').trim()) {
         toast.error('Iltimos, barcha majburiy maydonlarni to‘ldiring');
         return;
       }
     }
+    if (!form.workDays.length) {
+      toast.error('Kamida bitta ish kuni tanlang');
+      return;
+    }
+    const workStart = normalizeWorkTimeHHMM(form.workStart) || '09:00';
+    const workEnd = normalizeWorkTimeHHMM(form.workEnd) || '18:00';
+    const salaryNum = Number(String(form.monthlySalary).replace(/\s/g, '').replace(/,/g, '.'));
+    if (!Number.isFinite(salaryNum) || salaryNum < 0) {
+      toast.error('Oylik maoshni kiriting (0 yoki musbat son)');
+      return;
+    }
 
+    setSubmittingAdd(true);
     try {
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/staff/register`,
-        {
-          method: 'POST',
-          headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({
-            role: form.role,
-            login: form.login,
-            password: form.password,
-            firstName: form.firstName,
-            lastName: form.lastName,
-            phone: form.phone,
-            address: form.address,
-            gender: form.gender,
-            birthDate: form.birthDate,
-          }),
-        }
-      );
-      const data = await res.json();
+      const res = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/staff/register`, {
+        method: 'POST',
+        headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+        body: JSON.stringify({
+          role: form.role,
+          login: form.login.trim(),
+          password: form.password,
+          firstName: form.firstName.trim(),
+          lastName: form.lastName.trim(),
+          phone: form.phone.trim(),
+          address: form.address.trim(),
+          gender: form.gender,
+          birthDate: form.birthDate,
+          monthlySalary: salaryNum,
+          workStart,
+          workEnd,
+          workSchedule: {
+            start: workStart,
+            end: workEnd,
+            days: form.workDays,
+          },
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.success) {
         throw new Error(data?.error || 'Register failed');
       }
 
       toast.success('Xodim qabul qilindi');
-      setForm((p) => ({
-        ...p,
-        login: '',
-        password: '',
+      setForm({
         firstName: '',
         lastName: '',
         phone: '',
         address: '',
         birthDate: '',
-      }));
+        gender: 'male',
+        role: 'warehouse',
+        login: '',
+        password: '',
+        monthlySalary: '',
+        workStart: '09:00',
+        workEnd: '18:00',
+        workDays: defaultWorkDays(),
+      });
       await loadStaff();
     } catch (e: any) {
       console.error(e);
       toast.error(dataErrorMessage(e, 'Xodim ro‘yxatga olishda xatolik'));
+    } finally {
+      setSubmittingAdd(false);
     }
   };
+
+  const muted = isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)';
+  const border = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)';
+  const inputBg = isDark ? 'rgba(255,255,255,0.04)' : '#ffffff';
+  const cardBg = isDark ? 'rgba(255,255,255,0.04)' : '#fff';
 
   return (
     <div className="space-y-6">
@@ -170,20 +406,20 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
             Xodimlar bo‘limi
           </h3>
           <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
-            Omborchi, Operator, Kassa, Bogalter va Support
+            Omborchi, Operator, Kassa, Bogalter va Support — maosh va ish vaqti bilan
           </p>
         </div>
       </div>
 
-      <form onSubmit={register} className="p-6 rounded-3xl border" style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff' }}>
+      <form onSubmit={register} className="p-6 rounded-3xl border" style={{ background: cardBg, borderColor: border }}>
         <div className="flex items-center gap-3 mb-4">
           <div className="p-3 rounded-2xl" style={{ background: `${accentColor.color}20` }}>
             <Plus />
           </div>
           <div>
             <div className="font-semibold">Yangi xodim qo‘shish</div>
-            <div className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-              Ma’lumotlarni to‘ldiring va ro‘yxatga qabul qiling
+            <div className="text-xs" style={{ color: muted }}>
+              Ma’lumotlar, oylik maosh va ish jadvali — serverga yoziladi
             </div>
           </div>
         </div>
@@ -195,7 +431,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
               value={form.role}
               onChange={(e) => setForm((p) => ({ ...p, role: e.target.value as StaffRole }))}
               className="w-full px-4 py-3 rounded-2xl border outline-none"
-              style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+              style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
             >
               <option value="warehouse">1. Omborchi</option>
               <option value="operator">2. Operator</option>
@@ -206,6 +442,78 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
           </label>
 
           <label className="text-sm font-medium">
+            <span style={{ display: 'block', marginBottom: 6 }}>Oylik maosh (so‘m)</span>
+            <div className="relative">
+              <DollarSign className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ opacity: 0.5 }} />
+              <input
+                type="text"
+                inputMode="decimal"
+                value={form.monthlySalary}
+                onChange={(e) => setForm((p) => ({ ...p, monthlySalary: e.target.value }))}
+                className="w-full pl-12 pr-4 py-3 rounded-2xl border outline-none"
+                placeholder="masalan: 3500000"
+                style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+              />
+            </div>
+          </label>
+
+          <label className="text-sm font-medium md:col-span-2">
+            <span style={{ display: 'block', marginBottom: 6 }}>Ish vaqti</span>
+            <div className="flex flex-wrap items-center gap-3">
+              <div className="relative flex-1 min-w-[120px]">
+                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ opacity: 0.5 }} />
+                <input
+                  type="time"
+                  value={form.workStart}
+                  onChange={(e) => setForm((p) => ({ ...p, workStart: e.target.value }))}
+                  className="w-full pl-10 pr-3 py-3 rounded-2xl border outline-none"
+                  style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                />
+              </div>
+              <span className="text-sm" style={{ color: muted }}>
+                dan
+              </span>
+              <div className="relative flex-1 min-w-[120px]">
+                <Clock className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4" style={{ opacity: 0.5 }} />
+                <input
+                  type="time"
+                  value={form.workEnd}
+                  onChange={(e) => setForm((p) => ({ ...p, workEnd: e.target.value }))}
+                  className="w-full pl-10 pr-3 py-3 rounded-2xl border outline-none"
+                  style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                />
+              </div>
+              <span className="text-sm" style={{ color: muted }}>
+                gacha
+              </span>
+            </div>
+          </label>
+
+          <div className="text-sm font-medium md:col-span-2">
+            <span style={{ display: 'block', marginBottom: 6 }}>Ish kunlari</span>
+            <div className="flex flex-wrap gap-2">
+              {WEEKDAYS.map((d) => {
+                const on = form.workDays.includes(d.key);
+                return (
+                  <button
+                    key={d.key}
+                    type="button"
+                    onClick={() => setForm((p) => ({ ...p, workDays: toggleWorkDay(p.workDays, d.key) }))}
+                    className="px-3 py-2 rounded-xl text-sm font-semibold border transition-colors"
+                    style={{
+                      background: on ? accentColor.gradient : inputBg,
+                      color: on ? '#fff' : isDark ? '#fff' : '#111827',
+                      borderColor: on ? 'transparent' : border,
+                    }}
+                  >
+                    {d.label}
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <label className="text-sm font-medium">
             <span style={{ display: 'block', marginBottom: 6 }}>Login</span>
             <div className="relative">
               <User className="absolute left-4 top-1/2 -translate-y-1/2 w-4 h-4" style={{ opacity: 0.5 }} />
@@ -214,7 +522,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
                 onChange={(e) => setForm((p) => ({ ...p, login: e.target.value }))}
                 className="w-full pl-12 pr-4 py-3 rounded-2xl border outline-none"
                 placeholder="login"
-                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+                style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
               />
             </div>
           </label>
@@ -229,7 +537,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
                 onChange={(e) => setForm((p) => ({ ...p, password: e.target.value }))}
                 className="w-full pl-12 pr-4 py-3 rounded-2xl border outline-none"
                 placeholder="parol"
-                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+                style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
               />
             </div>
           </label>
@@ -241,7 +549,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
               onChange={(e) => setForm((p) => ({ ...p, firstName: e.target.value }))}
               className="w-full px-4 py-3 rounded-2xl border outline-none"
               placeholder="ism"
-              style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+              style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
             />
           </label>
 
@@ -252,7 +560,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
               onChange={(e) => setForm((p) => ({ ...p, lastName: e.target.value }))}
               className="w-full px-4 py-3 rounded-2xl border outline-none"
               placeholder="familya"
-              style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+              style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
             />
           </label>
 
@@ -265,7 +573,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
                 onChange={(e) => setForm((p) => ({ ...p, phone: e.target.value }))}
                 className="w-full pl-12 pr-4 py-3 rounded-2xl border outline-none"
                 placeholder="+998 ..."
-                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+                style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
               />
             </div>
           </label>
@@ -279,7 +587,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
                 onChange={(e) => setForm((p) => ({ ...p, address: e.target.value }))}
                 className="w-full pl-12 pr-4 py-3 rounded-2xl border outline-none"
                 placeholder="manzil"
-                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+                style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
               />
             </div>
           </label>
@@ -290,7 +598,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
               value={form.gender}
               onChange={(e) => setForm((p) => ({ ...p, gender: e.target.value }))}
               className="w-full px-4 py-3 rounded-2xl border outline-none"
-              style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+              style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
             >
               <option value="male">Erkak</option>
               <option value="female">Ayol</option>
@@ -306,7 +614,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
                 value={form.birthDate}
                 onChange={(e) => setForm((p) => ({ ...p, birthDate: e.target.value }))}
                 className="w-full pl-12 pr-4 py-3 rounded-2xl border outline-none"
-                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+                style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
               />
             </div>
           </label>
@@ -315,15 +623,17 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
         <div className="mt-5">
           <button
             type="submit"
-            className="w-full py-4 rounded-2xl font-semibold transition-all active:scale-95"
+            disabled={submittingAdd}
+            className="w-full py-4 rounded-2xl font-semibold transition-all active:scale-[0.99] disabled:opacity-60 flex items-center justify-center gap-2"
             style={{ background: accentColor.gradient, color: '#ffffff' }}
           >
-            Ro‘yxatga qabul qilish
+            {submittingAdd ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+            {submittingAdd ? 'Yuborilmoqda...' : 'Ro‘yxatga qabul qilish'}
           </button>
         </div>
       </form>
 
-      <div className="p-6 rounded-3xl border" style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff' }}>
+      <div className="p-6 rounded-3xl border" style={{ background: cardBg, borderColor: border }}>
         <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-3 mb-4">
           <div className="flex items-center gap-3">
             <div className="p-3 rounded-2xl" style={{ background: `${accentColor.color}20` }}>
@@ -331,7 +641,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
             </div>
             <div>
               <div className="font-semibold">Xodimlar ro‘yxati ({filteredStaff.length})</div>
-              <div className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
+              <div className="text-xs" style={{ color: muted }}>
                 Filial bo‘yicha
               </div>
             </div>
@@ -345,15 +655,15 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
                 onChange={(e) => setSearch(e.target.value)}
                 placeholder="qidirish..."
                 className="w-[220px] pl-12 pr-4 py-2 rounded-xl border outline-none"
-                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+                style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
               />
             </div>
 
             <select
               value={roleFilter}
-              onChange={(e) => setRoleFilter(e.target.value as any)}
+              onChange={(e) => setRoleFilter(e.target.value as 'all' | StaffRole)}
               className="px-4 py-2 rounded-xl border outline-none"
-              style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)', color: isDark ? '#fff' : '#111827' }}
+              style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
             >
               <option value="all">Barchasi</option>
               <option value="warehouse">Omborchi</option>
@@ -366,35 +676,285 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
         </div>
 
         {isLoading ? (
-          <div style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>Yuklanmoqda...</div>
+          <div style={{ color: muted }}>Yuklanmoqda...</div>
         ) : filteredStaff.length === 0 ? (
-          <div style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>Hali xodim yo‘q</div>
+          <div style={{ color: muted }}>Hali xodim yo‘q</div>
         ) : (
           <div className="space-y-3">
             {filteredStaff.map((s) => (
               <div
                 key={s.id}
-                className="flex items-center justify-between gap-4 p-4 rounded-2xl border"
-                style={{ background: isDark ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.02)', borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 p-4 rounded-2xl border"
+                style={{
+                  background: isDark ? 'rgba(0,0,0,0.15)' : 'rgba(0,0,0,0.02)',
+                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+                }}
               >
-                <div className="min-w-0">
+                <div className="min-w-0 flex-1">
                   <div className="font-semibold truncate">
                     {s.firstName} {s.lastName}
                   </div>
-                  <div className="text-xs mt-1" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
+                  <div className="text-xs mt-1" style={{ color: muted }}>
                     {roleLabel[s.role]} • {s.phone}
+                    {s.login ? ` • login: ${s.login}` : ''}
+                  </div>
+                  <div className="flex flex-wrap gap-x-3 gap-y-1 mt-2 text-xs" style={{ color: muted }}>
+                    <span className="inline-flex items-center gap-1">
+                      <DollarSign className="w-3.5 h-3.5 shrink-0" />
+                      {Number(s.monthlySalary ?? 0).toLocaleString('uz-UZ')} so‘m / oy
+                    </span>
+                    <span className="inline-flex items-center gap-1">
+                      <Clock className="w-3.5 h-3.5 shrink-0" />
+                      {formatWorkScheduleShort(s.workSchedule)}
+                    </span>
                   </div>
                 </div>
 
-                <div className="text-right text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-                  {s.login ? `login: ${s.login}` : ''}
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => openEdit(s)}
+                    disabled={deletingId === s.id || savingEditId !== null}
+                    className="p-2.5 rounded-xl border text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
+                    style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                  >
+                    <Edit2 className="w-4 h-4" />
+                    Tahrirlash
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => void removeStaff(s)}
+                    disabled={deletingId !== null || savingEditId !== null}
+                    className="p-2.5 rounded-xl border text-sm font-semibold flex items-center gap-2 text-red-600 disabled:opacity-50"
+                    style={{
+                      background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.08)',
+                      borderColor: 'rgba(239,68,68,0.35)',
+                    }}
+                  >
+                    {deletingId === s.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                  </button>
                 </div>
               </div>
             ))}
           </div>
         )}
       </div>
+
+      {editing ? (
+        <div
+          className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-4"
+          style={{ background: 'rgba(0,0,0,0.55)' }}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="staff-edit-title"
+        >
+          <div
+            className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl border p-5 shadow-xl"
+            style={{ background: isDark ? '#1a1b1e' : '#ffffff', borderColor: border }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <h4 id="staff-edit-title" className="text-lg font-bold">
+                Xodimni tahrirlash
+              </h4>
+              <button
+                type="button"
+                onClick={closeEdit}
+                className="p-2 rounded-xl border"
+                style={{ borderColor: border }}
+                aria-label="Yopish"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            <form onSubmit={saveEdit} className="space-y-4">
+              <label className="text-sm font-medium block">
+                <span className="block mb-1">Rol</span>
+                <select
+                  value={editForm.role}
+                  onChange={(e) => setEditForm((p) => ({ ...p, role: e.target.value as StaffRole }))}
+                  className="w-full px-4 py-3 rounded-2xl border outline-none"
+                  style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                >
+                  <option value="warehouse">Omborchi</option>
+                  <option value="operator">Operator</option>
+                  <option value="cashier">Kassa</option>
+                  <option value="accountant">Bogalter</option>
+                  <option value="support">Support</option>
+                </select>
+              </label>
+
+              <label className="text-sm font-medium block">
+                <span className="block mb-1">Oylik maosh (so‘m)</span>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={editForm.monthlySalary}
+                  onChange={(e) => setEditForm((p) => ({ ...p, monthlySalary: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-2xl border outline-none"
+                  style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                />
+              </label>
+
+              <div className="text-sm font-medium">
+                <span className="block mb-2">Ish vaqti</span>
+                <div className="flex flex-wrap gap-2 items-center">
+                  <input
+                    type="time"
+                    value={editForm.workStart}
+                    onChange={(e) => setEditForm((p) => ({ ...p, workStart: e.target.value }))}
+                    className="px-3 py-2 rounded-xl border outline-none"
+                    style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                  />
+                  <span style={{ color: muted }}>—</span>
+                  <input
+                    type="time"
+                    value={editForm.workEnd}
+                    onChange={(e) => setEditForm((p) => ({ ...p, workEnd: e.target.value }))}
+                    className="px-3 py-2 rounded-xl border outline-none"
+                    style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                  />
+                </div>
+              </div>
+
+              <div className="text-sm font-medium">
+                <span className="block mb-2">Ish kunlari</span>
+                <div className="flex flex-wrap gap-2">
+                  {WEEKDAYS.map((d) => {
+                    const on = editForm.workDays.includes(d.key);
+                    return (
+                      <button
+                        key={d.key}
+                        type="button"
+                        onClick={() =>
+                          setEditForm((p) => ({ ...p, workDays: toggleWorkDay(p.workDays, d.key) }))
+                        }
+                        className="px-3 py-2 rounded-xl text-sm font-semibold border"
+                        style={{
+                          background: on ? accentColor.gradient : inputBg,
+                          color: on ? '#fff' : isDark ? '#fff' : '#111827',
+                          borderColor: on ? 'transparent' : border,
+                        }}
+                      >
+                        {d.label}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              <label className="text-sm font-medium block">
+                <span className="block mb-1">Login</span>
+                <input
+                  value={editForm.login}
+                  onChange={(e) => setEditForm((p) => ({ ...p, login: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-2xl border outline-none"
+                  style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                />
+              </label>
+
+              <label className="text-sm font-medium block">
+                <span className="block mb-1">Yangi parol (ixtiyoriy)</span>
+                <input
+                  type="password"
+                  value={editForm.newPassword}
+                  onChange={(e) => setEditForm((p) => ({ ...p, newPassword: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-2xl border outline-none"
+                  placeholder="Bo‘sh qoldiring — parol o‘zgarmaydi"
+                  style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                />
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm font-medium">
+                  <span className="block mb-1">Ism</span>
+                  <input
+                    value={editForm.firstName}
+                    onChange={(e) => setEditForm((p) => ({ ...p, firstName: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border outline-none"
+                    style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                  />
+                </label>
+                <label className="text-sm font-medium">
+                  <span className="block mb-1">Familya</span>
+                  <input
+                    value={editForm.lastName}
+                    onChange={(e) => setEditForm((p) => ({ ...p, lastName: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border outline-none"
+                    style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                  />
+                </label>
+              </div>
+
+              <label className="text-sm font-medium block">
+                <span className="block mb-1">Telefon</span>
+                <input
+                  value={editForm.phone}
+                  onChange={(e) => setEditForm((p) => ({ ...p, phone: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-2xl border outline-none"
+                  style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                />
+              </label>
+
+              <label className="text-sm font-medium block">
+                <span className="block mb-1">Manzil</span>
+                <input
+                  value={editForm.address}
+                  onChange={(e) => setEditForm((p) => ({ ...p, address: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-2xl border outline-none"
+                  style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                />
+              </label>
+
+              <div className="grid grid-cols-2 gap-3">
+                <label className="text-sm font-medium">
+                  <span className="block mb-1">Jins</span>
+                  <select
+                    value={editForm.gender}
+                    onChange={(e) => setEditForm((p) => ({ ...p, gender: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border outline-none"
+                    style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                  >
+                    <option value="male">Erkak</option>
+                    <option value="female">Ayol</option>
+                  </select>
+                </label>
+                <label className="text-sm font-medium">
+                  <span className="block mb-1">Tug‘ilgan kun</span>
+                  <input
+                    type="date"
+                    value={editForm.birthDate}
+                    onChange={(e) => setEditForm((p) => ({ ...p, birthDate: e.target.value }))}
+                    className="w-full px-3 py-2 rounded-xl border outline-none"
+                    style={{ background: inputBg, borderColor: border, color: isDark ? '#fff' : '#111827' }}
+                  />
+                </label>
+              </div>
+
+              <div className="flex gap-3 pt-2">
+                <button
+                  type="button"
+                  onClick={closeEdit}
+                  className="flex-1 py-3 rounded-2xl font-semibold border"
+                  style={{ borderColor: border }}
+                >
+                  Bekor qilish
+                </button>
+                <button
+                  type="submit"
+                  disabled={savingEditId !== null}
+                  className="flex-1 py-3 rounded-2xl font-semibold text-white flex items-center justify-center gap-2 disabled:opacity-60"
+                  style={{ background: accentColor.gradient }}
+                >
+                  {savingEditId ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
+                  Saqlash
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      ) : null}
     </div>
   );
 }
-

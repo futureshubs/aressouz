@@ -4,6 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { toast } from 'sonner';
 import MarketView from '../components/branch/MarketView';
 import { PendingCashMarketBranchPanel } from '../components/branch/PendingCashMarketBranchPanel';
+import { BranchRefundsPanel } from '../components/branch/BranchRefundsPanel';
 import { CashierPanel } from '../components/branch/CashierPanel';
 import { OperatorSupportTabs } from '../components/branch/OperatorSupportTabs';
 import { Payments } from '../components/branch/Payments';
@@ -50,7 +51,7 @@ export default function StaffDashboard() {
   };
 
   const [session, setSession] = useState<any>(null);
-  const [warehouseTab, setWarehouseTab] = useState<'market' | 'payments'>('market');
+  const [warehouseTab, setWarehouseTab] = useState<'market' | 'payments' | 'refunds'>('market');
   const branchSession = useMemo(() => {
     try {
       return JSON.parse(localStorage.getItem('branchSession') || 'null');
@@ -63,14 +64,12 @@ export default function StaffDashboard() {
     try {
       const s = JSON.parse(localStorage.getItem('staffSession') || 'null');
       if (!s?.role) {
-        // Kassa uchun login/parol hali yo'q: session bo'lmasa ham xabarni ko'rsatamiz.
-        if (expectedRoleFromPath === 'cashier') return;
         navigate(panelLoginPath);
         return;
       }
       setSession(s);
     } catch {
-      if (expectedRoleFromPath !== 'cashier') navigate(panelLoginPath);
+      navigate(panelLoginPath);
     }
   }, [navigate, panelLoginPath, expectedRoleFromPath]);
 
@@ -84,23 +83,18 @@ export default function StaffDashboard() {
 
   useEffect(() => {
     if (!role) return;
-    // Kassa paneliga kirganda (hatto boshqa rol bilan session bo'lsa ham) operatorga o'tkazib yubormaymiz.
-    if (expectedRoleFromPath === 'cashier') return;
-    if (expectedRoleFromPath && role !== expectedRoleFromPath) {
-      toast.error('Siz boshqa panelga kirgansiz. To‘g‘ri panelga o‘tkazdim.');
+    if (!expectedRoleFromPath) return;
+
+    const pathOk =
+      expectedRoleFromPath === 'support'
+        ? role === 'support' || role === 'operator'
+        : role === expectedRoleFromPath;
+
+    if (!pathOk) {
+      toast.error('Bu panel uchun boshqa rol kerak. O‘z panelingizga yo‘naltirildingiz.');
       navigate(roleToPanelDashboardPath(role));
     }
   }, [role, expectedRoleFromPath, navigate]);
-
-  if (expectedRoleFromPath === 'cashier') {
-    // Kassa panelida session majburiy emas: branchSession bo'lsa filial kassa ma'lumotlari ko'rinadi.
-    // QR/to'lovlar hozircha demo ko'rinishda bo'lishi mumkin.
-    // (Cashier login backendda yoqilmagan bo'lsa ham, UI ishlashi uchun shu yerda render qilamiz.)
-    return (
-      // eslint-disable-next-line react/jsx-no-undef
-      <CashierPanel branchId={branchId} branchInfo={{ region: branchSession?.region || '', district: branchSession?.district || '', phone: branchSession?.phone || '' }} />
-    );
-  }
 
   if (!session || !role || !branchId) {
     return (
@@ -118,13 +112,13 @@ export default function StaffDashboard() {
 
   return (
     <div
-      className="min-h-screen"
+      className="app-panel-viewport app-safe-pad"
       style={{
         background: isDark ? '#000000' : '#f9fafb',
         color: isDark ? '#ffffff' : '#111827',
       }}
     >
-      <div className="p-4 lg:p-8 max-w-6xl mx-auto space-y-6">
+      <div className="app-panel-main-scroll p-4 lg:p-8 max-w-6xl mx-auto space-y-6 min-h-0">
         <div className="flex items-center justify-between gap-4">
           <div>
             <h1 className="text-2xl font-bold">
@@ -144,8 +138,9 @@ export default function StaffDashboard() {
           <button
             onClick={() => {
               localStorage.removeItem('staffSession');
+              localStorage.removeItem('branchSession');
               toast.success('Chiqildi');
-              navigate('/xodim');
+              navigate(panelLoginPath);
             }}
             className="px-4 py-2 rounded-xl font-semibold"
             style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}
@@ -210,6 +205,32 @@ export default function StaffDashboard() {
               >
                 To'lovlar
               </button>
+              <button
+                onClick={() => setWarehouseTab('refunds')}
+                className="px-4 py-2 rounded-xl font-semibold transition-all active:scale-95"
+                style={{
+                  background:
+                    warehouseTab === 'refunds'
+                      ? accentColor.gradient
+                      : isDark
+                        ? 'rgba(255, 255, 255, 0.06)'
+                        : 'rgba(0, 0, 0, 0.04)',
+                  color:
+                    warehouseTab === 'refunds'
+                      ? '#ffffff'
+                      : isDark
+                        ? 'rgba(255, 255, 255, 0.7)'
+                        : '#111827',
+                  border:
+                    warehouseTab === 'refunds'
+                      ? 'none'
+                      : isDark
+                        ? '1px solid rgba(255,255,255,0.08)'
+                        : '1px solid rgba(0,0,0,0.06)',
+                }}
+              >
+                Qaytarish to‘lovlari
+              </button>
             </div>
 
             {warehouseTab === 'market' ? (
@@ -217,8 +238,10 @@ export default function StaffDashboard() {
                 <PendingCashMarketBranchPanel />
                 <MarketView branchId={branchId} />
               </div>
-            ) : (
+            ) : warehouseTab === 'payments' ? (
               <Payments branchId={branchId} branchInfo={branchInfo} />
+            ) : (
+              <BranchRefundsPanel />
             )}
           </div>
         )}
@@ -228,12 +251,7 @@ export default function StaffDashboard() {
         )}
 
         {effectiveRole === 'cashier' && (
-          <div className="p-10 rounded-3xl border text-center" style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff' }}>
-            <div style={{ fontSize: 18, fontWeight: 700 }}>Kassa uchun login/parol hali yo‘q</div>
-            <div style={{ marginTop: 8, opacity: 0.7, fontSize: 13 }}>
-              Keyin qo‘shiladi
-            </div>
-          </div>
+          <CashierPanel branchId={branchId} branchInfo={branchInfo} />
         )}
       </div>
     </div>

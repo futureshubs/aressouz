@@ -28,9 +28,11 @@ import {
   Users,
   FileBarChart,
   Building,
+  DollarSign,
   BriefcaseBusiness,
   ChevronRight,
   Loader2,
+  RotateCcw,
 } from 'lucide-react';
 import MarketView from '../components/branch/MarketView';
 import ShopView from '../components/branch/ShopView';
@@ -61,9 +63,11 @@ import { Reports } from '../components/branch/Reports';
 import { Couriers } from '../components/branch/Couriers';
 import { CourierBagsPanel } from '../components/branch/CourierBagsPanel';
 import { PickupRacksPanel } from '../components/branch/PickupRacksPanel';
+import { BranchRefundsPanel } from '../components/branch/BranchRefundsPanel';
 import { buildBranchHeaders } from '../utils/requestAuth';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
+import { useBodyScrollLock } from '../utils/useBodyScrollLock';
 
 export default function BranchDashboard() {
   const navigate = useNavigate();
@@ -83,6 +87,8 @@ export default function BranchDashboard() {
     totalProducts: number;
     activeUsersToday: number;
     revenueToday: number;
+    platformCommissionToday?: number;
+    platformCommissionAllTime?: number;
   }>(null);
   const [isLoadingStats, setIsLoadingStats] = useState(false);
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
@@ -90,14 +96,7 @@ export default function BranchDashboard() {
   const [visibilityReloadTick, setVisibilityReloadTick] = useState(0);
   useVisibilityRefetch(() => setVisibilityReloadTick((t) => t + 1));
 
-  useEffect(() => {
-    if (!sidebarOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = 'hidden';
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, [sidebarOpen]);
+  useBodyScrollLock(sidebarOpen);
 
   useEffect(() => {
     const loadBranchInfo = async () => {
@@ -288,8 +287,9 @@ export default function BranchDashboard() {
     { id: 'analytics', label: 'Data Analitika', icon: BarChart3 },
     { id: 'statistics', label: 'Statistika', icon: TrendingUp },
     
-    // Buyurtmalar (do‘kon buyurtmalari sotuvchi /seller panelida)
+    // Buyurtmalar
     { id: 'market-orders', label: 'Market Buyurtmalar', icon: ShoppingBag },
+    { id: 'shop-orders', label: "Do'kon buyurtmalar", icon: Store },
     { id: 'food-orders', label: 'Taom Buyurtmalar', icon: UtensilsCrossed },
     { id: 'rental-orders', label: 'Ijara Buyurtmalar', icon: HomeIcon },
     
@@ -320,6 +320,7 @@ export default function BranchDashboard() {
     { id: 'chat', label: 'Chat', icon: MessageSquare },
     { id: '2fa', label: '2FA', icon: Shield },
     { id: 'payments', label: 'To\'lovlar tarixi', icon: CreditCard },
+    { id: 'refunds', label: 'To‘lov qaytarish', icon: RotateCcw },
     
     // Hisobotlar
     { id: 'employees', label: 'Ishchilar', icon: Users },
@@ -327,22 +328,23 @@ export default function BranchDashboard() {
   ];
 
   return (
-    <div 
-      className="min-h-screen"
-      style={{ 
+    <div
+      className="app-panel-viewport app-safe-pad"
+      style={{
         background: isDark ? '#000000' : '#f9fafb',
-        color: isDark ? '#ffffff' : '#111827'
+        color: isDark ? '#ffffff' : '#111827',
       }}
     >
       {/* Sidebar - Desktop */}
-      <aside 
-        className="hidden lg:block fixed left-0 top-0 h-full w-64 border-r overflow-y-auto pb-28"
+      <aside
+        className="hidden lg:flex lg:flex-col fixed left-0 top-0 z-30 h-[100dvh] max-h-[100dvh] w-64 min-w-[16rem] border-r overflow-hidden app-safe-pl"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          paddingTop: 'var(--app-safe-top)',
         }}
       >
-        <div className="p-6">
+        <div className="app-panel-sidebar-scroll p-6 pb-4">
           {/* Branch Info */}
           <div className="mb-8">
             <div 
@@ -442,7 +444,13 @@ export default function BranchDashboard() {
           </nav>
         </div>
 
-        <div className="fixed bottom-0 left-0 w-64 p-6" style={{ background: isDark ? '#0a0a0a' : '#ffffff' }}>
+        <div
+          className="shrink-0 border-t p-4"
+          style={{
+            background: isDark ? '#0a0a0a' : '#ffffff',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          }}
+        >
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all active:scale-95"
@@ -460,20 +468,22 @@ export default function BranchDashboard() {
 
       {/* Sidebar - Mobile */}
       {sidebarOpen && (
-        <div 
-          className="lg:hidden fixed inset-0 z-50"
+        <div
+          className="lg:hidden fixed inset-0 z-50 app-modal-overlay"
           style={{ background: 'rgba(0, 0, 0, 0.5)' }}
           onClick={() => setSidebarOpen(false)}
+          role="presentation"
         >
-          <aside 
-            className="absolute left-0 top-0 h-full w-64 border-r overflow-y-auto pb-28"
+          <aside
+            className="absolute left-0 top-0 flex h-[100dvh] max-h-[100dvh] w-[min(100%,16rem)] max-w-[85vw] flex-col overflow-hidden border-r shadow-xl app-safe-pl"
             style={{
               background: isDark ? '#0a0a0a' : '#ffffff',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              paddingTop: 'var(--app-safe-top)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-6">
+            <div className="app-panel-sidebar-scroll p-6 pb-4">
               <div className="flex items-center justify-between mb-6">
                 {isLoadingBranch ? (
                   <div 
@@ -529,7 +539,13 @@ export default function BranchDashboard() {
               </nav>
             </div>
 
-            <div className="fixed bottom-0 left-0 w-64 p-6" style={{ background: isDark ? '#0a0a0a' : '#ffffff' }}>
+            <div
+              className="shrink-0 border-t p-4"
+              style={{
+                background: isDark ? '#0a0a0a' : '#ffffff',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              }}
+            >
               <button
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all active:scale-95"
@@ -548,10 +564,10 @@ export default function BranchDashboard() {
       )}
 
       {/* Main Content */}
-      <main className="lg:ml-64 min-w-0 overflow-x-hidden">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:ml-64">
         {/* Header */}
-        <header 
-          className="border-b sticky top-0 z-40"
+        <header
+          className="shrink-0 border-b z-40"
           style={{
             background: isDark ? '#0a0a0a' : '#ffffff',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -595,7 +611,7 @@ export default function BranchDashboard() {
         </header>
 
         {/* Content */}
-        <div className="p-4 lg:p-6">
+        <div className="app-panel-main-scroll p-4 lg:p-6">
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               {/* Welcome Card */}
@@ -618,7 +634,7 @@ export default function BranchDashboard() {
               </div>
 
               {/* Stats Grid */}
-              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+              <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-4 lg:gap-6">
                 {[
                   {
                     label: 'Bugungi buyurtmalar',
@@ -644,6 +660,20 @@ export default function BranchDashboard() {
                       `${Number(dashboardStats?.revenueToday ?? 0).toLocaleString()} so'm`,
                     icon: BarChart3,
                     color: '#10b981',
+                  },
+                  {
+                    label: 'Platform ulushi (bugun)',
+                    getValue: () =>
+                      `${Number(dashboardStats?.platformCommissionToday ?? 0).toLocaleString()} so'm`,
+                    icon: DollarSign,
+                    color: '#f97316',
+                  },
+                  {
+                    label: 'Platform ulushi (jami)',
+                    getValue: () =>
+                      `${Number(dashboardStats?.platformCommissionAllTime ?? 0).toLocaleString()} so'm`,
+                    icon: DollarSign,
+                    color: '#ea580c',
                   },
                 ].map((stat, index) => {
                   const Icon = stat.icon;
@@ -689,7 +719,7 @@ export default function BranchDashboard() {
               {/* Quick Actions */}
               <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-4 lg:gap-6">
                 {[
-                  { id: 'orders', label: 'Buyurtmalar', desc: 'Qabul qilish, status, kuryer biriktirish', icon: Package, color: '#14b8a6' },
+                  { id: 'market-orders', label: 'Buyurtmalar', desc: 'Market / do‘kon / taom — alohida bo‘limlar', icon: Package, color: '#14b8a6' },
                   { id: 'market', label: 'Market', desc: 'Mahsulotlar, kategoriya, zaxira', icon: Store, color: '#3b82f6' },
                   { id: 'payments', label: 'To‘lovlar', desc: 'Pending/paid, cheklar, hisob-kitob', icon: CreditCard, color: '#f59e0b' },
                   { id: 'couriers', label: 'Kuryerlar', desc: 'Kuryerlar ro‘yxati va holati', icon: Bike, color: '#10b981' },
@@ -850,6 +880,19 @@ export default function BranchDashboard() {
             />
           )}
 
+          {activeTab === 'shop-orders' && branchInfo && (
+            <OrdersManagement
+              branchId={branchInfo.id}
+              branchInfo={{
+                region: branchInfo.region,
+                district: branchInfo.district,
+                phone: branchInfo.phone,
+              }}
+              type="shop"
+              authMode="branch"
+            />
+          )}
+
           {activeTab === 'food-orders' && branchInfo && (
             <OrdersManagement 
               branchId={branchInfo.id} 
@@ -957,6 +1000,12 @@ export default function BranchDashboard() {
             />
           )}
 
+          {activeTab === 'refunds' && branchInfo && (
+            <div className="space-y-4">
+              <BranchRefundsPanel />
+            </div>
+          )}
+
           {activeTab === 'employees' && branchInfo && (
             <StaffManagement
               branchId={branchInfo.id}
@@ -993,6 +1042,7 @@ export default function BranchDashboard() {
             activeTab !== 'bank' &&
             activeTab !== 'delivery-zones' &&
             activeTab !== 'market-orders' &&
+            activeTab !== 'shop-orders' &&
             activeTab !== 'food-orders' &&
             activeTab !== 'rental-orders' &&
             activeTab !== 'preparers' &&
@@ -1005,6 +1055,7 @@ export default function BranchDashboard() {
             activeTab !== 'pickup-racks' &&
             activeTab !== 'chat' &&
             activeTab !== 'payments' &&
+            activeTab !== 'refunds' &&
             activeTab !== 'employees' &&
             activeTab !== 'reports' && (
               <div

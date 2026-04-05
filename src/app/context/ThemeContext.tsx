@@ -1,7 +1,19 @@
 import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import { Toaster } from 'sonner';
 import { getUserId } from '../utils/userId';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+
+function readBoolLs(key: string, fallback: boolean): boolean {
+  try {
+    const raw = localStorage.getItem(key);
+    if (raw == null || raw === '') return fallback;
+    const v = JSON.parse(raw);
+    return typeof v === 'boolean' ? v : fallback;
+  } catch {
+    return fallback;
+  }
+}
 
 export type ThemeMode = 'light' | 'dark';
 export type Language = 'uz' | 'ru' | 'en';
@@ -56,31 +68,34 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const userId = getUserIdFromStorage();
   const visibilityRefetchTick = useVisibilityTick();
 
-  // Load from localStorage FIRST (instant)
+  // Load from localStorage FIRST (instant). JSON.parse xatosi ThemeProvider’ni yiqitmasin.
   const [theme, setTheme] = useState<ThemeMode>(() => {
-    const saved = localStorage.getItem('theme');
-    return (saved as ThemeMode) || 'dark';
+    try {
+      const saved = localStorage.getItem('theme');
+      if (saved === 'light' || saved === 'dark') return saved;
+    } catch {
+      /* ignore */
+    }
+    return 'dark';
   });
 
   const [language, setLanguageState] = useState<Language>(() => {
-    const saved = localStorage.getItem('language');
-    return (saved as Language) || 'uz';
+    try {
+      const saved = localStorage.getItem('language');
+      if (saved === 'uz' || saved === 'ru' || saved === 'en') return saved;
+    } catch {
+      /* ignore */
+    }
+    return 'uz';
   });
 
-  const [notifications, setNotifications] = useState(() => {
-    const saved = localStorage.getItem('notifications');
-    return saved ? JSON.parse(saved) : true;
-  });
+  const [notifications, setNotifications] = useState(() => readBoolLs('notifications', true));
 
-  const [soundEnabled, setSoundEnabled] = useState(() => {
-    const saved = localStorage.getItem('soundEnabled');
-    return saved ? JSON.parse(saved) : true;
-  });
+  const [soundEnabled, setSoundEnabled] = useState(() => readBoolLs('soundEnabled', true));
 
-  const [supportChatEnabled, setSupportChatEnabled] = useState(() => {
-    const saved = localStorage.getItem('supportChatEnabled');
-    return saved ? JSON.parse(saved) : true;
-  });
+  const [supportChatEnabled, setSupportChatEnabled] = useState(() =>
+    readBoolLs('supportChatEnabled', true),
+  );
 
   const [accentColor, setAccentColorState] = useState(() => {
     const saved = localStorage.getItem('accentColor');
@@ -251,6 +266,37 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
       setAccentColor,
     }}>
       {children}
+      <Toaster
+        theme={theme}
+        position="top-center"
+        expand={false}
+        richColors
+        closeButton
+        visibleToasts={4}
+        duration={2800}
+        offset={{ top: 'var(--app-safe-top)' }}
+        mobileOffset={{ top: 'var(--app-safe-top)' }}
+        toastOptions={{
+          classNames: {
+            toast:
+              theme === 'dark'
+                ? 'sonner-toast-ios !rounded-2xl !border !border-white/[0.12] !bg-zinc-900/88 !backdrop-blur-2xl !shadow-[0_12px_40px_-8px_rgba(0,0,0,0.65)] !text-white'
+                : 'sonner-toast-ios !rounded-2xl !border !border-black/[0.07] !bg-white/[0.94] !backdrop-blur-2xl !shadow-[0_12px_40px_-10px_rgba(15,23,42,0.18)] !text-zinc-900',
+            title: '!text-[15px] !font-semibold !leading-snug !tracking-tight',
+            description: '!text-[13px] !leading-snug !opacity-[0.82]',
+            actionButton:
+              theme === 'dark'
+                ? '!rounded-xl !bg-white/15 !text-white'
+                : '!rounded-xl !bg-zinc-900/90 !text-white',
+            cancelButton:
+              theme === 'dark' ? '!rounded-xl !bg-white/10 !text-white/90' : '!rounded-xl !bg-black/5 !text-zinc-800',
+            closeButton:
+              theme === 'dark'
+                ? '!rounded-lg !border-white/15 !bg-white/10 !text-white/80'
+                : '!rounded-lg !border-black/10 !bg-black/[0.04] !text-zinc-600',
+          },
+        }}
+      />
     </ThemeContext.Provider>
   );
 }

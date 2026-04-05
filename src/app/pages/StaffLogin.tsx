@@ -54,14 +54,6 @@ export default function StaffLogin({ requiredRole }: { requiredRole?: StaffRole 
   const submit = async (branchId?: string) => {
     setLoading(true);
     try {
-      // Cashier login hali yoq (backend 403 qaytaradi).
-      // Foydalanuvchi /kassa ga kirsa darhol xabar/ekranga o'tamiz.
-      if (requiredRole === 'cashier') {
-        toast.error('Kassa uchun login/parol hali yo‘q');
-        navigate('/kassa/dashboard');
-        return;
-      }
-
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/staff/login`,
         {
@@ -191,9 +183,13 @@ export default function StaffLogin({ requiredRole }: { requiredRole?: StaffRole 
             >
               <Store className="w-12 h-12" style={{ color: accentColor.color }} />
             </div>
-            <h1 className="text-2xl font-bold mb-2">Xodim Paneli</h1>
+            <h1 className="text-2xl font-bold mb-2">
+              {requiredRole === 'cashier' ? 'Kassa kirish' : 'Xodim paneli'}
+            </h1>
             <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-              Omborchi/Operator/Support/Bogalter kirish
+              {requiredRole === 'cashier'
+                ? 'Filialda ro‘yxatdan o‘tgan kassa login va paroli (noto‘g‘ri bo‘lsa kira olmaysiz)'
+                : 'Omborchi, support, bogalter va boshqa rollar'}
             </p>
           </div>
 

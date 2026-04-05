@@ -48,7 +48,7 @@ import { publicAnonKey, API_BASE_URL, DEV_API_BASE_URL } from '/utils/supabase/i
 import { OrderReviewModal } from './OrderReviewModal';
 import type { FavoriteOrderEntry } from '../context/FavoritesContext';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
-import { RentalNextPaymentInfo } from './rental/RentalNextPaymentInfo';
+import { ProfileActiveRentalCard, type ProfileActiveRentalOrder } from './rental/ProfileActiveRentalCard';
 import { tryResolveImageFromBranchCatalog } from '../utils/branchCatalogProductImage';
 
 /** Normalize Postgres marketplace `vertical_type` → profil buyurtma filtrlari */
@@ -345,16 +345,19 @@ function normalizeKvOrderForProfile(o: any) {
   let orderStatus: 'active' | 'completed' | 'cancelled' = 'active';
   if (s === 'cancelled' || s === 'canceled' || s === 'rejected') orderStatus = 'cancelled';
   else if (s === 'delivered' || s === 'completed') orderStatus = 'completed';
+  const refundWait = o.refundPending === true && (s === 'cancelled' || s === 'canceled');
   const statusLabel =
     s === 'awaiting_receipt'
       ? 'Kuryer topshirdi — tekshiring'
       : s === 'delivered'
         ? 'Yetkazildi'
-        : s === 'cancelled' || s === 'canceled' || s === 'rejected'
-          ? 'Bekor qilingan'
-          : typeof o.status === 'string' && o.status.trim()
-            ? o.status
-            : 'Jarayonda';
+        : refundWait
+          ? 'Bekor qilingan — to‘lov qaytarish kutilmoqda'
+          : s === 'cancelled' || s === 'canceled' || s === 'rejected'
+            ? 'Bekor qilingan'
+            : typeof o.status === 'string' && o.status.trim()
+              ? o.status
+              : 'Jarayonda';
   return {
     ...o,
     orderStatus,
@@ -1238,6 +1241,12 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
     );
   }
 
+  const rawPhoneForRentals =
+    userData?.phone ||
+    user?.phone ||
+    (user as { user_metadata?: { phone?: string } })?.user_metadata?.phone;
+  const rentalPhonePk = normalizePhoneForRentalsApi(String(rawPhoneForRentals || ''));
+
   // To'liq profil - iOS dizayn
   return (
     <>
@@ -1517,56 +1526,25 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
             ) : null}
             <div className="space-y-2">
               {!myRentalsLoading &&
-              myRentals.map((r) => (
-                <div
-                  key={r.id}
-                  className="rounded-2xl border p-3 flex gap-3 items-start"
-                  style={{
-                    background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
-                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-                  }}
-                >
-                  <div
-                    className="p-2 rounded-xl shrink-0"
-                    style={{ background: `${accentColor.color}22` }}
-                  >
-                    <Clock className="size-5" style={{ color: accentColor.color }} />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="font-semibold text-sm truncate">
-                      {r.productName || t('profile.rentFallback')}
-                    </p>
-                    <p className="text-xs mt-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
-                      {t('profile.rentSchedule')}{' '}
-                      {r.paymentSchedule === 'weekly'
-                        ? t('profile.rentWeekly')
-                        : r.paymentSchedule === 'monthly'
-                          ? t('profile.rentMonthly')
-                          : t('profile.rentOneOff')}
-                    </p>
-                    <RentalNextPaymentInfo
-                      compact
-                      isDark={isDark}
-                      accentColor={accentColor.color}
-                      paymentSchedule={r.paymentSchedule}
-                      nextPaymentDue={r.nextPaymentDue}
-                      pricePerPeriod={r.pricePerPeriod}
-                      quantity={r.quantity}
-                      contractStartDate={r.contractStartDate}
-                      rentalPeriodStartedAt={r.rentalPeriodStartedAt}
-                      rentalPeriodEndsAt={r.rentalPeriodEndsAt}
-                      rentalPeriod={r.rentalPeriod}
-                      awaitingCourierDelivery={r.awaitingCourierDelivery === true}
-                    />
-                    {r.paymentAlert === 'overdue' && (
-                      <p className="text-xs text-red-500 font-semibold mt-1">{t('profile.rentOverdue')}</p>
-                    )}
-                    {r.paymentAlert === 'due_soon' && (
-                      <p className="text-xs text-amber-500 font-medium mt-1">{t('profile.rentDueSoon')}</p>
-                    )}
-                  </div>
-                </div>
-              ))}
+                myRentals.map((r) => (
+                  <ProfileActiveRentalCard
+                    key={r.id}
+                    order={r as ProfileActiveRentalOrder}
+                    isDark={isDark}
+                    accentColor={accentColor.color}
+                    phonePk={rentalPhonePk}
+                    apiBaseUrl={apiBaseUrl}
+                    onExtended={(updated) => {
+                      if (updated && typeof updated === 'object' && (updated as { id?: string }).id != null) {
+                        const id = String((updated as { id: string }).id);
+                        setMyRentals((prev) =>
+                          prev.map((r) => (String(r?.id) === id ? { ...r, ...updated } : r)),
+                        );
+                      }
+                      void fetchOrders();
+                    }}
+                  />
+                ))}
             </div>
           </div>
         )}

@@ -3,6 +3,7 @@ import { X, Star, MapPin, Phone, Clock, Fuel, Check } from 'lucide-react';
 import { GasStation } from '../data/gasStations';
 import { Platform } from '../utils/platform';
 import { useTheme } from '../context/ThemeContext';
+import { openExternalUrlSync } from '../utils/openExternalUrl';
 
 interface GasStationDetailModalProps {
   station: GasStation;
@@ -29,7 +30,7 @@ export const GasStationDetailModal = memo(function GasStationDetailModal({
 
   const handleOpenMap = () => {
     const [lat, lng] = station.coordinates;
-    window.open(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}&zoom=16`, '_blank');
+    openExternalUrlSync(`https://www.openstreetmap.org/?mlat=${lat}&mlon=${lng}&zoom=16`);
   };
 
   if (isIOS) {

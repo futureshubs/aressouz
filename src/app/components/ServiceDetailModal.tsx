@@ -2,6 +2,7 @@ import { useTheme } from '../context/ThemeContext';
 import { Service } from '../data/services';
 import { X, Star, Phone, MapPin, Briefcase, Calendar, Clock, Award, CheckCircle, MessageCircle, Globe } from 'lucide-react';
 import { useEffect } from 'react';
+import { openExternalUrlSync } from '../utils/openExternalUrl';
 
 interface ServiceDetailModalProps {
   service: Service;
@@ -32,7 +33,7 @@ export function ServiceDetailModal({ service, isOpen, onClose }: ServiceDetailMo
 
   const handleMessage = () => {
     // Open messaging app or WhatsApp
-    window.open(`https://wa.me/${service.phone.replace(/\D/g, '')}`, '_blank');
+    openExternalUrlSync(`https://wa.me/${service.phone.replace(/\D/g, '')}`);
   };
 
   return (

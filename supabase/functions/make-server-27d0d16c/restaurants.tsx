@@ -2,6 +2,11 @@ import { Hono } from 'npm:hono';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import * as r2 from './r2-storage.tsx';
+import * as businessHours from './businessHours.ts';
+import {
+  clampPlatformCommissionPercent,
+  validateVariantCommissionsForSave,
+} from './platform-commission.ts';
 
 const app = new Hono();
 
@@ -154,6 +159,33 @@ function mergeOrdersLists(lists: any[][]): any[] {
   );
 }
 
+function isPaidLikeRestaurant(ps: unknown): boolean {
+  const s = String(ps || '').toLowerCase().trim();
+  return s === 'paid' || s === 'completed' || s === 'success';
+}
+
+function isCashLikeRestaurant(pm: unknown): boolean {
+  const pmNorm = String(pm ?? '').toLowerCase().trim();
+  const c = pmNorm.replace(/\s+/g, '');
+  if (c === 'cash' || c === 'naqd' || c === 'naqdpul' || c === 'cod') return true;
+  if (pmNorm.includes('naqd') || pmNorm.includes('naqt')) return true;
+  if (pmNorm.includes('cash')) return true;
+  return false;
+}
+
+/** Taom buyurtmasi: asosiy `order:id` va restoran prefiksini birga yangilash */
+async function persistRestaurantOrderWrite(order: any, matchedKey: string): Promise<void> {
+  await kv.set(matchedKey, order);
+  const oid = String(order?.id || '').trim();
+  if (oid) {
+    await kv.set(`order:${oid}`, order);
+  }
+  const mk = order?.foodOrderMirrorKey;
+  if (typeof mk === 'string' && mk.trim()) {
+    await kv.set(mk.trim(), order);
+  }
+}
+
 async function listRestaurantOrders(canonicalRestaurantId: string): Promise<any[]> {
   const primary = await kv.getByPrefix(`order:restaurant:${canonicalRestaurantId}:`);
   const legacyKey = canonicalRestaurantId.startsWith('restaurant:')
@@ -163,7 +195,12 @@ async function listRestaurantOrders(canonicalRestaurantId: string): Promise<any[
     legacyKey && legacyKey !== canonicalRestaurantId
       ? await kv.getByPrefix(`order:restaurant:${legacyKey}:`)
       : [];
-  return mergeOrdersLists([primary, secondary]);
+  const merged = mergeOrdersLists([primary, secondary]);
+  return merged.filter((o: any) => {
+    if (o?.releasedToPreparerAt) return true;
+    if (!isCashLikeRestaurant(o?.paymentMethod ?? o?.payment_method)) return true;
+    return false;
+  });
 }
 
 // ==================== RESTORANLAR ====================
@@ -207,6 +244,23 @@ app.get('/restaurants', async (c) => {
     return c.json({ success: true, data: restaurants });
   } catch (error) {
     console.error('Restoranlarni olishda xato:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Bitta restoran (mijoz: ish vaqti; login/parol qaytarilmaydi)
+app.get('/restaurants/:id', async (c) => {
+  try {
+    const raw = c.req.param('id');
+    const resolved = await resolveRestaurantRecord(raw);
+    if (!resolved) {
+      return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
+    }
+    const { id, record } = resolved;
+    const { password: _p, login: _l, ...safe } = record;
+    return c.json({ success: true, data: { ...safe, id } });
+  } catch (error) {
+    console.error('Restoran (bitta) olishda xato:', error);
     return c.json({ success: false, error: String(error) }, 500);
   }
 });
@@ -384,6 +438,16 @@ app.post('/restaurants/:restaurantId/dishes', async (c) => {
     }
     const restaurantId = resolved.id;
     const body = await c.req.json();
+    const vchk = validateVariantCommissionsForSave(body.variants, 'Taom');
+    if (!vchk.ok) {
+      return c.json({ success: false, error: vchk.error }, 400);
+    }
+    const variantsNorm = Array.isArray(body.variants)
+      ? body.variants.map((v: any) => ({
+          ...v,
+          commission: clampPlatformCommissionPercent(v?.commission ?? v?.platformCommissionPercent),
+        }))
+      : [];
     const dishId = `dish:${restaurantId}:${Date.now()}`;
     
     const dish = {
@@ -398,7 +462,7 @@ app.post('/restaurants/:restaurantId/dishes', async (c) => {
       ingredients: body.ingredients || [],
       weight: body.weight,
       additionalProducts: body.additionalProducts || [], // [{ name, price }]
-      variants: body.variants || [], // [{ name, image, price, prepTime }]
+      variants: variantsNorm, // [{ name, image, price, prepTime, commission }]
       isPopular: body.isPopular || false,
       isNatural: body.isNatural || false,
       isActive: true,
@@ -424,7 +488,20 @@ app.put('/dishes/:id', async (c) => {
       return c.json({ success: false, error: 'Taom topilmadi' }, 404);
     }
 
-    const updated = { ...existing, ...body, updatedAt: new Date().toISOString() };
+    const mergedVariants = body.variants ?? existing.variants;
+    const vchk = validateVariantCommissionsForSave(mergedVariants, 'Taom');
+    if (!vchk.ok) {
+      return c.json({ success: false, error: vchk.error }, 400);
+    }
+    const nextBody = { ...body };
+    if (Array.isArray(nextBody.variants)) {
+      nextBody.variants = nextBody.variants.map((v: any) => ({
+        ...v,
+        commission: clampPlatformCommissionPercent(v?.commission ?? v?.platformCommissionPercent),
+      }));
+    }
+
+    const updated = { ...existing, ...nextBody, updatedAt: new Date().toISOString() };
     await purgeRemovedRestaurantR2Media(existing, updated);
     await kv.set(id, updated);
 
@@ -543,10 +620,16 @@ app.patch('/restaurants/:restaurantId/orders/:orderId/status', async (c) => {
     }
 
     const nowIso = new Date().toISOString();
+    const prevSt = String(order.status || '').toLowerCase().trim();
+    const paidCancel =
+      nextStatus === 'cancelled' &&
+      prevSt !== 'cancelled' &&
+      isPaidLikeRestaurant(order.paymentStatus);
     const updated = {
       ...order,
       status: nextStatus,
       updatedAt: nowIso,
+      ...(paidCancel ? { refundPending: true, refundRequestedAt: nowIso } : {}),
       statusHistory: [
         ...(Array.isArray(order.statusHistory) ? order.statusHistory : []),
         {
@@ -557,7 +640,7 @@ app.patch('/restaurants/:restaurantId/orders/:orderId/status', async (c) => {
       ],
     };
 
-    await kv.set(matchedKey, updated);
+    await persistRestaurantOrderWrite(updated, matchedKey);
     return c.json({ success: true, data: updated });
   } catch (error) {
     console.error('Restoran order status yangilashda xato:', error);
@@ -593,6 +676,45 @@ app.post('/orders/restaurant', async (c) => {
     }
     const restaurantCanonicalId = resolved.id;
     const restaurant = resolved.record;
+
+    const deliveryZoneId = String(
+      body.deliveryZone ?? body.deliveryZoneId ?? body.zoneId ?? '',
+    ).trim();
+    if (deliveryZoneId) {
+      const zone = await kv.get(`delivery-zone:${deliveryZoneId}`);
+      const evZ = businessHours.evaluateHourStrings(
+        businessHours.collectHourStringsFromRecord(zone as Record<string, unknown>),
+        new Date(),
+      );
+      if (!evZ.allowed) {
+        return c.json(
+          {
+            success: false,
+            error: `Yetkazib berish zonasi hozir ochiq emas${evZ.label ? ` (ish vaqti: ${evZ.label})` : ''}.`,
+            errorCode: 'outside_business_hours',
+            opensAt: evZ.nextOpenIso,
+          },
+          409,
+        );
+      }
+    }
+
+    const evR = businessHours.evaluateHourStrings(
+      businessHours.collectHourStringsFromRecord(restaurant as Record<string, unknown>),
+      new Date(),
+    );
+    if (!evR.allowed) {
+      return c.json(
+        {
+          success: false,
+          error: `Restoran hozir buyurtma qabul qilmaydi${evR.label ? ` (ish vaqti: ${evR.label})` : ''}.`,
+          errorCode: 'outside_business_hours',
+          opensAt: evR.nextOpenIso,
+        },
+        409,
+      );
+    }
+
     const resolvedBranchId = String(
       body?.branchId ||
       body?.branchID ||

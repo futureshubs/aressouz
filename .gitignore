@@ -80,3 +80,4 @@ mobile-android/.env.*
 
 # Mobil loyiha butunlay repodan tashqarida bo‘lsa, quyidagi qatorni yoqing:
 /mobile-android
+.vercel

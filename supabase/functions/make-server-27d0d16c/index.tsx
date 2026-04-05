@@ -8251,7 +8251,8 @@ app.post("/make-server-27d0d16c/payments/create", async (c) => {
   try {
     console.log('💳 Payment creation request received');
     
-    const { amount, orderId, description, returnUrl, userId, userPhone } = await c.req.json();
+    const { amount, orderId, description, returnUrl, userId, userPhone, paymentMethod } =
+      await c.req.json();
 
     if (!amount || !orderId) {
       return c.json({ error: 'Summa va buyurtma ID majburiy' }, 400);
@@ -8262,29 +8263,30 @@ app.post("/make-server-27d0d16c/payments/create", async (c) => {
       return c.json({ error: 'Minimal summa 1,000 so\'m' }, 400);
     }
 
-    // DEMO MODE: Return mock payment immediately
-    const DEMO_MODE = true;
-    if (DEMO_MODE) {
+    const pm = String(paymentMethod || "").toLowerCase().trim();
+    const envForceDemo = Deno.env.get("ARESSO_PAYMENTS_DEMO") === "true";
+    const useDemoPayment =
+      envForceDemo || pm === "atmos" || pm === "card" || pm === "click_card";
+
+    if (useDemoPayment) {
       const mockPaymentId = `DEMO_PAY_${Date.now()}`;
       const mockPaymentUrl = `https://demo-payment.aresso.uz/pay/${mockPaymentId}`;
-      
-      console.log('🎭 DEMO MODE ACTIVE: Creating mock payment');
-      console.log('  Payment ID:', mockPaymentId);
-      console.log('  Amount:', amount, 'so\'m');
-      
-      // Store payment in KV
+
+      console.log("🎭 Demo/simulated payment:", { paymentId: mockPaymentId, amount, pm, envForceDemo });
+
       const paymentData = {
         paymentId: mockPaymentId,
         orderId,
         amount,
-        status: 'pending',
+        status: "pending",
         userId,
         userPhone,
         description: description || `Buyurtma #${orderId}`,
         createdAt: new Date().toISOString(),
         isDemoMode: true,
+        ...(pm ? { paymentMethod: pm } : {}),
       };
-      
+
       await kv.set(`payment:${mockPaymentId}`, JSON.stringify(paymentData));
       await kv.set(`order:${orderId}:payment`, mockPaymentId);
       await kv.set(`payment_order:${orderId}`, {
@@ -8296,7 +8298,9 @@ app.post("/make-server-27d0d16c/payments/create", async (c) => {
         success: true,
         paymentId: mockPaymentId,
         paymentUrl: mockPaymentUrl,
-        message: 'Demo to\'lov yaratildi (haqiqiy pul yechilmaydi)',
+        message: envForceDemo
+          ? "Demo to‘lov (ARESSO_PAYMENTS_DEMO=true)"
+          : "Simulyatsiya: atmos/karta — haqiqiy integratsiya alohida",
       });
     }
 
@@ -8318,6 +8322,7 @@ app.post("/make-server-27d0d16c/payments/create", async (c) => {
       returnUrl,
       userId,
       userPhone,
+      ...(paymentMethod ? { paymentMethod: String(paymentMethod).toLowerCase() } : {}),
     });
 
     if (!result.success) {
@@ -8338,6 +8343,7 @@ app.post("/make-server-27d0d16c/payments/create", async (c) => {
       userPhone,
       description,
       createdAt: new Date().toISOString(),
+      ...(paymentMethod ? { paymentMethod: String(paymentMethod).toLowerCase() } : {}),
     };
 
     await kv.set(`payment:${result.paymentId}`, paymentData);
@@ -8374,47 +8380,49 @@ app.get("/make-server-27d0d16c/payments/:paymentId/status", async (c) => {
       return c.json({ error: 'To\'lov ID majburiy' }, 400);
     }
 
-    // Get payment from KV
-    const paymentData = await kv.get(`payment:${paymentId}`);
+    let paymentData: any = await kv.get(`payment:${paymentId}`);
+    if (typeof paymentData === "string") {
+      try {
+        paymentData = JSON.parse(paymentData);
+      } catch {
+        paymentData = null;
+      }
+    }
 
-    if (!paymentData) {
-      return c.json({ 
+    if (!paymentData || typeof paymentData !== "object") {
+      return c.json({
         success: false,
-        error: 'To\'lov topilmadi' 
+        error: "To'lov topilmadi",
       }, 404);
     }
 
-    // DEMO MODE: Auto-mark as paid
-    const DEMO_MODE = true;
-    if (DEMO_MODE || paymentId.startsWith('DEMO_PAY_')) {
-      console.log('🎭 DEMO MODE: Auto-marking payment as paid');
-      
+    if (paymentId.startsWith("DEMO_PAY_")) {
+      console.log("🎭 Demo payment: auto-mark paid");
+
       const updatedPaymentData = {
         ...paymentData,
-        status: 'paid',
+        status: "paid",
         paidAt: new Date().toISOString(),
         updatedAt: new Date().toISOString(),
       };
-      
+
       await kv.set(`payment:${paymentId}`, updatedPaymentData);
-      
+
       return c.json({
         success: true,
         paymentId,
-        status: 'paid',
+        status: "paid",
         amount: paymentData.amount,
         orderId: paymentData.orderId,
         paidAt: updatedPaymentData.paidAt,
-        message: 'Demo to\'lov muvaffaqiyatli yakunlandi',
+        message: "Demo to'lov muvaffaqiyatli yakunlandi",
       });
     }
 
-    // Check status via ARESSO
     const statusResult = await aresso.checkPaymentStatus(paymentId);
 
     if (!statusResult.success) {
-      console.error('❌ ARESSO status check failed:', statusResult.error);
-      // Return cached status
+      console.error("❌ ARESSO status check failed:", statusResult.error);
       return c.json({
         success: true,
         paymentId,
@@ -8424,7 +8432,6 @@ app.get("/make-server-27d0d16c/payments/:paymentId/status", async (c) => {
       });
     }
 
-    // Update payment status in KV
     const updatedPaymentData = {
       ...paymentData,
       status: statusResult.status,
@@ -8434,7 +8441,7 @@ app.get("/make-server-27d0d16c/payments/:paymentId/status", async (c) => {
 
     await kv.set(`payment:${paymentId}`, updatedPaymentData);
 
-    console.log('✅ Payment status updated:', statusResult.status);
+    console.log("✅ Payment status updated:", statusResult.status);
 
     return c.json({
       success: true,

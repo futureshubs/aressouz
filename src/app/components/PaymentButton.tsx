@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { CreditCard, Loader2 } from 'lucide-react';
-import { createPayment, openPaymentWindow } from '../services/paymentService';
+import { createPayment } from '../services/paymentService';
+import { openExternalUrlSync } from '../utils/openExternalUrl';
 
 interface PaymentButtonProps {
   amount: number; // in so'm
@@ -75,25 +76,8 @@ export default function PaymentButton({
         return;
       }
 
-      // Open payment window for real payments
-      const paymentWindow = openPaymentWindow(result.paymentUrl);
-
-      if (!paymentWindow) {
-        throw new Error('Pop-up bloklangan. Iltimos, brauzer sozlamalarini tekshiring.');
-      }
-
-      // Monitor payment window
-      const checkWindow = setInterval(() => {
-        if (paymentWindow.closed) {
-          clearInterval(checkWindow);
-          setIsLoading(false);
-          
-          // Redirect to payment status page
-          window.location.href = `/payment?paymentId=${result.paymentId}&orderId=${finalOrderId}`;
-          
-          onSuccess?.();
-        }
-      }, 1000);
+      openExternalUrlSync(result.paymentUrl);
+      setIsLoading(false);
 
     } catch (error: any) {
       console.error('❌ Payment error:', error);

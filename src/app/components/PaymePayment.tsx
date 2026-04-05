@@ -4,8 +4,39 @@ import { useTheme } from '../context/ThemeContext';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { ExternalLink, Check, X, Loader } from 'lucide-react';
+import { openExternalUrl } from '../utils/openExternalUrl';
+import { PaymentMethodLogoFrame } from './payment/PaymentMethodLogoFrame';
 
 const edgePaymeBase = import.meta.env.DEV ? DEV_API_BASE_URL : API_BASE_URL;
+
+function PaymeBrandMark({ isDark }: { isDark: boolean }) {
+  const [broken, setBroken] = useState(false);
+  return (
+    <div className="flex justify-center">
+      <PaymentMethodLogoFrame brandColor="#00AACB" isDark={isDark}>
+        {broken ? (
+          <svg width="88" height="28" viewBox="0 0 88 28" fill="none" aria-hidden>
+            <path
+              d="M8.5 5C8.5 2.79086 10.2909 1 12.5 1h63C77.7091 1 79.5 2.79086 79.5 5v18c0 2.2091-1.7909 4-4 4h-63c-2.2091 0-4-1.7909-4-4V5Z"
+              fill="#00AACB"
+            />
+            <text x="44" y="18" fontSize="12" fontWeight="bold" fill="white" textAnchor="middle">
+              Payme
+            </text>
+          </svg>
+        ) : (
+          <img
+            src="/payments/payme-logo.png?v=2"
+            alt="Payme"
+            className="block max-h-full w-auto max-w-full object-contain object-center"
+            decoding="async"
+            onError={() => setBroken(true)}
+          />
+        )}
+      </PaymentMethodLogoFrame>
+    </div>
+  );
+}
 
 interface PaymePaymentProps {
   orderId: string;
@@ -22,6 +53,8 @@ interface PaymePaymentProps {
   }>;
   onSuccess: () => void;
   onError: (error: string) => void;
+  /** Chek tayyor bo‘lishi bilan Payme oynasini avtomatik ochish */
+  autoOpenCheckout?: boolean;
 }
 
 export default function PaymePayment({
@@ -31,6 +64,7 @@ export default function PaymePayment({
   items,
   onSuccess,
   onError,
+  autoOpenCheckout = false,
 }: PaymePaymentProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -51,6 +85,8 @@ export default function PaymePayment({
 
   const pollingInterval = useRef<number | null>(null);
   const checkCount = useRef(0);
+  const paymeAutoOpenDoneRef = useRef(false);
+  const openPaymentWindowRef = useRef<() => void>(() => {});
   const itemsRef = useRef(items);
   itemsRef.current = items;
   /** React Strict Mode / tez qayta mount — eski create-receipt javobini e’tiborsiz qoldirish */
@@ -144,6 +180,10 @@ export default function PaymePayment({
   }, [amount, orderId, phone]);
 
   useEffect(() => {
+    paymeAutoOpenDoneRef.current = false;
+  }, [orderId]);
+
+  useEffect(() => {
     stopPolling();
     void createReceipt();
     return () => {
@@ -216,43 +256,20 @@ export default function PaymePayment({
 
   const openPaymentWindow = () => {
     if (!checkoutUrl) return;
-
-    const width = 600;
-    const height = 700;
-    const left = (window.screen.width - width) / 2;
-    const top = (window.screen.height - height) / 2;
-    const features = `width=${width},height=${height},left=${left},top=${top},toolbar=no,location=no,status=no,menubar=no`;
-    // Noyob target: bir xil nomdagi eski payme.uz oynasiga opener orqali location berish xavfsizlik xatosini beradi.
-    const target = `PaymePayment_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-    const newWindow = window.open('about:blank', target, features);
-    if (!newWindow) {
-      toast.error('Pop-up bloklangan — brauzerda ruxsat bering');
-      return;
-    }
-    try {
-      newWindow.opener = null;
-    } catch {
-      /* noop */
-    }
-    const jsUrl = JSON.stringify(checkoutUrl);
-    try {
-      const d = newWindow.document;
-      d.open();
-      d.write(
-        `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"></head><body><script>location.replace(${jsUrl});<\/script></body></html>`,
-      );
-      d.close();
-    } catch {
-      try {
-        newWindow.location.replace(checkoutUrl);
-      } catch {
-        newWindow.location.href = checkoutUrl;
-      }
-    }
-
-    setPaymentWindow(newWindow);
+    void openExternalUrl(checkoutUrl);
+    setPaymentWindow(null);
     startPolling();
   };
+
+  openPaymentWindowRef.current = openPaymentWindow;
+
+  useEffect(() => {
+    if (!autoOpenCheckout || paymeAutoOpenDoneRef.current) return;
+    if (!checkoutUrl || isCreating || createError || paymentStatus !== 'pending') return;
+    paymeAutoOpenDoneRef.current = true;
+    const t = window.setTimeout(() => openPaymentWindowRef.current(), 450);
+    return () => clearTimeout(t);
+  }, [autoOpenCheckout, checkoutUrl, isCreating, createError, paymentStatus]);
 
   const handleCancelPayment = () => {
     stopPolling();
@@ -268,22 +285,7 @@ export default function PaymePayment({
   return (
     <div className="space-y-4">
       <div className="text-center">
-        <div
-          className="inline-flex items-center gap-2 px-4 py-2 rounded-xl"
-          style={{
-            background: isDark ? 'rgba(0, 170, 203, 0.1)' : 'rgba(0, 170, 203, 0.05)',
-          }}
-        >
-          <svg width="80" height="24" viewBox="0 0 80 24" fill="none">
-            <path
-              d="M8.5 4.5C8.5 2.29086 10.2909 0.5 12.5 0.5H67.5C69.7091 0.5 71.5 2.29086 71.5 4.5V19.5C71.5 21.7091 69.7091 23.5 67.5 23.5H12.5C10.2909 23.5 8.5 21.7091 8.5 19.5V4.5Z"
-              fill="#00AACB"
-            />
-            <text x="40" y="16" fontSize="12" fontWeight="bold" fill="white" textAnchor="middle">
-              Payme
-            </text>
-          </svg>
-        </div>
+        <PaymeBrandMark isDark={isDark} />
         <p
           className="text-sm mt-2"
           style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}

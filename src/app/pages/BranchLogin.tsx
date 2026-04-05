@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { Building2, User, Lock, Key, ChevronRight, Shield } from 'lucide-react';
@@ -24,6 +24,20 @@ export default function BranchLogin() {
   const [password, setPassword] = useState('');
   const [twoFactorCode, setTwoFactorCode] = useState('');
   const [loading, setLoading] = useState(false);
+  /** ISO: 2FA noto‘g‘ri urinishlar bloklanguncha */
+  const [twoFactorLockedUntil, setTwoFactorLockedUntil] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (!twoFactorLockedUntil) return;
+    const until = new Date(twoFactorLockedUntil).getTime();
+    if (!Number.isFinite(until)) return;
+    const tick = () => {
+      if (Date.now() >= until) setTwoFactorLockedUntil(null);
+    };
+    tick();
+    const id = window.setInterval(tick, 1000);
+    return () => window.clearInterval(id);
+  }, [twoFactorLockedUntil]);
 
   useVisibilityRefetch(() => {
     const session = localStorage.getItem('branchSession');
@@ -72,8 +86,17 @@ export default function BranchLogin() {
       const data = await response.json();
 
       if (data?.needsTwoFactor) {
+        if (data.lockout && data.twoFactorLockedUntil) {
+          setTwoFactorLockedUntil(String(data.twoFactorLockedUntil));
+          toast.error(
+            data.twoFactorLockoutMessage ||
+              '2FA urinishlari bloklangan. Keyinroq qayta urinib ko‘ring.',
+          );
+          return;
+        }
+        setTwoFactorLockedUntil(null);
         setStep('2fa');
-        toast.info('Google Authenticator kodini kiriting');
+        toast.info('Google Authenticator kodini kiriting (6 raqam) yoki backup kod');
         return;
       }
 
@@ -112,12 +135,31 @@ export default function BranchLogin() {
 
       const data = await response.json();
 
-      if (!response.ok || !data.success) {
-        toast.error(data.error || 'Kod noto‘g‘ri. Qaytadan urinib ko‘ring.');
+      if (response.status === 423 || (data.lockout && data.lockedUntil)) {
+        setTwoFactorLockedUntil(String(data.lockedUntil));
+        setStep('credentials');
         setTwoFactorCode('');
+        toast.error(data.error || '2FA bloklangan');
         return;
       }
 
+      if (!response.ok || !data.success) {
+        const left =
+          typeof data.attemptsRemaining === 'number' ? data.attemptsRemaining : null;
+        const extra =
+          left != null && left > 0
+            ? ` Yana ${left} marta noto‘g‘ri kirsangiz vaqtincha bloklanasiz.`
+            : '';
+        toast.error((data.error || 'Kod noto‘g‘ri. Qaytadan urinib ko‘ring.') + extra);
+        setTwoFactorCode('');
+        if (data.lockout && data.lockedUntil) {
+          setTwoFactorLockedUntil(String(data.lockedUntil));
+          setStep('credentials');
+        }
+        return;
+      }
+
+      setTwoFactorLockedUntil(null);
       toast.success('2FA kod tasdiqlandi!');
       completeBranchLogin(data.branch, data.token);
     } catch (error) {
@@ -224,9 +266,30 @@ export default function BranchLogin() {
                 </div>
               </div>
 
+              {twoFactorLockedUntil && Date.now() < new Date(twoFactorLockedUntil).getTime() && (
+                <p
+                  className="text-sm rounded-2xl px-4 py-3 border"
+                  style={{
+                    color: isDark ? '#fca5a5' : '#b91c1c',
+                    borderColor: isDark ? 'rgba(248,113,113,0.35)' : 'rgba(185,28,28,0.25)',
+                    background: isDark ? 'rgba(127,29,29,0.25)' : 'rgba(254,226,226,0.9)',
+                  }}
+                >
+                  2FA bloklangan. Qayta kirish:{' '}
+                  {new Date(twoFactorLockedUntil).toLocaleString('uz-UZ', {
+                    dateStyle: 'medium',
+                    timeStyle: 'short',
+                  })}
+                </p>
+              )}
+
               <button
                 type="submit"
-                disabled={loading}
+                disabled={
+                  loading ||
+                  (!!twoFactorLockedUntil &&
+                    Date.now() < new Date(twoFactorLockedUntil).getTime())
+                }
                 className="w-full py-4 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                 style={{
                   background: accentColor.gradient,
@@ -241,8 +304,12 @@ export default function BranchLogin() {
             <form onSubmit={handle2FASubmit} className="space-y-6">
               <div>
                 <label className="block text-sm font-medium mb-2" style={{ color: isDark ? '#ffffff' : '#111827' }}>
-                  6 xonali kod
+                  Authenticator (6 raqam) yoki backup kod
                 </label>
+                <p className="text-xs mb-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                  Google Authenticator / Microsoft Authenticator. 3 marta noto‘g‘ri: 1 kun blok; keyin yana 3 marta: 1
+                  hafta; yana: uzoq muddat.
+                </p>
                 <div className="relative">
                   <Key
                     className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5"
@@ -284,7 +351,11 @@ export default function BranchLogin() {
                 </button>
                 <button
                   type="submit"
-                  disabled={loading}
+                  disabled={
+                    loading ||
+                    (!!twoFactorLockedUntil &&
+                      Date.now() < new Date(twoFactorLockedUntil).getTime())
+                  }
                   className="flex-1 py-4 rounded-2xl font-semibold disabled:opacity-50"
                   style={{
                     background: accentColor.gradient,

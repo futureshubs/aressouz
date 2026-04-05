@@ -1,5 +1,6 @@
 // ARESSO Payment Service
 import { API_BASE_URL, publicAnonKey } from '/utils/supabase/info';
+import { openExternalUrl } from '../utils/openExternalUrl';
 
 const API_URL = API_BASE_URL;
 
@@ -10,6 +11,8 @@ export interface PaymentCreateParams {
   returnUrl?: string;
   userId?: string;
   userPhone?: string;
+  /** Auksion va boshqalar: payme | click | card | atmos — checkoutga uzatiladi */
+  paymentMethod?: string;
 }
 
 export interface PaymentResponse {
@@ -89,7 +92,15 @@ export async function createPayment(params: PaymentCreateParams): Promise<Paymen
         'Content-Type': 'application/json',
         'Authorization': `Bearer ${publicAnonKey}`,
       },
-      body: JSON.stringify(params),
+      body: JSON.stringify({
+        amount: params.amount,
+        orderId: params.orderId,
+        description: params.description,
+        returnUrl: params.returnUrl,
+        userId: params.userId,
+        userPhone: params.userPhone,
+        ...(params.paymentMethod ? { paymentMethod: params.paymentMethod } : {}),
+      }),
     });
 
     const data = await response.json();
@@ -212,65 +223,13 @@ export async function cancelPayment(paymentId: string): Promise<{ success: boole
   }
 }
 
-/** payme.uz / Paycom checkout localhost Referer bilan `back=` olib «чек не найден» berishi mumkin */
-function paymentUrlShouldAvoidReferrer(url: string): boolean {
-  try {
-    const h = new URL(url).hostname.toLowerCase();
-    return (
-      h === 'payme.uz' ||
-      h.endsWith('.payme.uz') ||
-      h.includes('paycom.uz')
-    );
-  } catch {
-    return false;
-  }
-}
-
 /**
- * Popup ichida navigatsiya — opener allaqachon payme.uz bo‘lgan oynaga location berib
- * «Unsafe attempt to initiate navigation for frame with origin https://payme.uz from localhost» xatosini bermaydi.
- * Har safar noyob `target` — bir xil nomdagi eski oyna qayta ishlatilmaydi.
+ * To‘lov sahifasini ilova ichidagi popup o‘rniga tizim brauzerida ochamiz (PWA / WebView).
+ * Oyna `Window` qaytarmaymiz — status tekshiruvi fon rejimida davom etadi.
  */
-function openPaycomCheckoutInPopup(paymentUrl: string, features: string): Window | null {
-  const target = `AressoPay_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
-  const w = window.open('about:blank', target, features);
-  if (!w) return null;
-  try {
-    w.opener = null;
-  } catch {
-    /* noop */
-  }
-  const jsUrl = JSON.stringify(paymentUrl);
-  try {
-    const d = w.document;
-    d.open();
-    d.write(
-      `<!DOCTYPE html><html><head><meta charset="utf-8"><meta name="referrer" content="no-referrer"></head><body><script>location.replace(${jsUrl});<\/script></body></html>`,
-    );
-    d.close();
-  } catch {
-    try {
-      w.location.replace(paymentUrl);
-    } catch {
-      w.location.href = paymentUrl;
-    }
-  }
-  return w;
-}
-
-// Open payment in new window
 export function openPaymentWindow(paymentUrl: string): Window | null {
-  const width = 600;
-  const height = 700;
-  const left = (window.screen.width - width) / 2;
-  const top = (window.screen.height - height) / 2;
-  const features = `width=${width},height=${height},left=${left},top=${top},resizable=yes,scrollbars=yes`;
-
-  if (paymentUrlShouldAvoidReferrer(paymentUrl)) {
-    return openPaycomCheckoutInPopup(paymentUrl, features);
-  }
-
-  return window.open(paymentUrl, `AressoPayment_${Date.now()}`, features);
+  void openExternalUrl(paymentUrl);
+  return null;
 }
 
 // Format amount for display

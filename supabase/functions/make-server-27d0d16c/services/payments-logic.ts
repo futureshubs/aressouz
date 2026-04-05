@@ -163,6 +163,18 @@ export const parseMoneyLoose = (v: unknown): number => {
   return Number.isFinite(n) ? n : 0;
 };
 
+/** Invalid Date → undefined (RangeError bermaslik uchun). */
+export const toIsoSafe = (input: unknown): string | undefined => {
+  if (input == null) return undefined;
+  const s = String(input).trim();
+  if (!s) return undefined;
+  const t = new Date(s).getTime();
+  return Number.isFinite(t) ? new Date(t).toISOString() : undefined;
+};
+
+export const toIsoSafeOrNow = (input: unknown): string =>
+  toIsoSafe(input) ?? new Date().toISOString();
+
 export const resolveCreatedTimestamp = (order: any): { createdAt: string; createdTs: number } => {
   let createdAt = String(order?.createdAt || order?.updatedAt || "");
   let createdTs = createdAt ? new Date(createdAt).getTime() : 0;

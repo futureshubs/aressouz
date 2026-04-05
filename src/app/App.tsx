@@ -2,27 +2,12 @@ import { useEffect } from 'react';
 import { RouterProvider } from 'react-router';
 import { ErrorBoundary, router } from './routes';
 import { AuthProvider } from './context/AuthContext';
-import { ThemeProvider, useTheme } from './context/ThemeContext';
+import { ThemeProvider } from './context/ThemeContext';
 import { DeployUpdateNotifier } from './components/DeployUpdateNotifier';
 import { installVisibilityRefetchBroadcast } from './utils/visibilityRefetch';
 import { initTelegramMiniAppViewport } from './utils/telegramMiniApp';
-import { Toaster } from 'sonner';
-
-function ThemeAwareToaster() {
-  const { theme } = useTheme();
-  return (
-    <Toaster
-      theme={theme}
-      position="top-center"
-      expand={true}
-      richColors
-      closeButton
-      duration={3000}
-      offset={{ top: 'var(--app-safe-top)' }}
-      mobileOffset={{ top: 'var(--app-safe-top)' }}
-    />
-  );
-}
+import { installGlobalExternalLinkCapture } from './utils/openExternalUrl';
+import { installCapacitorAndroidBackButton } from './utils/capacitorAndroidBack';
 
 export default function App() {
   useEffect(() => {
@@ -111,6 +96,14 @@ export default function App() {
   }, []);
 
   useEffect(() => {
+    return installGlobalExternalLinkCapture();
+  }, []);
+
+  useEffect(() => {
+    return installCapacitorAndroidBackButton();
+  }, []);
+
+  useEffect(() => {
     const w = window as Window & {
       launchQueue?: { setConsumer: (cb: (params: { targetURL?: string }) => void) => void };
     };
@@ -129,18 +122,17 @@ export default function App() {
     });
   }, []);
 
-  // Auth + Theme must wrap RouterProvider so barcha marshrutlar bitta React context bilan ishlaydi
-  // (aks holda ayrim chunk/HMR holatlarida useTheme / useAuth "provider yo‘q" deb qulashi mumkin).
+  // ThemeProvider tashqarida: Auth va Router ikkalasi ham bitta ThemeContext ostida.
+  // Toaster ThemeContext.tsx ichida theme state bilan (useThemesiz) — HMR / sibling tartibidagi xatolar oldini olish.
   return (
     <>
       <DeployUpdateNotifier />
       <ErrorBoundary>
-        <AuthProvider>
-          <ThemeProvider>
+        <ThemeProvider>
+          <AuthProvider>
             <RouterProvider router={router} />
-            <ThemeAwareToaster />
-          </ThemeProvider>
-        </AuthProvider>
+          </AuthProvider>
+        </ThemeProvider>
       </ErrorBoundary>
     </>
   );

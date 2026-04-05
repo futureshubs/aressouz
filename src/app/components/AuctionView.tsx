@@ -5,9 +5,9 @@ import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import {
   createPayment,
   checkPaymentStatus,
-  openPaymentWindow,
   pollUntilPaymentPaid,
 } from '../services/paymentService';
+import { openExternalUrlSync } from '../utils/openExternalUrl';
 import { 
   Clock, 
   Gavel, 
@@ -32,11 +32,12 @@ import {
   X
 } from 'lucide-react';
 import { toast } from 'sonner';
+import { buildUserHeaders } from '../utils/requestAuth';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton } from './skeletons';
 import { Header } from './Header';
 import { BottomNav } from './BottomNav';
-import { AuctionDetailModal } from './AuctionDetailModal';
+import { AuctionDetailModal, type AuctionParticipationPayMethod } from './AuctionDetailModal';
 
 interface AuctionViewProps {
   onClose?: () => void;
@@ -142,10 +143,10 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
   const { user, accessToken } = useAuth();
   const isDark = theme === 'dark';
 
-  const userJwtHeaders = (json = true): HeadersInit => ({
-    Authorization: `Bearer ${accessToken || ''}`,
-    ...(json ? { 'Content-Type': 'application/json' } : {}),
-  });
+  const userAuctionHeaders = (json = true): HeadersInit =>
+    buildUserHeaders({
+      ...(json ? { 'Content-Type': 'application/json' } : {}),
+    }) as HeadersInit;
 
   const [auctions, setAuctions] = useState<Auction[]>([]);
   const [loading, setLoading] = useState(true);
@@ -228,7 +229,10 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
     return Math.ceil(auction.currentPrice * (1 + auction.bidIncrementPercent / 100));
   };
 
-  const handleParticipate = async (auction: Auction) => {
+  const handleParticipate = async (
+    auction: Auction,
+    options?: { paymentMethod?: AuctionParticipationPayMethod },
+  ) => {
     if (!user || !accessToken) {
       toast.error('Ishtirok etish uchun tizimga kiring');
       return;
@@ -241,6 +245,11 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
       setParticipationSubmittingAuctionId(auction.id);
 
       if (fee >= 1000) {
+        const method = options?.paymentMethod;
+        if (!method) {
+          toast.error('To‘lov usulini tanlang');
+          return;
+        }
         const orderId = `AUC_FEE__${auction.id}__${user.id}`;
         const returnUrl = `${window.location.origin}/payment?orderId=${encodeURIComponent(orderId)}`;
         const created = await createPayment({
@@ -250,6 +259,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
           userId: user.id,
           userPhone: user.phone,
           returnUrl,
+          paymentMethod: method,
         });
         if (!created.success || !created.paymentId) {
           toast.error(created.error || 'To‘lov yaratilmadi');
@@ -267,21 +277,11 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
             toast.error('To‘lov havolasi kelmadi — keyinroq qayta urinib ko‘ring');
             return;
           }
-          const w = openPaymentWindow(created.paymentUrl);
-          if (!w) {
-            toast.message('To‘lov sahifasini oching', {
-              description: 'Pop-up bloklangan bo‘lsa, havolani qo‘lda oching.',
-              action: {
-                label: 'Ochish',
-                onClick: () => window.open(created.paymentUrl!, '_blank', 'noopener,noreferrer'),
-              },
-            });
-          } else {
-            toast.message('To‘lov oynasi ochildi', {
-              description: 'To‘lovni yakunlang — status avtomatik tekshiriladi (20 daqiqagacha).',
-              duration: 8000,
-            });
-          }
+          openExternalUrlSync(created.paymentUrl);
+          toast.message('To‘lov tizim brauzerida ochildi', {
+            description: 'To‘lovni yakunlang — status avtomatik tekshiriladi (20 daqiqagacha).',
+            duration: 8000,
+          });
         }
 
         const poll = await pollUntilPaymentPaid(created.paymentId, {
@@ -303,20 +303,32 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
         paymentId = created.paymentId;
       }
 
+      const participationMethodLabel =
+        fee >= 1000 ? String(options?.paymentMethod || 'online') : 'waived_or_small_fee';
+
       const response = await fetch(`${AUCTION_API}/auctions/${auction.id}/participate`, {
         method: 'POST',
-        headers: userJwtHeaders(true),
+        headers: userAuctionHeaders(true),
         body: JSON.stringify({
           paymentId,
           userPhone: user.phone,
-          paymentMethod: fee >= 1000 ? 'app_payment' : 'waived_or_small_fee',
+          paymentMethod: participationMethodLabel,
         }),
       });
 
       const data = await response.json();
       if (data.success) {
         toast.success(fee >= 1000 ? 'To‘lov tasdiqlandi, ishtirok qayd etildi!' : 'Ishtirok qayd etildi!');
-        loadAuctions();
+        await loadAuctions();
+        setSelectedAuction((prev) => {
+          if (!prev || prev.id !== auction.id) return prev;
+          if (prev.participants.includes(user.id)) return prev;
+          return {
+            ...prev,
+            participants: [...prev.participants, user.id],
+            totalParticipants: (prev.totalParticipants || 0) + 1,
+          };
+        });
       } else {
         toast.error(data.error || 'Xatolik yuz berdi');
       }
@@ -351,7 +363,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
       setSubmittingBid(true);
       const response = await fetch(`${AUCTION_API}/auctions/${selectedAuction.id}/bid`, {
         method: 'POST',
-        headers: userJwtHeaders(true),
+        headers: userAuctionHeaders(true),
         body: JSON.stringify({
           userPhone: user.phone,
           amount,
@@ -397,7 +409,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
     try {
       const response = await fetch(`${AUCTION_API}/auction-requests`, {
         method: 'POST',
-        headers: userJwtHeaders(true),
+        headers: userAuctionHeaders(true),
         body: JSON.stringify({
           productName: requestData.productName,
           productDescription: requestData.productDescription,
@@ -446,51 +458,69 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
         }}
       >
-        <div className="p-4">
+        <div
+          className="p-4"
+          style={{
+            /* inherit o‘rniga: dark/light da ikkalasida ham yorqin kontrast */
+            color: isDark ? '#f3f4f6' : '#111827',
+          }}
+        >
           {/* View Mode Buttons */}
           <div className="flex gap-2">
             <button
+              type="button"
               onClick={() => setViewMode('auction')}
               className="flex-1 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95"
               style={{
-                background: viewMode === 'auction' 
+                background: viewMode === 'auction'
                   ? `linear-gradient(135deg, ${accentColor.color}, ${accentColor.color}dd)`
                   : isDark
-                  ? 'rgba(255, 255, 255, 0.05)'
-                  : 'rgba(0, 0, 0, 0.03)',
-                color: viewMode === 'auction' ? '#ffffff' : 'inherit',
+                    ? 'rgba(255, 255, 255, 0.08)'
+                    : 'rgba(0, 0, 0, 0.04)',
+                color:
+                  viewMode === 'auction'
+                    ? '#ffffff'
+                    : isDark
+                      ? '#f9fafb'
+                      : '#0f172a',
                 borderWidth: '1px',
-                borderColor: viewMode === 'auction' 
-                  ? accentColor.color 
-                  : isDark 
-                  ? 'rgba(255, 255, 255, 0.1)' 
-                  : 'rgba(0, 0, 0, 0.1)',
+                borderColor: viewMode === 'auction'
+                  ? accentColor.color
+                  : isDark
+                    ? 'rgba(255, 255, 255, 0.18)'
+                    : 'rgba(0, 0, 0, 0.12)',
                 boxShadow: viewMode === 'auction' ? `0 4px 16px ${accentColor.color}40` : 'none',
               }}
             >
-              <Gavel className="w-4 h-4" />
+              <Gavel className="w-4 h-4 shrink-0" aria-hidden />
               <span>Auksion</span>
             </button>
             <button
+              type="button"
               onClick={() => setViewMode('catalog')}
               className="flex-1 py-3 rounded-xl font-bold text-sm flex items-center justify-center gap-2 transition-all active:scale-95"
               style={{
-                background: viewMode === 'catalog' 
+                background: viewMode === 'catalog'
                   ? `linear-gradient(135deg, ${accentColor.color}, ${accentColor.color}dd)`
                   : isDark
-                  ? 'rgba(255, 255, 255, 0.05)'
-                  : 'rgba(0, 0, 0, 0.03)',
-                color: viewMode === 'catalog' ? '#ffffff' : 'inherit',
+                    ? 'rgba(255, 255, 255, 0.08)'
+                    : 'rgba(0, 0, 0, 0.04)',
+                color:
+                  viewMode === 'catalog'
+                    ? '#ffffff'
+                    : isDark
+                      ? '#f9fafb'
+                      : '#0f172a',
                 borderWidth: '1px',
-                borderColor: viewMode === 'catalog' 
-                  ? accentColor.color 
-                  : isDark 
-                  ? 'rgba(255, 255, 255, 0.1)' 
-                  : 'rgba(0, 0, 0, 0.1)',
+                borderColor: viewMode === 'catalog'
+                  ? accentColor.color
+                  : isDark
+                    ? 'rgba(255, 255, 255, 0.18)'
+                    : 'rgba(0, 0, 0, 0.12)',
                 boxShadow: viewMode === 'catalog' ? `0 4px 16px ${accentColor.color}40` : 'none',
               }}
             >
-              <ShoppingBag className="w-4 h-4" />
+              <ShoppingBag className="w-4 h-4 shrink-0" aria-hidden />
               <span>Katalog</span>
             </button>
           </div>
@@ -862,7 +892,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
 
             const response = await fetch(`${AUCTION_API}/auctions/${selectedAuction.id}/bid`, {
               method: 'POST',
-              headers: userJwtHeaders(true),
+              headers: userAuctionHeaders(true),
               body: JSON.stringify({
                 userPhone: user?.phone,
                 amount: amountNum,
@@ -883,7 +913,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
               throw new Error(data.error || 'Bid failed');
             }
           }}
-          onParticipate={() => handleParticipate(selectedAuction)}
+          onParticipate={(opts) => handleParticipate(selectedAuction, opts)}
           getTimeRemaining={getTimeRemaining}
           calculateMinimumBid={calculateMinimumBid}
         />

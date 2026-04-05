@@ -2,8 +2,45 @@ import { useState, useEffect, useRef } from 'react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
 import { API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
+import { openExternalUrl } from '../utils/openExternalUrl';
 import { toast } from 'sonner';
 import { ExternalLink, Check, X, Loader, CreditCard } from 'lucide-react';
+import { PaymentMethodLogoFrame } from './payment/PaymentMethodLogoFrame';
+
+const ATMOS_BRAND = '#007AFF';
+
+function AtmosBrandMark({ isDark }: { isDark: boolean }) {
+  const [broken, setBroken] = useState(false);
+  return (
+    <div className="flex justify-center">
+      <PaymentMethodLogoFrame brandColor={ATMOS_BRAND} isDark={isDark}>
+        {broken ? (
+          <svg
+            className="max-h-full w-auto max-w-full"
+            width="100"
+            height="32"
+            viewBox="0 0 100 32"
+            fill="none"
+            aria-hidden
+          >
+            <rect width="100" height="32" rx="12" fill={ATMOS_BRAND} />
+            <text x="50" y="21" fontSize="14" fontWeight="bold" fill="white" textAnchor="middle">
+              Atmos
+            </text>
+          </svg>
+        ) : (
+          <img
+            src="/payments/atmos-logo.png?v=2"
+            alt="Atmos"
+            className="block max-h-full w-auto max-w-full object-contain object-center"
+            decoding="async"
+            onError={() => setBroken(true)}
+          />
+        )}
+      </PaymentMethodLogoFrame>
+    </div>
+  );
+}
 
 interface AtmosPaymentProps {
   orderId: string;
@@ -12,6 +49,8 @@ interface AtmosPaymentProps {
   customerName?: string;
   onSuccess: () => void;
   onError: (error: string) => void;
+  /** Tranzaksiya tayyor bo‘lgach Atmos oynasini avtomatik ochish */
+  autoOpenCheckout?: boolean;
 }
 
 export default function AtmosPayment({ 
@@ -19,8 +58,9 @@ export default function AtmosPayment({
   amount, 
   phone,
   customerName,
-  onSuccess, 
-  onError 
+  onSuccess,
+  onError,
+  autoOpenCheckout = false,
 }: AtmosPaymentProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
@@ -42,6 +82,8 @@ export default function AtmosPayment({
   const pollingInterval = useRef<number | null>(null);
   const checkCount = useRef(0);
   const paymentWindowRef = useRef<Window | null>(null);
+  const atmosAutoOpenDoneRef = useRef(false);
+  const openAtmosWindowRef = useRef<() => void>(() => {});
 
   /** Edge cold start + Atmos 2 bosqich */
   const EDGE_TIMEOUT_MS = 120000;
@@ -134,27 +176,27 @@ export default function AtmosPayment({
     };
   }, [apiBase, amount, orderId, phone, customerName]);
 
+  useEffect(() => {
+    atmosAutoOpenDoneRef.current = false;
+  }, [orderId]);
+
   const openPaymentWindow = () => {
     if (!redirectUrl) return;
-
-    // Open payment in new window
-    const width = 600;
-    const height = 800;
-    const left = (window.screen.width - width) / 2;
-    const top = (window.screen.height - height) / 2;
-    
-    const newWindow = window.open(
-      redirectUrl,
-      'AtmosPayment',
-      `width=${width},height=${height},left=${left},top=${top},toolbar=no,location=no,status=no,menubar=no`
-    );
-    
-    setPaymentWindow(newWindow);
-    paymentWindowRef.current = newWindow;
-    
-    // Start polling
+    void openExternalUrl(redirectUrl);
+    setPaymentWindow(null);
+    paymentWindowRef.current = null;
     startPolling();
   };
+
+  openAtmosWindowRef.current = openPaymentWindow;
+
+  useEffect(() => {
+    if (!autoOpenCheckout || atmosAutoOpenDoneRef.current) return;
+    if (!redirectUrl || isCreating || paymentStatus !== 'pending') return;
+    atmosAutoOpenDoneRef.current = true;
+    const t = window.setTimeout(() => openAtmosWindowRef.current(), 450);
+    return () => clearTimeout(t);
+  }, [autoOpenCheckout, redirectUrl, isCreating, paymentStatus]);
 
   const checkPaymentStatus = async () => {
     if (!transactionId || isChecking) return;
@@ -265,19 +307,7 @@ export default function AtmosPayment({
     <div className="space-y-4">
       {/* Atmos Logo & Info */}
       <div className="text-center">
-        <div
-          className="inline-flex items-center gap-3 px-6 py-3 rounded-xl"
-          style={{
-            background: isDark ? 'rgba(0, 122, 255, 0.15)' : 'rgba(0, 122, 255, 0.1)',
-          }}
-        >
-          <svg width="100" height="32" viewBox="0 0 100 32" fill="none">
-            <rect width="100" height="32" rx="8" fill="#007AFF"/>
-            <text x="50" y="20" fontSize="14" fontWeight="bold" fill="white" textAnchor="middle">
-              Atmos
-            </text>
-          </svg>
-        </div>
+        <AtmosBrandMark isDark={isDark} />
         <p className="text-sm mt-2 font-semibold" style={{ color: '#007AFF' }}>
           Xavfsiz bank kartasi to'lovi
         </p>

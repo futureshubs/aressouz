@@ -3,6 +3,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
 import { Search, Star, Clock, MapPin, ChevronRight, Utensils, TrendingUp, Leaf, X, Plus, Minus, Phone, Heart, Share2, PackageCheck, Timer } from 'lucide-react';
 import { toast } from 'sonner';
+import { notifyCartAdded } from '../utils/appToast';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { BannerCarousel } from './BannerCarousel';
 import { regions as allRegions } from '../data/regions';
@@ -205,7 +206,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     }).filter(Boolean);
     
     onAddToCart(selectedDish, quantity, selectedVariant, selectedAddonProducts);
-    toast.success(`${selectedDish.name} savatga qo'shildi! 🎉`);
+    notifyCartAdded(quantity, { name: selectedDish.name });
     setSelectedDish(null);
   };
 
@@ -1000,7 +1001,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                                 <button
                                   onClick={() => {
                                     setSelectedAddons([...selectedAddons, { name: addon.name, quantity: 1 }]);
-                                    toast.success(`${addon.name} qo'shildi! 🎉`);
+                                    notifyCartAdded(1, { name: addon.name });
                                   }}
                                   className="w-9 h-9 rounded-xl flex items-center justify-center flex-shrink-0"
                                   style={{ background: accentColor.color }}

@@ -1,12 +1,31 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef, type ComponentType, type CSSProperties } from 'react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { X, ChevronRight, MapPin, Navigation, CreditCard, Wallet, User, Phone, Check, Tag, Gift } from 'lucide-react';
+import {
+  X,
+  ChevronRight,
+  MapPin,
+  Map as MapIcon,
+  Navigation,
+  CreditCard,
+  Banknote,
+  User,
+  Phone,
+  Check,
+  Tag,
+  Gift,
+} from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import ClickPayment from './ClickPayment';
 import PaymePayment from './PaymePayment';
 import AtmosPayment from './AtmosPayment';
+import {
+  UzumNasiyaCountdownBlock,
+  UzumNasiyaInstallmentBlock,
+  isUzumNasiyaAvailable,
+  type UzumNasiyaTerm,
+} from './checkout/UzumNasiyaPanels';
 import { buildUserHeaders } from '../utils/requestAuth';
 import { syncMarketplaceV2Order } from '../utils/marketplaceV2Sync';
 import { getRegularCartStockIssues, getRentalCartStockIssues } from '../utils/cartStock';
@@ -18,6 +37,14 @@ import {
 import type { RentalCartItem } from '../context/RentalCartContext';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { reverseGeocodeDisplayLine } from '../utils/geolocationDetect';
+import { CheckoutMapPickerModal } from './CheckoutMapPickerModal';
+import { CheckoutOrderSuccessAnimation } from './CheckoutOrderSuccessAnimation';
+import {
+  collectHourStringsFromRecord,
+  evaluateHourStrings,
+  formatCountdownParts,
+  secondsUntilIso,
+} from '../utils/businessHours';
 
 interface CheckoutProps {
   cartItems: any[];
@@ -60,6 +87,203 @@ const getZoneCenter = (zone: any) => {
     lng: Number((totals.lng / validPoints.length).toFixed(6)),
   };
 };
+
+type CheckoutPayMethodRow = {
+  id: 'cash' | 'click' | 'payme' | 'atmos' | 'uzum_nasiya';
+  label: string;
+  tagline: string;
+  icon: ComponentType<{ className?: string; style?: CSSProperties }>;
+  color: string;
+  logoSrc?: string;
+};
+
+const CHECKOUT_PAYMENT_METHODS: CheckoutPayMethodRow[] = [
+  {
+    id: 'cash',
+    label: 'Naqd to‘lov',
+    tagline: 'Yetkazib berishda yoki filialda naqd',
+    icon: Banknote,
+    color: '#10b981',
+    logoSrc: '/payments/cash-naqd.svg',
+  },
+  {
+    id: 'click',
+    label: 'Click',
+    tagline: 'Click orqali — ilova yoki kartadan',
+    icon: CreditCard,
+    color: '#00a650',
+    logoSrc: '/payments/click-logo.png?v=2',
+  },
+  {
+    id: 'payme',
+    label: 'Payme',
+    tagline: 'Payme ilova yoki QR orqali',
+    icon: CreditCard,
+    color: '#00AACB',
+    logoSrc: '/payments/payme-logo.png?v=2',
+  },
+  {
+    id: 'atmos',
+    label: 'Atmos',
+    tagline: 'Uzcard / Humo onlayn to‘lov',
+    icon: CreditCard,
+    color: '#1e40af',
+    logoSrc: '/payments/atmos-logo.png?v=2',
+  },
+  {
+    id: 'uzum_nasiya',
+    label: 'Uzum Nasiya',
+    tagline: 'Bo‘lib to‘lash — 3 / 6 / 12 / 24 oy',
+    icon: CreditCard,
+    color: '#7c3aed',
+    logoSrc: '/payments/uzum-nasiya-logo.png?v=2',
+  },
+];
+
+function CheckoutPaymentMethodCard({
+  method,
+  selected,
+  isDark,
+  uzumNasiyaEnabled,
+  onSelect,
+}: {
+  method: CheckoutPayMethodRow;
+  selected: boolean;
+  isDark: boolean;
+  uzumNasiyaEnabled: boolean;
+  onSelect: () => void;
+}) {
+  const Icon = method.icon;
+  const showComingSoon = method.id === 'uzum_nasiya' && !uzumNasiyaEnabled;
+  const [logoFailed, setLogoFailed] = useState(false);
+
+  return (
+    <button
+      type="button"
+      onClick={onSelect}
+      className="group relative w-full overflow-hidden rounded-2xl border text-left transition-all duration-200 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      style={{
+        borderColor: selected
+          ? `${method.color}88`
+          : isDark
+            ? 'rgba(255,255,255,0.1)'
+            : 'rgba(15,23,42,0.08)',
+        background: selected
+          ? isDark
+            ? `linear-gradient(145deg, ${method.color}30 0%, ${method.color}14 42%, rgba(0,0,0,0.35) 100%)`
+            : `linear-gradient(145deg, ${method.color}1f 0%, ${method.color}0d 45%, #ffffff 100%)`
+          : isDark
+            ? 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)'
+            : 'linear-gradient(180deg, #ffffff 0%, #fafafa 100%)',
+        boxShadow: selected
+          ? `0 12px 40px -12px ${method.color}55, 0 4px 14px rgba(0,0,0,0.08)`
+          : isDark
+            ? '0 4px 20px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)'
+            : '0 4px 20px rgba(15,23,42,0.07), inset 0 1px 0 rgba(255,255,255,0.9)',
+      }}
+    >
+      {selected && (
+        <div
+          className="pointer-events-none absolute inset-x-0 top-0 h-0.5 opacity-90"
+          style={{
+            background: `linear-gradient(90deg, transparent, ${method.color}, transparent)`,
+          }}
+        />
+      )}
+      <div className="relative flex items-center gap-3.5 p-3.5 sm:gap-4 sm:p-4">
+        <div
+          className="relative flex h-[3.75rem] w-[3.75rem] shrink-0 items-center justify-center overflow-hidden rounded-2xl sm:h-[4.25rem] sm:w-[4.25rem]"
+          style={
+            method.logoSrc && !logoFailed
+              ? {
+                  background: isDark ? 'rgba(255,255,255,0.96)' : '#ffffff',
+                  border: isDark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(15,23,42,0.08)',
+                  boxShadow: isDark
+                    ? 'inset 0 1px 0 rgba(255,255,255,0.5), 0 8px 24px rgba(0,0,0,0.35)'
+                    : 'inset 0 1px 0 rgba(255,255,255,1), 0 6px 20px rgba(15,23,42,0.08)',
+                }
+              : {
+                  background: `linear-gradient(145deg, ${method.color}45, ${method.color}18)`,
+                  border: `1px solid ${method.color}55`,
+                  boxShadow: `
+              inset 0 1px 0 rgba(255,255,255,0.35),
+              0 6px 18px ${method.color}35
+            `,
+                }
+          }
+        >
+          {method.logoSrc && !logoFailed ? (
+            <img
+              src={method.logoSrc}
+              alt=""
+              className="max-h-[2.85rem] max-w-[4.85rem] h-auto w-auto object-contain p-1 sm:max-h-[3.1rem] sm:max-w-[5.25rem]"
+              style={{
+                filter: 'none',
+              }}
+              draggable={false}
+              decoding="async"
+              onError={() => setLogoFailed(true)}
+            />
+          ) : (
+            <Icon
+              className="h-9 w-9 sm:h-10 sm:w-10"
+              style={{
+                color: '#fff',
+                filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.2))',
+              }}
+            />
+          )}
+        </div>
+
+        <div className="min-w-0 flex-1 py-0.5">
+          <div className="flex flex-wrap items-center gap-2">
+            <span
+              className="text-[0.9375rem] font-bold leading-tight tracking-tight sm:text-base"
+              style={{ color: isDark ? '#f8fafc' : '#0f172a' }}
+            >
+              {method.label}
+            </span>
+            {showComingSoon && (
+              <span
+                className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
+                style={{
+                  background: 'rgba(234, 88, 12, 0.22)',
+                  color: '#fb923c',
+                }}
+              >
+                Tez orada
+              </span>
+            )}
+          </div>
+          <p
+            className="mt-1 text-xs leading-snug sm:text-[13px]"
+            style={{ color: isDark ? 'rgba(248,250,252,0.52)' : 'rgba(15,23,42,0.48)' }}
+          >
+            {method.tagline}
+          </p>
+        </div>
+
+        <div
+          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border-2 transition-all duration-200 sm:h-9 sm:w-9"
+          style={{
+            borderColor: selected ? method.color : isDark ? 'rgba(255,255,255,0.14)' : 'rgba(15,23,42,0.1)',
+            background: selected ? method.color : isDark ? 'rgba(255,255,255,0.04)' : 'rgba(248,250,252,0.8)',
+            boxShadow: selected ? `0 4px 12px ${method.color}50` : 'none',
+          }}
+        >
+          {selected ? (
+            <Check className="h-4 w-4 text-white" strokeWidth={2.75} />
+          ) : (
+            <span
+              className="block h-2 w-2 rounded-full opacity-0 transition-opacity group-hover:opacity-100"
+              style={{ background: method.color }}
+            />
+          )}
+        </div>
+      </div>
+    </button>
+  );
+}
 
 /** Serverdagi ray-casting bilan mos */
 function isPointInPolygon(point: { lat: number; lng: number }, polygon: any[]): boolean {
@@ -256,6 +480,21 @@ function partitionCheckoutCart(cart: any[]) {
   return { food, shop, market };
 }
 
+function extractShopIdFromLine(it: any): string | null {
+  const candidates = [
+    it?.shopId,
+    it?.product?.shopId,
+    it?.variant?.shopId,
+    it?.product?.shop?.id,
+    it?.shop?.id,
+  ].filter(Boolean);
+  const shopId = candidates
+    .map((x: any) => String(x))
+    .map((s) => (s.startsWith('shop:') ? s.slice('shop:'.length) : s))
+    .find((s) => s.length > 0);
+  return shopId || null;
+}
+
 function checkoutSubtotalLines(items: any[]): number {
   if (!Array.isArray(items) || items.length === 0) return 0;
   return items.reduce((sum, item) => {
@@ -323,6 +562,8 @@ export default function Checkout({
   const [isProcessing, setIsProcessing] = useState(false);
   const [showSuccess, setShowSuccess] = useState(false);
   const [orderId, setOrderId] = useState<string | null>(null);
+  /** Onlayn to‘lov: tasdiqlashdan keyin alohida sahifa o‘rniga overlay */
+  const [checkoutPaymentOpen, setCheckoutPaymentOpen] = useState(false);
 
   // User info
   const [customerName, setCustomerName] = useState('');
@@ -395,7 +636,10 @@ export default function Checkout({
   }, [user]);
 
   // Payment: naqd + onlayn (Click / Payme / Atmos). Kassa QR mijoz checkoutda emas — restoran qabul qilgach panelda chiqadi.
-  const [paymentMethod, setPaymentMethod] = useState<'cash' | 'online' | 'click' | 'click_card' | 'payme' | 'atmos'>('cash');
+  const [paymentMethod, setPaymentMethod] = useState<
+    'cash' | 'online' | 'click' | 'click_card' | 'payme' | 'atmos' | 'uzum_nasiya'
+  >('cash');
+  const [uzumNasiyaMonths, setUzumNasiyaMonths] = useState<UzumNasiyaTerm>(6);
   const [promoCode, setPromoCode] = useState('');
   const [bonusPoints, setBonusPoints] = useState(0);
   const [useBonus, setUseBonus] = useState(false);
@@ -418,7 +662,197 @@ export default function Checkout({
   const [deliveryZones, setDeliveryZones] = useState<any[]>([]);
   const [selectedZone, setSelectedZone] = useState<any>(null);
   const [deliveryPrice, setDeliveryPrice] = useState(0);
+  const [mapPickerOpen, setMapPickerOpen] = useState(false);
   const visibilityRefetchTick = useVisibilityTick();
+
+  useEffect(() => {
+    if (step !== 2) setMapPickerOpen(false);
+  }, [step]);
+
+  const [shopDetailsById, setShopDetailsById] = useState<Record<string, any>>({});
+  const [restaurantDetailsById, setRestaurantDetailsById] = useState<Record<string, any>>({});
+  const shopFetchStarted = useRef(new Set<string>());
+  const restaurantFetchStarted = useRef(new Set<string>());
+
+  const [businessHoursModalOpen, setBusinessHoursModalOpen] = useState(false);
+  const [businessHoursModalOpensAt, setBusinessHoursModalOpensAt] = useState<string | null>(null);
+  const [businessHoursModalMessage, setBusinessHoursModalMessage] = useState('');
+  const [businessHoursModalTick, setBusinessHoursModalTick] = useState(0);
+
+  useEffect(() => {
+    if (!businessHoursModalOpen) return;
+    const t = setInterval(() => setBusinessHoursModalTick((x) => x + 1), 1000);
+    return () => clearInterval(t);
+  }, [businessHoursModalOpen]);
+
+  const hasMarketCartLines = Array.isArray(cartItems) && cartItems.length > 0;
+
+  useEffect(() => {
+    if (!hasMarketCartLines) return;
+    const { shop } = partitionCheckoutCart(cartItems);
+    const ids = [...new Set(shop.map(extractShopIdFromLine).filter(Boolean))] as string[];
+    for (const id of ids) {
+      if (shopFetchStarted.current.has(id)) continue;
+      shopFetchStarted.current.add(id);
+      setShopDetailsById((p) => (p[id] ? p : { ...p, [id]: { __hoursPending: true } }));
+      void (async () => {
+        try {
+          const res = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops/${encodeURIComponent(id)}`,
+            {
+              headers: {
+                Authorization: `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+              },
+            },
+          );
+          const j = await res.json().catch(() => ({}));
+          if (j?.shop) {
+            setShopDetailsById((p) => ({ ...p, [id]: j.shop }));
+          } else {
+            shopFetchStarted.current.delete(id);
+            setShopDetailsById((p) => ({ ...p, [id]: {} }));
+          }
+        } catch {
+          shopFetchStarted.current.delete(id);
+          setShopDetailsById((p) => ({ ...p, [id]: {} }));
+        }
+      })();
+    }
+  }, [cartItems, hasMarketCartLines]);
+
+  useEffect(() => {
+    if (!hasMarketCartLines) return;
+    const { food } = partitionCheckoutCart(cartItems);
+    const ids = [
+      ...new Set(
+        food
+          .map((it) => String(it?.restaurantId || it?.dishDetails?.restaurantId || '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    for (const id of ids) {
+      if (restaurantFetchStarted.current.has(id)) continue;
+      restaurantFetchStarted.current.add(id);
+      setRestaurantDetailsById((p) => (p[id] ? p : { ...p, [id]: { __hoursPending: true } }));
+      void (async () => {
+        try {
+          const res = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(id)}`,
+            {
+              headers: {
+                Authorization: `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+              },
+            },
+          );
+          const j = await res.json().catch(() => ({}));
+          if (j?.success && j?.data) {
+            setRestaurantDetailsById((p) => ({ ...p, [id]: j.data }));
+          } else {
+            restaurantFetchStarted.current.delete(id);
+            setRestaurantDetailsById((p) => ({ ...p, [id]: {} }));
+          }
+        } catch {
+          restaurantFetchStarted.current.delete(id);
+          setRestaurantDetailsById((p) => ({ ...p, [id]: {} }));
+        }
+      })();
+    }
+  }, [cartItems, hasMarketCartLines]);
+
+  const checkoutBusinessGate = useMemo(() => {
+    const ref = new Date();
+    if (!selectedZone) {
+      return {
+        allowed: true,
+        pending: false,
+        blockingLabel: null as string | null,
+        opensAt: null as string | null,
+        scheduleLabel: null as string | null,
+      };
+    }
+    const layers: Array<{ label: string; ev: ReturnType<typeof evaluateHourStrings> }> = [];
+    layers.push({
+      label: 'Yetkazib berish zonasi',
+      ev: evaluateHourStrings(collectHourStringsFromRecord(selectedZone as Record<string, unknown>), ref),
+    });
+    if (hasMarketCartLines) {
+      const { food, shop } = partitionCheckoutCart(cartItems);
+      const seenShop = new Set<string>();
+      for (const it of shop) {
+        const sid = extractShopIdFromLine(it);
+        if (!sid || seenShop.has(sid)) continue;
+        seenShop.add(sid);
+        const rec = shopDetailsById[sid] as Record<string, unknown> | undefined;
+        if (rec && (rec as { __hoursPending?: boolean }).__hoursPending) {
+          return {
+            allowed: false,
+            pending: true,
+            blockingLabel: 'Do‘kon',
+            opensAt: null,
+            scheduleLabel: null,
+          };
+        }
+        layers.push({
+          label: 'Do‘kon',
+          ev: evaluateHourStrings(collectHourStringsFromRecord(rec as Record<string, unknown>), ref),
+        });
+      }
+      const seenR = new Set<string>();
+      for (const it of food) {
+        const rid = String(it?.restaurantId || it?.dishDetails?.restaurantId || '').trim();
+        if (!rid || seenR.has(rid)) continue;
+        seenR.add(rid);
+        const rec = restaurantDetailsById[rid] as Record<string, unknown> | undefined;
+        if (rec && (rec as { __hoursPending?: boolean }).__hoursPending) {
+          return {
+            allowed: false,
+            pending: true,
+            blockingLabel: 'Restoran',
+            opensAt: null,
+            scheduleLabel: null,
+          };
+        }
+        layers.push({
+          label: 'Restoran',
+          ev: evaluateHourStrings(collectHourStringsFromRecord(rec as Record<string, unknown>), ref),
+        });
+      }
+    }
+    const bad = layers.find((l) => !l.ev.allowed);
+    return {
+      allowed: !bad,
+      pending: false,
+      blockingLabel: bad?.label ?? null,
+      opensAt: bad?.ev.nextOpenIso ?? null,
+      scheduleLabel: bad?.ev.label ?? null,
+    };
+  }, [selectedZone, cartItems, shopDetailsById, restaurantDetailsById, hasMarketCartLines]);
+
+  const openBusinessHoursModalFromGate = () => {
+    setBusinessHoursModalOpensAt(checkoutBusinessGate.opensAt);
+    if (checkoutBusinessGate.pending) {
+      setBusinessHoursModalMessage(
+        'Iltimos, biroz kuting — ish vaqti jadvali yuklanmoqda. Keyin qayta urinib ko‘ring.',
+      );
+    } else {
+      setBusinessHoursModalMessage(
+        checkoutBusinessGate.blockingLabel
+          ? `${checkoutBusinessGate.blockingLabel} hozir buyurtma qabul qilmaydi.${checkoutBusinessGate.scheduleLabel ? ` Ish vaqti: ${checkoutBusinessGate.scheduleLabel} (O‘zbekiston vaqti).` : ''} Quyida ochilishgacha qolgan vaqt.`
+          : 'Hozir ish vaqti emas.',
+      );
+    }
+    setBusinessHoursModalOpen(true);
+  };
+
+  const showBusinessHoursModalFromApi = (j: Record<string, unknown>) => {
+    setBusinessHoursModalOpensAt(typeof j.opensAt === 'string' ? j.opensAt : null);
+    setBusinessHoursModalMessage(
+      typeof j.error === 'string' ? j.error : 'Ish vaqti tashqarida.',
+    );
+    setBusinessHoursModalOpen(true);
+  };
 
   useEffect(() => {
     loadDeliveryZones();
@@ -523,19 +957,13 @@ export default function Checkout({
     };
   };
 
-  const fillTestData = async () => {
-    const testCoords = { lat: 40.7305, lng: 72.0425 };
-
-    setCurrentLocation(testCoords);
-    setAddressType('current');
-    toast.success('🧪 Test manzil yuklandi: Andijon, Shahrixon');
-
+  const notifyAndResolveZones = async (coords: { lat: number; lng: number }) => {
     try {
       toast.info('Yetkazib berish zonasi aniqlanmoqda...');
       const freshZones = await loadDeliveryZones();
       const { zone, usedLocalFallback, hadLoadedZones } = await resolveZoneForCoordinates(
-        testCoords.lat,
-        testCoords.lng,
+        coords.lat,
+        coords.lng,
         freshZones,
       );
       if (zone) {
@@ -546,7 +974,7 @@ export default function Checkout({
         );
       } else if (!hadLoadedZones) {
         toast.warning(
-          'Zonalar ro‘yxati yuklanmagan yoki tarmoq uzildi — sahifani yangilab, qayta urinib ko‘ring',
+          'Zonalar yuklanmadi yoki tarmoq uzildi — sahifani yangilab, zonani qo‘lda tanlang',
         );
       } else {
         toast.warning('Bu joylashuv yetkazib berish zonasiga kirmaydi');
@@ -555,6 +983,16 @@ export default function Checkout({
       console.error('Zone detection error:', error);
       toast.warning('Zonani aniqlashda xatolik');
     }
+  };
+
+  const fillTestData = async () => {
+    const testCoords = { lat: 40.7305, lng: 72.0425 };
+
+    setCurrentLocation(testCoords);
+    setAddressType('current');
+    toast.success('🧪 Test manzil yuklandi: Andijon, Shahrixon');
+
+    await notifyAndResolveZones(testCoords);
   };
 
   const getCurrentLocation = () => {
@@ -570,32 +1008,7 @@ export default function Checkout({
           setCurrentLocation(coords);
           setAddressType('current');
           toast.success('Joylashuvingiz aniqlandi!');
-
-          try {
-            toast.info('Yetkazib berish zonasi aniqlanmoqda...');
-            const freshZones = await loadDeliveryZones();
-            const { zone, usedLocalFallback, hadLoadedZones } = await resolveZoneForCoordinates(
-              coords.lat,
-              coords.lng,
-              freshZones,
-            );
-            if (zone) {
-              toast.success(
-                usedLocalFallback
-                  ? `✅ ${zone.name} (sahifada yuklangan zonalardan)`
-                  : `✅ ${zone.name} zonasi aniqlandi!`,
-              );
-            } else if (!hadLoadedZones) {
-              toast.warning(
-                'Zonalar yuklanmadi yoki tarmoq uzildi — sahifani yangilab, zonani qo‘lda tanlang',
-              );
-            } else {
-              toast.warning('Bu joylashuv yetkazib berish zonasiga kirmaydi');
-            }
-          } catch (error) {
-            console.error('Zone detection error:', error);
-            toast.warning('Zonani aniqlashda xatolik');
-          }
+          await notifyAndResolveZones(coords);
         },
         (error) => {
           console.error('Location error:', error);
@@ -605,6 +1018,14 @@ export default function Checkout({
     } else {
       toast.error('Brauzer geolokatsiyani qo\'llab-quvvatlamaydi');
     }
+  };
+
+  const applyMapPickedLocation = async (coords: { lat: number; lng: number }) => {
+    setCurrentLocation(coords);
+    setAddressType('map');
+    setMapPickerOpen(false);
+    toast.success('Manzil xaritadan tasdiqlandi');
+    await notifyAndResolveZones(coords);
   };
 
   const handlePromoCode = async () => {
@@ -712,6 +1133,37 @@ export default function Checkout({
     [cartItems, rentalLineItems, selectedZone, useBonus, bonusPoints, goodsAndRentalSubtotal],
   );
 
+  const checkoutSuccessLines = useMemo(() => {
+    const out: { name: string; image?: string | null }[] = [];
+    for (const it of cartItems || []) {
+      const name = String(
+        it?.name || it?.productName || it?.dishDetails?.name || it?.title || 'Mahsulot',
+      ).slice(0, 42);
+      const image =
+        it?.image ||
+        it?.productImage ||
+        it?.photo ||
+        it?.dishDetails?.image ||
+        it?.product?.image ||
+        null;
+      out.push({ name, image: typeof image === 'string' ? image : null });
+      if (out.length >= 8) break;
+    }
+    for (const line of rentalLineItems || []) {
+      out.push({
+        name: String(line?.item?.name || 'Ijara').slice(0, 42),
+        image: line?.item?.image || null,
+      });
+      if (out.length >= 8) break;
+    }
+    return out;
+  }, [cartItems, rentalLineItems]);
+
+  const closeCheckoutPayment = () => {
+    setCheckoutPaymentOpen(false);
+    setOrderId(null);
+  };
+
   // Create order function (called after successful payment for CLICK)
   const createOrder = async () => {
     setIsProcessing(true);
@@ -729,6 +1181,12 @@ export default function Checkout({
 
       if (!selectedZone) {
         toast.error('Yetkazib berish zonasini tanlang');
+        setIsProcessing(false);
+        return;
+      }
+
+      if (!checkoutBusinessGate.allowed) {
+        openBusinessHoursModalFromGate();
         setIsProcessing(false);
         return;
       }
@@ -820,6 +1278,7 @@ export default function Checkout({
                 branchId,
                 productId: line.item.id,
                 productName: line.item.name,
+                productImage: line.item.image || '',
                 quantity: 1,
                 customerName,
                 customerPhone,
@@ -834,6 +1293,8 @@ export default function Checkout({
                 contractStartDate: contractIso,
                 deliveryZoneSummary: selectedZone?.name || '',
                 customerUserId: user?.id || undefined,
+                paymentMethod,
+                deliveryPrice: Number(selectedZone?.deliveryPrice) || 0,
               }),
             },
           );
@@ -955,6 +1416,7 @@ export default function Checkout({
                 body: JSON.stringify({
                   restaurantId: String(job.restaurantId),
                   branchId: branchBid ? String(branchBid) : undefined,
+                  deliveryZone: selectedZone?.id || undefined,
                   customerName,
                   customerPhone,
                   customerAddress: computedAddressText,
@@ -963,10 +1425,18 @@ export default function Checkout({
                   deliveryFee: jobDelivery,
                   paymentMethod,
                   paymentStatus: paymentStatusVal,
+                  ...(paymentMethod === 'uzum_nasiya'
+                    ? { uzumNasiyaInstallmentMonths: uzumNasiyaMonths }
+                    : {}),
                 }),
               },
             );
             const j = await res.json().catch(() => ({}));
+            if (res.status === 409 && j?.errorCode === 'outside_business_hours') {
+              showBusinessHoursModalFromApi(j);
+              setIsProcessing(false);
+              return;
+            }
             if (!res.ok || !j?.success) {
               toast.error(
                 typeof j?.error === 'string' ? j.error : 'Taom buyurtmasi yuborilmadi',
@@ -1000,6 +1470,9 @@ export default function Checkout({
               status: 'pending',
               paymentStatus: paymentStatusVal,
               createdAt: new Date().toISOString(),
+              ...(paymentMethod === 'uzum_nasiya'
+                ? { uzumNasiyaInstallmentMonths: uzumNasiyaMonths }
+                : {}),
             };
 
             const res = await fetch(
@@ -1013,6 +1486,11 @@ export default function Checkout({
               },
             );
             const j = await res.json().catch(() => ({}));
+            if (res.status === 409 && j?.errorCode === 'outside_business_hours') {
+              showBusinessHoursModalFromApi(j);
+              setIsProcessing(false);
+              return;
+            }
             if (!res.ok || j?.success === false || j?.error) {
               toast.error(
                 typeof j?.error === 'string'
@@ -1081,7 +1559,7 @@ export default function Checkout({
               ? 'Buyurtmalar qabul qilindi! Har bir tur (market / do‘kon / taom) o‘z bo‘limida ko‘rinadi. ✅'
               : 'Buyurtma qabul qilindi! ✅',
         );
-      }, 3000);
+      }, 3800);
     } catch (error) {
       console.error('Order error:', error);
       toast.error('Buyurtmani yuborishda xatolik');
@@ -1110,6 +1588,11 @@ export default function Checkout({
 
     if (!selectedZone) {
       toast.error('Yetkazib berish zonasini tanlang');
+      return;
+    }
+
+    if (!checkoutBusinessGate.allowed) {
+      openBusinessHoursModalFromGate();
       return;
     }
 
@@ -1156,72 +1639,61 @@ export default function Checkout({
       return;
     }
 
-    // For CLICK and CLICK Card - Generate orderId and wait for payment
+    // CLICK / Payme / Atmos: to‘lov overlay (Tasdiqlash bosilganda avtomatik boshlanadi)
     if (paymentMethod === 'click' || paymentMethod === 'click_card') {
-      // Generate unique order ID
       const newOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       setOrderId(newOrderId);
-      
-      toast.info('To\'lovni amalga oshiring', {
-        description: 'To\'lov muvaffaqiyatli bo\'lgandan keyin buyurtma yaratiladi',
-      });
-      
-      return; // Don't create order yet, wait for payment
+      setCheckoutPaymentOpen(true);
+      return;
     }
 
-    // For Payme - Generate orderId and wait for payment
     if (paymentMethod === 'payme') {
-      // Generate unique order ID
       const newOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       setOrderId(newOrderId);
-      
-      toast.info('To\'lovni amalga oshiring', {
-        description: 'To\'lov muvaffaqiyatli bo\'lgandan keyin buyurtma yaratiladi',
-      });
-      
-      return; // Don't create order yet, wait for payment
+      setCheckoutPaymentOpen(true);
+      return;
     }
 
-    // For Atmos - Generate orderId and wait for payment
     if (paymentMethod === 'atmos') {
-      // Generate unique order ID
       const newOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       setOrderId(newOrderId);
-      
-      toast.info('To\'lovni amalga oshiring', {
-        description: 'To\'lov muvaffaqiyatli bo\'lgandan keyin buyurtma yaratiladi',
-      });
-      
-      return; // Don't create order yet, wait for payment
+      setCheckoutPaymentOpen(true);
+      return;
+    }
+
+    if (paymentMethod === 'uzum_nasiya') {
+      if (!isUzumNasiyaAvailable()) {
+        toast.error('Uzum Nasiya tez orada ochiladi. Hozir boshqa to‘lov usulini tanlang.');
+        return;
+      }
+      await createOrder();
+      return;
     }
 
     // For other payment methods - Create order immediately
     await createOrder();
   };
 
-  // Success animation
   if (showSuccess) {
+    const successSub =
+      hasRentalLines && !cartItems?.length
+        ? 'Ijara buyurtmangiz qabul qilindi.'
+        : hasRentalLines
+          ? 'Mahsulot va ijara qismi qabul qilindi.'
+          : 'Tez orada siz bilan bog‘lanamiz';
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center px-4 app-safe-pad"
+        className="fixed inset-0 z-[200] flex items-center justify-center px-4 app-safe-pad overflow-y-auto"
         style={{
-          background: isDark ? 'rgba(0, 0, 0, 0.92)' : 'rgba(249, 250, 251, 0.96)',
+          background: isDark ? 'rgba(0, 0, 0, 0.94)' : 'rgba(248, 250, 252, 0.97)',
         }}
       >
-        <div className="text-center max-w-md">
-          <div
-            className="inline-flex p-8 rounded-full mb-6 animate-bounce"
-            style={{ background: `${accentColor.color}30` }}
-          >
-            <Check className="w-24 h-24" style={{ color: accentColor.color }} />
-          </div>
-          <h2
-            className={`text-2xl sm:text-3xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}
-          >
-            Buyurtma rasmiylashtirildi!
-          </h2>
-          <p className={isDark ? 'text-white/75' : 'text-gray-600'}>Tez orada siz bilan bog‘lanamiz</p>
-        </div>
+        <CheckoutOrderSuccessAnimation
+          isDark={isDark}
+          accentColor={accentColor}
+          lines={checkoutSuccessLines}
+          subtitle={successSub}
+        />
       </div>
     );
   }
@@ -1375,42 +1847,59 @@ export default function Checkout({
         {/* Step 3: Payment Method */}
         {step === 3 && (
           <div className="space-y-4">
-            <h3 className="text-lg font-bold mb-4">To'lov usulini tanlang</h3>
+            <div className="mb-1 flex items-end justify-between gap-2 px-0">
+              <h3 className="text-lg font-bold tracking-tight" style={{ color: isDark ? '#f8fafc' : '#0f172a' }}>
+                To‘lov usulini tanlang
+              </h3>
+              <span
+                className="hidden text-[11px] font-medium sm:inline"
+                style={{ color: isDark ? 'rgba(248,250,252,0.4)' : 'rgba(15,23,42,0.4)' }}
+              >
+                Xavfsiz to‘lov
+              </span>
+            </div>
 
-            <div className="space-y-3">
-              {(
-                [
-                  { id: 'cash' as const, label: 'Naqd to\'lov', icon: Wallet, color: '#10b981' },
-                  { id: 'click' as const, label: 'Click', icon: CreditCard, color: '#00a650' },
-                  { id: 'payme' as const, label: 'Payme', icon: CreditCard, color: '#00AACB' },
-                  { id: 'atmos' as const, label: 'Atmos', icon: CreditCard, color: '#1e40af' },
-                ] as const
-              ).map((method) => (
-                <button
+            <div className="flex flex-col gap-2.5 sm:gap-3">
+              {CHECKOUT_PAYMENT_METHODS.map((method) => (
+                <CheckoutPaymentMethodCard
                   key={method.id}
-                  onClick={() => setPaymentMethod(method.id)}
-                  className="w-full p-4 rounded-xl border transition-all"
-                  style={{
-                    background: paymentMethod === method.id 
-                      ? `${method.color}20` 
-                      : (isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)'),
-                    borderColor: paymentMethod === method.id 
-                      ? method.color 
-                      : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
-                  }}
-                >
-                  <div className="flex items-center gap-3">
-                    <method.icon className="w-6 h-6" style={{ color: method.color }} />
-                    <span className="font-semibold">{method.label}</span>
-                    {paymentMethod === method.id && (
-                      <div className="ml-auto">
-                        <Check className="w-5 h-5" style={{ color: method.color }} />
-                      </div>
-                    )}
-                  </div>
-                </button>
+                  method={method}
+                  selected={paymentMethod === method.id}
+                  isDark={isDark}
+                  uzumNasiyaEnabled={isUzumNasiyaAvailable()}
+                  onSelect={() => setPaymentMethod(method.id)}
+                />
               ))}
             </div>
+
+            {paymentMethod === 'uzum_nasiya' && (
+              <div className="space-y-3">
+                {!isUzumNasiyaAvailable() ? (
+                  <>
+                    <UzumNasiyaCountdownBlock isDark={isDark} />
+                    <p className="text-xs leading-relaxed" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                      Hozircha Uzum Nasiya orqali buyurtmani yakunlab bo‘lmaydi. Pastdagi hisoblashni reja uchun ko‘rishingiz
+                      mumkin; ochilgacha boshqa to‘lov usulini tanlang.
+                    </p>
+                    <UzumNasiyaInstallmentBlock
+                      totalUzs={calculateTotal()}
+                      months={uzumNasiyaMonths}
+                      onMonthsChange={setUzumNasiyaMonths}
+                      isDark={isDark}
+                      accentHex={accentColor.color}
+                    />
+                  </>
+                ) : (
+                  <UzumNasiyaInstallmentBlock
+                    totalUzs={calculateTotal()}
+                    months={uzumNasiyaMonths}
+                    onMonthsChange={setUzumNasiyaMonths}
+                    isDark={isDark}
+                    accentHex={accentColor.color}
+                  />
+                )}
+              </div>
+            )}
 
             {/* Promo Code */}
             <div className="space-y-2">
@@ -1532,6 +2021,22 @@ export default function Checkout({
               </p>
             </button>
 
+            <button
+              type="button"
+              onClick={() => setMapPickerOpen(true)}
+              className="w-full p-6 rounded-xl border transition-all active:scale-[0.99]"
+              style={{
+                background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              }}
+            >
+              <MapIcon className="w-8 h-8 mx-auto mb-2" style={{ color: accentColor.color }} />
+              <p className="text-base font-bold mb-1">Harita orqali belgilash</p>
+              <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                To‘liq ekran xarita, metkani kirish joyiga qo‘ying va tasdiqlang
+              </p>
+            </button>
+
             {/* Test Data Button (dev-only) */}
             {import.meta.env.DEV && (
               <button
@@ -1561,7 +2066,31 @@ export default function Checkout({
               >
                 <div className="flex items-start gap-3">
                   <div className="flex-1">
-                    <p className="text-sm font-bold mb-1">✅ Joylashuvingiz aniqlandi</p>
+                    <p className="text-sm font-bold mb-1">
+                      ✅ Joylashuvingiz aniqlandi
+                      {addressType === 'map' ? (
+                        <span
+                          className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-lg align-middle"
+                          style={{
+                            background: `${accentColor.color}28`,
+                            color: accentColor.color,
+                          }}
+                        >
+                          Xaritadan
+                        </span>
+                      ) : null}
+                      {addressType === 'current' ? (
+                        <span
+                          className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-lg align-middle"
+                          style={{
+                            background: `${accentColor.color}28`,
+                            color: accentColor.color,
+                          }}
+                        >
+                          GPS
+                        </span>
+                      ) : null}
+                    </p>
                     <p className="text-xs mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
                       Lat: {currentLocation.lat.toFixed(6)}, Lng: {currentLocation.lng.toFixed(6)}
                     </p>
@@ -1717,7 +2246,14 @@ export default function Checkout({
                 {paymentMethod === 'click_card' && '💳 Click (karta)'}
                 {paymentMethod === 'payme' && '💳 Payme'}
                 {paymentMethod === 'atmos' && '💳 Atmos'}
+                {paymentMethod === 'uzum_nasiya' && '💳 Uzum Nasiya (bo‘lib to‘lash)'}
               </p>
+              {paymentMethod === 'uzum_nasiya' && isUzumNasiyaAvailable() && (
+                <p className="text-sm mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
+                  Muddat: {uzumNasiyaMonths} oy • Oyiga taxminan{' '}
+                  {Math.ceil(Math.max(0, calculateTotal()) / uzumNasiyaMonths).toLocaleString('uz-UZ')} so‘m
+                </p>
+              )}
             </div>
 
             {/* Address */}
@@ -1747,6 +2283,11 @@ export default function Checkout({
                 </>
               ) : (
                 <>
+                  {addressType === 'map' ? (
+                    <p className="text-xs font-medium mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}>
+                      Xaritadan tanlangan nuqta
+                    </p>
+                  ) : null}
                   <p className="font-semibold leading-snug">
                     {gpsAddressLine || selectedZone?.name || 'Joriy joylashuv'}
                   </p>
@@ -1769,173 +2310,212 @@ export default function Checkout({
               )}
             </div>
 
-            {/* CLICK Payment Section */}
-            {orderId && (paymentMethod === 'click' || paymentMethod === 'click_card') ? (
-              <div>
-                <div
-                  className="p-4 rounded-xl border mb-4"
-                  style={{
-                    background: 'rgba(0, 166, 80, 0.1)',
-                    borderColor: '#00a650',
-                  }}
-                >
-                  <p className="text-sm font-medium mb-1">⚠️ Muhim</p>
-                  <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                    To'lov muvaffaqiyatli bo'lgandan keyin buyurtma avtomatik yaratiladi
-                  </p>
-                </div>
-
-                <ClickPayment
-                  orderId={orderId}
-                  amount={calculateTotal()}
-                  phone={customerPhone}
-                  type={paymentMethod as 'click' | 'click_card'}
-                  onSuccess={() => {
-                    // Payment successful - create order
-                    createOrder();
-                  }}
-                  onError={(error) => {
-                    toast.error('To\'lov amalga oshmadi', {
-                      description: error,
-                    });
-                  }}
-                />
-
-                <button
-                  onClick={() => {
-                    setOrderId(null);
-                    setStep(4);
-                  }}
-                  className="w-full py-3 mt-3 rounded-2xl font-bold transition-all active:scale-95"
-                  style={{
-                    background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                  }}
-                >
-                  Orqaga qaytish
-                </button>
-              </div>
-            ) : (
-              // PAYME Payment Section
-              orderId && paymentMethod === 'payme' ? (
-                <div>
-                  <div
-                    className="p-4 rounded-xl border mb-4"
-                    style={{
-                      background: 'rgba(0, 166, 80, 0.1)',
-                      borderColor: '#00a650',
-                    }}
-                  >
-                    <p className="text-sm font-medium mb-1">⚠️ Muhim</p>
-                    <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                      To'lov muvaffaqiyatli bo'lgandan keyin buyurtma avtomatik yaratiladi
-                    </p>
-                  </div>
-
-                  <PaymePayment
-                    orderId={orderId}
-                    amount={calculateTotal()}
-                    phone={customerPhone}
-                    items={paymeReceiptItemsStable}
-                    onSuccess={() => {
-                      // Payment successful - create order
-                      createOrder();
-                    }}
-                    onError={(error) => {
-                      toast.error('To\'lov amalga oshmadi', {
-                        description: error,
-                      });
-                    }}
-                  />
-
-                  <button
-                    onClick={() => {
-                      setOrderId(null);
-                      setStep(4);
-                    }}
-                    className="w-full py-3 mt-3 rounded-2xl font-bold transition-all active:scale-95"
-                    style={{
-                      background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                    }}
-                  >
-                    Orqaga qaytish
-                  </button>
-                </div>
-              ) : (
-                // ATMOS Payment Section
-                orderId && paymentMethod === 'atmos' ? (
-                  <div>
-                    <div
-                      className="p-4 rounded-xl border mb-4"
-                      style={{
-                        background: 'rgba(0, 166, 80, 0.1)',
-                        borderColor: '#00a650',
-                      }}
-                    >
-                      <p className="text-sm font-medium mb-1">⚠️ Muhim</p>
-                      <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                        To'lov muvaffaqiyatli bo'lgandan keyin buyurtma avtomatik yaratiladi
-                      </p>
-                    </div>
-
-                    <AtmosPayment
-                      orderId={orderId}
-                      amount={calculateTotal()}
-                      phone={customerPhone}
-                      customerName={customerName}
-                      onSuccess={() => {
-                        // Payment successful - create order
-                        createOrder();
-                      }}
-                      onError={(error) => {
-                        toast.error('To\'lov amalga oshmadi', {
-                          description: error,
-                        });
-                      }}
-                    />
-
-                    <button
-                      onClick={() => {
-                        setOrderId(null);
-                        setStep(4);
-                      }}
-                      className="w-full py-3 mt-3 rounded-2xl font-bold transition-all active:scale-95"
-                      style={{
-                        background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                      }}
-                    >
-                      Orqaga qaytish
-                    </button>
-                  </div>
-                ) : (
-                  <div className="flex gap-3">
-                    <button
-                      onClick={() => setStep(3)}
-                      className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95"
-                      style={{
-                        background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                      }}
-                    >
-                      Orqaga
-                    </button>
-                    <button
-                      onClick={handleSubmitOrder}
-                      disabled={isProcessing}
-                      className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50"
-                      style={{
-                        background: accentColor.gradient,
-                        color: '#ffffff',
-                      }}
-                    >
-                      {isProcessing ? 'Yuborilmoqda...' : 'Tasdiqlash'}
-                    </button>
-                  </div>
-                )
-              )
+            <div className="flex gap-3">
+              <button
+                onClick={() => setStep(3)}
+                className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95"
+                style={{
+                  background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                }}
+              >
+                Orqaga
+              </button>
+              <button
+                onClick={handleSubmitOrder}
+                disabled={
+                  isProcessing ||
+                  checkoutPaymentOpen ||
+                  (paymentMethod === 'uzum_nasiya' && !isUzumNasiyaAvailable())
+                }
+                className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50"
+                style={{
+                  background: accentColor.gradient,
+                  color: '#ffffff',
+                }}
+              >
+                {isProcessing ? 'Yuborilmoqda...' : 'Tasdiqlash'}
+              </button>
+            </div>
+            {paymentMethod === 'uzum_nasiya' && !isUzumNasiyaAvailable() && (
+              <p className="text-center text-xs" style={{ color: '#ea580c' }}>
+                Uzum Nasiya hali faol emas — 3-bosqichda sanani kuzating yoki boshqa usulni tanlang.
+              </p>
             )}
           </div>
         )}
       </div>
       </div>
+
+      <CheckoutMapPickerModal
+        isOpen={mapPickerOpen}
+        onClose={() => setMapPickerOpen(false)}
+        onConfirm={(coords) => {
+          void applyMapPickedLocation(coords);
+        }}
+        initialCenter={currentLocation}
+        isDark={isDark}
+        accentColor={accentColor}
+      />
+
+      {checkoutPaymentOpen && orderId ? (
+        <div
+          className="fixed inset-0 z-[138] flex flex-col justify-end sm:justify-center sm:p-4 app-safe-pad"
+          role="dialog"
+          aria-modal="true"
+          aria-label="Onlayn to‘lov"
+        >
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/65 backdrop-blur-md"
+            aria-label="Yopish"
+            onClick={closeCheckoutPayment}
+          />
+          <div
+            className="relative w-full max-w-lg mx-auto max-h-[min(92dvh,720px)] overflow-y-auto rounded-t-3xl sm:rounded-3xl border shadow-2xl flex flex-col min-h-0"
+            style={{
+              background: isDark ? '#0f0f0f' : '#ffffff',
+              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b"
+              style={{
+                borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                background: isDark ? '#0f0f0f' : '#ffffff',
+              }}
+            >
+              <div>
+                <p className="text-xs font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}>
+                  To‘lov
+                </p>
+                <p className="font-bold" style={{ color: isDark ? '#fff' : '#111' }}>
+                  {calculateTotal().toLocaleString()} so‘m
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={closeCheckoutPayment}
+                className="p-2 rounded-xl"
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                }}
+                aria-label="Yopish"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+            <div className="p-4 flex-1 min-h-0 overflow-y-auto">
+              {(paymentMethod === 'click' || paymentMethod === 'click_card') && (
+                <ClickPayment
+                  orderId={orderId}
+                  amount={calculateTotal()}
+                  phone={customerPhone}
+                  type={paymentMethod as 'click' | 'click_card'}
+                  autoStart
+                  onSuccess={() => {
+                    closeCheckoutPayment();
+                    void createOrder();
+                  }}
+                  onError={(error) => {
+                    toast.error('To‘lovni boshlashda xatolik', { description: error });
+                  }}
+                />
+              )}
+              {paymentMethod === 'payme' && (
+                <PaymePayment
+                  orderId={orderId}
+                  amount={calculateTotal()}
+                  phone={customerPhone}
+                  items={paymeReceiptItemsStable}
+                  autoOpenCheckout
+                  onSuccess={() => {
+                    closeCheckoutPayment();
+                    void createOrder();
+                  }}
+                  onError={(error) => {
+                    toast.error('To‘lov amalga oshmadi', { description: error });
+                  }}
+                />
+              )}
+              {paymentMethod === 'atmos' && (
+                <AtmosPayment
+                  orderId={orderId}
+                  amount={calculateTotal()}
+                  phone={customerPhone}
+                  customerName={customerName}
+                  autoOpenCheckout
+                  onSuccess={() => {
+                    closeCheckoutPayment();
+                    void createOrder();
+                  }}
+                  onError={(error) => {
+                    toast.error('To‘lov amalga oshmadi', { description: error });
+                  }}
+                />
+              )}
+            </div>
+          </div>
+        </div>
+      ) : null}
+
+      {/* Ish vaqti: ochilishgacha qolgan vaqt */}
+      {businessHoursModalOpen && (
+        <div className="fixed inset-0 z-[120] flex items-center justify-center p-4 app-safe-pad">
+          <button
+            type="button"
+            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+            aria-label="Yopish"
+            onClick={() => setBusinessHoursModalOpen(false)}
+          />
+          <div
+            className="relative w-full max-w-md rounded-3xl p-6 shadow-2xl border"
+            style={{
+              background: isDark ? '#141414' : '#ffffff',
+              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            {(() => {
+              void businessHoursModalTick;
+              const secs = checkoutBusinessGate.pending ? 0 : secondsUntilIso(businessHoursModalOpensAt);
+              const { h, m, s } = formatCountdownParts(secs);
+              return (
+                <>
+                  <h3 className={`text-xl font-bold mb-2 ${isDark ? 'text-white' : 'text-gray-900'}`}>
+                    Ish vaqti
+                  </h3>
+                  <p className={`text-sm mb-4 leading-relaxed ${isDark ? 'text-white/80' : 'text-gray-600'}`}>
+                    {businessHoursModalMessage}
+                  </p>
+                  {!checkoutBusinessGate.pending && businessHoursModalOpensAt ? (
+                    <div
+                      className="rounded-2xl p-4 mb-4 text-center font-mono text-2xl font-bold tracking-widest"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.06)' : `${accentColor.color}12`,
+                        color: accentColor.color,
+                      }}
+                    >
+                      {String(h).padStart(2, '0')}:{String(m).padStart(2, '0')}:{String(s).padStart(2, '0')}
+                    </div>
+                  ) : null}
+                  <p className={`text-xs mb-4 ${isDark ? 'text-white/50' : 'text-gray-500'}`}>
+                    Vaqt zonasi: Asia/Tashkent (O‘zbekiston)
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setBusinessHoursModalOpen(false)}
+                    className="w-full py-3 rounded-2xl font-bold text-white"
+                    style={{ background: accentColor.gradient }}
+                  >
+                    Tushundim
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+        </div>
+      )}
 
       {/* Ijara Shartlari Modal */}
       {showRentalTerms && (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, type ComponentType, type CSSProperties } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { 
   CreditCard, 
@@ -16,7 +16,8 @@ import { API_BASE_URL, publicAnonKey } from '../../../../utils/supabase/info';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 import { coerceUiPaymentTestMode } from '../../utils/paymentTestMode';
 import { SkeletonBox } from '../skeletons';
-import { openPaymentWindow } from '../../services/paymentService';
+import { openExternalUrlSync } from '../../utils/openExternalUrl';
+import { PaymentMethodLogoFrame } from '../payment/PaymentMethodLogoFrame';
 
 interface PaymentMethod {
   type: string;
@@ -26,6 +27,47 @@ interface PaymentMethod {
   icon: any;
   color: string;
   description: string;
+}
+
+function SelectorMethodMark({
+  type,
+  color,
+  icon: Icon,
+  isDark,
+  logoSrc,
+  embedInRow,
+}: {
+  type: string;
+  color: string;
+  icon: ComponentType<{ className?: string; style?: CSSProperties }>;
+  isDark: boolean;
+  logoSrc?: string;
+  embedInRow?: boolean;
+}) {
+  const [broken, setBroken] = useState(!logoSrc);
+  const softLight =
+    type === 'uzumnasiya' || type === 'uzum_nasiya' || type === 'uzum-nasiya';
+  return (
+    <PaymentMethodLogoFrame
+      brandColor={color}
+      isDark={isDark}
+      softLightBackdrop={softLight}
+      embedInRow={embedInRow}
+    >
+      {logoSrc && !broken ? (
+        <img
+          src={logoSrc}
+          alt=""
+          className="block max-h-full w-auto max-w-full object-contain object-center"
+          draggable={false}
+          decoding="async"
+          onError={() => setBroken(true)}
+        />
+      ) : (
+        <Icon className="h-9 w-9 shrink-0 sm:h-10 sm:w-10" style={{ color }} />
+      )}
+    </PaymentMethodLogoFrame>
+  );
 }
 
 interface PaymentMethodSelectorProps {
@@ -77,6 +119,15 @@ export default function PaymentMethodSelector({
     uzumnasiya: 'Uzum Nasiya',
     uzumbank: 'Uzum Bank',
     atmos: 'Atmos',
+  };
+
+  /** Checkout bilan bir xil yo‘l — ramkali logotip */
+  const methodLogoSrc: Record<string, string | undefined> = {
+    payme: '/payments/payme-logo.png?v=2',
+    click: '/payments/click-logo.png?v=2',
+    atmos: '/payments/atmos-logo.png?v=2',
+    uzumnasiya: '/payments/uzum-nasiya-logo.png?v=2',
+    uzum_nasiya: '/payments/uzum-nasiya-logo.png?v=2',
   };
 
   const methodDescriptions: {[key: string]: string} = {
@@ -194,7 +245,7 @@ export default function PaymentMethodSelector({
       // Call parent component with transaction details
       onPaymentInitiated(data.transaction.id, data.paymentUrl);
 
-      openPaymentWindow(data.paymentUrl);
+      openExternalUrlSync(data.paymentUrl);
       
     } catch (error) {
       console.error('Payment error:', error);
@@ -269,8 +320,20 @@ export default function PaymentMethodSelector({
 
       {/* Payment Methods */}
       <div>
-        <h3 className="text-lg font-bold mb-4">To'lov usulini tanlang</h3>
-        <div className="space-y-3">
+        <h3 className="text-lg font-bold mb-3">To'lov usulini tanlang</h3>
+        <div
+          className="overflow-hidden rounded-2xl border transition-colors"
+          style={{
+            borderColor: (() => {
+              const m = paymentMethods.find((x) => x.type === selectedMethod);
+              return m
+                ? `${m.color}99`
+                : isDark
+                  ? 'rgba(255, 255, 255, 0.12)'
+                  : 'rgba(0, 0, 0, 0.12)';
+            })(),
+          }}
+        >
           {paymentMethods.map((method) => {
             const Icon = method.icon;
             const isSelected = selectedMethod === method.type;
@@ -278,28 +341,31 @@ export default function PaymentMethodSelector({
             return (
               <button
                 key={method.type}
+                type="button"
                 onClick={() => setSelectedMethod(method.type)}
-                className="w-full p-4 rounded-2xl border transition-all active:scale-98"
+                className="w-full border-0 border-b transition-all last:border-b-0 active:scale-[0.99]"
                 style={{
+                  borderBottomColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
                   background: isSelected
                     ? isDark 
-                      ? `linear-gradient(145deg, ${method.color}30, ${method.color}20)`
-                      : `linear-gradient(145deg, ${method.color}20, ${method.color}10)`
-                    : isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                  borderColor: isSelected ? method.color : isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                  boxShadow: isSelected ? `0 4px 16px ${method.color}30` : 'none',
+                      ? `linear-gradient(145deg, ${method.color}28, ${method.color}18)`
+                      : `linear-gradient(145deg, ${method.color}18, ${method.color}0a)`
+                    : isDark ? 'rgba(255, 255, 255, 0.04)' : '#ffffff',
+                  boxShadow: isSelected ? `inset 0 0 0 1px ${method.color}40` : 'none',
                 }}
               >
-                <div className="flex items-center gap-4">
-                  <div
-                    className="p-3 rounded-2xl"
-                    style={{ background: `${method.color}30` }}
-                  >
-                    <Icon className="w-6 h-6" style={{ color: method.color }} />
-                  </div>
+                <div className="flex min-h-[56px] min-w-0 items-stretch">
+                  <SelectorMethodMark
+                    type={method.type}
+                    color={method.color}
+                    icon={Icon}
+                    isDark={isDark}
+                    logoSrc={methodLogoSrc[method.type]}
+                    embedInRow
+                  />
                   
-                  <div className="flex-1 text-left">
-                    <div className="flex items-center gap-2 mb-1">
+                  <div className="flex min-w-0 flex-1 flex-col justify-center px-3 py-2 text-left">
+                    <div className="flex flex-wrap items-center gap-2">
                       <p className="font-bold">{method.name}</p>
                       {method.isTestMode && (
                         <span 
@@ -321,9 +387,11 @@ export default function PaymentMethodSelector({
                     </p>
                   </div>
 
-                  {isSelected && (
-                    <CheckCircle2 className="w-6 h-6" style={{ color: method.color }} />
-                  )}
+                  <div className="flex w-11 shrink-0 items-center justify-center pr-1 sm:w-12">
+                    {isSelected && (
+                      <CheckCircle2 className="w-6 h-6 shrink-0" style={{ color: method.color }} />
+                    )}
+                  </div>
                 </div>
               </button>
             );

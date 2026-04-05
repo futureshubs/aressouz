@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { computePaymentCountdown } from '../../utils/rentalNextPayment';
+import { computePaymentCountdown, computeTargetCountdown } from '../../utils/rentalNextPayment';
 import {
   formatRentalCountdownLine,
   nextInstallmentAmountI18n,
@@ -23,6 +23,10 @@ type Props = {
   compact?: boolean;
   isDark?: boolean;
   accentColor?: string;
+  /** Tugash vaqtini har soniya yangilash (soat:daqiqa:soniya) */
+  endCountdownLive?: boolean;
+  /** Ota komponentda alohida katta taymer bo‘lsa, takroriy tugash blokini yashirish */
+  omitRentalEndCountdown?: boolean;
 };
 
 function RentalEndBlock({
@@ -31,17 +35,20 @@ function RentalEndBlock({
   compact,
   isDark,
   accentColor,
+  liveHms,
 }: {
   rentalPeriodEndsAt: string;
   now: number;
   compact: boolean;
   isDark: boolean;
   accentColor: string;
+  liveHms?: boolean;
 }) {
   const { language } = useTheme();
   const t = useUserPanelT();
   const endCd = computePaymentCountdown(rentalPeriodEndsAt, now);
   if (!endCd) return null;
+  const hms = liveHms ? computeTargetCountdown(rentalPeriodEndsAt, now) : null;
   const soonColor = '#f59e0b';
   const overdueColor = '#ef4444';
   const col =
@@ -53,6 +60,15 @@ function RentalEndBlock({
     endCd.hours,
     endCd.mins,
   );
+  const hmsLine =
+    liveHms && hms ? (
+      <span className="tabular-nums tracking-tight">
+        {hms.overdue ? t('rental.countdownLateLabel') : t('rental.countdownLeftLabel')}{' '}
+        {hms.days > 0 ? `${hms.days}${t('rental.countdownDaySuffix')} ` : ''}
+        {String(hms.hours).padStart(2, '0')}:{String(hms.mins).padStart(2, '0')}:
+        {String(hms.secs).padStart(2, '0')}
+      </span>
+    ) : null;
   if (compact) {
     return (
       <div
@@ -62,8 +78,8 @@ function RentalEndBlock({
         <p className="text-xs font-medium" style={{ color: accentColor }}>
           {t('rental.endCompact')} {userPanelFormatDateTime(language, endCd.dueDate)}
         </p>
-        <p className="text-xs font-semibold" style={{ color: col }}>
-          {line}
+        <p className={`text-xs font-semibold ${liveHms ? 'font-mono' : ''}`} style={{ color: col }}>
+          {hmsLine ?? line}
         </p>
       </div>
     );
@@ -76,8 +92,8 @@ function RentalEndBlock({
       <p className="text-sm font-semibold" style={{ color: accentColor }}>
         {t('rental.endFull')} {userPanelFormatDateTime(language, endCd.dueDate)}
       </p>
-      <p className="text-sm font-bold" style={{ color: col }}>
-        {line}
+      <p className={`text-sm font-bold ${liveHms ? 'font-mono' : ''}`} style={{ color: col }}>
+        {hmsLine ?? line}
       </p>
     </div>
   );
@@ -96,15 +112,21 @@ export function RentalNextPaymentInfo({
   compact = false,
   isDark = false,
   accentColor = '#14b8a6',
+  endCountdownLive = false,
+  omitRentalEndCountdown = false,
 }: Props) {
   const { language } = useTheme();
   const t = useUserPanelT();
   const [now, setNow] = useState(() => Date.now());
+  const started = Boolean(rentalPeriodStartedAt);
+  const endIso = rentalPeriodEndsAt ? String(rentalPeriodEndsAt) : '';
+  const wantLiveTick = Boolean(endCountdownLive && started && endIso);
   useEffect(() => {
     if (typeof window === 'undefined') return;
-    const id = window.setInterval(() => setNow(Date.now()), 60_000);
+    const ms = wantLiveTick ? 1_000 : 60_000;
+    const id = window.setInterval(() => setNow(Date.now()), ms);
     return () => window.clearInterval(id);
-  }, []);
+  }, [wantLiveTick]);
 
   const schedule = String(paymentSchedule || '').toLowerCase();
   const isPeriodic = schedule === 'weekly' || schedule === 'monthly';
@@ -126,11 +148,8 @@ export function RentalNextPaymentInfo({
     );
   }
 
-  const started = Boolean(rentalPeriodStartedAt);
-  const endIso = rentalPeriodEndsAt ? String(rentalPeriodEndsAt) : '';
-
   if (!isPeriodic) {
-    const startSrc = rentalPeriodStartedAt || contractStartDate;
+    const startSrc = rentalPeriodStartedAt;
     const start = startSrc ? new Date(startSrc) : null;
     const startOk = Boolean(start && !Number.isNaN(start.getTime()));
     const periodWord = String(rentalPeriod || '').trim() || t('rental.periodFallback');
@@ -148,13 +167,14 @@ export function RentalNextPaymentInfo({
           </p>
         )}
         <p>{t('rental.noPeriodic', { type: periodWord })}</p>
-        {started && endIso ? (
+        {started && endIso && !omitRentalEndCountdown ? (
           <RentalEndBlock
             rentalPeriodEndsAt={endIso}
             now={now}
             compact={compact}
             isDark={isDark}
             accentColor={accentColor}
+            liveHms={endCountdownLive}
           />
         ) : null}
       </div>
@@ -199,13 +219,14 @@ export function RentalNextPaymentInfo({
     return (
       <div className="mt-1 space-y-0.5">
         {periodicBody}
-        {started && endIso ? (
+        {started && endIso && !omitRentalEndCountdown ? (
           <RentalEndBlock
             rentalPeriodEndsAt={endIso}
             now={now}
             compact
             isDark={isDark}
             accentColor={accentColor}
+            liveHms={endCountdownLive}
           />
         ) : null}
       </div>
@@ -215,13 +236,14 @@ export function RentalNextPaymentInfo({
   return (
     <div className="mt-2 space-y-1">
       {periodicBody}
-      {started && endIso ? (
+      {started && endIso && !omitRentalEndCountdown ? (
         <RentalEndBlock
           rentalPeriodEndsAt={endIso}
           now={now}
           compact={false}
           isDark={isDark}
           accentColor={accentColor}
+          liveHms={endCountdownLive}
         />
       ) : null}
     </div>

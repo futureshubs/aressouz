@@ -3,6 +3,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { X, Heart, Share2, Star, ChevronLeft, ChevronRight, ShoppingCart, Package, Clock, RotateCcw, Settings, MapPin, ChevronRight as ChevronRightIcon, Minus, Plus } from 'lucide-react';
 import { toast } from 'sonner';
+import { notifyCartAdded } from '../utils/appToast';
 import { shareTitleTextUrl } from '../utils/marketplaceNativeBridge';
 import { getVariantStockQuantity } from '../utils/cartStock';
 
@@ -923,7 +924,6 @@ export function ProductDetailModal({
                 onClick={() => {
                   if (currentStockQuantity > 0) {
                     setQuantity(1);
-                    toast.success(`${product.name} savatga qo'shildi!`);
                   }
                 }}
                 disabled={currentStockQuantity === 0}
@@ -956,8 +956,8 @@ export function ProductDetailModal({
               
               if (quantity > 0) {
                 onAddToCart(product, quantity, currentVariant.variantId, currentVariant.label);
-                toast.success(`${product.name} savatga qo'shildi! 🎉\nVariant: ${currentVariant.label}\nMiqdor: ${quantity} ta\nJami: ${(currentPrice * quantity).toLocaleString()} so'm`, {
-                  duration: 3000,
+                notifyCartAdded(quantity, {
+                  name: `${product.name} · ${currentVariant.label}`,
                 });
                 console.log('✅ Savatga qo\'shildi!');
                 setQuantity(0); // Reset quantity after adding to cart
@@ -1008,7 +1008,7 @@ export function VariantSelectionMenu({
   const sizes = ['XS', 'S', 'M', 'L', 'XL', 'XXL'];
 
   const handleAddToCart = () => {
-    toast.success(`${product.name} savatga qo'shildi!\n${selectedColor}, ${selectedSize}, ${quantity} ta`);
+    notifyCartAdded(quantity, { name: `${product.name} · ${selectedColor}, ${selectedSize}` });
     onClose();
   };
 

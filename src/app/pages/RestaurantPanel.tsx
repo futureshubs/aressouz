@@ -4,13 +4,20 @@ import { useTheme } from '../context/ThemeContext';
 import { 
   ShoppingCart, Package, BarChart3, TrendingUp, DollarSign, Power, LogOut, 
   Bell, Plus, X, Upload, Trash2, Clock, Flame, Star, CheckCircle, XCircle,
-  ChefHat, Users, TrendingDown, Calendar, Edit2, QrCode
+  ChefHat, Users, TrendingDown, Calendar, Edit2,   QrCode,
+  RotateCcw,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { useBodyScrollLock } from '../utils/useBodyScrollLock';
+import {
+  clampPlatformCommissionPercentClient,
+  platformCommissionHintUz,
+  validateVariantCommissionsClient,
+} from '../utils/platformCommission';
 
 const edgeFnHeaders = {
   Authorization: `Bearer ${publicAnonKey}`,
@@ -108,6 +115,8 @@ export default function RestaurantPanel() {
     if (restaurant?.id) void loadData(restaurant.id);
   });
 
+  useBodyScrollLock(showAddDish || Boolean(editingDishId));
+
   const updateOrderStatus = async (orderId: string, status: string) => {
     if (!restaurant?.id) return;
     try {
@@ -175,6 +184,7 @@ export default function RestaurantPanel() {
       image: String(v.image ?? ''),
       price: v.price != null && v.price !== '' ? String(v.price) : '',
       prepTime: String(v.prepTime ?? ''),
+      commission: v.commission != null && v.commission !== '' ? String(v.commission) : '',
     }));
     if (variants.length === 0) {
       variants = [
@@ -186,6 +196,7 @@ export default function RestaurantPanel() {
               ? String(dish.price)
               : '',
           prepTime: '',
+          commission: '',
         },
       ];
     }
@@ -285,6 +296,12 @@ export default function RestaurantPanel() {
     return true;
   });
 
+  const restaurantRefundPending = orders.filter(
+    (o: any) =>
+      o.refundPending === true &&
+      (o.status === 'cancelled' || o.status === 'rejected' || o.status === 'canceled'),
+  );
+
   const saveDish = async () => {
     if (!newDish.name) {
       toast.error('Taom nomini kiriting!');
@@ -301,6 +318,17 @@ export default function RestaurantPanel() {
       return;
     }
 
+    const cErr = validateVariantCommissionsClient(
+      newDish.variants.map((v: any) => ({
+        commission: v.commission === '' ? 0 : Number(v.commission),
+      })),
+      'Taom',
+    );
+    if (cErr) {
+      toast.error(cErr);
+      return;
+    }
+
     const payload = {
       name: newDish.name,
       images: newDish.images,
@@ -310,7 +338,13 @@ export default function RestaurantPanel() {
       ingredients: newDish.ingredients,
       weight: newDish.weight,
       additionalProducts: newDish.extras,
-      variants: newDish.variants,
+      variants: newDish.variants.map((v: any) => ({
+        ...v,
+        price: Number(v.price) || 0,
+        commission: clampPlatformCommissionPercentClient(
+          v.commission === '' || v.commission == null ? 0 : v.commission,
+        ),
+      })),
       isPopular: newDish.isPopular,
       isNatural: newDish.isNatural,
     };
@@ -478,7 +512,10 @@ export default function RestaurantPanel() {
 
   if (loading || !restaurant) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? '#000000' : '#f9fafb' }}>
+      <div
+        className="app-panel-viewport app-safe-pad flex items-center justify-center"
+        style={{ background: isDark ? '#000000' : '#f9fafb' }}
+      >
         <div className="text-center">
           <div className="inline-block w-12 h-12 border-4 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: `${accentColor.color}40`, borderTopColor: accentColor.color }} />
           <p>Yuklanmoqda...</p>
@@ -488,10 +525,13 @@ export default function RestaurantPanel() {
   }
 
   return (
-    <div className="min-h-screen" style={{ background: isDark ? '#000000' : '#f9fafb', color: isDark ? '#ffffff' : '#111827' }}>
+    <div
+      className="app-panel-viewport app-safe-pad"
+      style={{ background: isDark ? '#000000' : '#f9fafb', color: isDark ? '#ffffff' : '#111827' }}
+    >
       {/* Header */}
-      <header 
-        className="border-b sticky top-0 z-40"
+      <header
+        className="shrink-0 border-b z-40"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -518,8 +558,8 @@ export default function RestaurantPanel() {
       </header>
 
       {/* Tabs */}
-      <div className="max-w-7xl mx-auto px-4 pt-6">
-        <div className="flex items-center gap-2 overflow-x-auto pb-2">
+      <div className="shrink-0 max-w-7xl mx-auto w-full px-4 pt-4">
+        <div className="flex items-center gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch] overscroll-x-contain touch-pan-x">
           {[
             { id: 'dashboard', label: 'Dashboard', icon: Package },
             { id: 'orders', label: 'Buyurtmalar', icon: ShoppingCart },
@@ -548,7 +588,7 @@ export default function RestaurantPanel() {
       </div>
 
       {/* Content */}
-      <div className="max-w-7xl mx-auto px-4 py-6">
+      <div className="app-panel-main-scroll max-w-7xl mx-auto w-full px-4 py-6 min-h-0">
         {/* DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
@@ -635,6 +675,26 @@ export default function RestaurantPanel() {
         {/* BUYURTMALAR */}
         {activeTab === 'orders' && (
           <div className="space-y-4">
+            {restaurantRefundPending.length > 0 ? (
+              <div
+                className="p-4 rounded-2xl border flex flex-wrap items-start gap-3"
+                style={{
+                  background: isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(254, 226, 226, 0.65)',
+                  borderColor: 'rgba(239, 68, 68, 0.35)',
+                }}
+              >
+                <RotateCcw className="w-6 h-6 shrink-0 text-red-500 mt-0.5" />
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold text-red-600 dark:text-red-400">
+                    To‘lov qaytarish: {restaurantRefundPending.length} ta bekor buyurtma
+                  </p>
+                  <p className="text-sm mt-1 opacity-90" style={{ color: isDark ? 'rgba(255,255,255,0.85)' : '#374151' }}>
+                    Mijoz onlayn to‘lagan. Provayder orqali qaytarib, filial «Qaytarish to‘lovlari» bilan
+                    ishlang.
+                  </p>
+                </div>
+              </div>
+            ) : null}
             <div className="flex items-center justify-between">
               <h2 className="text-2xl font-bold">Buyurtmalar</h2>
               <div className="flex items-center gap-2">
@@ -696,19 +756,29 @@ export default function RestaurantPanel() {
                           {new Date(order.createdAt).toLocaleString('uz-UZ')}
                         </p>
                       </div>
-                      <span
-                        className="px-3 py-1 rounded-lg text-sm font-bold"
-                        style={{
-                          background: order.status === 'pending' ? 'rgba(245, 158, 11, 0.2)' :
-                                     order.status === 'delivered' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)',
-                          color: order.status === 'pending' ? '#f59e0b' :
-                                 order.status === 'delivered' ? '#10b981' : '#3b82f6'
-                        }}
-                      >
-                        {order.status === 'pending' ? 'Yangi' :
-                         order.status === 'accepted' || order.status === 'confirmed' ? 'Qabul qilindi' :
-                         order.status === 'delivered' ? 'Yetkazildi' : order.status}
-                      </span>
+                      <div className="flex flex-col items-end gap-1">
+                        {order.refundPending ? (
+                          <span
+                            className="px-2 py-0.5 rounded-md text-[11px] font-bold uppercase"
+                            style={{ background: 'rgba(239,68,68,0.2)', color: '#dc2626' }}
+                          >
+                            Qaytarish kutilmoqda
+                          </span>
+                        ) : null}
+                        <span
+                          className="px-3 py-1 rounded-lg text-sm font-bold"
+                          style={{
+                            background: order.status === 'pending' ? 'rgba(245, 158, 11, 0.2)' :
+                                       order.status === 'delivered' ? 'rgba(16, 185, 129, 0.2)' : 'rgba(59, 130, 246, 0.2)',
+                            color: order.status === 'pending' ? '#f59e0b' :
+                                   order.status === 'delivered' ? '#10b981' : '#3b82f6'
+                          }}
+                        >
+                          {order.status === 'pending' ? 'Yangi' :
+                           order.status === 'accepted' || order.status === 'confirmed' ? 'Qabul qilindi' :
+                           order.status === 'delivered' ? 'Yetkazildi' : order.status}
+                        </span>
+                      </div>
                     </div>
 
                     {/* Customer Info */}
@@ -1178,9 +1248,12 @@ export default function RestaurantPanel() {
 
       {/* Add Dish Modal */}
       {showAddDish && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0, 0, 0, 0.7)' }}>
-          <div 
-            className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6"
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 app-modal-overlay app-safe-pad"
+          style={{ background: 'rgba(0, 0, 0, 0.7)' }}
+        >
+          <div
+            className="w-full max-w-2xl max-h-[min(90dvh,90vh)] min-h-0 overflow-y-auto overscroll-y-contain rounded-3xl p-6 [-webkit-overflow-scrolling:touch] touch-pan-y"
             style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
           >
             <div className="flex items-center justify-between mb-6">
@@ -1393,7 +1466,7 @@ export default function RestaurantPanel() {
                   <button
                     onClick={() => setNewDish({
                       ...newDish,
-                      variants: [...newDish.variants, { name: '', image: '', price: '', prepTime: '' }]
+                      variants: [...newDish.variants, { name: '', image: '', price: '', prepTime: '', commission: '' }]
                     })}
                     className="px-3 py-1.5 rounded-lg font-bold flex items-center gap-1 text-sm"
                     style={{ background: accentColor.color, color: '#ffffff' }}
@@ -1402,6 +1475,7 @@ export default function RestaurantPanel() {
                     Variant
                   </button>
                 </div>
+                <p className="text-xs mb-2 opacity-70">{platformCommissionHintUz()}</p>
                 <div className="space-y-3">
                   {newDish.variants.map((variant, idx) => (
                     <div key={idx} className="p-4 rounded-xl" style={{ background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)' }}>
@@ -1443,6 +1517,23 @@ export default function RestaurantPanel() {
                             border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
                           }}
                           placeholder="Narx (25000)"
+                        />
+                        <input
+                          type="number"
+                          min={0}
+                          max={15}
+                          value={variant.commission ?? ''}
+                          onChange={(e) => {
+                            const updated = [...newDish.variants];
+                            updated[idx].commission = e.target.value;
+                            setNewDish({ ...newDish, variants: updated });
+                          }}
+                          className="px-3 py-2 rounded-lg"
+                          style={{
+                            background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                          }}
+                          placeholder="Berish % (0–15)"
                         />
                         <div className="col-span-2">
                           {variant.image ? (

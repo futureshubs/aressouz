@@ -6,6 +6,7 @@ import { ReviewModal } from './ReviewModal';
 import { ShareModal } from './ShareModal';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
+import { openExternalUrlSync } from '../utils/openExternalUrl';
 
 interface PlaceDetailModalProps {
   place: Place;
@@ -122,7 +123,7 @@ export function PlaceDetailModal({ place, isOpen, onClose }: PlaceDetailModalPro
 
   const handleGetDirections = () => {
     const [lat, lng] = place.coordinates;
-    window.open(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`, '_blank');
+    openExternalUrlSync(`https://www.google.com/maps/dir/?api=1&destination=${lat},${lng}`);
   };
 
   const handleCall = () => {

@@ -35,7 +35,13 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { getCategoriesByCatalog, Product, ProductVariant } from '../../data/categories';
-import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import {
+  projectId,
+  publicAnonKey,
+  API_BASE_URL,
+  DEV_API_BASE_URL,
+} from '../../../../utils/supabase/info';
+import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
 import { ReceiptModal } from '../ReceiptModal';
 
 // Dynamic categories state
@@ -119,6 +125,11 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
   const [sales, setSales] = useState<Sale[]>([]);
   const [salesPeriod, setSalesPeriod] = useState<'hourly' | 'daily' | 'weekly' | 'monthly' | 'yearly'>('hourly');
   const [salesFilter, setSalesFilter] = useState<'all' | 'online' | 'offline'>('all');
+  /** Onlayn market: variant «foida narx» bo‘yicha (faqat filial, to‘langan buyurtmalar). */
+  const [marketOnlineProfit, setMarketOnlineProfit] = useState<{
+    today: number;
+    allTime: number;
+  } | null>(null);
   const [isQRScanning, setIsQRScanning] = useState(false);
   const [selectedPaymentMethod, setSelectedPaymentMethod] = useState<string>('cash');
   const qrReaderRef = useRef<any>(null);
@@ -192,12 +203,52 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
     }
   };
 
+  const loadMarketOnlineProfit = async () => {
+    if (!branchId) return;
+    const token = getStoredBranchToken();
+    if (!token) {
+      setMarketOnlineProfit(null);
+      return;
+    }
+    const apiBaseUrl =
+      typeof window !== 'undefined' && window.location.hostname === 'localhost'
+        ? DEV_API_BASE_URL
+        : API_BASE_URL;
+    try {
+      const params = new URLSearchParams({ branchId });
+      const res = await fetch(`${apiBaseUrl}/branch/dashboard/stats?${params.toString()}`, {
+        headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+      });
+      if (!res.ok) {
+        setMarketOnlineProfit(null);
+        return;
+      }
+      const data = await res.json();
+      if (!data?.success || !data.stats) {
+        setMarketOnlineProfit(null);
+        return;
+      }
+      setMarketOnlineProfit({
+        today: Number(data.stats.marketBranchProfitToday) || 0,
+        allTime: Number(data.stats.marketBranchProfitAllTime) || 0,
+      });
+    } catch {
+      setMarketOnlineProfit(null);
+    }
+  };
+
   useEffect(() => {
     loadCategories();
     loadProducts();
     loadSales();
     loadInventoryOperations();
   }, [branchId]);
+
+  useEffect(() => {
+    if (branchId && activeTab === 'sales') {
+      void loadMarketOnlineProfit();
+    }
+  }, [branchId, activeTab]);
 
   /** Kataloglar serverda kengaytirilganda (seed merge) — modal ochilganda qayta yuklash */
   useEffect(() => {
@@ -385,13 +436,21 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
         branchName: branchInfo?.branchName || 'Filial',
         description: formData.description || '',
         recommendation: formData.recommendation || '',
-        variants: variants.map(v => ({
-          ...v,
-          stockQuantity: Number(v.stockQuantity) || 0,
-          price: Number(v.price) || 0,
-          oldPrice: v.oldPrice ? Number(v.oldPrice) : undefined,
-          profitPrice: v.profitPrice ? Number(v.profitPrice) : undefined,
-        })),
+        variants: variants.map(v => {
+          const rawProfit = v.profitPrice as number | string | undefined | null;
+          let profitPrice: number | undefined;
+          if (rawProfit !== '' && rawProfit != null) {
+            const n = Number(rawProfit);
+            if (Number.isFinite(n) && n >= 0) profitPrice = n;
+          }
+          return {
+            ...v,
+            stockQuantity: Number(v.stockQuantity) || 0,
+            price: Number(v.price) || 0,
+            oldPrice: v.oldPrice ? Number(v.oldPrice) : undefined,
+            profitPrice,
+          };
+        }),
       };
 
       if (editingProduct) {
@@ -2324,6 +2383,81 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
               </div>
             );
           })()}
+
+          {/* Onlayn market foyda (foida narx × sotilgan miqdor, faqat to‘langan buyurtmalar) */}
+          <div
+            className="p-5 rounded-3xl border space-y-4"
+            style={{
+              background: isDark ? 'rgba(34, 197, 94, 0.08)' : 'rgba(34, 197, 94, 0.06)',
+              borderColor: isDark ? 'rgba(34, 197, 94, 0.25)' : 'rgba(34, 197, 94, 0.2)',
+            }}
+          >
+            <div className="flex items-start gap-3">
+              <div
+                className="p-3 rounded-2xl shrink-0"
+                style={{ background: 'rgba(34, 197, 94, 0.2)' }}
+              >
+                <Banknote className="w-6 h-6" style={{ color: '#16a34a' }} />
+              </div>
+              <div>
+                <h4 className="text-lg font-bold" style={{ color: isDark ? '#fff' : '#111827' }}>
+                  Onlayn market — foida (foida narx × sotilgan dona)
+                </h4>
+                <p
+                  className="text-sm mt-1"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.6)' }}
+                >
+                  Variantdagi «Foida narx» miqdori har bir sotilgan birlik uchun: masalan narx 10&nbsp;000
+                  so‘m va foida narx 2&nbsp;000 so‘m bo‘lsa, har donadan 2&nbsp;000 so‘m qator foydasiga
+                  yoziladi. Buyurtma yaratilganda snapshot; statistikada faqat to‘langan onlayn market
+                  buyurtmalari. Ko‘rsatkichlar faqat filial Market → Sotuvlar; Data Analitika sahifasida
+                  chiqmaydi.
+                </p>
+              </div>
+            </div>
+            {marketOnlineProfit ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div
+                  className="p-5 rounded-2xl border"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <p
+                    className="text-sm mb-1"
+                    style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}
+                  >
+                    Bugun (to‘langan)
+                  </p>
+                  <p className="text-2xl font-bold" style={{ color: isDark ? '#fff' : '#111827' }}>
+                    {marketOnlineProfit.today.toLocaleString('uz-UZ')} so'm
+                  </p>
+                </div>
+                <div
+                  className="p-5 rounded-2xl border"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <p
+                    className="text-sm mb-1"
+                    style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}
+                  >
+                    Jami (to‘langan, barcha vaqt)
+                  </p>
+                  <p className="text-2xl font-bold" style={{ color: isDark ? '#fff' : '#111827' }}>
+                    {marketOnlineProfit.allTime.toLocaleString('uz-UZ')} so'm
+                  </p>
+                </div>
+              </div>
+            ) : (
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>
+                Ko‘rsatkichni yuklash uchun filial akkaunti bilan kirilgan bo‘lishingiz kerak.
+              </p>
+            )}
+          </div>
 
           {/* Sales List */}
           {(() => {

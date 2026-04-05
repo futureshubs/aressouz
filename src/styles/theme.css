@@ -339,6 +339,44 @@
   box-sizing: border-box;
 }
 
+/* Filial / admin / sotuvchi / restoran panellar: faqat kontent zonasi scroll */
+.app-panel-viewport {
+  height: 100dvh;
+  max-height: 100dvh;
+  min-height: 0;
+  box-sizing: border-box;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+.app-panel-main-scroll {
+  flex: 1 1 0%;
+  min-height: 0;
+  min-width: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+.app-panel-sidebar-scroll {
+  flex: 1 1 0%;
+  min-height: 0;
+  overflow-x: hidden;
+  overflow-y: auto;
+  overscroll-behavior-y: contain;
+  -webkit-overflow-scrolling: touch;
+  touch-action: pan-y;
+}
+
+/* Modal ortidagi sahifa siljimasin */
+.app-modal-overlay {
+  overscroll-behavior: none;
+  touch-action: none;
+}
+
 @media (pointer: coarse) {
   @layer base {
     html,

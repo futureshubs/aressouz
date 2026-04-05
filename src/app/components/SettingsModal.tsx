@@ -6,6 +6,7 @@ import { useAuth } from '../context/AuthContext';
 import { ColorPickerModal } from './ColorPickerModal';
 import { isMarketplaceNativeApp, postToMarketplaceNative } from '../utils/marketplaceNativeBridge';
 import { profileAccentLabel, useUserPanelT } from '../i18n/userPanel';
+import { openExternalUrlSync } from '../utils/openExternalUrl';
 
 interface SettingsModalProps {
   isOpen: boolean;
@@ -394,7 +395,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
 
   const handleRateApp = () => {
     const url = 'https://example.com/rate';
-    window.open(url, '_blank', 'noopener,noreferrer');
+    openExternalUrlSync(url);
   };
 
   const handleShareApp = async () => {

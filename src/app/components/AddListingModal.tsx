@@ -8,7 +8,7 @@ import { regions } from '../data/regions';
 import { publicAnonKey } from '/utils/supabase/info';
 import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
-import { openPaymentWindow } from '../services/paymentService';
+import { openExternalUrlSync } from '../utils/openExternalUrl';
 import { LISTING_FEE_UZS } from '../constants/listingFee';
 
 interface AddListingModalProps {
@@ -351,7 +351,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
       const txId = data.listingFeeTransactionId || data.transaction?.id;
       if (!txId || !data.paymentUrl) throw new Error('Server javobi noto‘g‘ri');
       sessionStorage.setItem(listingFeeSessionKey(userId, userPhone), txId);
-      window.open(data.paymentUrl, '_blank', 'noopener,noreferrer');
+      openExternalUrlSync(data.paymentUrl);
       setFeePaymentBusy(false);
       runListingFeePoll(txId);
     } catch (e: unknown) {
@@ -385,7 +385,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
       const payUrl = data.paymentUrl || data.checkoutUrl;
       if (!txId || !payUrl) throw new Error('Server javobi noto‘g‘ri');
       sessionStorage.setItem(listingFeeSessionKey(userId, userPhone), txId);
-      openPaymentWindow(String(payUrl));
+      openExternalUrlSync(String(payUrl));
       setFeePaymentBusy(false);
       runListingFeePoll(txId);
     } catch (e: unknown) {

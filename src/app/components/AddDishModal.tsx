@@ -3,6 +3,7 @@ import { useTheme } from '../context/ThemeContext';
 import { X, Upload, Utensils, Plus, Trash2, Star, Leaf } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '/utils/supabase/info';
+import { platformCommissionHintUz, validateVariantCommissionsClient } from '../utils/platformCommission';
 
 export function AddDishModal({ 
   restaurantId, 
@@ -30,6 +31,7 @@ export function AddDishModal({
           price: Number((d as any)?.variants?.[0]?.price ?? (d as any)?.price) || 0,
           prepTime: String((d as any)?.variants?.[0]?.prepTime ?? ''),
           image: String((d as any)?.variants?.[0]?.image ?? (d as any)?.image ?? ''),
+          commission: Number((d as any)?.variants?.[0]?.commission) || 0,
         }
       : null;
     return {
@@ -46,7 +48,14 @@ export function AddDishModal({
       ingredients: Array.isArray(d?.ingredients) ? d.ingredients : [],
       weight: d?.weight || '',
       additionalProducts: Array.isArray(d?.additionalProducts) ? d.additionalProducts : [],
-      variants: hasVariants ? d!.variants : d && fallbackVariant ? [fallbackVariant] : [],
+      variants: hasVariants
+        ? d!.variants.map((v: any) => ({
+            ...v,
+            commission: Number(v?.commission) || 0,
+          }))
+        : d && fallbackVariant
+          ? [fallbackVariant]
+          : [],
       isPopular: Boolean(d?.isPopular),
       isNatural: Boolean(d?.isNatural),
     };
@@ -140,7 +149,7 @@ export function AddDishModal({
   const addVariant = () => {
     setFormData(prev => ({ 
       ...prev, 
-      variants: [...prev.variants, { name: '', image: '', price: 0, prepTime: '20-30 daqiqa' }] 
+      variants: [...prev.variants, { name: '', image: '', price: 0, prepTime: '20-30 daqiqa', commission: 0 }] 
     }));
   };
 
@@ -162,6 +171,15 @@ export function AddDishModal({
     
     if (!formData.name || formData.variants.length === 0) {
       toast.error('Taom nomi va kamida 1 ta variant kerak!');
+      return;
+    }
+
+    const cErr = validateVariantCommissionsClient(
+      formData.variants.map((v: any) => ({ commission: v.commission })),
+      'Taom',
+    );
+    if (cErr) {
+      toast.error(cErr);
       return;
     }
 
@@ -528,7 +546,27 @@ export function AddDishModal({
                         }}
                         placeholder="Narx"
                       />
+                      <input
+                        type="number"
+                        min={0}
+                        max={15}
+                        value={variant.commission ?? ''}
+                        onChange={(e) =>
+                          updateVariant(
+                            idx,
+                            'commission',
+                            e.target.value === '' ? 0 : Number(e.target.value),
+                          )
+                        }
+                        className="px-3 py-2 rounded-lg col-span-2 sm:col-span-1"
+                        style={{
+                          background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.8)',
+                          border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                        }}
+                        placeholder="Berish % (0–15)"
+                      />
                     </div>
+                    <p className="text-xs opacity-60 -mt-1">{platformCommissionHintUz()}</p>
                     <input
                       type="text"
                       value={variant.prepTime}

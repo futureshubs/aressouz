@@ -57,6 +57,8 @@ interface AnalyticsCategoryOption {
 
 interface AnalyticsProps {
   branchId: string;
+  /** Filial analytics: `food` — faqat taom/restoran buyurtmalari (KV `orderType: food`) */
+  orderType?: 'all' | 'food' | 'market' | 'shop' | 'rental';
 }
 
 function branchApiBase(): string {
@@ -66,7 +68,7 @@ function branchApiBase(): string {
   return API_BASE_URL;
 }
 
-export default function Analytics({ branchId }: AnalyticsProps) {
+export default function Analytics({ branchId, orderType = 'all' }: AnalyticsProps) {
   const navigate = useNavigate();
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
@@ -85,6 +87,9 @@ export default function Analytics({ branchId }: AnalyticsProps) {
         dateRange,
         category: selectedCategory,
       });
+      if (orderType && orderType !== 'all') {
+        params.set('orderType', orderType);
+      }
 
       const response = await fetch(`${branchApiBase()}/analytics?${params}`, {
         headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
@@ -132,7 +137,7 @@ export default function Analytics({ branchId }: AnalyticsProps) {
 
   useEffect(() => {
     void loadAnalytics();
-  }, [branchId, dateRange, selectedCategory, visibilityRefetchTick]);
+  }, [branchId, dateRange, selectedCategory, orderType, visibilityRefetchTick]);
 
   useEffect(() => {
     if (selectedCategory === 'all') return;
@@ -212,9 +217,13 @@ export default function Analytics({ branchId }: AnalyticsProps) {
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
         <div>
-          <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>Data analitika</h1>
+          <h1 className={`text-2xl font-bold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            {orderType === 'food' ? 'Taomlar — data analitika' : 'Data analitika'}
+          </h1>
           <p className={`mt-1 text-sm ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
-            Savdo va buyurtmalar — tanlangan davr va kategoriya bo‘yicha (serverdagi filial ma’lumotlari)
+            {orderType === 'food'
+              ? 'Faqat taom buyurtmalari — tanlangan davr va qatorlar bo‘yicha (filial sessiyasi)'
+              : 'Savdo va buyurtmalar — tanlangan davr va kategoriya bo‘yicha (serverdagi filial ma’lumotlari)'}
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-3">

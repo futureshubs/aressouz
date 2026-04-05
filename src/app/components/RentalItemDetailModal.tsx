@@ -2,10 +2,21 @@ import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useRentalCart } from '../context/RentalCartContext';
 import { RentalItem } from '../data/rentals';
-import { X, MapPin, Star, Calendar, User, Shield, Clock, ChevronLeft, ChevronRight } from 'lucide-react';
+import {
+  X,
+  MapPin,
+  Star,
+  Calendar,
+  User,
+  Shield,
+  Clock,
+  ChevronLeft,
+  ChevronRight,
+  ShoppingCart,
+} from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
-import { RatingModal } from './RatingModal';
 import { toast } from 'sonner';
+import { notifyRentalCartAdded } from '../utils/appToast';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 
 interface RentalItemDetailModalProps {
@@ -16,7 +27,7 @@ interface RentalItemDetailModalProps {
 
 export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetailModalProps) {
   const { theme, accentColor } = useTheme();
-  const { addToCart, cartItems } = useRentalCart();
+  const { addToCart } = useRentalCart();
   const isDark = theme === 'dark';
   
   // Image gallery state
@@ -113,10 +124,7 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
       const pricePerPeriod = getPriceForPeriod();
       addToCart(item, rentalPeriod, rentalDuration, pricePerPeriod);
       
-      toast.success(
-        `${item.name} savatga qo'shildi! 🛒\n\nMuddat: ${rentalDuration} ${getPeriodLabel()}\nJami: ${totalPrice.toLocaleString()} so'm`,
-        { duration: 3000 }
-      );
+      notifyRentalCartAdded(item.name);
       
       console.log('✅ Added to rental cart:', {
         item: item.name,
@@ -135,73 +143,102 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
     }
   };
 
+  const panelBg = isDark ? '#111111' : '#ffffff';
+  const footerBorder = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)';
+
   return (
-    <div 
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
-      onClick={onClose}
-    >
-      {/* Backdrop */}
-      <div 
-        className="absolute inset-0 backdrop-blur-md"
+    <div className="fixed inset-0 z-[60] pointer-events-none">
+      {/* Orqa fon — to‘liq ekran (notch ostida ham) */}
+      <button
+        type="button"
+        aria-label="Yopish"
+        className="pointer-events-auto fixed inset-0 z-0 cursor-pointer border-0 backdrop-blur-md"
         style={{
-          background: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.6)',
+          background: isDark ? 'rgba(0, 0, 0, 0.82)' : 'rgba(0, 0, 0, 0.55)',
         }}
+        onClick={onClose}
       />
 
-      {/* Modal */}
+      {/* Kontent — xavfsiz zona ichida to‘liq balandlik; pastki CTA scroll dan tashqari */}
       <div
-        onClick={(e) => e.stopPropagation()}
-        className="relative w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-t-3xl sm:rounded-3xl"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="rental-detail-title"
+        className="pointer-events-auto fixed left-0 right-0 z-[1] flex flex-col sm:items-center sm:justify-center sm:p-4 sm:px-5"
         style={{
-          background: isDark ? '#111111' : '#ffffff',
+          top: 'var(--app-safe-top)',
+          bottom: 'var(--app-safe-bottom)',
+          paddingLeft: 'var(--app-safe-left, 0px)',
+          paddingRight: 'var(--app-safe-right, 0px)',
         }}
       >
-        {/* Close Button */}
-        <button
-          onClick={onClose}
-          className="absolute top-4 right-4 z-10 p-2 rounded-full backdrop-blur-xl transition-all active:scale-90"
+        <div
+          className="relative flex h-full w-full min-h-0 max-w-2xl flex-col overflow-hidden sm:h-auto sm:max-h-[min(92dvh,calc(100dvh-var(--app-safe-top)-var(--app-safe-bottom)-2rem))] sm:rounded-3xl sm:shadow-2xl"
           style={{
-            background: 'rgba(0, 0, 0, 0.5)',
-            border: '1px solid rgba(255, 255, 255, 0.2)',
+            background: panelBg,
+            boxShadow: isDark ? '0 25px 50px rgba(0,0,0,0.5)' : '0 25px 50px rgba(0,0,0,0.12)',
           }}
         >
-          <X className="size-5 text-white" />
-        </button>
-
-        {/* Image */}
-        <div className="relative h-64 sm:h-80">
-          <img 
-            src={allImages[currentImageIndex]} 
-            alt={item.name}
-            className="w-full h-full object-cover"
-          />
-          <div 
-            className="absolute inset-0"
+        {/* Image — 6:5 (600×500 ga mos), to‘liq ko‘rinish (contain), ramka nisbatga mos */}
+        <div
+          className="relative mx-auto w-full max-w-[600px] shrink-0 overflow-hidden sm:rounded-t-3xl"
+          style={{
+            aspectRatio: '6 / 5',
+            maxHeight: 'min(500px, 48dvh)',
+            background: isDark ? '#0c0c0c' : '#ececee',
+          }}
+        >
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Yopish"
+            className="absolute z-20 flex size-10 items-center justify-center rounded-full backdrop-blur-xl transition-all active:scale-90"
             style={{
-              background: `linear-gradient(to top, ${isDark ? 'rgba(0,0,0,0.8)' : 'rgba(0,0,0,0.6)'}, transparent)`,
+              background: 'rgba(0, 0, 0, 0.55)',
+              border: '1px solid rgba(255, 255, 255, 0.22)',
+              top: '0.75rem',
+              right: 'max(0.75rem, var(--app-safe-right, env(safe-area-inset-right, 0px)))',
+            }}
+          >
+            <X className="size-5 text-white" strokeWidth={2.5} />
+          </button>
+          <div className="absolute inset-0 flex min-h-[min(180px,35dvh)] items-center justify-center p-2 sm:p-3">
+            <img
+              src={allImages[currentImageIndex]}
+              alt={item.name}
+              className="max-h-full max-w-full object-contain object-center"
+              decoding="async"
+            />
+          </div>
+          <div
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background: `linear-gradient(to top, ${isDark ? 'rgba(0,0,0,0.75)' : 'rgba(0,0,0,0.45)'} 0%, transparent 55%)`,
             }}
           />
-          
+
           {/* Rating Badge */}
-          <div 
-            className="absolute bottom-4 left-4 px-3 py-1.5 rounded-xl backdrop-blur-xl border flex items-center gap-2"
+          <div
+            className="absolute bottom-4 z-10 flex items-center gap-2 rounded-xl border px-3 py-1.5 backdrop-blur-xl"
             style={{
               background: 'rgba(0, 0, 0, 0.6)',
               borderColor: 'rgba(255, 255, 255, 0.2)',
+              left: 'max(1rem, var(--app-safe-left, env(safe-area-inset-left, 0px)))',
             }}
           >
-            <Star className="size-4 text-yellow-400 fill-yellow-400" />
-            <span className="text-sm text-white font-medium">{item.rating}</span>
+            <Star className="size-4 fill-yellow-400 text-yellow-400" />
+            <span className="text-sm font-medium text-white">{item.rating}</span>
             <span className="text-xs text-white/70">({item.reviews} sharh)</span>
           </div>
-          
+
           {/* Image Navigation */}
           {allImages.length > 1 && (
             <>
-              <div className="absolute inset-0 flex items-center justify-between px-2">
+              <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-between px-2">
                 <button
+                  type="button"
                   onClick={() => setCurrentImageIndex((prev) => (prev > 0 ? prev - 1 : allImages.length - 1))}
-                  className="p-2 rounded-full backdrop-blur-xl transition-all active:scale-90"
+                  className="pointer-events-auto rounded-full p-2 backdrop-blur-xl transition-all active:scale-90"
                   style={{
                     background: 'rgba(0, 0, 0, 0.5)',
                     border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -210,8 +247,9 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
                   <ChevronLeft className="size-6 text-white" />
                 </button>
                 <button
+                  type="button"
                   onClick={() => setCurrentImageIndex((prev) => (prev < allImages.length - 1 ? prev + 1 : 0))}
-                  className="p-2 rounded-full backdrop-blur-xl transition-all active:scale-90"
+                  className="pointer-events-auto rounded-full p-2 backdrop-blur-xl transition-all active:scale-90"
                   style={{
                     background: 'rgba(0, 0, 0, 0.5)',
                     border: '1px solid rgba(255, 255, 255, 0.2)',
@@ -243,11 +281,12 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
               </div>
               
               {/* Image Counter */}
-              <div 
-                className="absolute top-4 left-4 px-3 py-1.5 rounded-xl backdrop-blur-xl border"
+              <div
+                className="absolute top-4 z-10 px-3 py-1.5 rounded-xl border backdrop-blur-xl"
                 style={{
                   background: 'rgba(0, 0, 0, 0.6)',
                   borderColor: 'rgba(255, 255, 255, 0.2)',
+                  left: 'max(1rem, var(--app-safe-left, env(safe-area-inset-left, 0px)))',
                 }}
               >
                 <span className="text-sm text-white font-medium">
@@ -258,11 +297,13 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
           )}
         </div>
 
-        {/* Content */}
-        <div className="p-6">
+        {/* Scroll: batafsil; pastki savat — alohida, scroll bo‘lmaydi */}
+        <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
+          <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-5 py-4 sm:px-6 sm:py-5 [-webkit-overflow-scrolling:touch]">
           {/* Title & Location */}
           <div className="mb-6">
             <h2 
+              id="rental-detail-title"
               className="text-2xl font-bold mb-3"
               style={{ color: isDark ? '#ffffff' : '#111827' }}
             >
@@ -408,7 +449,7 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
                       className="text-sm font-bold"
                       style={{ color: rentalPeriod === period.key ? accentColor.color : (isDark ? '#ffffff' : '#111827') }}
                     >
-                      {parseInt(period.data.price).toLocaleString()}
+                      {(Number(period.data?.price) || 0).toLocaleString('uz-UZ')}
                     </div>
                   </button>
                 ));
@@ -448,37 +489,6 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
                 >
                   <span style={{ color: isDark ? '#ffffff' : '#111827' }}>+</span>
                 </button>
-              </div>
-            </div>
-          </div>
-
-          {/* Total Price & Rent Button */}
-          <div 
-            className="p-4 rounded-2xl mb-4"
-            style={{
-              background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-            }}
-          >
-            <div className="flex items-center justify-between mb-1">
-              <span 
-                className="text-sm"
-                style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-              >
-                Jami narx:
-              </span>
-              <div className="text-right">
-                <div 
-                  className="text-2xl font-bold"
-                  style={{ color: accentColor.color }}
-                >
-                  {totalPrice.toLocaleString()} so'm
-                </div>
-                <div 
-                  className="text-xs"
-                  style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}
-                >
-                  {rentalDuration} {getPeriodLabel()} uchun
-                </div>
               </div>
             </div>
           </div>
@@ -551,18 +561,50 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
               )}
             </div>
           )}
+          </div>
 
-          <button
-            onClick={handleRentNow}
-            className="w-full py-4 rounded-2xl font-semibold transition-all active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
+          {/* Pastki panel: har doim ko‘rinadi, scroll emas */}
+          <div
+            className="shrink-0 border-t px-5 pb-4 pt-3 sm:px-6"
             style={{
-              background: accentColor.color,
-              color: '#ffffff',
-              boxShadow: `0 8px 24px ${accentColor.color}66`,
+              borderColor: footerBorder,
+              background: panelBg,
             }}
           >
-            🛒 Savatga qo'shish
-          </button>
+            <div className="mb-3 flex items-start justify-between gap-3">
+              <span
+                className="text-sm font-medium"
+                style={{ color: isDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.55)' }}
+              >
+                Jami narx
+              </span>
+              <div className="text-right">
+                <div className="text-xl font-bold sm:text-2xl" style={{ color: accentColor.color }}>
+                  {totalPrice.toLocaleString('uz-UZ')} so'm
+                </div>
+                <div
+                  className="text-xs"
+                  style={{ color: isDark ? 'rgba(255, 255, 255, 0.45)' : 'rgba(0, 0, 0, 0.45)' }}
+                >
+                  {rentalDuration} {getPeriodLabel()} uchun
+                </div>
+              </div>
+            </div>
+            <button
+              type="button"
+              onClick={handleRentNow}
+              className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-bold transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:py-4"
+              style={{
+                background: accentColor.color,
+                color: '#ffffff',
+                boxShadow: `0 8px 24px ${accentColor.color}66`,
+              }}
+            >
+              <ShoppingCart className="size-5 shrink-0" strokeWidth={2.5} />
+              Savatga qo&apos;shish
+            </button>
+          </div>
+        </div>
         </div>
       </div>
     </div>

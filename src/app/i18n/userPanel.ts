@@ -199,6 +199,24 @@ const UZ: Record<string, string> = {
   'rental.leftDays': 'Qoldi: {d} kun {h} soat',
   'rental.leftHours': 'Qoldi: {h} soat {m} daqiqa',
   'rental.leftMins': 'Qoldi: {m} daqiqa',
+  'rental.countdownLeftLabel': 'Qoldi:',
+  'rental.countdownLateLabel': 'Kechikkan:',
+  'rental.countdownDaySuffix': ' kun',
+  'rental.extendOpen': 'Muddat qo‘shish',
+  'rental.extendTitle': 'Ijara muddatini uzaytirish',
+  'rental.extendHint':
+    'Har bir «+» bittasi — ijara turi bo‘yicha (masalan, soatlik bo‘lsa 1 soat). Qo‘shimcha to‘lov filial bilan kelishiladi.',
+  'rental.extendUnits': 'Qo‘shiladigan birliklar',
+  'rental.extendApprox': 'Taxminiy qo‘shimcha:',
+  'rental.extendSubmit': 'Tasdiqlash',
+  'rental.extendSuccess': 'Muddat yangilandi',
+  'rental.extendDisabled': 'Kuryer yetkazguncha yoki ijara boshlanmaguncha qo‘sha olmaysiz',
+  'rental.contractTotalShort': 'Shartnoma jami',
+  'rental.cashHandoffUserHint':
+    'Naqd to‘lov: kuryer mahsulotni qaytarib olgach filial kassasiga {cashier} {cur} topshiradi. Yetkazish: {delivery} {cur} (kuryerda).',
+  'rental.onlinePaidNoCashierHandoff': 'Onlayn/karta to‘lovi — qo‘shimcha kassaga naqd topshiruv talab qilinmaydi.',
+  'rental.pickupOverdue': 'Qaytarish vaqti — filial yoki kuryer bilan bog‘laning',
+  'rental.profileCountdownTitle': 'Ijara tugashiga',
 };
 
 const RU: Record<string, string> = {
@@ -397,6 +415,24 @@ const RU: Record<string, string> = {
   'rental.leftDays': 'Осталось: {d} дн. {h} ч.',
   'rental.leftHours': 'Осталось: {h} ч. {m} мин.',
   'rental.leftMins': 'Осталось: {m} мин.',
+  'rental.countdownLeftLabel': 'Осталось:',
+  'rental.countdownLateLabel': 'Просрочка:',
+  'rental.countdownDaySuffix': ' дн.',
+  'rental.extendOpen': 'Продлить срок',
+  'rental.extendTitle': 'Продление аренды',
+  'rental.extendHint':
+    'Каждый шаг — одна единица периода (например, для почасовой аренды — 1 час). Оплату уточняйте в филиале.',
+  'rental.extendUnits': 'Единиц к добавлению',
+  'rental.extendApprox': 'Примерная доплата:',
+  'rental.extendSubmit': 'Подтвердить',
+  'rental.extendSuccess': 'Срок обновлён',
+  'rental.extendDisabled': 'До доставки курьером или начала аренды продлить нельзя',
+  'rental.contractTotalShort': 'Итого по договору',
+  'rental.cashHandoffUserHint':
+    'Наличные: после возврата товара курьер сдаёт в кассу филиала {cashier} {cur}. Доставка: {delivery} {cur} (у курьера).',
+  'rental.onlinePaidNoCashierHandoff': 'Онлайн/карта — дополнительная сдача наличных в кассу не требуется.',
+  'rental.pickupOverdue': 'Срок возврата — свяжитесь с филиалом или курьером',
+  'rental.profileCountdownTitle': 'До окончания аренды',
 };
 
 const EN: Record<string, string> = {
@@ -595,6 +631,24 @@ const EN: Record<string, string> = {
   'rental.leftDays': 'Left: {d}d {h}h',
   'rental.leftHours': 'Left: {h}h {m}m',
   'rental.leftMins': 'Left: {m}m',
+  'rental.countdownLeftLabel': 'Left:',
+  'rental.countdownLateLabel': 'Overdue:',
+  'rental.countdownDaySuffix': ' d',
+  'rental.extendOpen': 'Extend time',
+  'rental.extendTitle': 'Extend rental',
+  'rental.extendHint':
+    'Each step adds one period unit (e.g. hourly = 1 hour). Confirm extra payment with the branch.',
+  'rental.extendUnits': 'Units to add',
+  'rental.extendApprox': 'Approx. extra:',
+  'rental.extendSubmit': 'Confirm',
+  'rental.extendSuccess': 'Rental period updated',
+  'rental.extendDisabled': 'Wait for courier delivery or rental start before extending',
+  'rental.contractTotalShort': 'Contract total',
+  'rental.cashHandoffUserHint':
+    'Cash: after pickup the courier hands {cashier} {cur} to branch cashier. Delivery fee {delivery} {cur} stays with courier.',
+  'rental.onlinePaidNoCashierHandoff': 'Paid online/card — no extra cash hand-in at cashier.',
+  'rental.pickupOverdue': 'Return overdue — contact branch or courier',
+  'rental.profileCountdownTitle': 'Until rental ends',
 };
 
 const DICT: Record<Language, Record<string, string>> = { uz: UZ, ru: RU, en: EN };

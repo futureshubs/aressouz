@@ -80,6 +80,33 @@ function computeRentalPeriodEndIso(
   return d.toISOString();
 }
 
+/** Mijoz/filial muddat uzaytirish: `anchor` dan boshlab N ta davr qo‘shadi */
+function addRentalUnitsFromAnchor(
+  anchorMs: number,
+  rentalPeriod: string,
+  units: number,
+): string {
+  const d = new Date(anchorMs);
+  if (Number.isNaN(d.getTime())) return new Date().toISOString();
+  const n = Math.max(1, Math.floor(units) || 1);
+  const p = String(rentalPeriod || "daily").toLowerCase();
+  if (p === "hourly") d.setHours(d.getHours() + n);
+  else if (p === "daily") d.setDate(d.getDate() + n);
+  else if (p === "weekly") d.setDate(d.getDate() + n * 7);
+  else if (p === "monthly") d.setMonth(d.getMonth() + n);
+  else d.setDate(d.getDate() + n);
+  return d.toISOString();
+}
+
+function maxCustomerExtendUnits(rentalPeriod: string): number {
+  const p = String(rentalPeriod || "").toLowerCase();
+  if (p === "hourly") return 168;
+  if (p === "daily") return 60;
+  if (p === "weekly") return 24;
+  if (p === "monthly") return 12;
+  return 60;
+}
+
 function rentalCourierActiveKey(courierId: string, orderId: string) {
   return `rental_courier_active_${courierId}_${orderId}`;
 }
@@ -92,6 +119,31 @@ async function removeRentalCourierIndex(order: any) {
       await kv.del(rentalCourierActiveKey(cid, oid));
     } catch (_) { /* ignore */ }
   }
+}
+
+/** Naqd bo‘lsa kuryer kassaga topshiradi (market buyurtma qoidasi: jami − yetkazish haqi). */
+function rentalPaymentIsCashLike(paymentMethod: unknown): boolean {
+  const raw = String(paymentMethod || "").toLowerCase().trim();
+  if (raw === "cash") return true;
+  if (raw.includes("naqd") || raw.includes("naqt") || raw.includes("cash")) return true;
+  if (!raw) return true;
+  return false;
+}
+
+function computeRentalCourierHandoffUzs(order: {
+  totalPrice?: unknown;
+  deliveryPrice?: unknown;
+  deliveryFee?: unknown;
+  paymentMethod?: unknown;
+}): { expectedUzs: number; isCashLike: boolean } {
+  const isCashLike = rentalPaymentIsCashLike(order.paymentMethod);
+  if (!isCashLike) return { expectedUzs: 0, isCashLike: false };
+  const totalNum = Math.max(0, Math.round(Number(order.totalPrice) || 0));
+  const deliveryFeeNum = Math.max(
+    0,
+    Math.round(Number(order.deliveryPrice ?? order.deliveryFee ?? 0) || 0),
+  );
+  return { expectedUzs: Math.max(0, totalNum - deliveryFeeNum), isCashLike: true };
 }
 
 async function resolveCourierSession(c: any): Promise<{ courierId: string } | null> {
@@ -130,9 +182,18 @@ function enrichRentalOrderForClient(order: any) {
     if (now > endT) pickupAlert = "overdue";
     else if (now > endT - 24 * 60 * 60 * 1000) pickupAlert = "due_soon";
   }
+  /** Kuryer «yetkazildi» qilguncha ijara vaqti boshlanmagan — profil va mijoz UI */
   const awaitingCourierDelivery =
-    order.status === "active" && order.deliveryPending === true;
-  return { ...order, paymentAlert, pickupAlert, awaitingCourierDelivery };
+    String(order.status || "").toLowerCase() === "active" && !order.rentalPeriodStartedAt;
+  const handoff = computeRentalCourierHandoffUzs(order);
+  return {
+    ...order,
+    paymentAlert,
+    pickupAlert,
+    awaitingCourierDelivery,
+    rentalCourierToCashierPreviewUzs: handoff.expectedUzs,
+    rentalPaymentIsCashLike: handoff.isCashLike,
+  };
 }
 
 // Validate user
@@ -354,9 +415,16 @@ app.get('/my-rentals', async (c) => {
       if (!branchId || !orderId) continue;
       const order = await kv.get(`rental_order_${branchId}_${orderId}`);
       // Profil: barcha ijaralar (tarix + filtrlash frontendda); bekor qilinganlar chiqmasin
-      if (order && String(order.status || "").toLowerCase() !== "cancelled") {
-        orders.push(enrichRentalOrderForClient(order));
+      if (!order || String(order.status || "").toLowerCase() === "cancelled") continue;
+      const row = { ...order };
+      if (!row.productImage && row.productId && row.branchId) {
+        try {
+          const prod = await kv.get(`rental_product_${row.branchId}_${row.productId}`);
+          const img = prod?.image || prod?.coverImage;
+          if (typeof img === "string" && img.trim()) row.productImage = img.trim();
+        } catch (_) { /* ignore */ }
       }
+      orders.push(enrichRentalOrderForClient(row));
     }
     orders.sort((a, b) =>
       String(b.createdAt || '').localeCompare(String(a.createdAt || ''))
@@ -365,6 +433,80 @@ app.get('/my-rentals', async (c) => {
   } catch (error: any) {
     console.error('❌ Error getting my rentals:', error);
     return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+/** Mijoz: telefon tasdiqlangan holda ijara tugash vaqtini uzaytirish */
+app.post("/my-rentals/extend", async (c) => {
+  try {
+    const body = await c.req.json();
+    const pk = normalizePhoneDigits(String(body.phone || ""));
+    const branchId = String(body.branchId || "").trim();
+    const orderId = String(body.orderId || body.id || "").trim();
+    let units = Math.max(1, Math.floor(Number(body.units) || 1));
+
+    if (pk.length < 9 || !branchId || !orderId) {
+      return c.json({ success: false, error: "phone, branchId, orderId majburiy" }, 400);
+    }
+
+    const orderKey = `rental_order_${branchId}_${orderId}`;
+    const raw = await kv.get(orderKey);
+    if (!raw) {
+      return c.json({ success: false, error: "Buyurtma topilmadi" }, 404);
+    }
+
+    const orderPhone = normalizePhoneDigits(String(raw.customerPhone || ""));
+    if (orderPhone !== pk) {
+      return c.json({ success: false, error: "Telefon mos kelmaydi" }, 403);
+    }
+
+    const st = String(raw.status || "").toLowerCase();
+    if (st !== "active" && st !== "extended") {
+      return c.json({ success: false, error: "Buyurtma aktiv emas" }, 400);
+    }
+
+    if (!raw.rentalPeriodStartedAt) {
+      return c.json({ success: false, error: "Ijara muddati hali boshlanmagan" }, 400);
+    }
+
+    if (raw.deliveryPending === true) {
+      return c.json({ success: false, error: "Avval kuryer yetkazishini kuting" }, 400);
+    }
+
+    const endMs = raw.rentalPeriodEndsAt
+      ? new Date(raw.rentalPeriodEndsAt).getTime()
+      : NaN;
+    if (Number.isNaN(endMs)) {
+      return c.json({ success: false, error: "Tugash vaqti aniqlanmagan" }, 400);
+    }
+
+    const cap = maxCustomerExtendUnits(String(raw.rentalPeriod || ""));
+    units = Math.min(units, cap);
+
+    const now = Date.now();
+    const anchor = Math.max(now, endMs);
+    const newEndIso = addRentalUnitsFromAnchor(anchor, String(raw.rentalPeriod || "daily"), units);
+
+    const price = Number(raw.pricePerPeriod) || 0;
+    const qty = Math.max(1, Number(raw.quantity) || 1);
+    const addTotal = Math.round(price * qty * units);
+
+    const order = { ...raw };
+    order.rentalPeriodEndsAt = newEndIso;
+    order.rentalDuration = (Number(order.rentalDuration) || 1) + units;
+    order.extendedUntil = newEndIso;
+    order.totalPrice = (Number(order.totalPrice) || 0) + addTotal;
+    order.customerExtensionLog = [
+      ...(Array.isArray(order.customerExtensionLog) ? order.customerExtensionLog : []),
+      { at: new Date().toISOString(), units, addedAmount: addTotal },
+    ];
+    order.updatedAt = new Date().toISOString();
+
+    await kv.set(orderKey, order);
+    return c.json({ success: true, order: enrichRentalOrderForClient(order) });
+  } catch (error: any) {
+    console.error("❌ my-rentals/extend:", error);
+    return c.json({ success: false, error: error.message || "Xatolik" }, 500);
   }
 });
 
@@ -383,7 +525,15 @@ app.get('/courier/active-rentals', async (c) => {
       if (!branchId || !orderId) continue;
       const order = await kv.get(`rental_order_${branchId}_${orderId}`);
       if (order && order.status === "active") {
-        orders.push(enrichRentalOrderForClient(order));
+        const row = { ...order };
+        if (!row.productImage && row.productId && row.branchId) {
+          try {
+            const prod = await kv.get(`rental_product_${row.branchId}_${row.productId}`);
+            const img = prod?.image || prod?.coverImage;
+            if (typeof img === "string" && img.trim()) row.productImage = img.trim();
+          } catch (_) { /* ignore */ }
+        }
+        orders.push(enrichRentalOrderForClient(row));
       }
     }
     orders.sort((a, b) =>
@@ -444,6 +594,7 @@ app.post('/orders', async (c) => {
       branchId: body.branchId,
       productId: body.productId,
       productName: body.productName || '',
+      productImage: String(body.productImage || body.image || "").trim(),
       quantity: qty,
       customerName: String(body.customerName || ''),
       customerPhone: String(body.customerPhone || ''),
@@ -470,9 +621,13 @@ app.post('/orders', async (c) => {
       deliveryZoneSummary: body.deliveryZoneSummary || null,
       /** Ilova foydalanuvchisi bo‘lsa push eslatmalari uchun (ixtiyoriy) */
       customerUserId: body.customerUserId ? String(body.customerUserId).trim() : '',
+      paymentMethod: String(body.paymentMethod || "cash").trim() || "cash",
+      deliveryPrice: Math.max(0, Math.round(Number(body.deliveryPrice ?? body.deliveryFee ?? 0) || 0)),
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: 'active',
+      /** Kuryer tasdiqlaguncha (confirmDelivery) */
+      deliveryPending: true,
     };
 
     await kv.set(`rental_order_${body.branchId}_${orderId}`, order);
@@ -535,6 +690,11 @@ app.put('/orders/:id', async (c) => {
       order.pickupCompletedAt = new Date().toISOString();
       order.returnDate = order.pickupCompletedAt;
       order.updatedAt = order.pickupCompletedAt;
+      const { expectedUzs, isCashLike } = computeRentalCourierHandoffUzs(order);
+      order.courierCashHandoffExpectedUzs = expectedUzs;
+      order.courierCashHandoffStatus =
+        isCashLike && expectedUzs > 0 ? "pending_cashier" : "not_applicable";
+      order.courierCashHandedToCashierAt = null;
       await removeRentalCourierIndex(order);
       await kv.set(`rental_order_${bid}_${id}`, order);
       if (oldStatus === "active") {

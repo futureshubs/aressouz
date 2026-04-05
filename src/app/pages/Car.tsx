@@ -8,6 +8,7 @@ import { LoginNotification } from '../components/LoginNotification';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { carCategories } from '../data/cars';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
+import { openExternalUrlSync } from '../utils/openExternalUrl';
 
 interface CarItem {
   id: string;
@@ -1288,7 +1289,11 @@ export default function CarPage({ onClose }: CarProps) {
                 </button>
 
                 <button
-                  onClick={() => window.location.href = `https://t.me/share/url?url=Avtomobil: ${selectedCar.brand} ${selectedCar.model}`}
+                  onClick={() =>
+                    openExternalUrlSync(
+                      `https://t.me/share/url?url=${encodeURIComponent(`${window.location.origin}/car`)}&text=${encodeURIComponent(`Avtomobil: ${selectedCar.brand} ${selectedCar.model}`)}`,
+                    )
+                  }
                   className="py-3.5 rounded-xl font-bold text-sm transition-all duration-300 active:scale-95 flex items-center justify-center gap-2"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',

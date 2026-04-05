@@ -1,9 +1,39 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { CreditCard, Loader2, Check, ExternalLink } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { openExternalUrl } from '../utils/openExternalUrl';
+import { PaymentMethodLogoFrame } from './payment/PaymentMethodLogoFrame';
+
+const CLICK_BRAND = '#00a650';
+
+function ClickBrandMark({ isDark }: { isDark: boolean }) {
+  const [broken, setBroken] = useState(false);
+  return (
+    <div className="flex justify-center">
+      <PaymentMethodLogoFrame brandColor={CLICK_BRAND} isDark={isDark}>
+        {broken ? (
+          <svg width="92" height="30" viewBox="0 0 92 30" fill="none" aria-hidden>
+            <rect width="92" height="30" rx="12" fill={CLICK_BRAND} />
+            <text x="46" y="20" fontSize="13" fontWeight="bold" fill="white" textAnchor="middle">
+              CLICK
+            </text>
+          </svg>
+        ) : (
+          <img
+            src="/payments/click-logo.png?v=2"
+            alt="Click"
+            className="block max-h-full w-auto max-w-full object-contain object-center"
+            decoding="async"
+            onError={() => setBroken(true)}
+          />
+        )}
+      </PaymentMethodLogoFrame>
+    </div>
+  );
+}
 
 interface ClickPaymentProps {
   orderId: string;
@@ -12,6 +42,8 @@ interface ClickPaymentProps {
   onSuccess?: () => void;
   onError?: (error: string) => void;
   type?: 'click' | 'click_card'; // click = CLICK button, click_card = any card
+  /** Tasdiqlashdan keyin avtomatik hisob-faktura yaratish va to‘lov oynasini ochish */
+  autoStart?: boolean;
 }
 
 export default function ClickPayment({ 
@@ -20,7 +52,8 @@ export default function ClickPayment({
   phone, 
   onSuccess, 
   onError,
-  type = 'click'
+  type = 'click',
+  autoStart = false,
 }: ClickPaymentProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
@@ -28,6 +61,8 @@ export default function ClickPayment({
   const [isProcessing, setIsProcessing] = useState(false);
   const [paymentUrl, setPaymentUrl] = useState<string | null>(null);
   const [isCheckingStatus, setIsCheckingStatus] = useState(false);
+  const handlePaymentRef = useRef<() => Promise<void>>(async () => {});
+  const autoStartDoneRef = useRef(false);
 
   const handlePayment = async () => {
     setIsProcessing(true);
@@ -66,8 +101,7 @@ export default function ClickPayment({
       if (data.success && data.paymentUrl) {
         setPaymentUrl(data.paymentUrl);
         
-        // Open payment page in new tab
-        window.open(data.paymentUrl, '_blank');
+        void openExternalUrl(data.paymentUrl);
         
         toast.success('To\'lov sahifasi ochildi', {
           description: 'Yangi oynada to\'lovni amalga oshiring',
@@ -89,6 +123,15 @@ export default function ClickPayment({
       setIsProcessing(false);
     }
   };
+
+  handlePaymentRef.current = handlePayment;
+
+  useEffect(() => {
+    if (!autoStart || autoStartDoneRef.current) return;
+    autoStartDoneRef.current = true;
+    const t = window.setTimeout(() => void handlePaymentRef.current(), 320);
+    return () => clearTimeout(t);
+  }, [autoStart]);
 
   const startStatusCheck = (orderId: string) => {
     setIsCheckingStatus(true);
@@ -195,6 +238,15 @@ export default function ClickPayment({
 
   return (
     <div className="space-y-4">
+      <div className="space-y-1 text-center">
+        <ClickBrandMark isDark={isDark} />
+        <p
+          className="text-xs sm:text-sm"
+          style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.6)' }}
+        >
+          {type === 'click_card' ? 'Bank kartasi — Click orqali' : 'Click — tezkor to‘lov'}
+        </p>
+      </div>
       {/* Payment Button */}
       {!paymentUrl ? (
         <button

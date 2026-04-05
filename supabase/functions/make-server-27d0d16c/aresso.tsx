@@ -92,6 +92,8 @@ export async function createPayment(params: {
   returnUrl?: string;
   userId?: string;
   userPhone?: string;
+  /** Mijoz tanlagan usul (ARESSO extra_params orqali) */
+  paymentMethod?: string;
 }): Promise<{ 
   success: boolean; 
   paymentId?: string; 
@@ -150,6 +152,9 @@ export async function createPayment(params: {
       extra_params: {
         user_id: params.userId || '',
         phone: params.userPhone || '',
+        ...(params.paymentMethod
+          ? { preferred_payment_method: String(params.paymentMethod).toLowerCase() }
+          : {}),
       }
     };
 

@@ -32,6 +32,11 @@ import { API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ChatMessagesSkeleton, CommunityRoomSkeleton } from './skeletons';
 import { compressImageIfNeeded } from '../utils/uploadWithProgress';
+import {
+  clearCommunityMembership,
+  saveCommunityMembership,
+  writeLastSeenCommunityMessage,
+} from '../utils/communityMembershipStorage';
 
 type CommunityMessageType = 'text' | 'image' | 'voice' | 'location';
 
@@ -315,6 +320,18 @@ export function CommunityView({ onBack }: CommunityViewProps) {
 
       setRoom(data.room || null);
       setJoined(Boolean(data.joined));
+      if (data.room?.id && Boolean(data.joined)) {
+        saveCommunityMembership({
+          roomId: data.room.id,
+          regionId: locationMeta.regionId,
+          districtId: locationMeta.districtId,
+          regionName: locationMeta.regionName,
+          districtName: locationMeta.districtName,
+          updatedAt: new Date().toISOString(),
+        });
+      } else {
+        clearCommunityMembership();
+      }
       if (data.room?.id) {
         setRoomSummaries(prev => ({
           ...prev,
@@ -428,6 +445,13 @@ export function CommunityView({ onBack }: CommunityViewProps) {
     return () => window.clearInterval(intervalId);
   }, [joined, loadMessages, room]);
 
+  useEffect(() => {
+    if (!joined || !room?.id || !user?.id || messages.length === 0) return;
+    const last = messages[messages.length - 1];
+    if (!last?.id || !last.createdAt) return;
+    writeLastSeenCommunityMessage(user.id, room.id, last.id, last.createdAt);
+  }, [joined, room?.id, user?.id, messages]);
+
   const handleJoin = async () => {
     if (!room || !locationMeta.isReady) {
       return;
@@ -453,6 +477,17 @@ export function CommunityView({ onBack }: CommunityViewProps) {
 
       setRoom(data.room || room);
       setJoined(true);
+      const joinedRoom = data.room || room;
+      if (joinedRoom?.id) {
+        saveCommunityMembership({
+          roomId: joinedRoom.id,
+          regionId: locationMeta.regionId,
+          districtId: locationMeta.districtId,
+          regionName: locationMeta.regionName,
+          districtName: locationMeta.districtName,
+          updatedAt: new Date().toISOString(),
+        });
+      }
       if (data.room?.id) {
         setRoomSummaries(prev => ({
           ...prev,

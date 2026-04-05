@@ -16,6 +16,8 @@ interface CartItem {
   price: number;
   image: string;
   quantity: number;
+  cartLineKey?: string;
+  productUuid?: string;
   selectedVariantId?: string; // Variant tracking
   selectedVariantName?: string; // For display
   variants?: {
@@ -171,8 +173,9 @@ export function Cart({ items, isOpen, onClose, onUpdateQuantity, onRemoveItem, o
             <>
               {/* Regular Products */}
               {items.map((item) => {
-                // Create unique key for each variant
-                const itemKey = item.selectedVariantId ? `${item.id}_${item.selectedVariantId}` : `${item.id}`;
+                const itemKey =
+                  item.cartLineKey ||
+                  `${String(item.productUuid || '')}_${item.id}_${String(item.selectedVariantId ?? 'default')}`;
                 
                 // Get selected variant data if available
                 const selectedVariant = item.selectedVariantId && item.variants

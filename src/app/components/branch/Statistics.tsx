@@ -71,6 +71,8 @@ interface StatisticsProps {
     district?: string;
     phone?: string;
   };
+  /** `food` — faqat taom/restoran buyurtmalari */
+  orderType?: 'all' | 'food' | 'market' | 'shop' | 'rental';
 }
 
 function branchApiBase(): string {
@@ -199,7 +201,7 @@ const normalizeStatisticsData = (raw: any): StatisticsData => {
   };
 };
 
-export function Statistics({ branchId, branchInfo }: StatisticsProps) {
+export function Statistics({ branchId, branchInfo, orderType = 'all' }: StatisticsProps) {
   const navigate = useNavigate();
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
@@ -215,6 +217,9 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
       setStatisticsData(null);
 
       const params = new URLSearchParams({ period });
+      if (orderType && orderType !== 'all') {
+        params.set('orderType', orderType);
+      }
 
       const response = await fetch(`${branchApiBase()}/statistics?${params}`, {
         headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
@@ -249,7 +254,7 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
 
   useEffect(() => {
     void loadStatistics();
-  }, [branchId, period, visibilityRefetchTick]);
+  }, [branchId, period, orderType, visibilityRefetchTick]);
 
   const peakMaxOrders = useMemo(() => {
     if (!statisticsData?.performance.peakHours.length) return 1;
@@ -382,10 +387,13 @@ export function Statistics({ branchId, branchInfo }: StatisticsProps) {
       {/* Header */}
       <div className="flex items-center justify-between">
         <div>
-          <h1 className="text-3xl font-bold mb-2">Statistika</h1>
+          <h1 className="text-3xl font-bold mb-2">
+            {orderType === 'food' ? 'Taomlar statistikasi' : 'Statistika'}
+          </h1>
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Umumiy ko‘rsatkichlar, soatlar bo‘yicha yuklama va taqqoslash
-            {branchInfo?.region ? ` — ${branchInfo.region}` : ''}
+            {orderType === 'food'
+              ? 'Faqat taom buyurtmalari — yuklama, tushum va taqqoslash (filial sessiyasi)'
+              : `Umumiy ko‘rsatkichlar, soatlar bo‘yicha yuklama va taqqoslash${branchInfo?.region ? ` — ${branchInfo.region}` : ''}`}
           </p>
         </div>
         <div className="flex items-center gap-3">

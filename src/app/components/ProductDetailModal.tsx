@@ -3,6 +3,7 @@ import { useState, memo, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { toast } from 'sonner';
+import { notifyCartAdded } from '../utils/appToast';
 import { projectId } from '/utils/supabase/info';
 import { buildUserHeaders, buildAdminHeaders, getStoredAdminSessionToken } from '../utils/requestAuth';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
@@ -1578,7 +1579,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
                   onClick={() => {
                     console.log('🛒 Final add to cart clicked:', { product, quantity, variantId: currentVariant.variantId, variantName: currentVariant.label });
                     onAddToCart(product, quantity, currentVariant.variantId, currentVariant.label);
-                    toast.success(`${product.name} savatga qo'shildi!\nMiqdor: ${quantity} ta\nJami: ${totalPrice.toLocaleString('uz-UZ')} so'm`);
+                    notifyCartAdded(quantity, { name: product.name });
                     setQuantity(0); // Reset quantity after adding to cart
                     onClose();
                   }}

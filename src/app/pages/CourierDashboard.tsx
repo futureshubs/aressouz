@@ -41,9 +41,13 @@ import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/su
 import { getStoredCourierToken } from '../utils/requestAuth';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { formatOrderNumber } from '../utils/orderNumber';
-import CourierLiveMap, { type CourierMapRoutePreview } from '../components/courier/CourierLiveMap';
 import { distanceKmForCourierUi, getOrderMapPoint } from '../utils/courierOrderGeo';
+import { COURIER_MAP_ROUTE_STORAGE_KEY } from '../utils/courierMapRouteSession';
 import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { openExternalUrlSync } from '../utils/openExternalUrl';
+import { RentalLiveCountdown } from '../components/rental/RentalLiveCountdown';
+import { normalizeRentalProductImageUrl } from '../utils/rentalProductImage';
+import { computeRentalCourierHandoffUzs } from '../utils/rentalCashHandoff';
 
 type CourierBag = {
   id: string;
@@ -131,6 +135,10 @@ type CourierOrder = {
   shopName?: string;
   merchantName?: string;
   deliveryZone?: string;
+  /** Naqd: kassaga topshiriladigan summa (yetkazish kuryerda). */
+  courierCashHandoffExpectedUzs?: number;
+  courierCashHandoffStatus?: string;
+  courierCashHandedToCashierAt?: string | null;
 };
 
 const getAddressLine = (order: CourierOrder) =>
@@ -494,6 +502,13 @@ export default function CourierDashboard() {
   const navigate = useNavigate();
   const { theme, accentColor, notifications, soundEnabled, toggleNotifications, toggleSound, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
+  const edgeBaseUrl = useMemo(
+    () =>
+      typeof window !== 'undefined' && window.location.hostname === 'localhost'
+        ? DEV_API_BASE_URL
+        : API_BASE_URL,
+    [],
+  );
   const textColor = isDark ? '#ffffff' : '#111827';
   const mutedTextColor = isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(17, 24, 39, 0.7)';
 
@@ -526,8 +541,6 @@ export default function CourierDashboard() {
   const [avatarUploadPct, setAvatarUploadPct] = useState<number | null>(null);
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
-  const courierMapSectionRef = useRef<HTMLDivElement | null>(null);
-  const [courierRoutePreview, setCourierRoutePreview] = useState<CourierMapRoutePreview | null>(null);
   const isMdUp = useMediaQueryMdUp();
 
   const loadDashboard = useCallback(async (silent = false) => {
@@ -696,6 +709,14 @@ export default function CourierDashboard() {
     }
   }, [courierRentalOrders]);
 
+  useEffect(() => {
+    if (courierRentalOrders.length === 0) return;
+    const id = window.setInterval(() => {
+      void loadDashboard(true);
+    }, 20_000);
+    return () => window.clearInterval(id);
+  }, [courierRentalOrders.length, loadDashboard]);
+
   const confirmRentalPickupReturn = useCallback(
     async (order: any) => {
       const courierToken = getStoredCourierToken();
@@ -726,7 +747,16 @@ export default function CourierDashboard() {
         });
         const data = await readPayload(res);
         if (res.ok && data?.success) {
-          toast.success('Qaytarish qayd etildi');
+          const ord = data?.order as { courierCashHandoffExpectedUzs?: number; courierCashHandoffStatus?: string } | undefined;
+          const exp = Number(ord?.courierCashHandoffExpectedUzs) || 0;
+          const st = String(ord?.courierCashHandoffStatus || '');
+          if (st === 'pending_cashier' && exp > 0) {
+            toast.success(
+              `Qaytarish qayd etildi. Filial kassasiga topshiring: ${exp.toLocaleString('uz-UZ')} so‘m`,
+            );
+          } else {
+            toast.success('Qaytarish qayd etildi');
+          }
           rentalPickupToastedRef.current.delete(oid);
           await loadDashboard(true);
         } else {
@@ -821,44 +851,68 @@ export default function CourierDashboard() {
     };
   }, [loadDashboard, navigate, pushLocation]);
 
-  const handleOrderAction = async (endpoint: string, body?: Record<string, unknown>) => {
-    setActionLoading(endpoint);
-    actionLoadingRef.current = endpoint;
-    const controller = new AbortController();
-    const timeoutId = window.setTimeout(() => controller.abort('request_timeout'), 30000);
-    try {
-      const courierToken = getStoredCourierToken();
-      const tokenQuery = courierToken ? `?token=${encodeURIComponent(courierToken)}` : '';
-      const baseUrl = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
-        ? DEV_API_BASE_URL
-        : API_BASE_URL;
+  const executeCourierPost = useCallback(
+    async (
+      endpoint: string,
+      body?: Record<string, unknown>,
+    ): Promise<{ ok: boolean; status: number; error?: string }> => {
+      const controller = new AbortController();
+      const timeoutId = window.setTimeout(() => controller.abort('request_timeout'), 30000);
+      try {
+        const courierToken = getStoredCourierToken();
+        const tokenQuery = courierToken ? `?token=${encodeURIComponent(courierToken)}` : '';
+        const baseUrl =
+          typeof window !== 'undefined' && window.location.hostname === 'localhost'
+            ? DEV_API_BASE_URL
+            : API_BASE_URL;
 
-      const form = new URLSearchParams();
-      if (body) {
-        for (const [k, v] of Object.entries(body)) {
-          if (v === undefined || v === null) continue;
-          form.set(k, typeof v === 'string' ? v : String(v));
+        const form = new URLSearchParams();
+        if (body) {
+          for (const [k, v] of Object.entries(body)) {
+            if (v === undefined || v === null) continue;
+            form.set(k, typeof v === 'string' ? v : String(v));
+          }
         }
-      }
 
-      const response = await fetch(
-        `${baseUrl}${endpoint}${tokenQuery}`,
-        {
+        const response = await fetch(`${baseUrl}${endpoint}${tokenQuery}`, {
           method: 'POST',
           body: body ? form : undefined,
           signal: controller.signal,
-        }
-      );
+        });
 
-      const result = await readPayload(response);
-      if (!response.ok || !result.success) {
-        if (response.status === 409 || response.status === 404 || response.status === 400) {
+        const result = await readPayload(response);
+        const ok = response.ok && Boolean(result?.success);
+        if (!ok && (response.status === 409 || response.status === 404 || response.status === 400)) {
           await loadDashboard(true);
         }
-        toast.error(result.error || 'Amal bajarilmadi');
+        return {
+          ok,
+          status: response.status,
+          error: typeof result?.error === 'string' ? result.error : !ok ? 'Amal bajarilmadi' : undefined,
+        };
+      } catch (error) {
+        if (error instanceof Error && error.name === 'AbortError') {
+          await loadDashboard(true);
+          return { ok: false, status: 0, error: 'Server juda sekin javob berdi, holatni tekshirib qayta urinib ko‘ring' };
+        }
+        console.error('Courier post error:', error);
+        return { ok: false, status: 0, error: 'Amalni bajarishda xatolik' };
+      } finally {
+        window.clearTimeout(timeoutId);
+      }
+    },
+    [loadDashboard],
+  );
+
+  const handleOrderAction = async (endpoint: string, body?: Record<string, unknown>) => {
+    setActionLoading(endpoint);
+    actionLoadingRef.current = endpoint;
+    try {
+      const res = await executeCourierPost(endpoint, body);
+      if (!res.ok) {
+        toast.error(res.error || 'Amal bajarilmadi');
         return;
       }
-
       await loadDashboard(true);
       if (endpoint.endsWith('/delivered')) {
         toast.info(
@@ -866,27 +920,44 @@ export default function CourierDashboard() {
           { duration: 5500 },
         );
       }
-    } catch (error) {
-      if (error instanceof Error && error.name === 'AbortError') {
-        toast.error('Server juda sekin javob berdi, buyurtma holatini tekshirib yana urinib ko\'ring');
-        await loadDashboard(true);
-      } else {
-        console.error('Courier action error:', error);
-        toast.error('Amalni bajarishda xatolik');
-      }
     } finally {
-      window.clearTimeout(timeoutId);
       setActionLoading(null);
       actionLoadingRef.current = null;
     }
   };
 
-  const submitCourierArrived = async (order: CourierOrder) => {
-    const body = await courierArrivedRequestBody();
-    await handleOrderAction(
-      courierOrderActionPath(order.id, 'arrived'),
-      Object.keys(body).length ? body : undefined,
-    );
+  const acceptBodyForOrder = (order: CourierOrder) =>
+    order.preparedBagId
+      ? { bagId: order.preparedBagId }
+      : selectedBagId
+        ? { bagId: selectedBagId }
+        : undefined;
+
+  const acceptAndPickupOrder = async (order: CourierOrder) => {
+    const key = `accept-pickup:${order.id}`;
+    setActionLoading(key);
+    actionLoadingRef.current = key;
+    try {
+      const r1 = await executeCourierPost(courierOrderActionPath(order.id, 'accept'), acceptBodyForOrder(order));
+      if (!r1.ok) {
+        toast.error(r1.error || 'Buyurtma qabul qilinmadi');
+        return;
+      }
+      const r2 = await executeCourierPost(courierOrderActionPath(order.id, 'pickup'), undefined);
+      if (!r2.ok) {
+        toast.error(
+          r2.error ||
+            'Buyurtma qabul qilindi, lekin filialdan olishda xato. Filialni tekshiring yoki keyinroq qayta urinib ko‘ring.',
+        );
+        await loadDashboard(true);
+        return;
+      }
+      await loadDashboard(true);
+      toast.success('Buyurtma qabul qilindi — yo‘ldasiz');
+    } finally {
+      setActionLoading(null);
+      actionLoadingRef.current = null;
+    }
   };
 
   const handleLogout = () => {
@@ -978,7 +1049,7 @@ export default function CourierDashboard() {
   };
 
   const openHelpChat = () => {
-    window.open('https://t.me', '_blank', 'noopener,noreferrer');
+    openExternalUrlSync('https://t.me');
   };
 
   const openMap = (type: 'pickup' | 'customer', order: CourierOrder) => {
@@ -1008,14 +1079,19 @@ export default function CourierDashboard() {
       end = [pt.lat, pt.lng];
     }
 
-    setCourierRoutePreview({
-      start,
-      end,
-      label: type === 'pickup' ? order.branchName || 'Filial' : order.customerName || 'Mijoz',
-    });
-    window.requestAnimationFrame(() => {
-      courierMapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-    });
+    try {
+      sessionStorage.setItem(
+        COURIER_MAP_ROUTE_STORAGE_KEY,
+        JSON.stringify({
+          start,
+          end,
+          label: type === 'pickup' ? order.branchName || 'Filial' : order.customerName || 'Mijoz',
+        }),
+      );
+    } catch {
+      /* ignore */
+    }
+    navigate('/kuryer/xarita');
   };
 
   const statusBadge = useMemo(() => {
@@ -1031,10 +1107,83 @@ export default function CourierDashboard() {
   }, [profile?.status]);
 
   const courierWorkflow = (o: CourierOrder) => o.courierWorkflowStatus || o.status || '';
-  const canPickupFor = (o: CourierOrder) => !['picked_up', 'arrived', 'delivered'].includes(courierWorkflow(o));
-  const canArrivedFor = (o: CourierOrder) => ['picked_up', 'arrived', 'delivering'].includes(courierWorkflow(o));
-  const canDeliveredFor = (o: CourierOrder) =>
-    ['accepted', 'picked_up', 'arrived', 'delivering'].includes(courierWorkflow(o));
+  const workflowNorm = (o: CourierOrder) => String(courierWorkflow(o)).toLowerCase().trim();
+
+  /** Yo‘lda: mijozgacha — yetib keldim */
+  const canPressYetibKeldim = (o: CourierOrder) => {
+    const w = workflowNorm(o);
+    return ['accepted', 'picked_up', 'delivering', 'with_courier'].includes(w);
+  };
+
+  /** Naqd / COD / QR kabi — mijozdan pul olinadi */
+  const isCourierCashLike = (o: CourierOrder) => {
+    const pm = getCourierPaymentMethodRaw(o).toLowerCase();
+    const c = pm.replace(/\s+/g, '');
+    if (c === 'cash' || c === 'naqd' || c === 'naqdpul' || c === 'cod') return true;
+    if (pm.includes('naqd') || pm.includes('naqt') || pm.includes('cash')) return true;
+    if (c === 'qr' || c === 'qrcode' || pm.includes('qr')) return true;
+    return false;
+  };
+
+  /** Yetib kelgach avtomatik yakunlash: to‘langan + naqd emas */
+  const shouldAutoCompleteAfterArrived = (o: CourierOrder) => {
+    if (isCourierCashLike(o)) return false;
+    const ps = String(o.paymentStatus ?? o.payment_status ?? '').toLowerCase().trim();
+    return ['paid', 'completed', 'success'].includes(ps);
+  };
+
+  const activeOrdersOnTheWay = useMemo(
+    () => activeOrders.filter((o) => canPressYetibKeldim(o)),
+    [activeOrders],
+  );
+
+  /** Yetib kelgan, lekin kuryer «Pulni oldim» bilan yakunlashi kerak (naqd yoki hali to‘lanmagan onlayn). */
+  const activeOrdersManualComplete = useMemo(
+    () => activeOrders.filter((o) => workflowNorm(o) === 'arrived' && !shouldAutoCompleteAfterArrived(o)),
+    [activeOrders],
+  );
+
+  const submitCourierArrivedWithAutoDeliver = async (order: CourierOrder) => {
+    const key = `arrived-chain:${order.id}`;
+    setActionLoading(key);
+    actionLoadingRef.current = key;
+    try {
+      const body = await courierArrivedRequestBody();
+      const r1 = await executeCourierPost(
+        courierOrderActionPath(order.id, 'arrived'),
+        Object.keys(body).length ? body : undefined,
+      );
+      if (!r1.ok) {
+        toast.error(r1.error || '«Yetib keldim» bajarilmadi');
+        return;
+      }
+      if (shouldAutoCompleteAfterArrived(order)) {
+        const r2 = await executeCourierPost(courierOrderActionPath(order.id, 'delivered'), undefined);
+        if (!r2.ok) {
+          toast.error(r2.error || 'Yetib keldingiz, lekin yakunlashda xatolik');
+          await loadDashboard(true);
+          return;
+        }
+        await loadDashboard(true);
+        toast.info(
+          'Buyurtma mijozga topshirildi. Mijoz ilovada «Qabul qildim» yoki «Bekor qilish»ni tanlaydi.',
+          { duration: 5500 },
+        );
+      } else {
+        await loadDashboard(true);
+        setMobileOrderTab('delivered');
+        toast.message(
+          isCourierCashLike(order)
+            ? 'Mijozdan pulni oling, keyin «Pulni oldim» bosing'
+            : 'Buyurtmani topshirgach «Pulni oldim» bilan yakunlang',
+        );
+      }
+    } finally {
+      setActionLoading(null);
+      actionLoadingRef.current = null;
+    }
+  };
+
   const emptyBags = profile?.emptyBags || [];
   const assignedBags = profile?.bags || [];
   /** Tayyorlangan so‘mka (filial) bo‘lmasa va biriktirilgan so‘mkalarda bo‘sh slot qolmagan. */
@@ -1054,11 +1203,29 @@ export default function CourierDashboard() {
 
   const mobileVisibleOrders = useMemo(() => {
     if (mobileOrderTab === 'new') return availableOrders;
-    if (mobileOrderTab === 'delivering') return activeOrders;
+    if (mobileOrderTab === 'delivering') return activeOrdersOnTheWay;
     if (mobileOrderTab === 'delivered') return courierHistoryDone;
     if (mobileOrderTab === 'cancelled') return courierHistoryCancelled;
     return [];
-  }, [mobileOrderTab, availableOrders, activeOrders, courierHistoryDone, courierHistoryCancelled]);
+  }, [
+    mobileOrderTab,
+    availableOrders,
+    activeOrdersOnTheWay,
+    courierHistoryDone,
+    courierHistoryCancelled,
+  ]);
+
+  const mobileOrdersSectionEmpty = useMemo(() => {
+    if (mobileOrderTab === 'delivered') {
+      return activeOrdersManualComplete.length === 0 && courierHistoryDone.length === 0;
+    }
+    return mobileVisibleOrders.length === 0;
+  }, [
+    mobileOrderTab,
+    activeOrdersManualComplete.length,
+    courierHistoryDone.length,
+    mobileVisibleOrders.length,
+  ]);
 
   useEffect(() => {
     if (!selectedBagId) {
@@ -1327,7 +1494,10 @@ export default function CourierDashboard() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? '#000000' : '#f9fafb', color: textColor }}>
+      <div
+        className="app-panel-viewport app-safe-pad flex items-center justify-center"
+        style={{ background: isDark ? '#000000' : '#f9fafb', color: textColor }}
+      >
         <div className="text-center">
           <RefreshCw className="w-10 h-10 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
           <p>Kuryer panel yuklanmoqda...</p>
@@ -1338,16 +1508,13 @@ export default function CourierDashboard() {
 
   return (
     <div
-      className="h-[100dvh] md:min-h-screen p-4 md:p-6 overflow-x-hidden"
+      className="app-panel-viewport app-safe-pad overflow-hidden"
       style={{
         background: isDark ? '#000000' : '#f9fafb',
         color: textColor,
-        overflowY: 'auto',
-        WebkitOverflowScrolling: 'touch',
-        overscrollBehaviorY: 'contain',
-        touchAction: 'pan-y',
       }}
     >
+      <div className="app-panel-main-scroll min-h-0 p-4 md:p-6">
       {actionLoading ? (
         <div
           className="fixed top-0 left-0 right-0 z-[250] h-[3px] overflow-hidden pointer-events-none"
@@ -1390,8 +1557,12 @@ export default function CourierDashboard() {
                 >
                   {[
                     { id: 'new', label: 'Yangi', count: availableOrders.length },
-                    { id: 'delivering', label: 'Yo‘lda', count: activeOrders.length },
-                    { id: 'delivered', label: 'Yetkazildi', count: courierHistoryDone.length },
+                    { id: 'delivering', label: 'Yo‘lda', count: activeOrdersOnTheWay.length },
+                    {
+                      id: 'delivered',
+                      label: 'Yetkazildi',
+                      count: courierHistoryDone.length + activeOrdersManualComplete.length,
+                    },
                     { id: 'cancelled', label: 'Bekor', count: courierHistoryCancelled.length },
                   ].map((tab) => {
                     const selected = mobileOrderTab === tab.id;
@@ -1413,21 +1584,6 @@ export default function CourierDashboard() {
                     );
                   })}
                 </div>
-
-                {!isMdUp && mobileSection === 'orders' ? (
-                  <div ref={courierMapSectionRef} className="mb-4">
-                    <CourierLiveMap
-                      isDark={isDark}
-                      accentColor={accentColor}
-                      currentLocation={profile?.currentLocation}
-                      availableOrders={availableOrders}
-                      activeOrders={activeOrders}
-                      routePreview={courierRoutePreview}
-                      onClearRoute={() => setCourierRoutePreview(null)}
-                      layout="mobile"
-                    />
-                  </div>
-                ) : null}
 
                 <div
                   className="rounded-2xl border p-3 mb-4"
@@ -1497,6 +1653,8 @@ export default function CourierDashboard() {
                 {courierRentalOrders.map((ro: any) => {
                   const endMs = ro.rentalPeriodEndsAt ? new Date(ro.rentalPeriodEndsAt).getTime() : NaN;
                   const endOk = !Number.isNaN(endMs);
+                  const rentImg = normalizeRentalProductImageUrl(String(ro.productImage || '').trim(), edgeBaseUrl);
+                  const rentMoney = computeRentalCourierHandoffUzs(ro);
                   return (
                     <div
                       key={ro.id}
@@ -1506,25 +1664,89 @@ export default function CourierDashboard() {
                         borderColor: ro.pickupAlert === 'overdue' ? 'rgba(239,68,68,0.5)' : isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
                       }}
                     >
-                      <p className="font-semibold">{ro.productName || 'Ijara'}</p>
-                      <p className="text-xs" style={{ color: mutedTextColor }}>
-                        Mijoz: {ro.customerName} · {ro.customerPhone}
-                      </p>
+                      <div className="flex gap-3 items-start">
+                        <div className="shrink-0 w-16 h-16 rounded-xl overflow-hidden bg-black/10">
+                          {rentImg &&
+                          (rentImg.startsWith('http') ||
+                            rentImg.startsWith('//') ||
+                            rentImg.startsWith('/') ||
+                            rentImg.startsWith('data:')) ? (
+                            <img src={rentImg} alt="" className="w-full h-full object-cover" loading="lazy" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center">
+                              <Package className="w-7 h-7 opacity-40" style={{ color: mutedTextColor }} />
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1 space-y-1">
+                          <p className="font-semibold leading-snug">{ro.productName || 'Ijara'}</p>
+                          <p className="text-xs" style={{ color: mutedTextColor }}>
+                            Mijoz: {ro.customerName} · {ro.customerPhone}
+                          </p>
+                        </div>
+                      </div>
                       {ro.address ? (
                         <p className="text-xs flex gap-1" style={{ color: mutedTextColor }}>
                           <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
                           <span>{ro.address}</span>
                         </p>
                       ) : null}
-                      {endOk ? (
-                        <p className="text-sm font-semibold">
-                          Tugash: {new Date(ro.rentalPeriodEndsAt).toLocaleString('uz-UZ')}
-                        </p>
+                      {endOk && ro.rentalPeriodEndsAt ? (
+                        <div className="space-y-1">
+                          <RentalLiveCountdown
+                            rentalPeriodEndsAt={ro.rentalPeriodEndsAt}
+                            isDark={isDark}
+                            accentColor={accentColor.color}
+                            prominent
+                          />
+                          <p className="text-[11px]" style={{ color: mutedTextColor }}>
+                            Tugash (mahalliy): {new Date(ro.rentalPeriodEndsAt).toLocaleString('uz-UZ')}
+                          </p>
+                        </div>
                       ) : null}
                       {ro.pickupAlert === 'overdue' ? (
                         <p className="text-sm font-bold text-red-600">Qaytarib olish vaqti keldi</p>
                       ) : ro.pickupAlert === 'due_soon' ? (
                         <p className="text-xs font-semibold text-amber-600">24 soat ichida tugaydi</p>
+                      ) : null}
+                      {rentMoney.totalUzs > 0 ? (
+                        <div
+                          className="rounded-xl border p-3 space-y-1"
+                          style={{
+                            background: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
+                            borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.3)',
+                          }}
+                        >
+                          <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                            Pul (haqiqiy shartnoma)
+                          </p>
+                          <p className="text-xs" style={{ color: mutedTextColor }}>
+                            Jami:{' '}
+                            <span className="font-bold tabular-nums" style={{ color: textColor }}>
+                              {rentMoney.totalUzs.toLocaleString('uz-UZ')}
+                            </span>{' '}
+                            so‘m
+                            {rentMoney.deliveryKeptUzs > 0 ? (
+                              <>
+                                {' '}
+                                · Yetkazish (sizda):{' '}
+                                <span className="font-semibold tabular-nums">
+                                  {rentMoney.deliveryKeptUzs.toLocaleString('uz-UZ')}
+                                </span>{' '}
+                                so‘m
+                              </>
+                            ) : null}
+                          </p>
+                          {rentMoney.isCashLike && rentMoney.toCashierUzs > 0 ? (
+                            <p className="text-lg font-extrabold tabular-nums text-emerald-600 dark:text-emerald-400 leading-tight">
+                              Kassaga topshirish: {rentMoney.toCashierUzs.toLocaleString('uz-UZ')} so‘m
+                            </p>
+                          ) : (
+                            <p className="text-sm font-semibold" style={{ color: mutedTextColor }}>
+                              Onlayn/karta — kassaga naqd topshiruv yo‘q
+                            </p>
+                          )}
+                        </div>
                       ) : null}
                       <button
                         type="button"
@@ -1535,7 +1757,9 @@ export default function CourierDashboard() {
                           background: ro.pickupAlert === 'overdue' ? '#dc2626' : accentColor.color,
                         }}
                       >
-                        {rentalPickupBusyId === ro.id ? 'Yuborilmoqda...' : 'Buyurtmani qaytarib oldim'}
+                        {rentalPickupBusyId === ro.id
+                          ? 'Yuborilmoqda...'
+                          : 'Buyurtmani qaytarib oldim (keyin kassaga pul)'}
                       </button>
                     </div>
                   );
@@ -1545,7 +1769,7 @@ export default function CourierDashboard() {
 
             {mobileSection === 'orders' && (
               <div className="space-y-3">
-                {mobileVisibleOrders.length === 0 ? (
+                {mobileOrdersSectionEmpty ? (
                   <div className="rounded-2xl p-6 text-center" style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff' }}>
                     <p className="font-semibold">
                       {mobileOrderTab === 'delivered'
@@ -1556,7 +1780,75 @@ export default function CourierDashboard() {
                     </p>
                   </div>
                 ) : (
-                  mobileVisibleOrders.map((order) => (
+                  <>
+                    {mobileOrderTab === 'delivered' &&
+                      activeOrdersManualComplete.map((order) => (
+                        <div
+                          key={`cash-${order.id}`}
+                          className="rounded-2xl overflow-hidden border"
+                          style={{
+                            background: isDark ? '#111214' : '#ffffff',
+                            borderColor: isDark ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.45)',
+                          }}
+                        >
+                          <div
+                            className="p-3"
+                            style={{
+                              background: isDark ? 'rgba(245, 158, 11, 0.14)' : 'rgba(245, 158, 11, 0.12)',
+                            }}
+                          >
+                            <p className="text-xs font-semibold text-amber-600 dark:text-amber-400 mb-1">
+                              {isCourierCashLike(order) ? 'Mijoz yonida — pulni oling' : 'Mijoz yonida — yakunlash'}
+                            </p>
+                            <p className="text-xs font-semibold opacity-90">{formatOrderNumber(order.orderNumber, order.id)}</p>
+                            <p className="font-bold text-lg leading-tight">{order.customerName}</p>
+                          </div>
+                          <div className="p-3 space-y-3">
+                            <div
+                              className="rounded-xl p-4 text-center"
+                              style={{ background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' }}
+                            >
+                              <p className="text-xs mb-1" style={{ color: mutedTextColor }}>
+                                Siz olishingiz kerak bo‘lgan so‘m
+                              </p>
+                              <p className="text-2xl font-bold tabular-nums" style={{ color: accentColor.color }}>
+                                {getOrderGrandTotal(order).toLocaleString('uz-UZ')} so'm
+                              </p>
+                              {isCourierCashLike(order) ? (
+                                <p className="text-[11px] mt-2 leading-snug" style={{ color: mutedTextColor }}>
+                                  Yetkazish sizda qoladi:{' '}
+                                  <span className="font-semibold">
+                                    {getOrderDeliveryFee(order).toLocaleString('uz-UZ')} so'm
+                                  </span>
+                                  <br />
+                                  Kassaga topshirasiz:{' '}
+                                  <span className="font-semibold text-amber-600 dark:text-amber-400">
+                                    {Math.max(
+                                      0,
+                                      getOrderGrandTotal(order) - getOrderDeliveryFee(order),
+                                    ).toLocaleString('uz-UZ')}{' '}
+                                    so'm
+                                  </span>
+                                </p>
+                              ) : null}
+                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void handleOrderAction(courierOrderActionPath(order.id, 'delivered'))}
+                              disabled={actionLoading !== null}
+                              className="w-full py-3 rounded-2xl font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                              style={{ background: accentColor.gradient }}
+                            >
+                              {actionLoading === courierOrderActionPath(order.id, 'delivered') ? (
+                                <CourierActionPendingLabel />
+                              ) : (
+                                'Pulni oldim'
+                              )}
+                            </button>
+                          </div>
+                        </div>
+                      ))}
+                    {mobileVisibleOrders.map((order) => (
                     <div key={order.id} className="rounded-2xl overflow-hidden border" style={{ background: isDark ? '#111214' : '#ffffff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}>
                       <div
                         style={{ background: `linear-gradient(120deg, ${accentColor.color}33, ${accentColor.color}11)` }}
@@ -1639,12 +1931,7 @@ export default function CourierDashboard() {
                             disabled={noBagSlotForNewOrder(order) || actionLoading !== null}
                             isDark={isDark}
                             gradient={accentColor.gradient}
-                            onComplete={() =>
-                              handleOrderAction(
-                                courierOrderActionPath(order.id, 'accept'),
-                                order.preparedBagId ? { bagId: order.preparedBagId } : selectedBagId ? { bagId: selectedBagId } : undefined,
-                              )
-                            }
+                            onComplete={() => void acceptAndPickupOrder(order)}
                           />
                         ) : mobileOrderTab === 'delivering' ? (
                           <div className="space-y-3">
@@ -1676,97 +1963,60 @@ export default function CourierDashboard() {
                                 Mijoz joyi
                               </button>
                             </div>
-                            <div className="flex flex-col gap-2">
-                              <button
-                                type="button"
-                                onClick={() => handleOrderAction(courierOrderActionPath(order.id, 'pickup'))}
-                                disabled={!canPickupFor(order) || actionLoading === courierOrderActionPath(order.id, 'pickup')}
-                                className="w-full py-2.5 rounded-2xl font-semibold text-sm disabled:cursor-not-allowed"
-                                style={{
-                                  background: canPickupFor(order)
-                                    ? accentColor.gradient
-                                    : isDark
-                                      ? 'rgba(255,255,255,0.08)'
-                                      : 'rgba(0,0,0,0.08)',
-                                  color: canPickupFor(order) ? '#ffffff' : isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)',
-                                }}
-                              >
-                                {actionLoading === courierOrderActionPath(order.id, 'pickup') ? (
-                                  <CourierActionPendingLabel />
-                                ) : (
-                                  'Buyurtmani oldim'
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => void submitCourierArrived(order)}
-                                disabled={!canArrivedFor(order) || actionLoading === courierOrderActionPath(order.id, 'arrived')}
-                                className="w-full py-2.5 rounded-2xl border text-sm font-semibold disabled:cursor-not-allowed"
-                                style={{
-                                  background: canArrivedFor(order)
-                                    ? isDark
-                                      ? 'rgba(255,255,255,0.04)'
-                                      : '#ffffff'
-                                    : isDark
-                                      ? 'rgba(255,255,255,0.03)'
-                                      : 'rgba(0,0,0,0.04)',
-                                  borderColor: canArrivedFor(order)
-                                    ? accentColor.color
-                                    : isDark
-                                      ? 'rgba(255,255,255,0.08)'
-                                      : 'rgba(0,0,0,0.08)',
-                                  color: canArrivedFor(order) ? textColor : mutedTextColor,
-                                }}
-                              >
-                                {actionLoading === courierOrderActionPath(order.id, 'arrived') ? (
-                                  <CourierActionPendingLabel />
-                                ) : canArrivedFor(order) ? (
-                                  'Yetib keldim'
-                                ) : (
-                                  'Avval buyurtmani oling'
-                                )}
-                              </button>
-                              <button
-                                type="button"
-                                onClick={() => handleOrderAction(courierOrderActionPath(order.id, 'delivered'))}
-                                disabled={!canDeliveredFor(order) || actionLoading === courierOrderActionPath(order.id, 'delivered')}
-                                className="w-full py-2.5 rounded-2xl border text-sm font-semibold disabled:cursor-not-allowed"
-                                style={{
-                                  background: canDeliveredFor(order)
-                                    ? isDark
-                                      ? 'rgba(255,255,255,0.04)'
-                                      : '#ffffff'
-                                    : isDark
-                                      ? 'rgba(255,255,255,0.03)'
-                                      : 'rgba(0,0,0,0.04)',
-                                  borderColor: canDeliveredFor(order)
-                                    ? '#10b981'
-                                    : isDark
-                                      ? 'rgba(255,255,255,0.08)'
-                                      : 'rgba(0,0,0,0.08)',
-                                  color: canDeliveredFor(order) ? textColor : mutedTextColor,
-                                }}
-                              >
-                                {actionLoading === courierOrderActionPath(order.id, 'delivered') ? (
-                                  <CourierActionPendingLabel />
-                                ) : canDeliveredFor(order) ? (
-                                  'Topshirdim'
-                                ) : (
-                                  'Avval yetib boring'
-                                )}
-                              </button>
-                            </div>
+                            <button
+                              type="button"
+                              onClick={() => void submitCourierArrivedWithAutoDeliver(order)}
+                              disabled={actionLoading !== null}
+                              className="w-full py-3 rounded-2xl border text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                              style={{
+                                background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
+                                borderColor: accentColor.color,
+                                color: textColor,
+                              }}
+                            >
+                              {actionLoading === `arrived-chain:${order.id}` ? (
+                                <CourierActionPendingLabel />
+                              ) : (
+                                'Yetib keldim'
+                              )}
+                            </button>
                           </div>
                         ) : mobileOrderTab === 'delivered' ? (
-                          <div
-                            className="w-full py-3 rounded-2xl font-semibold text-center"
-                            style={{
-                              background: isDark ? 'rgba(16, 185, 129, 0.18)' : 'rgba(16, 185, 129, 0.14)',
-                              color: '#10b981',
-                              border: '1px solid rgba(16, 185, 129, 0.4)',
-                            }}
-                          >
-                            Topshirilgan
+                          <div className="space-y-2 w-full">
+                            <div
+                              className="w-full py-3 rounded-2xl font-semibold text-center"
+                              style={{
+                                background: isDark ? 'rgba(16, 185, 129, 0.18)' : 'rgba(16, 185, 129, 0.14)',
+                                color: '#10b981',
+                                border: '1px solid rgba(16, 185, 129, 0.4)',
+                              }}
+                            >
+                              Topshirilgan
+                            </div>
+                            {isCourierCashLike(order) &&
+                            String(order.courierCashHandoffStatus || '') === 'pending_cashier' ? (
+                              <div
+                                className="w-full py-2.5 px-3 rounded-xl text-center text-xs font-semibold"
+                                style={{
+                                  background: isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.12)',
+                                  color: '#b45309',
+                                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                                }}
+                              >
+                                Kassaga topshirish:{' '}
+                                {Number(
+                                  order.courierCashHandoffExpectedUzs ??
+                                    Math.max(0, getOrderGrandTotal(order) - getOrderDeliveryFee(order)),
+                                ).toLocaleString('uz-UZ')}{' '}
+                                so'm
+                              </div>
+                            ) : null}
+                            {isCourierCashLike(order) &&
+                            String(order.courierCashHandoffStatus || '') === 'cashier_received' ? (
+                              <p className="text-center text-xs font-semibold text-emerald-600 dark:text-emerald-400">
+                                Kassaga topshirildi
+                              </p>
+                            ) : null}
                           </div>
                         ) : (
                           <div
@@ -1782,7 +2032,8 @@ export default function CourierDashboard() {
                         )}
                       </div>
                     </div>
-                  ))
+                  ))}
+                  </>
                 )}
               </div>
             )}
@@ -2237,26 +2488,33 @@ export default function CourierDashboard() {
               </div>
             )}
 
-            <div className="fixed bottom-2 left-1/2 -translate-x-1/2 w-[calc(100%-12px)] max-w-[430px] rounded-2xl border p-1 grid grid-cols-4 gap-1 z-40"
+            <div className="fixed bottom-2 left-1/2 -translate-x-1/2 w-[calc(100%-12px)] max-w-[430px] rounded-2xl border p-1 grid grid-cols-5 gap-0.5 z-40"
               style={{ background: isDark ? 'rgba(22,22,24,0.96)' : 'rgba(255,255,255,0.96)', borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)' }}>
               {[
-                { id: 'orders', label: 'Buyurtmalar', icon: Package },
-                { id: 'history', label: 'Tarix', icon: History },
-                { id: 'stats', label: 'Statistika', icon: BarChart3 },
-                { id: 'profile', label: 'Profil', icon: User },
+                { id: 'orders', label: 'Buyurtmalar', icon: Package, nav: 'section' as const },
+                { id: 'map', label: 'Xarita', icon: MapPin, nav: 'route' as const },
+                { id: 'history', label: 'Tarix', icon: History, nav: 'section' as const },
+                { id: 'stats', label: 'Statistika', icon: BarChart3, nav: 'section' as const },
+                { id: 'profile', label: 'Profil', icon: User, nav: 'section' as const },
               ].map((item) => {
-                const selected = mobileSection === item.id;
+                const selected = item.nav === 'section' && mobileSection === item.id;
                 const Icon = item.icon;
                 return (
                   <button
                     key={item.id}
                     type="button"
-                    onClick={() => setMobileSection(item.id as 'orders' | 'history' | 'stats' | 'profile')}
-                    className="rounded-xl py-2 text-[11px] font-semibold flex flex-col items-center gap-1 min-w-0"
+                    onClick={() => {
+                      if (item.nav === 'route') {
+                        navigate('/kuryer/xarita');
+                        return;
+                      }
+                      setMobileSection(item.id as 'orders' | 'history' | 'stats' | 'profile');
+                    }}
+                    className="rounded-xl py-2 text-[10px] sm:text-[11px] font-semibold flex flex-col items-center gap-1 min-w-0"
                     style={{ background: selected ? accentColor.gradient : 'transparent', color: selected ? '#ffffff' : mutedTextColor }}
                   >
-                    <Icon className="w-4 h-4" />
-                    <span className="truncate max-w-full">{item.label}</span>
+                    <Icon className="w-4 h-4 shrink-0" />
+                    <span className="truncate max-w-full leading-tight text-center px-0.5">{item.label}</span>
                   </button>
                 );
               })}
@@ -2304,6 +2562,19 @@ export default function CourierDashboard() {
               >
                 <RefreshCw className="w-4 h-4" />
                 Yangilash
+              </button>
+              <button
+                type="button"
+                onClick={() => navigate('/kuryer/xarita')}
+                className="px-4 py-2 rounded-2xl border flex items-center gap-2 font-semibold"
+                style={{
+                  background: `${accentColor.color}18`,
+                  borderColor: `${accentColor.color}44`,
+                  color: accentColor.color,
+                }}
+              >
+                <MapPin className="w-4 h-4" />
+                Xarita
               </button>
               <button
                 onClick={handleLogout}
@@ -2370,6 +2641,8 @@ export default function CourierDashboard() {
               {courierRentalOrders.map((ro: any) => {
                 const endMs = ro.rentalPeriodEndsAt ? new Date(ro.rentalPeriodEndsAt).getTime() : NaN;
                 const endOk = !Number.isNaN(endMs);
+                const rentImg = normalizeRentalProductImageUrl(String(ro.productImage || '').trim(), edgeBaseUrl);
+                const rentMoney = computeRentalCourierHandoffUzs(ro);
                 return (
                   <div
                     key={ro.id}
@@ -2384,25 +2657,89 @@ export default function CourierDashboard() {
                             : 'rgba(0,0,0,0.08)',
                     }}
                   >
-                    <p className="font-semibold text-lg">{ro.productName || 'Ijara'}</p>
-                    <p className="text-sm" style={{ color: mutedTextColor }}>
-                      Mijoz: {ro.customerName} · {ro.customerPhone}
-                    </p>
+                    <div className="flex gap-4 items-start">
+                      <div className="shrink-0 w-20 h-20 rounded-2xl overflow-hidden bg-black/10">
+                        {rentImg &&
+                        (rentImg.startsWith('http') ||
+                          rentImg.startsWith('//') ||
+                          rentImg.startsWith('/') ||
+                          rentImg.startsWith('data:')) ? (
+                          <img src={rentImg} alt="" className="w-full h-full object-cover" loading="lazy" />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Package className="w-9 h-9 opacity-40" style={{ color: mutedTextColor }} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="min-w-0 flex-1 space-y-1">
+                        <p className="font-semibold text-lg leading-snug">{ro.productName || 'Ijara'}</p>
+                        <p className="text-sm" style={{ color: mutedTextColor }}>
+                          Mijoz: {ro.customerName} · {ro.customerPhone}
+                        </p>
+                      </div>
+                    </div>
                     {ro.address ? (
                       <p className="text-sm flex gap-2" style={{ color: mutedTextColor }}>
                         <MapPin className="w-4 h-4 shrink-0" />
                         {ro.address}
                       </p>
                     ) : null}
-                    {endOk ? (
-                      <p className="text-sm font-semibold">
-                        Ijara tugashi: {new Date(ro.rentalPeriodEndsAt).toLocaleString('uz-UZ')}
-                      </p>
+                    {endOk && ro.rentalPeriodEndsAt ? (
+                      <div className="space-y-1">
+                        <RentalLiveCountdown
+                          rentalPeriodEndsAt={ro.rentalPeriodEndsAt}
+                          isDark={isDark}
+                          accentColor={accentColor.color}
+                          prominent
+                        />
+                        <p className="text-xs" style={{ color: mutedTextColor }}>
+                          Ijara tugashi (mahalliy): {new Date(ro.rentalPeriodEndsAt).toLocaleString('uz-UZ')}
+                        </p>
+                      </div>
                     ) : null}
                     {ro.pickupAlert === 'overdue' ? (
                       <p className="text-sm font-bold text-red-600">Qaytarib olish vaqti keldi</p>
                     ) : ro.pickupAlert === 'due_soon' ? (
                       <p className="text-sm font-semibold text-amber-600">24 soat ichida tugaydi</p>
+                    ) : null}
+                    {rentMoney.totalUzs > 0 ? (
+                      <div
+                        className="rounded-xl border p-3 space-y-1"
+                        style={{
+                          background: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
+                          borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.3)',
+                        }}
+                      >
+                        <p className="text-[11px] font-bold uppercase tracking-wide text-emerald-600 dark:text-emerald-400">
+                          Pul (haqiqiy shartnoma)
+                        </p>
+                        <p className="text-sm" style={{ color: mutedTextColor }}>
+                          Jami:{' '}
+                          <span className="font-bold tabular-nums" style={{ color: textColor }}>
+                            {rentMoney.totalUzs.toLocaleString('uz-UZ')}
+                          </span>{' '}
+                          so‘m
+                          {rentMoney.deliveryKeptUzs > 0 ? (
+                            <>
+                              {' '}
+                              · Yetkazish (sizda):{' '}
+                              <span className="font-semibold tabular-nums">
+                                {rentMoney.deliveryKeptUzs.toLocaleString('uz-UZ')}
+                              </span>{' '}
+                              so‘m
+                            </>
+                          ) : null}
+                        </p>
+                        {rentMoney.isCashLike && rentMoney.toCashierUzs > 0 ? (
+                          <p className="text-xl font-extrabold tabular-nums text-emerald-600 dark:text-emerald-400 leading-tight">
+                            Kassaga topshirish: {rentMoney.toCashierUzs.toLocaleString('uz-UZ')} so‘m
+                          </p>
+                        ) : (
+                          <p className="text-sm font-semibold" style={{ color: mutedTextColor }}>
+                            Onlayn/karta — kassaga naqd topshiruv yo‘q
+                          </p>
+                        )}
+                      </div>
                     ) : null}
                     <button
                       type="button"
@@ -2413,7 +2750,9 @@ export default function CourierDashboard() {
                         background: ro.pickupAlert === 'overdue' ? '#dc2626' : accentColor.color,
                       }}
                     >
-                      {rentalPickupBusyId === ro.id ? 'Yuborilmoqda...' : 'Buyurtmani qaytarib oldim'}
+                      {rentalPickupBusyId === ro.id
+                        ? 'Yuborilmoqda...'
+                        : 'Buyurtmani qaytarib oldim (keyin kassaga pul)'}
                     </button>
                   </div>
                 );
@@ -2502,21 +2841,6 @@ export default function CourierDashboard() {
           )}
         </div>
 
-        {isMdUp ? (
-          <div ref={courierMapSectionRef}>
-            <CourierLiveMap
-              isDark={isDark}
-              accentColor={accentColor}
-              currentLocation={profile?.currentLocation}
-              availableOrders={availableOrders}
-              activeOrders={activeOrders}
-              routePreview={courierRoutePreview}
-              onClearRoute={() => setCourierRoutePreview(null)}
-              layout="desktop"
-            />
-          </div>
-        ) : null}
-
         {activeOrders.length > 0 && (
           <div className="space-y-5">
             {activeOrders.map((activeOrder) => (
@@ -2530,7 +2854,15 @@ export default function CourierDashboard() {
           >
             <div className="flex items-center justify-between gap-4 mb-5">
               <div>
-                <p className="text-sm font-medium" style={{ color: accentColor.color }}>Aktiv yetkazish</p>
+                <p className="text-sm font-medium" style={{ color: accentColor.color }}>
+                  {workflowNorm(activeOrder) === 'arrived' && !shouldAutoCompleteAfterArrived(activeOrder)
+                    ? isCourierCashLike(activeOrder)
+                      ? 'Mijoz yonida — naqd'
+                      : 'Mijoz yonida — yakunlash'
+                    : canPressYetibKeldim(activeOrder)
+                      ? 'Yo‘lda'
+                      : 'Aktiv buyurtma'}
+                </p>
                 <h2 className="text-xl font-bold">{activeOrder.orderNumber || activeOrder.id}</h2>
                 <p style={{ color: mutedTextColor }}>{getAddressLine(activeOrder)}</p>
               </div>
@@ -2673,7 +3005,72 @@ export default function CourierDashboard() {
               </div>
             )}
 
-            <div className="flex flex-wrap gap-3">
+            {workflowNorm(activeOrder) === 'arrived' && !shouldAutoCompleteAfterArrived(activeOrder) ? (
+              <div
+                className="rounded-2xl p-5 mb-5 text-center border"
+                style={{
+                  borderColor: isDark ? 'rgba(245,158,11,0.4)' : 'rgba(245,158,11,0.45)',
+                  background: isDark ? 'rgba(245,158,11,0.1)' : 'rgba(245,158,11,0.08)',
+                }}
+              >
+                <p className="text-sm mb-1" style={{ color: mutedTextColor }}>
+                  {isCourierCashLike(activeOrder)
+                    ? 'Siz olishingiz kerak bo‘lgan so‘m'
+                    : 'Buyurtma summasi (yakunlash)'}
+                </p>
+                <p className="text-3xl font-bold tabular-nums" style={{ color: accentColor.color }}>
+                  {getOrderGrandTotal(activeOrder).toLocaleString('uz-UZ')} so'm
+                </p>
+                {isCourierCashLike(activeOrder) ? (
+                  <p className="text-xs mt-3 leading-relaxed" style={{ color: mutedTextColor }}>
+                    Yetkazish sizda qoladi:{' '}
+                    <span className="font-semibold">
+                      {getOrderDeliveryFee(activeOrder).toLocaleString('uz-UZ')} so'm
+                    </span>
+                    {' · '}
+                    Kassaga topshirasiz:{' '}
+                    <span className="font-semibold text-amber-700 dark:text-amber-300">
+                      {Math.max(
+                        0,
+                        getOrderGrandTotal(activeOrder) - getOrderDeliveryFee(activeOrder),
+                      ).toLocaleString('uz-UZ')}{' '}
+                      so'm
+                    </span>
+                  </p>
+                ) : null}
+              </div>
+            ) : null}
+
+            {String(activeOrder.courierCashHandoffStatus || '') === 'pending_cashier' &&
+            isCourierCashLike(activeOrder) &&
+            workflowNorm(activeOrder) === 'delivered' ? (
+              <div
+                className="rounded-xl px-4 py-3 mb-4 text-sm font-semibold text-center"
+                style={{
+                  background: isDark ? 'rgba(245, 158, 11, 0.14)' : 'rgba(245, 158, 11, 0.1)',
+                  color: '#b45309',
+                  border: '1px solid rgba(245, 158, 11, 0.35)',
+                }}
+              >
+                Kassaga topshirish kerak:{' '}
+                {Number(
+                  activeOrder.courierCashHandoffExpectedUzs ??
+                    Math.max(
+                      0,
+                      getOrderGrandTotal(activeOrder) - getOrderDeliveryFee(activeOrder),
+                    ),
+                ).toLocaleString('uz-UZ')}{' '}
+                so'm
+              </div>
+            ) : null}
+            {String(activeOrder.courierCashHandoffStatus || '') === 'cashier_received' &&
+            isCourierCashLike(activeOrder) ? (
+              <p className="text-sm font-semibold text-emerald-600 dark:text-emerald-400 mb-4">
+                Naqd kassaga topshirildi
+              </p>
+            ) : null}
+
+            <div className="flex flex-wrap gap-3 items-center">
               <button
                 type="button"
                 onClick={() => openMap('pickup', activeOrder)}
@@ -2698,60 +3095,43 @@ export default function CourierDashboard() {
                 <MapPin className="w-4 h-4" />
                 Mijoz lokatsiyasi
               </button>
-              <button
-                type="button"
-                onClick={() => handleOrderAction(courierOrderActionPath(activeOrder.id, 'pickup'))}
-                disabled={!canPickupFor(activeOrder) || actionLoading === courierOrderActionPath(activeOrder.id, 'pickup')}
-                className="px-4 py-3 rounded-2xl font-semibold disabled:cursor-not-allowed"
-                style={{
-                  background: canPickupFor(activeOrder) ? accentColor.gradient : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
-                  color: canPickupFor(activeOrder) ? '#ffffff' : (isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.45)'),
-                }}
-              >
-                {actionLoading === courierOrderActionPath(activeOrder.id, 'pickup') ? (
-                  <CourierActionPendingLabel />
-                ) : (
-                  'Buyurtmani oldim'
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => void submitCourierArrived(activeOrder)}
-                disabled={!canArrivedFor(activeOrder) || actionLoading === courierOrderActionPath(activeOrder.id, 'arrived')}
-                className="px-4 py-3 rounded-2xl border disabled:cursor-not-allowed"
-                style={{
-                  background: canArrivedFor(activeOrder) ? (isDark ? 'rgba(255,255,255,0.04)' : '#ffffff') : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)'),
-                  borderColor: canArrivedFor(activeOrder) ? accentColor.color : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
-                  color: canArrivedFor(activeOrder) ? textColor : mutedTextColor,
-                }}
-              >
-                {actionLoading === courierOrderActionPath(activeOrder.id, 'arrived') ? (
-                  <CourierActionPendingLabel />
-                ) : canArrivedFor(activeOrder) ? (
-                  'Yetib keldim'
-                ) : (
-                  'Avval buyurtmani oling'
-                )}
-              </button>
-              <button
-                type="button"
-                onClick={() => handleOrderAction(courierOrderActionPath(activeOrder.id, 'delivered'))}
-                disabled={!canDeliveredFor(activeOrder) || actionLoading === courierOrderActionPath(activeOrder.id, 'delivered')}
-                className="px-4 py-3 rounded-2xl border disabled:cursor-not-allowed"
-                style={{
-                  background: canDeliveredFor(activeOrder) ? (isDark ? 'rgba(255,255,255,0.04)' : '#ffffff') : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.04)'),
-                  borderColor: canDeliveredFor(activeOrder) ? '#10b981' : (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)'),
-                  color: canDeliveredFor(activeOrder) ? textColor : mutedTextColor,
-                }}
-              >
-                {actionLoading === courierOrderActionPath(activeOrder.id, 'delivered') ? (
-                  <CourierActionPendingLabel />
-                ) : canDeliveredFor(activeOrder) ? (
-                  'Topshirdim'
-                ) : (
-                  'Avval yetib boring'
-                )}
-              </button>
+              {workflowNorm(activeOrder) === 'arrived' && !shouldAutoCompleteAfterArrived(activeOrder) ? (
+                <button
+                  type="button"
+                  onClick={() => void handleOrderAction(courierOrderActionPath(activeOrder.id, 'delivered'))}
+                  disabled={actionLoading !== null}
+                  className="px-4 py-3 rounded-2xl font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ background: accentColor.gradient }}
+                >
+                  {actionLoading === courierOrderActionPath(activeOrder.id, 'delivered') ? (
+                    <CourierActionPendingLabel />
+                  ) : (
+                    'Pulni oldim'
+                  )}
+                </button>
+              ) : canPressYetibKeldim(activeOrder) ? (
+                <button
+                  type="button"
+                  onClick={() => void submitCourierArrivedWithAutoDeliver(activeOrder)}
+                  disabled={actionLoading !== null}
+                  className="px-4 py-3 rounded-2xl border font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
+                    borderColor: accentColor.color,
+                    color: textColor,
+                  }}
+                >
+                  {actionLoading === `arrived-chain:${activeOrder.id}` ? (
+                    <CourierActionPendingLabel />
+                  ) : (
+                    'Yetib keldim'
+                  )}
+                </button>
+              ) : (
+                <div className="px-4 py-3 rounded-2xl text-sm font-medium" style={{ color: mutedTextColor }}>
+                  {getOrderStatusText(activeOrder.courierWorkflowStatus || activeOrder.status)}
+                </div>
+              )}
             </div>
           </div>
             ))}
@@ -2955,16 +3335,7 @@ export default function CourierDashboard() {
                   )}
 
                   <button
-                    onClick={() =>
-                      handleOrderAction(
-                        courierOrderActionPath(order.id, 'accept'),
-                        order.preparedBagId
-                          ? { bagId: order.preparedBagId }
-                          : selectedBagId
-                            ? { bagId: selectedBagId }
-                            : undefined
-                      )
-                    }
+                    onClick={() => void acceptAndPickupOrder(order)}
                     disabled={
                       noBagSlotForNewOrder(order) ||
                       actionLoading !== null ||
@@ -2984,7 +3355,7 @@ export default function CourierDashboard() {
                           : '#ffffff',
                     }}
                   >
-                    {actionLoading === courierOrderActionPath(order.id, 'accept') ? (
+                    {actionLoading === `accept-pickup:${order.id}` ? (
                       <CourierActionPendingLabel />
                     ) : noBagSlotForNewOrder(order) ? (
                       'So‘mka to‘liq'
@@ -3097,6 +3468,7 @@ export default function CourierDashboard() {
           </div>
         )}
         </div>
+      </div>
 
         {profileEditOpen && (
           <div

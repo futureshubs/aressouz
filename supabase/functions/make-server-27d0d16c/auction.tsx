@@ -54,16 +54,68 @@ function parseKvRecord(raw: unknown): Record<string, unknown> | null {
 }
 
 async function requireSupabaseUser(c: any) {
+  const customToken =
+    c.req.header("X-Access-Token") ||
+    c.req.header("x-access-token") ||
+    c.req.raw.headers.get("X-Access-Token") ||
+    c.req.raw.headers.get("x-access-token") ||
+    "";
   const authHeader =
-    c.req.header("Authorization") || c.req.raw.headers.get("Authorization") || "";
+    c.req.header("Authorization") ||
+    c.req.header("authorization") ||
+    c.req.raw.headers.get("Authorization") ||
+    c.req.raw.headers.get("authorization") ||
+    "";
   const m = authHeader.match(/Bearer\s+(.+)/i);
-  const token = m?.[1]?.trim();
-  if (!token) {
-    return { error: c.json({ success: false, error: "Avtorizatsiya kerak (Bearer token)" }, 401) };
+  const bearerToken = m?.[1]?.trim() || "";
+  const anonKey = String(Deno.env.get("SUPABASE_ANON_KEY") || "").trim();
+  const bearerIsAnon = Boolean(anonKey && bearerToken === anonKey);
+  const sessionToken = String(customToken || (!bearerIsAnon ? bearerToken : "") || "").trim();
+
+  if (!sessionToken) {
+    return {
+      error: c.json(
+        { success: false, error: "Avtorizatsiya kerak (tizimga kiring)" },
+        401,
+      ),
+    };
   }
-  const { data: { user }, error } = await supabase.auth.getUser(token);
+
+  const rawAccess = await kv.get(`access_token:${sessionToken}`);
+  const customTokenData = parseKvRecord(rawAccess);
+  if (customTokenData && typeof customTokenData.userId === "string") {
+    const exp = Number(customTokenData.expiresAt);
+    if (Number.isFinite(exp) && Date.now() > exp) {
+      try {
+        await kv.del(`access_token:${sessionToken}`);
+      } catch {
+        /* ignore */
+      }
+      return {
+        error: c.json({ success: false, error: "Sessiya muddati tugagan" }, 401),
+      };
+    }
+    const uid = String(customTokenData.userId || "").trim();
+    if (!uid) {
+      return { error: c.json({ success: false, error: "Sessiya yaroqsiz" }, 401) };
+    }
+    const { data: userData, error: adminErr } = await supabase.auth.admin.getUserById(uid);
+    if (adminErr || !userData?.user) {
+      return {
+        error: c.json({ success: false, error: "Foydalanuvchi topilmadi" }, 401),
+      };
+    }
+    return { user: userData.user };
+  }
+
+  const { data: { user }, error } = await supabase.auth.getUser(sessionToken);
   if (error || !user) {
-    return { error: c.json({ success: false, error: "Sessiya yaroqsiz yoki muddati tugagan" }, 401) };
+    return {
+      error: c.json(
+        { success: false, error: "Sessiya yaroqsiz yoki muddati tugagan" },
+        401,
+      ),
+    };
   }
   return { user };
 }

@@ -14,6 +14,8 @@ export type InsightMetricsCore = {
   orderCount: number;
   revenuePaid: number;
   revenueAll: number;
+  /** Do‘kon/taom buyurtmalaridagi platforma % jami (so‘m) */
+  platformCommissionUzs: number;
   cancelledCount: number;
   paidOrderCount: number;
   deliveredCount: number;
@@ -63,6 +65,7 @@ function emptyCore(): InsightMetricsCore {
     orderCount: 0,
     revenuePaid: 0,
     revenueAll: 0,
+    platformCommissionUzs: 0,
     cancelledCount: 0,
     paidOrderCount: 0,
     deliveredCount: 0,
@@ -103,6 +106,7 @@ function mergeMetrics(partial: Partial<InsightMetricsCore> | undefined): Insight
   return {
     ...d,
     ...partial,
+    platformCommissionUzs: Number(partial.platformCommissionUzs) || 0,
     byOrderType: partial.byOrderType ?? d.byOrderType,
     byStatus: partial.byStatus ?? d.byStatus,
     byPaymentStatus: partial.byPaymentStatus ?? d.byPaymentStatus,

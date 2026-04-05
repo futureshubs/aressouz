@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { 
   CreditCard, 
@@ -32,7 +32,8 @@ import {
   Users,
   ShoppingCart,
   Star,
-  X
+  X,
+  Send,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../../utils/supabase/info';
@@ -79,6 +80,10 @@ interface Payment {
     discount: number;
     tax: number;
   };
+  /** Do‘kon/taom buyurtmasi: mahsulot qatorlari bo‘yicha platforma ulushi (buyurtma yaratilganda snapshot) */
+  platformCommissionTotalUzs?: number;
+  merchantGoodsPayoutUzs?: number;
+  commissionableItemsSubtotalUzs?: number;
 }
 
 interface PaymentStats {
@@ -112,9 +117,11 @@ interface PaymentsProps {
     district?: string;
     phone?: string;
   };
+  /** Kassa: faqat navbatdagi to‘lovlar, yengil UI */
+  variant?: 'full' | 'cashier';
 }
 
-export function Payments({ branchId, branchInfo }: PaymentsProps) {
+export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const apiBaseUrl = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
@@ -139,19 +146,29 @@ export function Payments({ branchId, branchInfo }: PaymentsProps) {
   const [reportPdfLoading, setReportPdfLoading] = useState(false);
   const [confirmingReceipt, setConfirmingReceipt] = useState(false);
   const [receiptUploadPct, setReceiptUploadPct] = useState(0);
+  const [searchDebounced, setSearchDebounced] = useState('');
+  const [cashierReceiptFile, setCashierReceiptFile] = useState<File | null>(null);
+  const [cashierReceiptPreview, setCashierReceiptPreview] = useState<string | null>(null);
+  const cashierFileInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const t = window.setTimeout(() => setSearchDebounced(searchTerm.trim()), 400);
+    return () => window.clearTimeout(t);
+  }, [searchTerm]);
 
   const loadPayments = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
     try {
       if (!silent) setIsLoading(true);
-      console.log('💳 Loading payments for branch:', branchId);
 
       const params = new URLSearchParams({
         branchId,
-        search: searchTerm,
-        status: statusFilter !== 'all' ? statusFilter : '',
-        method: methodFilter !== 'all' ? methodFilter : '',
-        dateRange,
+        dateRange: variant === 'cashier' ? '30days' : dateRange,
       });
+      if (variant !== 'cashier') {
+        if (searchDebounced) params.set('search', searchDebounced);
+        if (statusFilter !== 'all') params.set('status', statusFilter);
+        if (methodFilter !== 'all') params.set('method', methodFilter);
+      }
       const branchToken = getStoredBranchToken();
       if (branchToken) {
         params.set('branchToken', branchToken);
@@ -178,7 +195,6 @@ export function Payments({ branchId, branchInfo }: PaymentsProps) {
       if (data.success) {
         setPayments(data.payments);
         setStats(data.stats);
-        console.log('✅ Payments loaded from API');
       }
     } catch (error) {
       console.error('❌ Error loading payments:', error);
@@ -186,7 +202,7 @@ export function Payments({ branchId, branchInfo }: PaymentsProps) {
     } finally {
       if (!silent) setIsLoading(false);
     }
-  }, [apiBaseUrl, branchId, dateRange, methodFilter, searchTerm, statusFilter]);
+  }, [apiBaseUrl, branchId, dateRange, methodFilter, searchDebounced, statusFilter, variant]);
 
   useVisibilityRefetch(() => {
     void loadPayments({ silent: true });
@@ -196,13 +212,31 @@ export function Payments({ branchId, branchInfo }: PaymentsProps) {
     loadPayments();
   }, [loadPayments]);
 
-  // Keep cashier status in sync with restaurant updates.
   useEffect(() => {
-    const t = setInterval(() => {
+    const ms = variant === 'cashier' ? 25000 : 15000;
+    const t = window.setInterval(() => {
       void loadPayments({ silent: true });
-    }, 8000);
-    return () => clearInterval(t);
-  }, [loadPayments]);
+    }, ms);
+    return () => window.clearInterval(t);
+  }, [loadPayments, variant]);
+
+  useEffect(() => {
+    if (variant !== 'cashier') return;
+    setCashierReceiptFile(null);
+    setCashierReceiptPreview((prev) => {
+      if (prev) URL.revokeObjectURL(prev);
+      return null;
+    });
+    if (cashierFileInputRef.current) cashierFileInputRef.current.value = '';
+  }, [variant, showDetails?.id]);
+
+  useEffect(() => {
+    if (variant !== 'cashier' || !showDetails) return;
+    const cur = payments.find((x) => x.id === showDetails.id);
+    if (!cur || cur.receiptUrl || cur.status === 'completed') {
+      setShowDetails(null);
+    }
+  }, [variant, payments, showDetails?.id]);
 
   const formatCurrency = (amount: number) => {
     return new Intl.NumberFormat('uz-UZ', {
@@ -260,6 +294,17 @@ export function Payments({ branchId, branchInfo }: PaymentsProps) {
   };
 
   const canShowCashierMerchantQrForOrder = (p: Payment): boolean => !isAwaitingMerchantAcceptance(p);
+
+  /** Kassa: mijoz QR orqali to‘lashi va chek kutilayotgan buyurtmalar */
+  const isCashierQrQueuePayment = (p: Payment): boolean => {
+    if (p.type !== 'payment') return false;
+    const st = String(p.status || '').toLowerCase().trim();
+    if (st !== 'pending' && st !== 'processing') return false;
+    if (!p.qrImageUrl || p.receiptUrl) return false;
+    if (!canShowCashierMerchantQrForOrder(p)) return false;
+    const m = String(p.method || '').toLowerCase().trim();
+    return Boolean(p.paymentRequiresVerification) || m === 'qr';
+  };
 
   const getCourierDeliveryFee = (payment: Payment) => Number(payment.metadata?.deliveryFee) || 0;
 
@@ -348,15 +393,321 @@ export function Payments({ branchId, branchInfo }: PaymentsProps) {
     });
   };
 
-  if (isLoading) {
+  if (isLoading && payments.length === 0) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
+      <div className="flex items-center justify-center min-h-[40vh]">
         <div className="text-center">
           <RefreshCw className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
             To\'lovlar yuklanmoqda...
           </p>
         </div>
+      </div>
+    );
+  }
+
+  if (variant === 'cashier') {
+    const qrQueue = payments.filter(isCashierQrQueuePayment);
+    const waitingMerchant = payments.filter(
+      (p) =>
+        p.type === 'payment' &&
+        (p.status === 'pending' || p.status === 'processing') &&
+        isAwaitingMerchantAcceptance(p),
+    );
+
+    const submitCashierReceipt = async () => {
+      if (!showDetails || !cashierReceiptFile) {
+        toast.error('Avval chek rasmini tanlang');
+        return;
+      }
+      try {
+        setConfirmingReceipt(true);
+        setReceiptUploadPct(0);
+        const compressed = await compressImageIfNeeded(cashierReceiptFile);
+        const fd = new FormData();
+        fd.append('file', compressed);
+        const { data: uploadData, status: uploadStatus } = await uploadFormDataWithProgress<{
+          url?: string;
+          error?: string;
+        }>({
+          url: `${apiBaseUrl}/public/upload`,
+          formData: fd,
+          headers: { Authorization: `Bearer ${publicAnonKey}` },
+          onProgress: (pct) => setReceiptUploadPct(pct),
+        });
+        if (uploadStatus < 200 || uploadStatus >= 300 || !uploadData?.url) {
+          toast.error(uploadData?.error || 'Rasm yuklashda xatolik');
+          return;
+        }
+        const confirmResp = await fetch(
+          `${apiBaseUrl}/orders/${encodeURIComponent(showDetails.orderId)}/confirm-receipt`,
+          {
+            method: 'POST',
+            headers: { ...buildBranchHeaders({ 'Content-Type': 'application/json' }) },
+            body: JSON.stringify({ receiptImageUrl: uploadData.url }),
+          },
+        );
+        const confirmData = await confirmResp.json().catch(() => ({}));
+        if (!confirmResp.ok || !confirmData?.success) {
+          toast.error(confirmData?.error || 'To‘lovni tasdiqlashda xatolik');
+          return;
+        }
+        toast.success('To‘lov qabul qilindi');
+        setShowDetails(null);
+        await loadPayments({ silent: true });
+      } catch (err) {
+        console.error(err);
+        toast.error('Chek yuborishda xatolik');
+      } finally {
+        setConfirmingReceipt(false);
+        setReceiptUploadPct(0);
+      }
+    };
+
+    return (
+      <div className="space-y-4 min-h-0">
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+          <div>
+            <h2 className="text-xl font-bold">To‘lov kutilmoqda</h2>
+            <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+              Faqat kassa QR va chek talab qilinadigan buyurtmalar
+            </p>
+          </div>
+          <button
+            type="button"
+            onClick={() => void loadPayments()}
+            disabled={isLoading}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold shrink-0 disabled:opacity-50"
+            style={{
+              background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+            }}
+          >
+            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            Yangilash
+          </button>
+        </div>
+
+        {qrQueue.length === 0 ? (
+          <div
+            className="rounded-2xl border p-8 text-center text-sm"
+            style={{
+              background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)',
+            }}
+          >
+            Hozircha navbatdagi to‘lov yo‘q
+          </div>
+        ) : (
+          <div className="max-h-[min(70dvh,640px)] space-y-3 overflow-y-auto overscroll-y-contain pr-1 [-webkit-overflow-scrolling:touch]">
+            {qrQueue.map((p) => (
+              <div
+                key={p.id}
+                className="flex flex-col gap-3 rounded-2xl border p-4 sm:flex-row sm:items-center sm:justify-between"
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                }}
+              >
+                <div className="min-w-0 flex-1">
+                  <p className="font-bold truncate">{formatOrderNumber(p.orderNumber, p.orderId)}</p>
+                  <p className="text-sm truncate" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
+                    {p.customerName} · {p.customerPhone}
+                  </p>
+                  <p className="mt-1 font-semibold" style={{ color: accentColor.color }}>
+                    {formatCurrency(getPayableAmount(p))}
+                  </p>
+                </div>
+                <div className="flex flex-col gap-2 sm:items-end">
+                  <span
+                    className="inline-flex rounded-full px-3 py-1 text-xs font-bold"
+                    style={{ background: 'rgba(245,158,11,0.2)', color: '#f59e0b' }}
+                  >
+                    To‘lov kutilmoqda
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => setShowDetails(p)}
+                    className="rounded-xl px-4 py-2.5 text-sm font-bold text-white"
+                    style={{ background: accentColor.gradient }}
+                  >
+                    To‘lov qilish
+                  </button>
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
+
+        {waitingMerchant.length > 0 ? (
+          <details
+            className="rounded-xl border px-4 py-3 text-sm"
+            style={{
+              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+            }}
+          >
+            <summary className="cursor-pointer font-semibold">
+              Sotuvchi / restoran qabuli kutilmoqda ({waitingMerchant.length})
+            </summary>
+            <ul className="mt-2 space-y-1 opacity-90">
+              {waitingMerchant.slice(0, 12).map((p) => (
+                <li key={p.id} className="truncate">
+                  {formatOrderNumber(p.orderNumber, p.orderId)} — {p.customerName}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
+
+        {showDetails &&
+          isCashierQrQueuePayment(showDetails) &&
+          (showDetails.status === 'pending' || showDetails.status === 'processing') &&
+          Boolean(showDetails.qrImageUrl) &&
+          !showDetails.receiptUrl && (
+            <div
+              className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4"
+              onClick={() => setShowDetails(null)}
+              role="presentation"
+            >
+              <div
+                role="dialog"
+                aria-modal="true"
+                aria-label="To‘lov — QR va chek"
+                className="flex max-h-[92dvh] w-full max-w-md flex-col overflow-hidden rounded-t-3xl border shadow-2xl sm:rounded-3xl"
+                style={{
+                  background: isDark ? '#161616' : '#ffffff',
+                  borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+                }}
+                onClick={(e) => e.stopPropagation()}
+              >
+                <div className="flex items-center justify-between border-b px-4 py-3 shrink-0" style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}>
+                  <div className="min-w-0">
+                    <p className="font-bold truncate">{formatOrderNumber(showDetails.orderNumber, showDetails.orderId)}</p>
+                    <p className="text-xs truncate opacity-70">{showDetails.customerName}</p>
+                  </div>
+                  <button
+                    type="button"
+                    className="rounded-lg border p-2"
+                    style={{
+                      borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                    }}
+                    onClick={() => setShowDetails(null)}
+                    aria-label="Yopish"
+                  >
+                    <X className="h-5 w-5" />
+                  </button>
+                </div>
+                <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain px-4 py-4 space-y-4">
+                  <p className="text-center text-lg font-bold" style={{ color: accentColor.color }}>
+                    {formatCurrency(getPayableAmount(showDetails))}
+                  </p>
+                  {(Number(showDetails.platformCommissionTotalUzs) || 0) > 0 ? (
+                    <div
+                      className="rounded-xl border px-3 py-2 text-sm space-y-1"
+                      style={{
+                        borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                        background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
+                      }}
+                    >
+                      <p className="font-semibold text-xs opacity-80">Kassa: mahsulot bo‘yicha taqsimot</p>
+                      <div className="flex justify-between gap-2">
+                        <span className="opacity-75">Mijoz to‘laydi (jami)</span>
+                        <span className="font-medium tabular-nums">{formatCurrency(getPayableAmount(showDetails))}</span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="opacity-75">Platforma ulushi (%)</span>
+                        <span className="font-medium tabular-nums text-amber-500">
+                          {formatCurrency(Number(showDetails.platformCommissionTotalUzs) || 0)}
+                        </span>
+                      </div>
+                      <div className="flex justify-between gap-2">
+                        <span className="opacity-75">Sotuvchi/restoranga (mahsulot)</span>
+                        <span className="font-medium tabular-nums text-emerald-500">
+                          {formatCurrency(Number(showDetails.merchantGoodsPayoutUzs) || 0)}
+                        </span>
+                      </div>
+                      <p className="text-[11px] opacity-55 pt-1">
+                        Yetkazish va boshqa yig‘indilar alohida; foiz faqat belgilangan mahsulot qatorlari narxiga qo‘llanadi.
+                      </p>
+                    </div>
+                  ) : null}
+                  <div className="flex justify-center rounded-2xl border p-3 bg-white/5" style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}>
+                    <img
+                      src={showDetails.qrImageUrl}
+                      alt="To‘lov QR"
+                      className="h-56 w-56 max-w-full object-contain sm:h-64 sm:w-64"
+                      loading="lazy"
+                      decoding="async"
+                    />
+                  </div>
+                  <div>
+                    <p className="mb-2 text-sm font-semibold">Chek rasmi (yuklang)</p>
+                    <input
+                      ref={cashierFileInputRef}
+                      type="file"
+                      accept="image/*"
+                      className="hidden"
+                      disabled={confirmingReceipt}
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        setCashierReceiptFile(file);
+                        setCashierReceiptPreview((prev) => {
+                          if (prev) URL.revokeObjectURL(prev);
+                          return URL.createObjectURL(file);
+                        });
+                      }}
+                    />
+                    <button
+                      type="button"
+                      disabled={confirmingReceipt}
+                      onClick={() => cashierFileInputRef.current?.click()}
+                      className="w-full rounded-xl border py-3 text-sm font-semibold"
+                      style={{
+                        borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)',
+                        background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                      }}
+                    >
+                      {cashierReceiptFile ? 'Boshqa rasm tanlash' : 'Chek tanlash'}
+                    </button>
+                    {cashierReceiptPreview ? (
+                      <img
+                        src={cashierReceiptPreview}
+                        alt="Tanlangan chek"
+                        className="mt-3 max-h-48 w-full rounded-xl object-contain border"
+                        style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}
+                      />
+                    ) : null}
+                  </div>
+                  {confirmingReceipt ? (
+                    <div>
+                      <div className="h-2 overflow-hidden rounded-full" style={{ background: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }}>
+                        <div
+                          className="h-full transition-all"
+                          style={{ width: `${Math.max(5, receiptUploadPct)}%`, background: accentColor.color }}
+                        />
+                      </div>
+                      <p className="mt-1 text-xs opacity-70">Yuklanmoqda: {receiptUploadPct}%</p>
+                    </div>
+                  ) : null}
+                </div>
+                <div className="shrink-0 border-t p-4" style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}>
+                  <button
+                    type="button"
+                    disabled={confirmingReceipt || !cashierReceiptFile}
+                    onClick={() => void submitCashierReceipt()}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-base font-bold text-white disabled:opacity-45"
+                    style={{ background: accentColor.gradient }}
+                  >
+                    <Send className="h-5 w-5" />
+                    Yuborish — to‘lov qabul qilindi
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
       </div>
     );
   }
@@ -1153,8 +1504,8 @@ export function Payments({ branchId, branchInfo }: PaymentsProps) {
         </div>
       )}
 
-      {/* Details Modal */}
-      {showDetails && (
+      {/* Details Modal (filial / operator — to‘liq) */}
+      {showDetails && variant === 'full' && (
         <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div 
             className="w-full max-w-2xl p-6 rounded-2xl max-h-[80vh] overflow-y-auto"

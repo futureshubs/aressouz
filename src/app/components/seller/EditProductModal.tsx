@@ -13,6 +13,7 @@ import {
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
+import { platformCommissionHintUz, validateVariantCommissionsClient } from '../../utils/platformCommission';
 
 interface Variant {
   id: string;
@@ -287,6 +288,15 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
         toast.error(`Variant ${i + 1} narxini kiriting`);
         return;
       }
+    }
+
+    const cErr = validateVariantCommissionsClient(
+      variants.map((v) => ({ commission: v.commission })),
+      'Mahsulot',
+    );
+    if (cErr) {
+      toast.error(cErr);
+      return;
     }
 
     setIsSubmitting(true);
@@ -571,20 +581,27 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium mb-2">Komissiya (%)</label>
+                    <label className="block text-sm font-medium mb-2">Berish % (platformaga)</label>
                     <input
                       type="number"
                       value={variant.commission || ''}
-                      onChange={(e) => handleVariantChange(index, 'commission', Number(e.target.value))}
+                      onChange={(e) =>
+                        handleVariantChange(
+                          index,
+                          'commission',
+                          e.target.value === '' ? 0 : Number(e.target.value),
+                        )
+                      }
                       className="w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2"
                       style={{
                         background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f9fafb',
                         borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
                       }}
-                      placeholder="0"
-                      min="0"
-                      max="100"
+                      placeholder="0–15 (ixtiyoriy)"
+                      min={0}
+                      max={15}
                     />
+                    <p className="text-xs mt-1 opacity-60">{platformCommissionHintUz()}</p>
                   </div>
 
                   <div>

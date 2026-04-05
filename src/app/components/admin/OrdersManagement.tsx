@@ -197,15 +197,14 @@ const buildAddressFromRaw = (raw: any) => {
 
 /** API / KV / v2 dan kelgan qatorni kartochka uchun bir xil qilish */
 const mapRawToOrder = (raw: any): Order => {
-  const rawType = String(raw?.orderType || raw?.type || 'market').toLowerCase();
-  const type: Order['type'] =
-    raw?.type === 'food' || raw?.orderType === 'food' || rawType === 'food'
-      ? 'restaurant'
-      : rawType === 'shop'
-        ? 'shop'
-        : rawType === 'rental'
-          ? 'rental'
-          : 'market';
+  const rawType = String(
+    raw?.orderType || raw?.type || raw?.vertical_type || raw?.verticalType || 'market',
+  ).toLowerCase();
+  let type: Order['type'] = 'market';
+  if (rawType === 'food' || rawType === 'restaurant') type = 'restaurant';
+  else if (rawType === 'shop') type = 'shop';
+  else if (rawType === 'rental') type = 'rental';
+  else if (rawType === 'market') type = 'market';
 
   const orderId = String(
     raw?.orderId ?? raw?.orderNumber ?? raw?.id ?? ''
@@ -300,7 +299,7 @@ const isCashLikePaymentOrder = (o: Order | null | undefined) => {
 
 const needsMarketCashBranchRelease = (o: Order | null | undefined) => {
   if (!o) return false;
-  if (o.type !== 'market') return false;
+  if (o.type !== 'market' && o.type !== 'shop' && o.type !== 'restaurant') return false;
   if (!isCashLikePaymentOrder(o)) return false;
   if ((o as any).releasedToPreparerAt) return false;
   const st = String(o.status || '').toLowerCase();
@@ -374,6 +373,10 @@ export default function OrdersManagement({
   const [activeTab, setActiveTab] = useState<'all' | 'market' | 'shop' | 'rental' | 'restaurant'>(
     type === 'food' ? 'restaurant' : type
   );
+
+  useEffect(() => {
+    setActiveTab(type === 'food' ? 'restaurant' : type);
+  }, [type]);
   const [orders, setOrders] = useState<Order[]>([]);
   const [filteredOrders, setFilteredOrders] = useState<Order[]>([]);
   const [loading, setLoading] = useState(() => {
@@ -473,6 +476,9 @@ export default function OrdersManagement({
     // yangi buyurtmalar takrorlanmasin va onlayn to‘lovlar bu yerda chiqmasin (tayyorlovchi oqimi).
     if (authMode === 'branch' && activeTab === 'market' && statusFilter === 'incoming') {
       filtered = filtered.filter((order) => order.type !== 'market');
+    }
+    if (authMode === 'branch' && activeTab === 'shop' && statusFilter === 'incoming') {
+      filtered = filtered.filter((order) => order.type !== 'shop');
     }
 
     // Filter by search
@@ -1046,7 +1052,8 @@ export default function OrdersManagement({
           </div>
         </div>
 
-        {authMode === 'branch' && order.type === 'market' && (
+        {authMode === 'branch' &&
+          (order.type === 'market' || order.type === 'shop' || order.type === 'restaurant') && (
           <div
             className="mb-4 px-3 py-2.5 rounded-xl text-center text-sm font-bold tracking-tight"
             style={{
@@ -1355,7 +1362,9 @@ export default function OrdersManagement({
                     </div>
                   </div>
                 ) : null}
-                {selectedOrder.type === 'market' &&
+                {(selectedOrder.type === 'market' ||
+                  selectedOrder.type === 'shop' ||
+                  selectedOrder.type === 'restaurant') &&
                 (['cash', 'naqd'].includes(String(selectedOrder.paymentMethod || '').toLowerCase().trim()) ? (
                   <p
                     className="text-xs rounded-xl px-3 py-2"
@@ -1365,8 +1374,16 @@ export default function OrdersManagement({
                     }}
                   >
                     {(selectedOrder as any).releasedToPreparerAt
-                      ? 'Naqd to‘lov: filial qabul qilingan, tayyorlovchiga yuborilgan.'
-                      : 'Naqd to‘lov: avval filial «Market buyurtmalar»da qabul qiling, keyin tayyorlovchiga tushadi.'}
+                      ? selectedOrder.type === 'shop'
+                        ? 'Naqd to‘lov: filial qabul qilingan, do‘kon paneliga yuborilgan.'
+                        : selectedOrder.type === 'restaurant'
+                          ? 'Naqd to‘lov: filial qabul qilingan, restoran paneliga yuborilgan.'
+                          : 'Naqd to‘lov: filial qabul qilingan, tayyorlovchiga yuborilgan.'
+                      : selectedOrder.type === 'shop'
+                        ? 'Naqd to‘lov: avval filial «Do‘kon buyurtmalar»da qabul qiling, keyin sotuvchi paneliga tushadi.'
+                        : selectedOrder.type === 'restaurant'
+                          ? 'Naqd to‘lov: avval filial «Taom buyurtmalar»da qabul qiling, keyin restoran jarayoniga tushadi.'
+                          : 'Naqd to‘lov: avval filial «Market buyurtmalar»da qabul qiling, keyin tayyorlovchiga tushadi.'}
                   </p>
                 ) : null)}
               </div>
@@ -1641,7 +1658,11 @@ export default function OrdersManagement({
                     }}
                   >
                     <CheckCircle className="w-6 h-6" />
-                    Qabul qilish (tayyorlovchiga)
+                    {selectedOrder.type === 'shop'
+                      ? 'Qabul qilish (do‘kon paneliga)'
+                      : selectedOrder.type === 'restaurant'
+                        ? 'Qabul qilish (restoran paneliga)'
+                        : 'Qabul qilish (tayyorlovchiga)'}
                   </button>
                 )}
                 {/* Status Update Buttons */}
@@ -1653,7 +1674,9 @@ export default function OrdersManagement({
                         selectedOrder.id,
                         'confirmed',
                         // Do‘kon: kassa QR tekshiruv oqimi. Taom: mijoz onlayn to‘lagan — paymentMethod ni «qr» ga almashtirmaymiz.
-                        selectedOrder.type === 'shop' ? 'qr' : undefined,
+                        selectedOrder.type === 'shop' || selectedOrder.type === 'restaurant'
+                          ? 'qr'
+                          : undefined,
                       )
                     }
                     disabled={actionLoading}
@@ -2162,7 +2185,7 @@ export default function OrdersManagement({
 
       {/* Naqd qabul — faqat «Yangi» filtrida (market + filial) */}
       {authMode === 'branch' &&
-      type === 'market' &&
+      (type === 'market' || type === 'shop') &&
       branchId &&
       statusFilter === 'incoming' ? (
         <PendingCashMarketBranchPanel
@@ -2173,7 +2196,9 @@ export default function OrdersManagement({
 
       {/* Orders Grid */}
       {filteredOrders.length === 0 ? (
-        authMode === 'branch' && activeTab === 'market' && statusFilter === 'incoming' ? null : (
+        authMode === 'branch' &&
+        (activeTab === 'market' || activeTab === 'shop') &&
+        statusFilter === 'incoming' ? null : (
         <div
           className="flex flex-col items-center justify-center py-20 rounded-3xl"
           style={{

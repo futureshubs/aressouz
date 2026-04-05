@@ -6,6 +6,7 @@ import { ProductVariantModal } from './ProductVariantModal';
 
 interface Product {
   id: number;
+  productUuid?: string;
   name: string;
   price: number;
   image: string;
@@ -24,11 +25,21 @@ interface Product {
 interface ProductCardProps {
   product: Product;
   onAddToCart: (product: Product, quantity?: number, variantId?: string, variantName?: string) => void;
+  onAddVariantLinesBatch?: (
+    product: Product,
+    lines: { variantId: string; variantName: string; quantity: number }[],
+  ) => void;
   onProductClick?: (product: Product) => void;
   source?: 'market' | 'shop';
 }
 
-export const ProductCard = memo(function ProductCard({ product, onAddToCart, onProductClick, source = 'market' }: ProductCardProps) {
+export const ProductCard = memo(function ProductCard({
+  product,
+  onAddToCart,
+  onAddVariantLinesBatch,
+  onProductClick,
+  source = 'market',
+}: ProductCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const { theme, accentColor } = useTheme();
@@ -381,10 +392,10 @@ export const ProductCard = memo(function ProductCard({ product, onAddToCart, onP
         <ProductVariantModal
           product={product}
           onClose={() => setIsModalOpen(false)}
-          onAddToCart={(prod, quantity, variant) => {
-            // Add to cart with correct quantity and variant
-            onAddToCart(prod, quantity, variant?.id, variant?.name);
+          onAddToCart={(prod, quantity, variantId, variantName) => {
+            onAddToCart(prod, quantity, variantId, variantName);
           }}
+          onAddMultipleLines={onAddVariantLinesBatch}
           source={source}
         />
       )}

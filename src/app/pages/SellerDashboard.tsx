@@ -21,6 +21,7 @@ import {
   Save,
   Loader2,
   XCircle,
+  RotateCcw,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
@@ -37,6 +38,7 @@ import {
   sellerOrderPaymentStatusNorm,
   sellerOrderTotal,
 } from '../components/seller/sellerOrderPaymentUtils';
+import { useBodyScrollLock } from '../utils/useBodyScrollLock';
 
 export default function SellerDashboard() {
   const navigate = useNavigate();
@@ -59,6 +61,8 @@ export default function SellerDashboard() {
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'active' | 'done' | 'cancelled'>('all');
+
+  useBodyScrollLock(sidebarOpen || isProductModalOpen || isEditModalOpen);
 
   useEffect(() => {
     checkSession();
@@ -369,6 +373,11 @@ export default function SellerDashboard() {
     return orders.filter(isSellerOrderCancelled);
   }, [orders, orderStatusFilter]);
 
+  const sellerRefundPendingOrders = useMemo(
+    () => orders.filter((o: any) => o.refundPending === true && isSellerOrderCancelled(o)),
+    [orders],
+  );
+
   const handleSellerOrderStatus = async (orderId: string, status: string) => {
     if (!sellerInfo?.token) return;
     setOrderActionId(orderId);
@@ -461,22 +470,23 @@ export default function SellerDashboard() {
   }, [orders]);
 
   return (
-    <div 
-      className="min-h-screen"
-      style={{ 
+    <div
+      className="app-panel-viewport app-safe-pad"
+      style={{
         background: isDark ? '#000000' : '#f9fafb',
-        color: isDark ? '#ffffff' : '#111827'
+        color: isDark ? '#ffffff' : '#111827',
       }}
     >
       {/* Sidebar - Desktop */}
-      <aside 
-        className="hidden lg:block fixed left-0 top-0 h-full w-64 border-r overflow-y-auto"
+      <aside
+        className="hidden lg:flex lg:flex-col fixed left-0 top-0 z-30 h-[100dvh] max-h-[100dvh] w-64 min-w-[16rem] border-r overflow-hidden app-safe-pl"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          paddingTop: 'var(--app-safe-top)',
         }}
       >
-        <div className="p-6">
+        <div className="app-panel-sidebar-scroll p-6 pb-4">
           {/* Shop Info */}
           <div className="mb-8">
             <div 
@@ -519,7 +529,13 @@ export default function SellerDashboard() {
           </nav>
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 p-6">
+        <div
+          className="shrink-0 border-t p-4"
+          style={{
+            background: isDark ? '#0a0a0a' : '#ffffff',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          }}
+        >
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all active:scale-95"
@@ -537,20 +553,22 @@ export default function SellerDashboard() {
 
       {/* Sidebar - Mobile */}
       {sidebarOpen && (
-        <div 
-          className="lg:hidden fixed inset-0 z-50"
+        <div
+          className="lg:hidden fixed inset-0 z-50 app-modal-overlay"
           style={{ background: 'rgba(0, 0, 0, 0.5)' }}
           onClick={() => setSidebarOpen(false)}
+          role="presentation"
         >
-          <aside 
-            className="absolute left-0 top-0 h-full w-64 border-r overflow-y-auto"
+          <aside
+            className="absolute left-0 top-0 flex h-[100dvh] max-h-[100dvh] w-[min(100%,16rem)] max-w-[85vw] flex-col overflow-hidden border-r shadow-xl app-safe-pl"
             style={{
               background: isDark ? '#0a0a0a' : '#ffffff',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              paddingTop: 'var(--app-safe-top)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-6">
+            <div className="app-panel-sidebar-scroll p-6 pb-4">
               <div className="flex items-center justify-between mb-6">
                 <div 
                   className="p-2 rounded-xl"
@@ -596,7 +614,13 @@ export default function SellerDashboard() {
               </nav>
             </div>
 
-            <div className="absolute bottom-0 left-0 right-0 p-6">
+            <div
+              className="shrink-0 border-t p-4"
+              style={{
+                background: isDark ? '#0a0a0a' : '#ffffff',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              }}
+            >
               <button
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all active:scale-95"
@@ -615,10 +639,10 @@ export default function SellerDashboard() {
       )}
 
       {/* Main Content */}
-      <main className="lg:ml-64">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:ml-64">
         {/* Header */}
-        <header 
-          className="border-b sticky top-0 z-40"
+        <header
+          className="shrink-0 border-b z-40"
           style={{
             background: isDark ? '#0a0a0a' : '#ffffff',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -662,7 +686,7 @@ export default function SellerDashboard() {
         </header>
 
         {/* Content */}
-        <div className="p-4 lg:p-6">
+        <div className="app-panel-main-scroll p-4 lg:p-6">
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" 
@@ -962,6 +986,34 @@ export default function SellerDashboard() {
               {/* Orders Tab — mijozlar ilovadan bergan do‘kon buyurtmalari + eski shop_order */}
               {activeTab === 'orders' && (
                 <div className="space-y-4">
+                  {sellerRefundPendingOrders.length > 0 ? (
+                    <div
+                      className="p-4 rounded-2xl border flex flex-wrap items-start gap-3"
+                      style={{
+                        background: isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(254, 226, 226, 0.65)',
+                        borderColor: 'rgba(239, 68, 68, 0.35)',
+                      }}
+                    >
+                      <RotateCcw className="w-6 h-6 shrink-0 text-red-500 mt-0.5" />
+                      <div className="min-w-0 flex-1">
+                        <p className="font-bold text-red-600 dark:text-red-400">
+                          To‘lov qaytarish: {sellerRefundPendingOrders.length} ta
+                        </p>
+                        <p className="text-sm mt-1 opacity-90" style={{ color: isDark ? 'rgba(255,255,255,0.85)' : '#374151' }}>
+                          Bekor qilingan, lekin mijoz allaqachon onlayn to‘lagan. Payme / Click kabilar orqali
+                          qaytarib, filial «Qaytarish to‘lovlari» bo‘limi bilan moslang.
+                        </p>
+                        <ul className="text-xs mt-2 space-y-1 font-mono opacity-80">
+                          {sellerRefundPendingOrders.slice(0, 5).map((o: any) => (
+                            <li key={String(o.id)}>
+                              #{o.orderNumber || o.id} · {Number(o.finalTotal ?? o.totalAmount ?? 0).toLocaleString('uz-UZ')}{' '}
+                              so‘m
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    </div>
+                  ) : null}
                   <div className="flex flex-wrap gap-2">
                     {(
                       [

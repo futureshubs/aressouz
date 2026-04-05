@@ -10,13 +10,6 @@ export default function BogalterDashboard() {
   const isDark = theme === 'dark';
 
   useEffect(() => {
-    // Ba'zi modallar "body" overflow-ni `hidden` qilib qo'yishi mumkin.
-    // Bogalter panelga kirilganda scroll doim ishlashi uchun reset qilamiz.
-    const prevOverflow = document.body.style.overflow;
-    const prevOverflowY = (document.body.style as any).overflowY;
-    document.body.style.overflow = 'auto';
-    (document.body.style as any).overflowY = 'auto';
-
     try {
       const session = JSON.parse(localStorage.getItem('accountantSession') || 'null');
       if (!session?.token) {
@@ -26,11 +19,6 @@ export default function BogalterDashboard() {
     } catch {
       navigate('/bogalter');
     }
-
-    return () => {
-      document.body.style.overflow = prevOverflow || '';
-      (document.body.style as any).overflowY = prevOverflowY || '';
-    };
   }, [navigate]);
 
   const handleLogout = () => {
@@ -41,16 +29,14 @@ export default function BogalterDashboard() {
 
   return (
     <div
-      className="min-h-dvh"
+      className="app-panel-viewport app-safe-pad"
       style={{
         background: isDark ? '#000000' : '#f9fafb',
         color: isDark ? '#ffffff' : '#111827',
-        WebkitOverflowScrolling: 'touch',
-        touchAction: 'pan-y',
       }}
     >
-      <div className="p-4 lg:p-8 max-w-6xl mx-auto">
-        <div className="flex items-center justify-between gap-4 mb-6">
+      <div className="app-panel-main-scroll p-4 lg:p-8 max-w-6xl mx-auto min-h-0">
+        <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
           <div>
             <h1 className="text-2xl lg:text-3xl font-bold">Bogalter panel</h1>
             <p className="text-sm mt-1" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>

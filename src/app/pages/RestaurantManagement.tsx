@@ -5,6 +5,8 @@ import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '/utils/supabase/info';
 import { AddRestaurantModal } from '../components/AddRestaurantModal';
 import { AddDishModal } from '../components/AddDishModal';
+import Analytics from '../components/branch/Analytics';
+import { Statistics } from '../components/branch/Statistics';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { restaurantMatchesBranchArea } from '../utils/locationMatching';
 
@@ -490,31 +492,50 @@ export function RestaurantManagement({
         </div>
       )}
 
-      {activeTab === 'stats' && (
-        <div 
-          className="p-12 rounded-2xl text-center"
-          style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)' }}
-        >
-          <BarChart3 className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
-          <h3 className="text-xl font-bold mb-2">Statistika</h3>
-          <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Bu bo'lim ustida ishlanmoqda
-          </p>
-        </div>
-      )}
+      {activeTab === 'stats' &&
+        (branchId ? (
+          <Statistics
+            branchId={branchId}
+            orderType="food"
+            branchInfo={{
+              region: branchRegion,
+              district: branchDistrict,
+            }}
+          />
+        ) : (
+          <div
+            className="p-12 rounded-2xl text-center border"
+            style={{
+              background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+            }}
+          >
+            <BarChart3 className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
+            <h3 className="text-xl font-bold mb-2">Filial konteksti kerak</h3>
+            <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+              Taomlar statistikasi filial panelidan ochilganda filial buyurtmalari bo‘yicha real ma’lumot beradi.
+            </p>
+          </div>
+        ))}
 
-      {activeTab === 'analytics' && (
-        <div 
-          className="p-12 rounded-2xl text-center"
-          style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)' }}
-        >
-          <TrendingUp className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
-          <h3 className="text-xl font-bold mb-2">Data Analitika</h3>
-          <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Bu bo'lim ustida ishlanmoqda
-          </p>
-        </div>
-      )}
+      {activeTab === 'analytics' &&
+        (branchId ? (
+          <Analytics branchId={branchId} orderType="food" />
+        ) : (
+          <div
+            className="p-12 rounded-2xl text-center border"
+            style={{
+              background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+            }}
+          >
+            <TrendingUp className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
+            <h3 className="text-xl font-bold mb-2">Filial konteksti kerak</h3>
+            <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+              Data analitika filial sessiyasi bilan taom buyurtmalaridan hisoblanadi.
+            </p>
+          </div>
+        ))}
 
       {/* Modals */}
       {showAddRestaurantModal && (

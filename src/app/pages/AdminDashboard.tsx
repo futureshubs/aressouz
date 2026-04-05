@@ -29,6 +29,7 @@ import AdminSecurityView from '../components/admin/AdminSecurityView';
 import { projectId } from '../../../utils/supabase/info';
 import { buildAdminHeaders } from '../utils/requestAuth';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { useBodyScrollLock } from '../utils/useBodyScrollLock';
 
 const safeNum = (n: unknown): number => {
   const x = Number(n);
@@ -152,6 +153,8 @@ export default function AdminDashboard() {
     void loadStats({ soft: true });
   });
 
+  useBodyScrollLock(sidebarOpen);
+
   const handleLogout = () => {
     localStorage.removeItem('adminSession');
     navigate('/admin');
@@ -204,22 +207,23 @@ export default function AdminDashboard() {
   ];
 
   return (
-    <div 
-      className="min-h-screen"
-      style={{ 
+    <div
+      className="app-panel-viewport app-safe-pad"
+      style={{
         background: isDark ? '#000000' : '#f9fafb',
-        color: isDark ? '#ffffff' : '#111827'
+        color: isDark ? '#ffffff' : '#111827',
       }}
     >
       {/* Sidebar - Desktop */}
-      <aside 
-        className="hidden lg:block fixed left-0 top-0 h-full w-64 border-r"
+      <aside
+        className="hidden lg:flex lg:flex-col fixed left-0 top-0 z-30 h-[100dvh] max-h-[100dvh] w-64 min-w-[16rem] border-r overflow-hidden app-safe-pl"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          paddingTop: 'var(--app-safe-top)',
         }}
       >
-        <div className="p-6">
+        <div className="app-panel-sidebar-scroll p-6 pb-4">
           <div className="flex items-center gap-3 mb-8">
             <div 
               className="p-2.5 rounded-2xl"
@@ -254,7 +258,13 @@ export default function AdminDashboard() {
           </nav>
         </div>
 
-        <div className="absolute bottom-0 left-0 right-0 p-6">
+        <div
+          className="shrink-0 border-t p-4"
+          style={{
+            background: isDark ? '#0a0a0a' : '#ffffff',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          }}
+        >
           <button
             onClick={handleLogout}
             className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all active:scale-95"
@@ -272,20 +282,22 @@ export default function AdminDashboard() {
 
       {/* Sidebar - Mobile */}
       {sidebarOpen && (
-        <div 
-          className="lg:hidden fixed inset-0 z-50"
+        <div
+          className="lg:hidden fixed inset-0 z-50 app-modal-overlay"
           style={{ background: 'rgba(0, 0, 0, 0.5)' }}
           onClick={() => setSidebarOpen(false)}
+          role="presentation"
         >
-          <aside 
-            className="absolute left-0 top-0 h-full w-64 border-r"
+          <aside
+            className="absolute left-0 top-0 flex h-[100dvh] max-h-[100dvh] w-[min(100%,16rem)] max-w-[85vw] flex-col overflow-hidden border-r shadow-xl app-safe-pl"
             style={{
               background: isDark ? '#0a0a0a' : '#ffffff',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              paddingTop: 'var(--app-safe-top)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="p-6">
+            <div className="app-panel-sidebar-scroll p-6 pb-4">
               <div className="flex items-center justify-between mb-8">
                 <div className="flex items-center gap-3">
                   <div 
@@ -332,7 +344,13 @@ export default function AdminDashboard() {
               </nav>
             </div>
 
-            <div className="absolute bottom-0 left-0 right-0 p-6">
+            <div
+              className="shrink-0 border-t p-4"
+              style={{
+                background: isDark ? '#0a0a0a' : '#ffffff',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              }}
+            >
               <button
                 onClick={handleLogout}
                 className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all active:scale-95"
@@ -351,10 +369,10 @@ export default function AdminDashboard() {
       )}
 
       {/* Main Content */}
-      <main className="lg:ml-64">
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:ml-64">
         {/* Header */}
-        <header 
-          className="border-b sticky top-0 z-40"
+        <header
+          className="shrink-0 border-b z-40"
           style={{
             background: isDark ? '#0a0a0a' : '#ffffff',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -403,7 +421,7 @@ export default function AdminDashboard() {
         </header>
 
         {/* Content */}
-        <div className="p-4 lg:p-6">
+        <div className="app-panel-main-scroll p-4 lg:p-6">
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               {/* Stats Cards */}

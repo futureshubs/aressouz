@@ -4,6 +4,7 @@ import { motion, AnimatePresence } from 'motion/react';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
 import { projectId, publicAnonKey, edgeFunctionSlug } from '../../../utils/supabase/info';
+import { openExternalUrlSync } from '../utils/openExternalUrl';
 
 interface ShareModalProps {
   isOpen: boolean;
@@ -68,15 +69,14 @@ export function ShareModal({ isOpen, onClose, placeId, placeName, placeImage }: 
 
   const shareToTelegram = () => {
     const text = `${placeName} - Aresso.app da ko'ring!`;
-    window.open(
+    openExternalUrlSync(
       `https://t.me/share/url?url=${encodeURIComponent(shareUrl)}&text=${encodeURIComponent(text)}`,
-      '_blank',
     );
   };
 
   const shareToWhatsApp = () => {
     const text = `${placeName} - Aresso.app da ko'ring! ${shareUrl}`;
-    window.open(`https://wa.me/?text=${encodeURIComponent(text)}`, '_blank');
+    openExternalUrlSync(`https://wa.me/?text=${encodeURIComponent(text)}`);
   };
 
   useEffect(() => {

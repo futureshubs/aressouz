@@ -231,11 +231,15 @@ export default function AdminBranchStatistics() {
 
       {globalM && selectedMetrics ? (
         <>
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
             {[
               { t: 'Buyurtmalar', v: selectedMetrics.orderCount },
               { t: "To'langan daromad", v: `${formatSumUz(selectedMetrics.revenuePaid)} so'm` },
               { t: 'Jami summa (barcha)', v: `${formatSumUz(selectedMetrics.revenueAll)} so'm` },
+              {
+                t: "Platform ulushi (do'kon/taom %)",
+                v: `${formatSumUz(selectedMetrics.platformCommissionUzs || 0)} so'm`,
+              },
               { t: 'Bekor qilingan', v: selectedMetrics.cancelledCount },
             ].map((c) => (
               <div key={c.t} className="p-5 rounded-3xl border" style={cardStyle}>

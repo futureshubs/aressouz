@@ -2,6 +2,7 @@ import { X, Plus, Minus, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-
 import { memo, useState, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { toast } from 'sonner';
+import { notifyCartAdded } from '../utils/appToast';
 import { getVariantStockQuantity } from '../utils/cartStock';
 
 interface Product {
@@ -46,6 +47,11 @@ interface ProductVariantModalProps {
   product: Product;
   onClose: () => void;
   onAddToCart: (product: Product, quantity: number, variantId?: string, variantName?: string) => void;
+  /** Bo‘lsa — barcha variantlar bitta setState bilan qo‘shiladi (alohida qatorlar) */
+  onAddMultipleLines?: (
+    product: Product,
+    lines: { variantId: string; variantName: string; quantity: number }[],
+  ) => void;
   source?: 'market' | 'shop';
 }
 
@@ -53,6 +59,7 @@ export const ProductVariantModal = memo(function ProductVariantModal({
   product, 
   onClose, 
   onAddToCart,
+  onAddMultipleLines,
   source = 'market'
 }: ProductVariantModalProps) {
   const { theme, accentColor } = useTheme();
@@ -85,7 +92,10 @@ export const ProductVariantModal = memo(function ProductVariantModal({
     ? product.variants.map(v => {
         const price = v.price || product.price;
         const oldPrice = v.oldPrice || product.oldPrice || Math.round(price * 1.15);
-        const discount = Math.round(((oldPrice - price) / oldPrice) * 100);
+        const discount =
+          oldPrice > 0 && oldPrice > price
+            ? Math.round(((oldPrice - price) / oldPrice) * 100)
+            : 0;
         const stockCount = getVariantStockQuantity(v, product);
 
         return {
@@ -102,7 +112,10 @@ export const ProductVariantModal = memo(function ProductVariantModal({
         weight: 'Standart',
         price: product.price,
         oldPrice: product.oldPrice || Math.round(product.price * 1.15),
-        discount: product.oldPrice ? Math.round(((product.oldPrice - product.price) / product.oldPrice) * 100) : 15,
+        discount:
+          product.oldPrice && product.oldPrice > product.price
+            ? Math.round(((product.oldPrice - product.price) / product.oldPrice) * 100)
+            : 0,
         stockCount: getVariantStockQuantity(null, product),
       }];
 
@@ -162,28 +175,27 @@ export const ProductVariantModal = memo(function ProductVariantModal({
   }, 0);
 
   const handleFinalAddToCart = () => {
-    // Add each selected variant to cart separately
-    let totalAdded = 0;
-    Object.entries(quantities).forEach(([variantId, qty]) => {
-      if (qty > 0) {
-        const variant = variants.find(v => v.id === variantId);
-        if (variant) {
-          console.log('🛒 Savatga qo\'shilmoqda:', { 
-            variantId, 
-            variantName: variant.weight, 
-            quantity: qty 
-          });
-          onAddToCart(product, qty, variantId, variant.weight);
-          totalAdded += qty;
-        }
-      }
-    });
-    
-    // Show success toast
-    if (totalAdded > 0) {
-      toast.success(`✅ ${totalAdded} ta mahsulot savatga qo'shildi!`);
+    const lines = Object.entries(quantities)
+      .filter(([, qty]) => qty > 0)
+      .map(([variantId, qty]) => {
+        const variant = variants.find((v) => v.id === variantId);
+        if (!variant) return null;
+        return { variantId, variantName: variant.weight, quantity: qty };
+      })
+      .filter((l): l is { variantId: string; variantName: string; quantity: number } => l != null);
+
+    const totalAdded = lines.reduce((s, l) => s + l.quantity, 0);
+    if (totalAdded <= 0) return;
+
+    if (onAddMultipleLines) {
+      onAddMultipleLines(product, lines);
+    } else {
+      lines.forEach((l) => {
+        onAddToCart(product, l.quantity, l.variantId, l.variantName);
+      });
     }
-    
+
+    notifyCartAdded(totalAdded, { name: product.name });
     onClose();
   };
 

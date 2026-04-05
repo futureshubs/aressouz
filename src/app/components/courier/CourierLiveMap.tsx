@@ -43,6 +43,8 @@ interface CourierLiveMapProps {
   onClearRoute?: () => void;
   /** Mobil yetkazib berish ilovalariga o‘xshash balandlik va teginish. */
   layout?: 'mobile' | 'desktop';
+  /** Alohida `/kuryer/xarita` sahifasi: konteyner balandligini to‘ldirib, kattalashtirish tugmasini yashiradi. */
+  pageMode?: boolean;
 }
 
 async function fetchOsrmDrivingRoute(
@@ -233,6 +235,7 @@ export default function CourierLiveMap({
   routePreview = null,
   onClearRoute,
   layout = 'desktop',
+  pageMode = false,
 }: CourierLiveMapProps) {
   const isMobileLayout = layout === 'mobile';
   const mapRef = useRef<L.Map | null>(null);
@@ -643,7 +646,9 @@ export default function CourierLiveMap({
         'courier-live-map-shell border',
         mobileFullscreen
           ? 'fixed inset-0 z-[260] m-0 flex max-h-[100dvh] h-[100dvh] w-full max-w-none flex-col overflow-hidden rounded-none border-0'
-          : `overflow-hidden ${isMobileLayout ? 'rounded-2xl' : 'rounded-3xl'}`,
+          : pageMode
+            ? 'flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl'
+            : `overflow-hidden ${isMobileLayout ? 'rounded-2xl' : 'rounded-3xl'}`,
       ].join(' ')}
       style={{
         background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
@@ -710,7 +715,7 @@ export default function CourierLiveMap({
               Yo‘lni yopish
             </button>
           ) : null}
-          {!mobileFullscreen ? (
+          {!mobileFullscreen && !pageMode ? (
             <button
               type="button"
               onClick={() => setMapExpanded((v) => !v)}
@@ -746,7 +751,7 @@ export default function CourierLiveMap({
         </div>
       ) : (
         <div
-          className={`relative min-h-0 ${mobileFullscreen ? 'z-[1] flex min-h-0 flex-1 flex-col' : 'z-0'}`}
+          className={`relative min-h-0 ${mobileFullscreen || pageMode ? 'z-[1] flex min-h-0 flex-1 flex-col' : 'z-0'}`}
           style={{ touchAction: 'manipulation' }}
         >
           {mobileFullscreen ? (
@@ -770,7 +775,7 @@ export default function CourierLiveMap({
           <div
             ref={mapContainerRef}
             className={`w-full touch-manipulation ${
-              mobileFullscreen
+              mobileFullscreen || pageMode
                 ? 'min-h-0 flex-1'
                 : mapExpanded && !isMobileLayout
                   ? ''
@@ -780,7 +785,7 @@ export default function CourierLiveMap({
             }`}
             style={{
               width: '100%',
-              ...(mobileFullscreen
+              ...(mobileFullscreen || pageMode
                 ? { flex: '1 1 0%', minHeight: 0, height: '100%' }
                 : mapExpanded && !isMobileLayout
                   ? { height: 'min(78vh, 820px)', minHeight: 480 }
@@ -790,7 +795,7 @@ export default function CourierLiveMap({
                         minHeight: 260,
                       }
                     : {}),
-              transition: mobileFullscreen ? undefined : 'height 0.25s ease, min-height 0.25s ease',
+              transition: mobileFullscreen || pageMode ? undefined : 'height 0.25s ease, min-height 0.25s ease',
             }}
           />
           <button

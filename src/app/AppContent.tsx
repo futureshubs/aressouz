@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { X } from 'lucide-react';
 import { Header } from './components/Header';
 import { Hero } from './components/Hero';
@@ -22,6 +22,7 @@ import { ServicesView } from './components/ServicesView';
 import { PropertiesView } from './components/PropertiesView';
 import { HousesView } from './components/HousesView';
 import { CommunityView } from './components/CommunityView';
+import { CommunityBackgroundNotifier } from './components/CommunityBackgroundNotifier';
 import { SMSAuthModal } from './components/SMSAuthModal';
 import { AuctionView } from './components/AuctionView';
 import { BannerCarousel } from './components/BannerCarousel';
@@ -46,11 +47,14 @@ import { SiteFooter } from './components/SiteFooter';
 import Checkout from './components/Checkout';
 import { RentalTermsConsentModal } from './components/RentalTermsConsentModal';
 import { useMarketplaceNativeCartBadge } from './hooks/useMarketplaceNativeCartBadge';
+import { useMainAppNavigation } from './hooks/useMainAppNavigation';
+import { MAIN_APP_QUERY, patchSearchParams } from './utils/mainAppSearchParams';
 import {
   ProductGridSkeleton,
   SectionHeaderSkeleton,
 } from './components/skeletons';
 import { devLog } from './utils/devLog';
+import { captureReferralFromUrlToSession } from './utils/bonusReferralDeepLink';
 
 const MAIN_ACTIVE_TAB_KEY = 'aresso:mainActiveTab';
 
@@ -106,6 +110,8 @@ interface Product {
 
 interface CartItem extends Product {
   quantity: number;
+  /** Savat qatorini birlashtirish kaliti (market: productUuid + variant) */
+  cartLineKey?: string;
   selectedVariantId?: string; // Add variant tracking
   selectedVariantName?: string; // For display
   /** Taom KV kaliti (checkout — hech qachon vaqtinchalik savat id ishlatilmasin) */
@@ -153,6 +159,30 @@ function stableFoodCartLineNumericId(
   }
   const n = h % 2000000000;
   return n > 0 ? n : 1;
+}
+
+/** Bir xil mahsulot + variant = bitta qator; boshqa variant = alohida qator */
+function regularCartLineKey(product: Product, variantId: string | undefined): string {
+  const pu = String((product as Product & { productUuid?: string }).productUuid ?? '').trim();
+  const base = pu || `id_${product.id}`;
+  const v =
+    variantId != null && String(variantId).trim() !== '' && String(variantId).trim() !== '0'
+      ? String(variantId).trim()
+      : 'default';
+  return `${base}::${v}`;
+}
+
+function regularCartLineKeyFromItem(item: CartItem): string {
+  if (item.cartLineKey) return item.cartLineKey;
+  const pu = String(item.productUuid ?? '').trim();
+  const base = pu || `id_${item.id}`;
+  const v =
+    item.selectedVariantId != null &&
+    String(item.selectedVariantId).trim() !== '' &&
+    String(item.selectedVariantId).trim() !== '0'
+      ? String(item.selectedVariantId).trim()
+      : 'default';
+  return `${base}::${v}`;
 }
 
 /** Bozor/do‘kon: tanlangan variant narxi + `variantDetails` — savat/checkout `item.price` faqat birinchi variant bo‘lib qolmasin */
@@ -250,29 +280,53 @@ interface Branch {
 export default function AppContent() {
   const { theme, accentColor } = useTheme();
   const { isAuthenticated, smsSignin, user, accessToken, isAuthOpen, setIsAuthOpen } = useAuth();
+  const { parsed, goTab, pushPatch, replacePatch, goBack, searchParams, replaceSearch } =
+    useMainAppNavigation();
   const { selectedRegion, selectedDistrict } = useLocation();
   const { cartItems: rentalLineItems, clearCart: clearRentalCart } = useRentalCart();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [flowCheckoutOpen, setFlowCheckoutOpen] = useState(false);
-  const [flowRentalTermsOpen, setFlowRentalTermsOpen] = useState(false);
-  const [isCartOpen, setIsCartOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState(readStoredMainActiveTab);
-  const [isProfileOpen, setIsProfileOpen] = useState(false);
   const [profileOrderCategoryPreset, setProfileOrderCategoryPreset] = useState<
     undefined | 'all' | 'market' | 'shop' | 'rent' | 'food' | 'auction'
   >(undefined);
-  const [isBonusOpen, setIsBonusOpen] = useState(false);
-  const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
+
+  const activeTab = parsed.tab;
+  const isCartOpen = parsed.cart;
+  const isProfileOpen = parsed.profile;
+  const flowCheckoutOpen = parsed.checkout;
+  const flowRentalTermsOpen = parsed.rterms;
+  const activeView = parsed.view;
+  const selectedCatalogId = parsed.catalogId;
+  const selectedCategoryId = parsed.categoryId;
+
+  const mainNavBoot = useRef(false);
+  useLayoutEffect(() => {
+    if (mainNavBoot.current) return;
+    mainNavBoot.current = true;
+    if (!searchParams.has(MAIN_APP_QUERY.tab)) {
+      const stored = readStoredMainActiveTab();
+      replaceSearch(patchSearchParams(searchParams, { tab: stored }));
+    }
+  }, [searchParams, replaceSearch]);
+
+  useLayoutEffect(() => {
+    captureReferralFromUrlToSession();
+  }, []);
+
+  const authInUrl = searchParams.get(MAIN_APP_QUERY.auth) === '1';
+  useEffect(() => {
+    setIsAuthOpen(authInUrl);
+  }, [authInUrl, setIsAuthOpen]);
+
+  useEffect(() => {
+    if (!isAuthOpen) return;
+    if (searchParams.get(MAIN_APP_QUERY.auth) === '1') return;
+    pushPatch({ auth: '1' });
+  }, [isAuthOpen, searchParams, pushPatch]);
   
   // Debug location selection
   useEffect(() => {
     devLog('📍 AppContent Location:', { selectedRegion, selectedDistrict });
   }, [selectedRegion, selectedDistrict]);
-
-  // Debug activeTab changes
-  useEffect(() => {
-    devLog('🔴 AppContent: activeTab changed to:', activeTab);
-  }, [activeTab]);
 
   useEffect(() => {
     try {
@@ -285,11 +339,6 @@ export default function AppContent() {
   // Platform detection
   const platform = 'ios'; // iOS uslubidagi dizayn
   
-  // Yangi state'lar
-  const [activeView, setActiveView] = useState<'products' | 'catalog'>('products');
-  const [selectedCatalogId, setSelectedCatalogId] = useState<string | null>(null);
-  const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
-
   // Branch products state
   const [branches, setBranches] = useState<Branch[]>([]);
   const [branchProducts, setBranchProducts] = useState<Product[]>([]);
@@ -616,6 +665,14 @@ export default function AppContent() {
   // Use only real branch products - removed test/random products
   const allProducts = branchProducts;
 
+  const selectedProduct = useMemo((): Product | null => {
+    const key = parsed.productKey;
+    if (!key) return null;
+    const byUuid = allProducts.find((p) => String(p.productUuid ?? '').trim() === key);
+    if (byUuid) return byUuid;
+    return allProducts.find((p) => String(p.id) === key) ?? null;
+  }, [parsed.productKey, allProducts]);
+
   // Filterlangan mahsulotlar
   const filteredProducts = selectedCategoryId && selectedCatalogId
     ? allProducts.filter(p => p.categoryId === selectedCategoryId && p.catalogId === selectedCatalogId)
@@ -633,13 +690,8 @@ export default function AppContent() {
         vid = String(only.id);
       }
     }
-    const cartKey = vid ? `${product.id}_${vid}` : `${product.id}_default`;
-    const existing = cartItems.find((item) => {
-      const itemKey = item.selectedVariantId
-        ? `${item.id}_${item.selectedVariantId}`
-        : `${item.id}_default`;
-      return itemKey === cartKey;
-    });
+    const cartKey = regularCartLineKey(product, vid || undefined);
+    const existing = cartItems.find((item) => regularCartLineKeyFromItem(item) === cartKey);
     const currentQty = existing ? existing.quantity : 0;
     const check = canAddQuantity(product, vid || variantId, currentQty, quantity);
     if (!check.ok) {
@@ -648,25 +700,22 @@ export default function AppContent() {
     }
 
     setCartItems((prev) => {
-      const ex = prev.find((item) => {
-        const itemKey = item.selectedVariantId
-          ? `${item.id}_${item.selectedVariantId}`
-          : `${item.id}_default`;
-        return itemKey === cartKey;
-      });
+      const ex = prev.find((item) => regularCartLineKeyFromItem(item) === cartKey);
 
       if (ex) {
-        return prev.map((item) => {
-          const itemKey = item.selectedVariantId
-            ? `${item.id}_${item.selectedVariantId}`
-            : `${item.id}_default`;
-          return itemKey === cartKey
-            ? { ...item, quantity: item.quantity + quantity }
-            : item;
-        });
+        return prev.map((item) =>
+          regularCartLineKeyFromItem(item) === cartKey
+            ? {
+                ...item,
+                quantity: item.quantity + quantity,
+                cartLineKey: item.cartLineKey ?? cartKey,
+              }
+            : item,
+        );
       }
 
       const line = buildCartLinePricing(product, vid || variantId, variantName);
+      const selVid = vid || (variantId != null ? String(variantId).trim() : '');
       return [
         ...prev,
         {
@@ -674,7 +723,8 @@ export default function AppContent() {
           price: line.unitPrice,
           oldPrice: line.oldPrice ?? product.oldPrice,
           quantity,
-          selectedVariantId: vid || variantId,
+          cartLineKey: cartKey,
+          selectedVariantId: selVid || undefined,
           selectedVariantName: line.selectedVariantName ?? variantName,
           variantDetails: line.variantDetails,
         },
@@ -682,14 +732,72 @@ export default function AppContent() {
     });
   };
 
+  /** Bir nechta variantni bitta setState bilan qo‘shish (ketma-ket chaqiriqlarda birlasib ketmasin) */
+  const handleAddMarketVariantLines = (
+    product: Product,
+    lines: { variantId: string; variantName: string; quantity: number }[],
+  ) => {
+    const cleaned = lines.filter((l) => l.quantity > 0);
+    if (cleaned.length === 0) return;
+
+    setCartItems((prev) => {
+      let next = [...prev];
+      for (const { variantId: rawVid, variantName, quantity: qty } of cleaned) {
+        let vid = String(rawVid ?? '').trim();
+        if (
+          (!vid || vid === '0') &&
+          Array.isArray(product.variants) &&
+          product.variants.length === 1
+        ) {
+          const only = product.variants[0];
+          if (only?.id != null && String(only.id).trim() !== '') vid = String(only.id);
+        }
+        const cartKey = regularCartLineKey(product, vid || undefined);
+        const ex = next.find((item) => regularCartLineKeyFromItem(item) === cartKey);
+        const currentQty = ex ? ex.quantity : 0;
+        const check = canAddQuantity(product, vid, currentQty, qty);
+        if (!check.ok) {
+          toast.error(check.message);
+          continue;
+        }
+        if (ex) {
+          next = next.map((item) =>
+            regularCartLineKeyFromItem(item) === cartKey
+              ? {
+                  ...item,
+                  quantity: item.quantity + qty,
+                  cartLineKey: item.cartLineKey ?? cartKey,
+                }
+              : item,
+          );
+        } else {
+          const line = buildCartLinePricing(product, vid, variantName);
+          const selVid = vid || undefined;
+          next.push({
+            ...product,
+            price: line.unitPrice,
+            oldPrice: line.oldPrice ?? product.oldPrice,
+            quantity: qty,
+            cartLineKey: cartKey,
+            selectedVariantId: selVid,
+            selectedVariantName: line.selectedVariantName ?? variantName,
+            variantDetails: line.variantDetails,
+          });
+        }
+      }
+      return next;
+    });
+  };
+
   const handleUpdateQuantity = (id: number, quantity: number, variantId?: string) => {
     devLog('🔄 handleUpdateQuantity called:', { id, quantity, variantId });
     devLog('📋 Current cart items:', cartItems);
 
+    const vNorm = variantId != null ? String(variantId).trim() : '';
     const target = cartItems.find((item) =>
-      variantId
-        ? item.id === id && item.selectedVariantId === variantId
-        : item.id === id && !item.selectedVariantId,
+      vNorm
+        ? item.id === id && String(item.selectedVariantId ?? '').trim() === vNorm
+        : item.id === id && !String(item.selectedVariantId ?? '').trim(),
     );
     if (target && quantity > 0) {
       const check = canSetQuantity(target, quantity);
@@ -700,11 +808,11 @@ export default function AppContent() {
     }
 
     setCartItems((prev) => {
+      const vN = variantId != null ? String(variantId).trim() : '';
       const updated = prev.map(item => {
-        // Match both id and variantId
-        const matches = variantId 
-          ? (item.id === id && item.selectedVariantId === variantId)
-          : (item.id === id && !item.selectedVariantId);
+        const matches = vN
+          ? item.id === id && String(item.selectedVariantId ?? '').trim() === vN
+          : item.id === id && !String(item.selectedVariantId ?? '').trim();
         
         if (matches) {
           devLog('✅ Found matching item:', item, '-> new quantity:', quantity);
@@ -723,11 +831,11 @@ export default function AppContent() {
     devLog('📋 Current cart before remove:', cartItems);
     
     setCartItems(prev => {
+      const vN = variantId != null ? String(variantId).trim() : '';
       const filtered = prev.filter(item => {
-        // Remove only if both id and variantId match
-        const matches = variantId 
-          ? (item.id === id && item.selectedVariantId === variantId)
-          : (item.id === id && !item.selectedVariantId);
+        const matches = vN
+          ? item.id === id && String(item.selectedVariantId ?? '').trim() === vN
+          : item.id === id && !String(item.selectedVariantId ?? '').trim();
         
         if (matches) {
           devLog('❌ Removing item:', item);
@@ -742,18 +850,42 @@ export default function AppContent() {
   };
 
   const handleCatalogSelect = (catalogId: string) => {
-    setSelectedCatalogId(catalogId);
-    setSelectedCategoryId(null);
+    replacePatch({
+      [MAIN_APP_QUERY.cat]: catalogId,
+      [MAIN_APP_QUERY.subcat]: null,
+      [MAIN_APP_QUERY.view]: 'catalog',
+    });
   };
 
   const handleCategorySelect = (categoryId: string) => {
-    setSelectedCategoryId(categoryId);
-    setActiveView('products');
+    replacePatch({
+      [MAIN_APP_QUERY.subcat]: categoryId,
+      [MAIN_APP_QUERY.view]: 'products',
+    });
   };
 
   const handleBackToCatalogs = () => {
-    setSelectedCatalogId(null);
-    setSelectedCategoryId(null);
+    replacePatch({
+      [MAIN_APP_QUERY.cat]: null,
+      [MAIN_APP_QUERY.subcat]: null,
+      [MAIN_APP_QUERY.view]: 'catalog',
+    });
+  };
+
+  const handleMainViewChange = (view: 'products' | 'catalog') => {
+    if (view === 'products') {
+      replacePatch({
+        [MAIN_APP_QUERY.view]: 'products',
+        [MAIN_APP_QUERY.cat]: null,
+        [MAIN_APP_QUERY.subcat]: null,
+      });
+    } else {
+      replacePatch({
+        [MAIN_APP_QUERY.view]: 'catalog',
+        [MAIN_APP_QUERY.cat]: null,
+        [MAIN_APP_QUERY.subcat]: null,
+      });
+    }
   };
 
   const selectedCatalog = catalogs.find(c => c.id === selectedCatalogId);
@@ -808,7 +940,7 @@ export default function AppContent() {
 
     /** Ijara bo‘limidan savatda ijara bo‘lsa — avval «IJARA SHARTLARI», keyin «Roziman» → checkout */
     if (rentalLineItems.length > 0) {
-      setFlowRentalTermsOpen(true);
+      pushPatch({ rterms: '1' });
       return;
     }
 
@@ -817,14 +949,25 @@ export default function AppContent() {
         description: 'Buyurtma rasmiylashtirish uchun profilingizga kiring',
         duration: 4000,
       });
-      setIsCartOpen(false);
-      setIsAuthOpen(true);
+      pushPatch({ auth: '1', cart: null });
       return;
     }
 
-    setIsCartOpen(false);
-    setFlowCheckoutOpen(true);
-  }, [user, cartItems, rentalLineItems, setIsAuthOpen]);
+    replacePatch({ cart: null, checkout: '1' });
+  }, [user, cartItems, rentalLineItems, pushPatch, replacePatch]);
+
+  const openProductDetail = useCallback(
+    (product: Product) => {
+      const key = String(product.productUuid ?? '').trim() || String(product.id);
+      pushPatch({ product: key });
+    },
+    [pushPatch],
+  );
+
+  const closeAuthModal = useCallback(() => {
+    if (searchParams.get(MAIN_APP_QUERY.auth) === '1') goBack();
+    else setIsAuthOpen(false);
+  }, [goBack, searchParams, setIsAuthOpen]);
 
   const isCommunityFullscreen = activeTab === 'community' && !isProfileOpen;
   
@@ -850,19 +993,20 @@ export default function AppContent() {
     >
       {/* Backend health test - runs on mount */}
       <TestBackend />
+      <CommunityBackgroundNotifier activeTab={activeTab} />
       
       {/* Max-width container for desktop */}
       <div className={isCommunityFullscreen ? 'h-full' : 'mx-auto max-w-[1600px]'}>
         {!isCommunityFullscreen && (
           <Header
             cartCount={headerCartBadge}
-            onCommunityClick={() => setActiveTab('community')}
-            onCartClick={() => setIsCartOpen(true)}
+            onCommunityClick={() => goTab('community')}
+            onCartClick={() => pushPatch({ cart: '1' })}
             onProfileClick={() => {
               setProfileOrderCategoryPreset(undefined);
-              setIsProfileOpen(true);
+              pushPatch({ profile: '1' });
             }}
-            onAuthClick={!isAuthenticated ? () => setIsAuthOpen(true) : undefined}
+            onAuthClick={!isAuthenticated ? () => pushPatch({ auth: '1' }) : undefined}
           />
         )}
 
@@ -871,7 +1015,7 @@ export default function AppContent() {
             <MarketOrdersPreview
               onViewAll={() => {
                 setProfileOrderCategoryPreset('market');
-                setIsProfileOpen(true);
+                pushPatch({ profile: '1' });
               }}
             />
           </div>
@@ -893,7 +1037,7 @@ export default function AppContent() {
             )}
             
             {/* View Toggle */}
-            <ViewToggle activeView={activeView} onViewChange={setActiveView} />
+            <ViewToggle activeView={activeView} onViewChange={handleMainViewChange} />
 
             {/* Products View */}
             {activeView === 'products' && (
@@ -1007,10 +1151,11 @@ export default function AppContent() {
                     <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 sm:gap-5 md:gap-6 lg:gap-7 xl:gap-8">
                       {filteredProducts.map((product) => (
                         <ProductCard
-                          key={product.id}
+                          key={product.productUuid || product.id}
                           product={product}
                           onAddToCart={handleAddToCart}
-                          onProductClick={setSelectedProduct}
+                          onAddVariantLinesBatch={handleAddMarketVariantLines}
+                          onProductClick={openProductDetail}
                         />
                       ))}
                     </div>
@@ -1062,8 +1207,8 @@ export default function AppContent() {
               <button
                 type="button"
                 onClick={() => {
-                  setIsProfileOpen(false);
                   setProfileOrderCategoryPreset(undefined);
+                  goBack();
                 }}
                 className="p-2.5 rounded-2xl transition-all active:scale-90"
                 style={{
@@ -1085,9 +1230,8 @@ export default function AppContent() {
               <ProfileView
                 initialOrderCategory={profileOrderCategoryPreset}
                 onOpenBonus={() => {
-                  setIsProfileOpen(false);
                   setProfileOrderCategoryPreset(undefined);
-                  setActiveTab('bonus');
+                  pushPatch({ tab: 'bonus', profile: null });
                 }}
               />
             </div>
@@ -1108,7 +1252,7 @@ export default function AppContent() {
               );
               // Open cart automatically after adding
               setTimeout(() => {
-                setIsCartOpen(true);
+                pushPatch({ cart: '1' });
               }, 300);
             }} 
           />
@@ -1210,7 +1354,7 @@ export default function AppContent() {
               
               // Open cart automatically
               setTimeout(() => {
-                setIsCartOpen(true);
+                pushPatch({ cart: '1' });
               }, 300);
             }}
           />
@@ -1263,31 +1407,31 @@ export default function AppContent() {
 
         {/* Bonus Tab - Full Screen */}
         {activeTab === 'bonus' && !isProfileOpen && (
-          <Bonus onClose={() => setActiveTab('market')} />
+          <Bonus onClose={() => goBack()} />
         )}
 
         {activeTab === 'community' && !isProfileOpen && (
-          <CommunityView onBack={() => setActiveTab('market')} />
+          <CommunityView onBack={() => goBack()} />
         )}
 
         {/* Auction Tab - Full Screen */}
         {activeTab === 'auksion' && !isProfileOpen && (
           <AuctionView 
-            onClose={() => setActiveTab('market')}
+            onClose={() => goBack()}
             cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)}
-            onCartClick={() => setIsCartOpen(true)}
+            onCartClick={() => pushPatch({ cart: '1' })}
             onProfileClick={() => {
               setProfileOrderCategoryPreset(undefined);
-              setIsProfileOpen(true);
+              pushPatch({ profile: '1' });
             }}
             activeTab={activeTab}
-            onTabChange={setActiveTab}
+            onTabChange={goTab}
           />
         )}
 
         {/* Moshina Tab - Full Screen */}
         {activeTab === 'moshina' && !isProfileOpen && (
-          <CarPage onClose={() => setActiveTab('market')} />
+          <CarPage onClose={() => goBack()} />
         )}
 
         {/* Other tabs - Coming Soon */}
@@ -1353,7 +1497,7 @@ export default function AppContent() {
         <Cart
           items={cartItems}
           isOpen={isCartOpen}
-          onClose={() => setIsCartOpen(false)}
+          onClose={() => goBack()}
           onUpdateQuantity={handleUpdateQuantity}
           onRemoveItem={handleRemoveItem}
           onClearCart={() => setCartItems([])}
@@ -1364,7 +1508,7 @@ export default function AppContent() {
         {!isCommunityFullscreen && !isProfileOpen && (
           <BottomNav 
             activeTab={activeTab} 
-            onTabChange={setActiveTab}
+            onTabChange={goTab}
           />
         )}
 
@@ -1375,16 +1519,10 @@ export default function AppContent() {
           <ProductDetailModal
             product={selectedProduct}
             isOpen={!!selectedProduct}
-            onClose={() => setSelectedProduct(null)}
+            onClose={() => goBack()}
             onAddToCart={(product, quantity, variantId, variantName) => {
-              // Only add once when button is clicked
               handleAddToCart(product, quantity, variantId, variantName);
-              // Close modal
-              setSelectedProduct(null);
-              // Open cart automatically after adding
-              setTimeout(() => {
-                setIsCartOpen(true);
-              }, 300); // Small delay for smooth transition
+              replacePatch({ product: null, cart: '1' });
             }}
             cartItems={cartItems.map(item => ({
               id: item.id,
@@ -1399,24 +1537,24 @@ export default function AppContent() {
         {/* SMS Auth Modal - For phone number authentication */}
         <SMSAuthModal
           isOpen={isAuthOpen}
-          onClose={() => setIsAuthOpen(false)}
+          onClose={closeAuthModal}
           onSuccess={(user, session) => {
             smsSignin(user, session);
           }}
         />
 
         {!isCommunityFullscreen && !isProfileOpen && (
-          <SiteFooter onNavigateTab={setActiveTab} />
+          <SiteFooter onNavigateTab={goTab} />
         )}
       </div>
 
       <RentalTermsConsentModal
         open={flowRentalTermsOpen}
-        onClose={() => setFlowRentalTermsOpen(false)}
+        onClose={() => goBack()}
         onConfirm={async () => {
           if (!isAuthenticated || !accessToken) {
             toast.error('Buyurtma uchun avval tizimga kiring');
-            setIsAuthOpen(true);
+            pushPatch({ auth: '1' });
             return;
           }
           const customerName = user?.name || user?.firstName || '';
@@ -1436,9 +1574,7 @@ export default function AppContent() {
             return;
           }
 
-          setFlowRentalTermsOpen(false);
-          setIsCartOpen(false);
-          setFlowCheckoutOpen(true);
+          replacePatch({ rterms: null, cart: null, checkout: '1' });
         }}
         isDark={isDark}
         accentColor={accentColor}
@@ -1451,7 +1587,7 @@ export default function AppContent() {
           orderType={checkoutOrderTypeDerived}
           rentalLineItems={rentalLineItems.length > 0 ? rentalLineItems : undefined}
           rentalTermsPreAccepted={rentalLineItems.length > 0}
-          onClose={() => setFlowCheckoutOpen(false)}
+          onClose={() => goBack()}
           onOrderSuccess={() => {
             setCartItems([]);
             setRefreshKey((k) => k + 1);
