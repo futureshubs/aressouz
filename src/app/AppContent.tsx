@@ -70,21 +70,6 @@ function readStoredMainActiveTab(): string {
   }
 }
 
-/** Mobil: bitta ichki scroll (iOS/Android); desktop: overflow-visible. `display:contents` — profil/community rejimida qayta mount bo‘lmasin */
-function MobileMainScroll({ lock, children }: { lock: boolean; children: React.ReactNode }) {
-  return (
-    <div
-      className={
-        lock
-          ? 'contents'
-          : 'app-main-scroll flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain pb-24 touch-pan-y [-webkit-overflow-scrolling:touch] sm:pb-32 max-[639px]:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))] lg:h-auto lg:min-h-0 lg:overflow-visible lg:pb-0'
-      }
-    >
-      {children}
-    </div>
-  );
-}
-
 // Main App Component
 interface Product {
   id: number;
@@ -995,45 +980,49 @@ export default function AppContent() {
     !!selectedDistrict &&
     (isLoadingBranches || isLoadingProducts);
 
+  /** Mobil (<sm): bitta ichki scroll — iOS/Android WebView da body scroll ishonchsiz bo‘lishi mumkin */
+  const mainAppMobileScroll = !isCommunityFullscreen && !isProfileOpen;
+  const appScrollShellClass = mainAppMobileScroll
+    ? 'max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto max-sm:overflow-x-hidden max-sm:overscroll-y-contain max-sm:touch-pan-y max-sm:[-webkit-overflow-scrolling:touch] max-sm:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))] sm:contents'
+    : isCommunityFullscreen
+      ? 'h-full min-h-0 flex flex-col overflow-hidden'
+      : 'contents';
+  const appInnerColumnClass = isCommunityFullscreen ? 'h-full min-h-0' : 'mx-auto max-w-[1600px]';
+
   return (
     <CheckoutFlowProvider value={{ openCheckoutFlow }}>
     <div
       className={`${
         isCommunityFullscreen
-          ? 'h-dvh min-h-dvh overflow-hidden bg-background text-foreground'
+          ? 'h-dvh min-h-dvh overflow-hidden'
           : isProfileOpen
-            ? 'h-dvh min-h-dvh overflow-hidden bg-background text-foreground'
-            : 'flex min-h-0 h-[100dvh] max-h-[100dvh] flex-col overflow-hidden bg-background text-foreground lg:block lg:h-auto lg:max-h-none lg:min-h-dvh lg:overflow-visible'
-      }`}
+            ? 'h-dvh min-h-dvh overflow-hidden'
+            : [
+                'min-h-dvh pb-24 sm:pb-32 max-[639px]:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))]',
+                'max-sm:flex max-sm:flex-col max-sm:h-dvh max-sm:max-h-dvh max-sm:overflow-hidden max-sm:pb-0',
+              ].join(' ')
+      } bg-background text-foreground`}
     >
       {/* Backend health test - runs on mount */}
       <TestBackend />
       <CommunityBackgroundNotifier activeTab={activeTab} />
       
-      {/* Max-width container for desktop */}
-      <div
-        className={
-          isCommunityFullscreen
-            ? 'flex h-full min-h-0 flex-col'
-            : 'mx-auto flex h-full min-h-0 max-w-[1600px] flex-1 flex-col lg:mx-auto lg:block lg:h-auto lg:min-h-0'
-        }
-      >
+      <div className={appScrollShellClass}>
+      {/* Max-width container for desktop; mobil: scroll qobig‘i ichida */}
+      <div className={appInnerColumnClass}>
         {!isCommunityFullscreen && (
-          <div className="shrink-0">
-            <Header
-              cartCount={headerCartBadge}
-              onCommunityClick={() => goTab('community')}
-              onCartClick={() => pushPatch({ cart: '1' })}
-              onProfileClick={() => {
-                setProfileOrderCategoryPreset(undefined);
-                pushPatch({ profile: '1' });
-              }}
-              onAuthClick={!isAuthenticated ? () => pushPatch({ auth: '1' }) : undefined}
-            />
-          </div>
+          <Header
+            cartCount={headerCartBadge}
+            onCommunityClick={() => goTab('community')}
+            onCartClick={() => pushPatch({ cart: '1' })}
+            onProfileClick={() => {
+              setProfileOrderCategoryPreset(undefined);
+              pushPatch({ profile: '1' });
+            }}
+            onAuthClick={!isAuthenticated ? () => pushPatch({ auth: '1' }) : undefined}
+          />
         )}
 
-        <MobileMainScroll lock={isCommunityFullscreen || isProfileOpen}>
         {activeTab === 'market' && !isProfileOpen && !isCommunityFullscreen && (
           <div className="px-4 sm:px-6 pt-1">
             <MarketOrdersPreview
@@ -1518,11 +1507,6 @@ export default function AppContent() {
           </div>
         )}
 
-        {!isCommunityFullscreen && !isProfileOpen && (
-          <SiteFooter onNavigateTab={goTab} />
-        )}
-        </MobileMainScroll>
-
         <Cart
           items={cartItems}
           isOpen={isCartOpen}
@@ -1571,6 +1555,11 @@ export default function AppContent() {
             smsSignin(user, session);
           }}
         />
+
+        {!isCommunityFullscreen && !isProfileOpen && (
+          <SiteFooter onNavigateTab={goTab} />
+        )}
+      </div>
       </div>
 
       <RentalTermsConsentModal

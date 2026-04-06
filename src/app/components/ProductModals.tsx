@@ -184,10 +184,10 @@ export function ProductDetailModal({
       {/* Header */}
       <div 
         className="shrink-0 z-20 px-4 py-3 flex items-center justify-between backdrop-blur-xl"
-        style={{ paddingTop: 'max(0.75rem, var(--app-safe-top, 0px))' }}
-        style={{ 
+        style={{
+          paddingTop: 'max(0.75rem, var(--app-safe-top, 0px))',
           background: isDark ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)',
-          borderBottom: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+          borderBottom: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
         }}
       >
         <button

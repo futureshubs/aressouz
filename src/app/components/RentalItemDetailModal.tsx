@@ -390,7 +390,18 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
                 <div className="flex items-center gap-2 mb-2">
                   <Shield className="size-4" style={{ color: accentColor.color }} />
                   <span className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.8)' }}>
-                    Garov: <strong>{item.deposit.toLocaleString()} so'm</strong>
+                    Garov:{' '}
+                    <strong>
+                      {(() => {
+                        const raw = String(item.deposit).trim();
+                        const compact = raw.replace(/\s/g, '').replace(/,/g, '');
+                        if (/^\d+(\.\d+)?$/.test(compact)) {
+                          const n = Number(compact);
+                          return `${n.toLocaleString()} so'm`;
+                        }
+                        return raw;
+                      })()}
+                    </strong>
                   </span>
                 </div>
               )}

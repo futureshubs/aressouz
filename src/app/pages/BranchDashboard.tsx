@@ -19,6 +19,7 @@ import {
   MapPin,
   User,
   Car,
+  Truck,
   Bike,
   ChefHat,
   Map,
@@ -61,6 +62,7 @@ import { Payments } from '../components/branch/Payments';
 import { StaffManagement } from '../components/branch/StaffManagement';
 import { Reports } from '../components/branch/Reports';
 import { Couriers } from '../components/branch/Couriers';
+import { AutoCouriers } from '../components/branch/AutoCouriers';
 import { CourierBagsPanel } from '../components/branch/CourierBagsPanel';
 import { PickupRacksPanel } from '../components/branch/PickupRacksPanel';
 import { BranchRefundsPanel } from '../components/branch/BranchRefundsPanel';
@@ -311,6 +313,7 @@ export default function BranchDashboard() {
     
     // Hodimlar
     { id: 'couriers', label: 'Kuryer', icon: Bike },
+    { id: 'auto-couriers', label: 'Avto-kuryer', icon: Truck },
     { id: 'courier-bags', label: 'So\'mkalar', icon: BriefcaseBusiness },
     { id: 'pickup-racks', label: 'Olib ketish rastasi', icon: MapPin },
     { id: 'preparers', label: 'Tayyorlovchi', icon: ChefHat },
@@ -723,6 +726,13 @@ export default function BranchDashboard() {
                   { id: 'market', label: 'Market', desc: 'Mahsulotlar, kategoriya, zaxira', icon: Store, color: '#3b82f6' },
                   { id: 'payments', label: 'To‘lovlar', desc: 'Pending/paid, cheklar, hisob-kitob', icon: CreditCard, color: '#f59e0b' },
                   { id: 'couriers', label: 'Kuryerlar', desc: 'Kuryerlar ro‘yxati va holati', icon: Bike, color: '#10b981' },
+                  {
+                    id: 'auto-couriers',
+                    label: 'Avto-kuryer',
+                    desc: 'Katta yuk / ijara yetkazish',
+                    icon: Truck,
+                    color: '#ea580c',
+                  },
                   { id: 'chat', label: 'Chat', desc: 'Mijozlar bilan suhbat', icon: MessageSquare, color: '#a855f7' },
                   { id: 'reports', label: 'Hisobotlar', desc: 'Kunlik/oylik ko‘rsatkichlar', icon: FileBarChart, color: '#ef4444' },
                 ].map((x) => {
@@ -966,6 +976,17 @@ export default function BranchDashboard() {
             />
           )}
 
+          {activeTab === 'auto-couriers' && branchInfo && (
+            <AutoCouriers
+              branchId={branchInfo.id}
+              branchInfo={{
+                region: branchInfo.region,
+                district: branchInfo.district,
+                phone: branchInfo.phone,
+              }}
+            />
+          )}
+
           {activeTab === 'courier-bags' && branchInfo && (
             <CourierBagsPanel
               branchId={branchInfo.id}
@@ -1051,6 +1072,7 @@ export default function BranchDashboard() {
             activeTab !== 'statistics' &&
             activeTab !== 'profile' &&
             activeTab !== 'couriers' &&
+            activeTab !== 'auto-couriers' &&
             activeTab !== 'courier-bags' &&
             activeTab !== 'pickup-racks' &&
             activeTab !== 'chat' &&

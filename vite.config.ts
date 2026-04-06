@@ -2,7 +2,7 @@ import fs from 'node:fs'
 import path from 'path'
 import tailwindcss from '@tailwindcss/vite'
 import react from '@vitejs/plugin-react'
-import { defineConfig, type Plugin } from 'vite'
+import { defineConfig, loadEnv, type Plugin } from 'vite'
 import { publicAnonKey, supabaseUrl } from './utils/supabase/info'
 
 /** Production `dist/sw.js` ga barcha asset URL larni yozadi — PWA oflayn / Lighthouse */
@@ -82,7 +82,13 @@ function appVersionPlugin(): Plugin {
   }
 }
 
-export default defineConfig({
+export default defineConfig(({ mode }) => {
+  const env = loadEnv(mode, process.cwd(), '')
+  /** Bulutdagi function yangilanmagan bo‘lsa 404; mahalliy: `supabase functions serve` + `http://127.0.0.1:54321` */
+  const functionsProxyTarget =
+    (env.VITE_SUPABASE_FUNCTIONS_PROXY || '').trim() || supabaseUrl
+
+  return {
   optimizeDeps: {
     include: ['react', 'react-dom', 'react/jsx-runtime'],
   },
@@ -113,7 +119,7 @@ export default defineConfig({
       // Dev-only proxy to avoid browser CORS preflight issues with Supabase Edge Functions.
       // Frontend should call: /functions/v1/make-server-27d0d16c/...
       '/functions/v1': {
-        target: supabaseUrl,
+        target: functionsProxyTarget,
         changeOrigin: true,
         secure: true,
         headers: {
@@ -139,4 +145,5 @@ export default defineConfig({
       },
     },
   },
+}
 })

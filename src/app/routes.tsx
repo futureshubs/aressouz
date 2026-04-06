@@ -19,6 +19,8 @@ const BranchLogin = lazy(() => import('./pages/BranchLogin'));
 const BranchDashboard = lazy(() => import('./pages/BranchDashboard'));
 const CourierLogin = lazy(() => import('./pages/CourierLogin'));
 const CourierDashboard = lazy(() => import('./pages/CourierDashboard'));
+const AutoCourierLogin = lazy(() => import('./pages/AutoCourierLogin'));
+const AutoCourierDashboard = lazy(() => import('./pages/AutoCourierDashboard'));
 const CourierMapPage = lazy(() => import('./pages/CourierMapPage'));
 const SellerLogin = lazy(() => import('./pages/SellerLogin'));
 const SellerDashboard = lazy(() => import('./pages/SellerDashboard'));
@@ -134,6 +136,14 @@ export const router = createBrowserRouter([
   {
     path: '/kuryer/xarita',
     element: <AdminRoute>{withSuspense(<CourierMapPage />)}</AdminRoute>,
+  },
+  {
+    path: '/avtokuryer',
+    element: <AdminRoute>{withSuspense(<AutoCourierLogin />)}</AdminRoute>,
+  },
+  {
+    path: '/avtokuryer/dashboard',
+    element: <AdminRoute>{withSuspense(<AutoCourierDashboard />)}</AdminRoute>,
   },
   {
     path: '/tayyorlovchi',

@@ -2,6 +2,88 @@ import { Hono } from "npm:hono";
 import * as kv from "./kv_store.tsx";
 import * as r2 from "./r2-storage.tsx";
 import { createClient } from "npm:@supabase/supabase-js@2";
+import {
+  escapeTelegramHtml,
+  isValidTelegramTarget,
+  sendHtmlTelegramWithToken,
+} from "./telegram.tsx";
+
+function telegramRentalBotToken(): string {
+  return (
+    String(Deno.env.get("TELEGRAM_RENTAL_BOT_TOKEN") || "").trim() ||
+    String(Deno.env.get("TELEGRAM_BOT_TOKEN") || "").trim()
+  );
+}
+
+function telegramAutoCourierBotToken(): string {
+  return (
+    String(Deno.env.get("TELEGRAM_AUTO_COURIER_BOT_TOKEN") || "").trim() ||
+    String(Deno.env.get("TELEGRAM_BOT_TOKEN") || "").trim()
+  );
+}
+
+async function sendRentalOrderTelegrams(order: any, product: any, branchId: string) {
+  try {
+    const prepChat = String(
+      product?.telegramChatId || order.prepTelegramChatId || "",
+    ).trim();
+    const rentalBot = telegramRentalBotToken();
+    if (prepChat && isValidTelegramTarget(prepChat) && rentalBot) {
+      const html = [
+        `<b>Ijara: buyurtma tushdi</b>`,
+        `Tayyorlab turing.`,
+        ``,
+        `Mahsulot: ${escapeTelegramHtml(order.productName)}`,
+        `Mijoz: ${escapeTelegramHtml(order.customerName)}`,
+        `Tel: ${escapeTelegramHtml(order.customerPhone)}`,
+        order.address ? `Manzil: ${escapeTelegramHtml(order.address)}` : "",
+        `Summa: ${escapeTelegramHtml(String(order.totalPrice))} so'm`,
+        `ID: ${escapeTelegramHtml(order.id)}`,
+      ]
+        .filter(Boolean)
+        .join("\n");
+      await sendHtmlTelegramWithToken(rentalBot, prepChat, html);
+    }
+
+    if (order.requiresAutoCourier === true) {
+      const acBot = telegramAutoCourierBotToken();
+      if (acBot) {
+        const all = (await kv.getByPrefix("auto_courier:")) || [];
+        const couriers = all.filter(
+          (x: any) =>
+            x &&
+            !x.deleted &&
+            String(x.branchId) === branchId &&
+            String(x.status) === "active",
+        );
+        const w = order.productWeightKg != null
+          ? String(order.productWeightKg)
+          : "—";
+        const html = [
+          `<b>Ijara: katta yuk / avto-kuryer</b>`,
+          `Yangi buyurtma — yetkazish uchun panelda ko'ring.`,
+          ``,
+          `Mahsulot: ${escapeTelegramHtml(order.productName)}`,
+          `Og'irlik: ${escapeTelegramHtml(w)} kg`,
+          `Mijoz: ${escapeTelegramHtml(order.customerName)}`,
+          `Tel: ${escapeTelegramHtml(order.customerPhone)}`,
+          order.address ? `Manzil: ${escapeTelegramHtml(order.address)}` : "",
+          `ID: ${escapeTelegramHtml(order.id)}`,
+        ]
+          .filter(Boolean)
+          .join("\n");
+        for (const c of couriers) {
+          const cid = String(c.telegramChatId || "").trim();
+          if (cid && isValidTelegramTarget(cid)) {
+            await sendHtmlTelegramWithToken(acBot, cid, html);
+          }
+        }
+      }
+    }
+  } catch (e) {
+    console.error("sendRentalOrderTelegrams:", e);
+  }
+}
 
 const app = new Hono();
 
@@ -275,10 +357,18 @@ app.post('/products', async (c) => {
     }
     
     const productId = `${body.branchId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-    
+
+    const rawChat = String(body.telegramChatId || "").trim();
+    const weightKg = Math.max(0, Number(body.weightKg) || 0);
+    const requiresAutoCourier =
+      Boolean(body.requiresAutoCourier) || weightKg > 10;
+
     const product = {
       id: productId,
       ...body,
+      telegramChatId: isValidTelegramTarget(rawChat) ? rawChat : "",
+      weightKg,
+      requiresAutoCourier,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: 'active',
@@ -329,10 +419,26 @@ app.put('/products/:id', async (c) => {
       return c.json({ success: false, error: 'Product not found' }, 404);
     }
     
+    const rawChat =
+      body.telegramChatId !== undefined
+        ? String(body.telegramChatId || "").trim()
+        : String(existingProduct.telegramChatId || "").trim();
+    const weightKg =
+      body.weightKg !== undefined
+        ? Math.max(0, Number(body.weightKg) || 0)
+        : Math.max(0, Number(existingProduct.weightKg) || 0);
+    const requiresAutoCourier =
+      body.requiresAutoCourier !== undefined
+        ? Boolean(body.requiresAutoCourier) || weightKg > 10
+        : Boolean(existingProduct.requiresAutoCourier) || weightKg > 10;
+
     const updatedProduct = {
       ...existingProduct,
       ...body,
       id: existingProduct.id,
+      telegramChatId: isValidTelegramTarget(rawChat) ? rawChat : "",
+      weightKg,
+      requiresAutoCourier,
       updatedAt: new Date().toISOString()
     };
     
@@ -559,6 +665,18 @@ app.post('/orders', async (c) => {
       return c.json({ success: false, error: 'Mijoz ismi va telefon majburiy' }, 400);
     }
 
+    const prodKey = `rental_product_${body.branchId}_${body.productId}`;
+    const productRow = await kv.get(prodKey);
+    const weightKg = Math.max(
+      0,
+      Number(
+        productRow?.weightKg ?? body.productWeightKg ?? body.weightKg ?? 0,
+      ) || 0,
+    );
+    const requiresAutoCourier =
+      Boolean(productRow?.requiresAutoCourier) || weightKg > 10;
+    const prepTelegramChatId = String(productRow?.telegramChatId || "").trim();
+
     const orderId = `${body.branchId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const qty = Math.max(1, Number(body.quantity) || 1);
     const contractStartDate =
@@ -628,9 +746,16 @@ app.post('/orders', async (c) => {
       status: 'active',
       /** Kuryer tasdiqlaguncha (confirmDelivery) */
       deliveryPending: true,
+      prepTelegramChatId,
+      productWeightKg: weightKg,
+      requiresAutoCourier,
+      assignedAutoCourierId: null,
+      assignedAutoCourierAt: null,
     };
 
     await kv.set(`rental_order_${body.branchId}_${orderId}`, order);
+
+    void sendRentalOrderTelegrams(order, productRow, body.branchId);
 
     const pk = normalizePhoneDigits(order.customerPhone);
     if (pk) {

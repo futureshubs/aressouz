@@ -60,35 +60,8 @@ export default function App() {
     setThemeColor();
     setAppleMeta();
 
-    // Prevent zoom on double tap (but allow scrolling)
-    let lastTouchEnd = 0;
-    const preventZoom = (e: TouchEvent) => {
-      const now = Date.now();
-      const timeSinceLastTouch = now - lastTouchEnd;
-      
-      // Only prevent if double-tap detected (within 300ms)
-      if (timeSinceLastTouch > 0 && timeSinceLastTouch <= 300 && e.cancelable) {
-        e.preventDefault();
-      }
-      lastTouchEnd = now;
-    };
-
-    // Prevent pinch zoom (2+ fingers)
-    const preventPinchZoom = (e: TouchEvent) => {
-      if (e.touches.length > 1 && e.cancelable) {
-        e.preventDefault();
-      }
-    };
-
-    // Add event listeners with proper options
-    document.addEventListener('touchend', preventZoom, { passive: false });
-    document.addEventListener('touchmove', preventPinchZoom, { passive: false });
-
-    // Cleanup
-    return () => {
-      document.removeEventListener('touchend', preventZoom);
-      document.removeEventListener('touchmove', preventPinchZoom);
-    };
+    // Kattalashtirishni viewport (user-scalable=no) boshqaradi.
+    // document darajasida touchend/touchmove preventDefault iOS/Android da sahifa scrollini sindirishi mumkin — ulanmaymiz.
   }, []);
 
   useEffect(() => {

@@ -1,5 +1,5 @@
 /* ARESSO PWA — precache shell + build assets + runtime cache + offline support */
-const VERSION = 'aressouz-sw-7';
+const VERSION = 'aressouz-sw-8';
 const PRECACHE = `precache-${VERSION}`;
 const RUNTIME = `runtime-${VERSION}`;
 
@@ -109,15 +109,19 @@ async function handleNavigation(request) {
     if (shell) return shell;
     const offline = await caches.match('/offline.html');
     if (offline) return offline;
-    return new Response('Offline', {
-      status: 503,
-      statusText: 'Service Unavailable',
-      headers: { 'Content-Type': 'text/plain; charset=utf-8' },
-    });
+    return offlineResponse();
   }
 }
 
 /** Statik asset: avval kesh, keyin tarmoq; muvaffaqiyatli javobni keshga */
+function offlineResponse() {
+  return new Response('Offline', {
+    status: 503,
+    statusText: 'Service Unavailable',
+    headers: { 'Content-Type': 'text/plain; charset=utf-8' },
+  });
+}
+
 async function handleAsset(request) {
   const cached = await caches.match(request);
   if (cached) {
@@ -138,7 +142,8 @@ async function handleAsset(request) {
     }
     return res;
   } catch {
-    return caches.match(request);
+    const fromCache = await caches.match(request);
+    return fromCache || offlineResponse();
   }
 }
 
@@ -165,15 +170,19 @@ self.addEventListener('fetch', (event) => {
     request.destination === 'font' ||
     url.includes('/assets/')
   ) {
-    event.respondWith(
-      handleAsset(request).then(async (r) => {
-        if (r) return r;
-        const precache = await caches.open(PRECACHE);
-        const p = await precache.match(request);
-        if (p) return p;
-        return fetch(request);
-      }),
-    );
+  event.respondWith(
+    handleAsset(request).then(async (r) => {
+      if (r) return r;
+      const precache = await caches.open(PRECACHE);
+      const p = await precache.match(request);
+      if (p) return p;
+      try {
+        return await fetch(request);
+      } catch {
+        return offlineResponse();
+      }
+    }),
+  );
     return;
   }
 
@@ -188,7 +197,8 @@ self.addEventListener('fetch', (event) => {
         const precache = await caches.open(PRECACHE);
         const r2 = await precache.match(request);
         if (r2) return r2;
-        return caches.match(request);
+        const any = await caches.match(request);
+        return any || offlineResponse();
       }
     })(),
   );

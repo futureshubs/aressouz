@@ -47,7 +47,10 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
       monthly: { enabled: false, price: '' }
     },
     quantity: 1,
-    description: ''
+    description: '',
+    telegramChatId: '',
+    weightKg: '',
+    requiresAutoCourier: false,
   });
 
   const [newFeature, setNewFeature] = useState('');
@@ -160,9 +163,12 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
         ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${editingProduct.id}`
         : `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products`;
 
+      const w = Math.max(0, Number(formData.weightKg) || 0);
       const payload = {
         ...formData,
-        branchId
+        branchId,
+        weightKg: w,
+        requiresAutoCourier: formData.requiresAutoCourier || w > 10,
       };
 
       console.log('📤 Sending request to:', url);
@@ -242,7 +248,13 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
         monthly: { enabled: false, price: '' }
       },
       quantity: product.totalQuantity || 1,
-      description: product.description || ''
+      description: product.description || '',
+      telegramChatId: product.telegramChatId || '',
+      weightKg:
+        product.weightKg !== undefined && product.weightKg !== null
+          ? String(product.weightKg)
+          : '',
+      requiresAutoCourier: Boolean(product.requiresAutoCourier),
     });
     setShowModal(true);
   };
@@ -266,7 +278,10 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
         monthly: { enabled: false, price: '' }
       },
       quantity: 1,
-      description: ''
+      description: '',
+      telegramChatId: '',
+      weightKg: '',
+      requiresAutoCourier: false,
     });
     setEditingProduct(null);
     setNewFeature('');
@@ -448,9 +463,22 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                     <ImageIcon className="w-12 h-12" style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }} />
                   </div>
                 )}
-                <div className="absolute top-3 right-3 px-3 py-1 rounded-full text-xs font-medium" 
-                     style={{ background: accentColor.color, color: '#ffffff' }}>
-                  {product.availableQuantity}/{product.totalQuantity}
+                <div className="absolute top-3 right-3 flex flex-col gap-1 items-end">
+                  {(product.requiresAutoCourier ||
+                    (Number(product.weightKg) > 10)) && (
+                    <span
+                      className="px-2 py-0.5 rounded-lg text-[10px] font-semibold uppercase tracking-wide"
+                      style={{ background: '#f59e0b', color: '#111' }}
+                    >
+                      Avto-kuryer
+                    </span>
+                  )}
+                  <span
+                    className="px-3 py-1 rounded-full text-xs font-medium"
+                    style={{ background: accentColor.color, color: '#ffffff' }}
+                  >
+                    {product.availableQuantity}/{product.totalQuantity}
+                  </span>
                 </div>
               </div>
 
@@ -517,7 +545,8 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                 </div>
               </div>
             </div>
-          ))}\n        </div>
+          ))}
+        </div>
       )}
 
       {/* Modal */}
@@ -762,9 +791,9 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                 </div>
 
                 <div>
-                  <label className="block mb-2 font-medium">Garov (so'm)</label>
+                  <label className="block mb-2 font-medium">Garov</label>
                   <input
-                    type="number"
+                    type="text"
                     value={formData.deposit}
                     onChange={(e) => setFormData(prev => ({ ...prev, deposit: e.target.value }))}
                     className="w-full px-4 py-3 rounded-2xl outline-none"
@@ -772,8 +801,14 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                       background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
                       border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`
                     }}
-                    placeholder="Masalan: 1000000"
+                    placeholder="Masalan: 500 000 so'm yoki pasport seriya/raqam, yoki boshqa shart"
                   />
+                  <p
+                    className="text-xs mt-1.5"
+                    style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
+                  >
+                    Ixtiyoriy matn: pul miqdori, hujjat yoki qisqa izoh — qanday yozsangiz, shunday saqlanadi.
+                  </p>
                 </div>
               </div>
 
@@ -991,6 +1026,84 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                       ))}
                     </div>
                   )}
+                </div>
+              </div>
+
+              {/* Telegram va og‘irlik */}
+              <div
+                className="rounded-2xl p-4 space-y-4 border"
+                style={{
+                  borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+                  background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                }}
+              >
+                <p className="font-semibold text-sm" style={{ color: accentColor.color }}>
+                  Telegram va yetkazish (ijara bot)
+                </p>
+                <div>
+                  <label className="block mb-2 font-medium">Tayyorlovchi Telegram chat ID</label>
+                  <input
+                    type="text"
+                    value={formData.telegramChatId}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, telegramChatId: e.target.value }))
+                    }
+                    className="w-full px-4 py-3 rounded-2xl outline-none font-mono text-sm"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                    }}
+                    placeholder="Masalan: -1001234567890 yoki @username"
+                  />
+                  <p
+                    className="text-xs mt-1.5"
+                    style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
+                  >
+                    Buyurtma tushganda shu chatga «tayyorlab turing» xabari ketadi. Alohida bot: Supabase
+                    secrets — TELEGRAM_RENTAL_BOT_TOKEN (yo‘q bo‘lsa TELEGRAM_BOT_TOKEN).
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block mb-2 font-medium">Og‘irlik (kg)</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step={0.1}
+                      value={formData.weightKg}
+                      onChange={(e) => {
+                        const v = e.target.value;
+                        const n = Math.max(0, Number(v) || 0);
+                        setFormData((prev) => ({
+                          ...prev,
+                          weightKg: v,
+                          requiresAutoCourier: prev.requiresAutoCourier || n > 10,
+                        }));
+                      }}
+                      className="w-full px-4 py-3 rounded-2xl outline-none"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                      }}
+                      placeholder="0"
+                    />
+                  </div>
+                  <label className="flex items-center gap-3 cursor-pointer pt-8 md:pt-10">
+                    <input
+                      type="checkbox"
+                      checked={formData.requiresAutoCourier}
+                      onChange={(e) =>
+                        setFormData((prev) => ({
+                          ...prev,
+                          requiresAutoCourier: e.target.checked,
+                        }))
+                      }
+                      className="w-5 h-5 rounded"
+                    />
+                    <span className="text-sm">
+                      Katta yuk — avto-kuryer yetkazadi (10 kg dan oshsa avtomatik ham yoqiladi)
+                    </span>
+                  </label>
                 </div>
               </div>
 

@@ -11,7 +11,7 @@ const TELEGRAM_RESTAURANT_BOT_TOKEN = Deno.env.get('TELEGRAM_RESTAURANT_BOT_TOKE
 type NotificationType = 'shop' | 'restaurant';
 
 /** HTML parse_mode uchun — < > & bo‘lsa Telegram 400 qaytaradi (test oddiy matn bilan o‘tadi). */
-function escapeTelegramHtml(s: string): string {
+export function escapeTelegramHtml(s: string): string {
   return String(s ?? '')
     .replace(/&/g, '&amp;')
     .replace(/</g, '&lt;')
@@ -279,6 +279,36 @@ export async function sendHtmlMessage(notification: HtmlMessageNotification): Pr
     return true;
   } catch (error) {
     console.error('Error sending HTML message:', error);
+    return false;
+  }
+}
+
+/**
+ * Ijara / avto-kuryer: o‘z bot tokeningiz bilan HTML (masalan TELEGRAM_RENTAL_BOT_TOKEN).
+ */
+export async function sendHtmlTelegramWithToken(
+  botToken: string | undefined | null,
+  chatId: string,
+  html: string,
+): Promise<boolean> {
+  const tok = String(botToken || '').trim();
+  const cid = String(chatId || '').trim();
+  const text = String(html || '').trim();
+  if (!tok || !cid || !text || !isValidTelegramTarget(cid)) return false;
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${tok}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: cid, text, parse_mode: 'HTML' }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      console.error('sendHtmlTelegramWithToken:', err);
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('sendHtmlTelegramWithToken:', e);
     return false;
   }
 }

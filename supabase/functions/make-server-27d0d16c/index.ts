@@ -10,6 +10,7 @@ import * as carSeed from "./car-seed.tsx";
 import * as telegram from "./telegram.tsx";
 import restaurantRoutes from "./restaurants.tsx";
 import rentalRoutes from "./rentals.tsx";
+import autoCourierRoutes from "./auto-courier.tsx";
 import auctionRoutes from "./auction.tsx";
 import bonusRoutes, { deductBonusForOrderPurchase, getUserBonusData } from "./bonus.tsx";
 import bannerRoutes from "./banners.tsx";
@@ -231,6 +232,8 @@ app.use("*", async (c, next) => {
       c.req.header("x-admin-code") ||
       c.req.header("X-Courier-Token") ||
       c.req.header("x-courier-token") ||
+      c.req.header("X-Auto-Courier-Token") ||
+      c.req.header("x-auto-courier-token") ||
       c.req.header("X-Seller-Token") ||
       c.req.header("x-seller-token") ||
       c.req.header("X-Accountant-Token") ||
@@ -241,8 +244,9 @@ app.use("*", async (c, next) => {
     // Allow courier endpoints authenticated via `?token=...` query param.
     // This helps avoid CORS preflight issues for Authorization/custom headers.
     const isCourierPath = path.includes("/courier/");
+    const isAutoCourierPath = path.includes("/auto-courier/");
     const queryToken = c.req.query("token");
-    if (isCourierPath && queryToken) {
+    if ((isCourierPath || isAutoCourierPath) && queryToken) {
       await next();
       return;
     }
@@ -278,6 +282,8 @@ app.use("/*", async (c, next) => {
       "x-seller-token",
       "X-Courier-Token",
       "x-courier-token",
+      "X-Auto-Courier-Token",
+      "x-auto-courier-token",
       "X-Admin-Code",
       "x-admin-code",
       "X-Admin-Session",
@@ -15295,6 +15301,7 @@ app.route('/make-server-27d0d16c', restaurantRoutes);
 
 // ==================== RENTAL ROUTES ====================
 app.route('/make-server-27d0d16c/rentals', rentalRoutes);
+app.route("/make-server-27d0d16c", autoCourierRoutes);
 
 // ==================== AUCTION ROUTES ====================
 app.route('/make-server-27d0d16c', auctionRoutes);

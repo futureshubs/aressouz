@@ -4,3 +4,5 @@
 # Shuning uchun JWT tekshiruvi o‘chirilgan bo‘lishi kerak; himoya Hono ichidagi route auth da.
 [functions.make-server-27d0d16c]
 verify_jwt = false
+# Loyihada `index.tsx` ham bor; Edge faqat bitta kirish nuqtasini ishlatadi — avto-kuryer marshrutlari `index.ts` da.
+entrypoint = "index.ts"
