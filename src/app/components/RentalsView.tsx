@@ -161,15 +161,6 @@ export function RentalsView({ platform }: RentalsViewProps) {
   const selectedDistrictData = selectedRegionData?.districts.find(d => d.id === selectedDistrictId);
   const selectedDistrict = selectedDistrictData?.name || '';
 
-  // Debug logging for banner
-  console.log('🏠 RentalsView Banner Debug:', {
-    selectedRegionId,
-    selectedDistrictId,
-    selectedRegionName: selectedRegion,
-    selectedDistrictName: selectedDistrict,
-    willShowBanner: !!(selectedRegion && selectedDistrict)
-  });
-
   const locationSelection = {
     selectedRegionId,
     selectedDistrictId,
@@ -187,18 +178,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
   );
 
   return (
-    <div className="min-h-screen pb-24">
-      {/* Header */}
-      <div 
-        className="sticky top-0 z-10 backdrop-blur-xl border-b"
-        style={{
-          background: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(255, 255, 255, 0.8)',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-        }}
-      >
-        {/* Header removed */}
-      </div>
-
+    <div className="min-h-screen pb-[max(5.5rem,calc(4.5rem+env(safe-area-inset-bottom)))]">
       {/* Banner - Only show on main view */}
       {!selectedCatalogId && !selectedCategoryId && selectedRegion && selectedDistrict && (
         <div className="px-4 pt-6 pb-2">
@@ -212,50 +192,57 @@ export function RentalsView({ platform }: RentalsViewProps) {
 
       {/* View Toggle - Only show on main view */}
       {!selectedCatalogId && !selectedCategoryId && (
-        <div className="px-4 py-4">
-          <div 
-            className="inline-flex p-1 rounded-2xl"
-            style={{
-              background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-            }}
-          >
+        <div className="px-4 py-3">
+          <div className="flex gap-3 w-full">
             <button
+              type="button"
               onClick={() => handleViewChange('products')}
-              className="relative px-6 py-2.5 rounded-xl transition-all flex items-center gap-2"
+              className="flex-1 py-3.5 rounded-2xl font-bold text-sm sm:text-base transition-all flex items-center justify-center gap-2"
               style={{
-                color: activeView === 'products' ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'),
+                background:
+                  activeView === 'products'
+                    ? accentColor.color
+                    : isDark
+                      ? 'rgba(255,255,255,0.08)'
+                      : '#ffffff',
+                color:
+                  activeView === 'products'
+                    ? '#ffffff'
+                    : isDark
+                      ? 'rgba(255,255,255,0.65)'
+                      : 'rgba(0,0,0,0.55)',
+                boxShadow:
+                  activeView === 'products' ? `0 4px 20px ${accentColor.color}44` : undefined,
+                border: activeView === 'products' ? 'none' : `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
               }}
             >
-              {activeView === 'products' && (
-                <div 
-                  className="absolute inset-0 rounded-xl"
-                  style={{
-                    background: accentColor.color,
-                    boxShadow: `0 4px 12px ${accentColor.color}66`,
-                  }}
-                />
-              )}
-              <Package className="size-4 relative z-10" />
-              <span className="text-sm font-medium relative z-10">Mahsulotlar</span>
+              <Package className="size-5 shrink-0" />
+              Mahsulotlar
             </button>
             <button
+              type="button"
               onClick={() => handleViewChange('catalog')}
-              className="relative px-6 py-2.5 rounded-xl transition-all flex items-center gap-2"
+              className="flex-1 py-3.5 rounded-2xl font-bold text-sm sm:text-base transition-all flex items-center justify-center gap-2"
               style={{
-                color: activeView === 'catalog' ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'),
+                background:
+                  activeView === 'catalog'
+                    ? accentColor.color
+                    : isDark
+                      ? 'rgba(255,255,255,0.08)'
+                      : '#ffffff',
+                color:
+                  activeView === 'catalog'
+                    ? '#ffffff'
+                    : isDark
+                      ? 'rgba(255,255,255,0.65)'
+                      : 'rgba(0,0,0,0.55)',
+                boxShadow:
+                  activeView === 'catalog' ? `0 4px 20px ${accentColor.color}44` : undefined,
+                border: activeView === 'catalog' ? 'none' : `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
               }}
             >
-              {activeView === 'catalog' && (
-                <div 
-                  className="absolute inset-0 rounded-xl"
-                  style={{
-                    background: accentColor.color,
-                    boxShadow: `0 4px 12px ${accentColor.color}66`,
-                  }}
-                />
-              )}
-              <LayoutGrid className="size-4 relative z-10" />
-              <span className="text-sm font-medium relative z-10">Katalog</span>
+              <LayoutGrid className="size-5 shrink-0" />
+              Katalog
             </button>
           </div>
         </div>

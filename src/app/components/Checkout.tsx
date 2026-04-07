@@ -855,9 +855,9 @@ export default function Checkout({
   };
 
   useEffect(() => {
-    loadDeliveryZones();
+    void loadDeliveryZones();
     loadUserBonus();
-  }, [visibilityRefetchTick]);
+  }, [visibilityRefetchTick, cartItems, rentalLineItems]);
 
   useEffect(() => {
     if (!currentLocation) {
@@ -876,15 +876,27 @@ export default function Checkout({
 
   const loadDeliveryZones = async (): Promise<any[]> => {
     try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/delivery-zones`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
+      let branchIdRaw = await inferCheckoutBranchId(cartItems || []);
+      if (!branchIdRaw && Array.isArray(rentalLineItems) && rentalLineItems.length > 0) {
+        const r0 = rentalLineItems[0] as Record<string, unknown>;
+        branchIdRaw =
+          (r0?.branchId as string) ||
+          (r0?.product && typeof r0.product === 'object'
+            ? (r0.product as { branchId?: string }).branchId
+            : null) ||
+          null;
+      }
+      const bid = branchIdRaw ? String(branchIdRaw).trim() : '';
+      const url = bid
+        ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/delivery-zones?branchId=${encodeURIComponent(bid)}`
+        : `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/delivery-zones`;
+
+      const response = await fetch(url, {
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json',
+        },
+      });
 
       if (response.ok) {
         const data = await response.json();

@@ -129,3 +129,20 @@ export const buildBranchHeaders = (headers: HeaderMap = {}): HeaderMap => {
     ...headers,
   };
 };
+
+/** Ijara paneli: `rentalProviderSession` bo‘lsa — X-Rental-Provider-Token; aks holda filial sessiyasi */
+export const buildRentalPanelHeaders = (headers: HeaderMap = {}): HeaderMap => {
+  const parsed = safeParse<{ token?: string }>(
+    typeof localStorage !== 'undefined' ? localStorage.getItem('rentalProviderSession') : null,
+  );
+  const t = parsed?.token?.trim();
+  if (t) {
+    return {
+      apikey: publicAnonKey,
+      Authorization: `Bearer ${publicAnonKey}`,
+      'X-Rental-Provider-Token': t,
+      ...headers,
+    };
+  }
+  return buildBranchHeaders(headers);
+};

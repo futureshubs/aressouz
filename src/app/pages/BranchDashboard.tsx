@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router';
+import { useNavigate, useSearchParams } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { 
   LayoutDashboard, 
@@ -34,11 +34,13 @@ import {
   ChevronRight,
   Loader2,
   RotateCcw,
+  KeyRound,
 } from 'lucide-react';
 import MarketView from '../components/branch/MarketView';
 import ShopView from '../components/branch/ShopView';
 import { RestaurantManagement } from './RestaurantManagement';
 import { RentalDashboard } from '../components/rental/RentalDashboard';
+import { RentalProviderAccountsPanel } from '../components/rental/RentalProviderAccountsPanel';
 import { RentalOrdersView } from '../components/rental/RentalOrdersView';
 import { AuctionDashboard } from '../components/auction/AuctionDashboard';
 import { BannerManagement } from '../components/BannerManagement';
@@ -71,8 +73,52 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
 import { useBodyScrollLock } from '../utils/useBodyScrollLock';
 
+/** `?tab=dokon` kabi havolalar — ichki `activeTab` id ga */
+const BRANCH_TAB_FROM_URL: Record<string, string> = {
+  dokon: 'shop',
+  ijara: 'rentals',
+  'auto-kuryer': 'auto-couriers',
+  autokuryer: 'auto-couriers',
+};
+
+const KNOWN_BRANCH_DASHBOARD_TABS = new Set([
+  'dashboard',
+  'analytics',
+  'statistics',
+  'market-orders',
+  'shop-orders',
+  'food-orders',
+  'rental-orders',
+  'market',
+  'shop',
+  'foods',
+  'rentals',
+  'rental-providers',
+  'auction',
+  'banner',
+  'services',
+  'nearby',
+  'profile',
+  'house',
+  'car',
+  'bank',
+  'couriers',
+  'auto-couriers',
+  'courier-bags',
+  'pickup-racks',
+  'preparers',
+  'delivery-zones',
+  'chat',
+  '2fa',
+  'payments',
+  'refunds',
+  'employees',
+  'reports',
+]);
+
 export default function BranchDashboard() {
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const apiBaseUrl =
@@ -99,6 +145,16 @@ export default function BranchDashboard() {
   useVisibilityRefetch(() => setVisibilityReloadTick((t) => t + 1));
 
   useBodyScrollLock(sidebarOpen);
+
+  useEffect(() => {
+    const raw = searchParams.get('tab');
+    if (!raw?.trim()) return;
+    const lower = raw.trim().toLowerCase();
+    const resolved = BRANCH_TAB_FROM_URL[lower] ?? raw.trim();
+    if (KNOWN_BRANCH_DASHBOARD_TABS.has(resolved)) {
+      setActiveTab(resolved);
+    }
+  }, [searchParams]);
 
   useEffect(() => {
     const loadBranchInfo = async () => {
@@ -300,6 +356,7 @@ export default function BranchDashboard() {
     { id: 'shop', label: 'Do\'kon', icon: Package },
     { id: 'foods', label: 'Taomlar', icon: ChefHat },
     { id: 'rentals', label: 'Ijara', icon: Car },
+    { id: 'rental-providers', label: 'Ijara beruvchi', icon: KeyRound },
     { id: 'auction', label: 'Auksion', icon: TrendingUp },
     { id: 'banner', label: 'Banner', icon: Image },
     { id: 'services', label: 'Xizmatlar', icon: Settings },
@@ -794,6 +851,10 @@ export default function BranchDashboard() {
             <RentalDashboard branchId={branchInfo.id} />
           )}
 
+          {activeTab === 'rental-providers' && branchInfo && (
+            <RentalProviderAccountsPanel branchId={branchInfo.id} />
+          )}
+
           {activeTab === 'auction' && branchInfo && (
             <AuctionDashboard branchId={branchInfo.id} />
           )}
@@ -856,16 +917,16 @@ export default function BranchDashboard() {
           )}
 
           {activeTab === 'delivery-zones' && branchInfo && (
-            <div 
-              className="flex items-center justify-center min-h-[60vh] rounded-3xl border"
+            <div
+              className="w-full rounded-3xl border p-4 sm:p-6"
               style={{
-                background: isDark 
+                background: isDark
                   ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
                   : 'linear-gradient(145deg, #ffffff, #f9fafb)',
                 borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
               }}
             >
-              <DeliveryZones 
+              <DeliveryZones
                 isDark={isDark}
                 accentColor={accentColor}
                 branchInfo={branchInfo}
@@ -1054,6 +1115,7 @@ export default function BranchDashboard() {
             activeTab !== 'shop' &&
             activeTab !== 'foods' &&
             activeTab !== 'rentals' &&
+            activeTab !== 'rental-providers' &&
             activeTab !== 'auction' &&
             activeTab !== 'banner' &&
             activeTab !== 'services' &&

@@ -10,6 +10,8 @@ import {
   RefreshCw,
   ArrowUpRight,
   ArrowDownRight,
+  Building2,
+  Percent,
 } from 'lucide-react';
 import type { LucideIcon } from 'lucide-react';
 import { toast } from 'sonner';
@@ -48,6 +50,12 @@ interface AnalyticsData {
   topProducts: TopProduct[];
   dailyStats: DailyStats[];
   categoryStats: CategoryStats[];
+  /** KV ijara: yakunlangan buyurtmalar, tanlangan davr */
+  rentalCompletedRevenue: number;
+  rentalPlatformCommission: number;
+  rentalBranchNet: number;
+  rentalCompletedCount: number;
+  rentalPlatformCommissionGrowth: number;
 }
 
 interface AnalyticsCategoryOption {
@@ -120,6 +128,11 @@ export default function Analytics({ branchId, orderType = 'all' }: AnalyticsProp
           topProducts: Array.isArray(data.data?.topProducts) ? data.data.topProducts : [],
           dailyStats: Array.isArray(data.data?.dailyStats) ? data.data.dailyStats : [],
           categoryStats: Array.isArray(data.data?.categoryStats) ? data.data.categoryStats : [],
+          rentalCompletedRevenue: Number(data.data?.rentalCompletedRevenue || 0),
+          rentalPlatformCommission: Number(data.data?.rentalPlatformCommission || 0),
+          rentalBranchNet: Number(data.data?.rentalBranchNet || 0),
+          rentalCompletedCount: Number(data.data?.rentalCompletedCount || 0),
+          rentalPlatformCommissionGrowth: Number(data.data?.rentalPlatformCommissionGrowth || 0),
         });
         setCategoryOptions(Array.isArray(data.categories) ? data.categories : []);
       } else {
@@ -275,6 +288,36 @@ export default function Analytics({ branchId, orderType = 'all' }: AnalyticsProp
           icon={Users}
         />
         <StatCard title="Mahsulotlar (katalog)" value={analyticsData.totalProducts.toLocaleString()} icon={Package} />
+      </div>
+
+      <div className="p-6 rounded-2xl border space-y-4" style={surfaceStyle}>
+        <div>
+          <h2 className={`text-lg font-semibold ${isDark ? 'text-white' : 'text-gray-900'}`}>
+            Ijara bo‘limi (yakunlangan)
+          </h2>
+          <p className={`text-sm mt-1 ${isDark ? 'text-gray-400' : 'text-gray-600'}`}>
+            Tanlangan davrda qaytarilgan ijaralar — mahsulotda kiritilgan platforma foizi bo‘yicha ulush
+            hisoblanadi. Yakunlangan: {analyticsData.rentalCompletedCount} ta.
+          </p>
+        </div>
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+          <StatCard
+            title="Ijara aylanmasi"
+            value={formatCurrency(analyticsData.rentalCompletedRevenue)}
+            icon={Building2}
+          />
+          <StatCard
+            title="Platforma ulushi (foyda)"
+            value={formatCurrency(analyticsData.rentalPlatformCommission)}
+            change={analyticsData.rentalPlatformCommissionGrowth}
+            icon={Percent}
+          />
+          <StatCard
+            title="Filial qoldig‘i"
+            value={formatCurrency(analyticsData.rentalBranchNet)}
+            icon={DollarSign}
+          />
+        </div>
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

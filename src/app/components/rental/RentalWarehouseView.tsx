@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { Package, AlertCircle } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import { projectId } from '../../../../utils/supabase/info';
+import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 
@@ -25,9 +26,7 @@ export function RentalWarehouseView({ branchId }: { branchId: string }) {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/warehouse/${branchId}`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
+          headers: buildRentalPanelHeaders(),
         }
       );
 
@@ -48,9 +47,7 @@ export function RentalWarehouseView({ branchId }: { branchId: string }) {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${branchId}`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
+          headers: buildRentalPanelHeaders(),
         }
       );
 

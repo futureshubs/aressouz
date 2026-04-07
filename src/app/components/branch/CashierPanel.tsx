@@ -2,7 +2,8 @@ import { useMemo, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { Payments } from './Payments';
 import { CashierCashReceiveTab } from './CashierCashReceiveTab';
-import { ArrowDownToLine, ArrowUpFromLine, Store } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, RotateCcw, Store } from 'lucide-react';
+import { BranchRefundsPanel } from './BranchRefundsPanel';
 
 type CashierPanelProps = {
   branchId?: string;
@@ -13,7 +14,7 @@ type CashierPanelProps = {
   };
 };
 
-type CashierTab = 'receive' | 'payout';
+type CashierTab = 'receive' | 'payout' | 'refunds';
 
 export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
   const { theme, accentColor } = useTheme();
@@ -65,6 +66,12 @@ export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
       hint: 'Do‘kon / taom — tadbirkorga to‘lov (QR, chek)',
       icon: ArrowUpFromLine,
     },
+    {
+      id: 'refunds',
+      label: 'Mijozga qaytarish',
+      hint: 'Onlayn to‘lagan, bekor — qaytarish va tasdiq',
+      icon: RotateCcw,
+    },
   ];
 
   return (
@@ -94,7 +101,7 @@ export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
         </header>
 
         <div
-          className="grid grid-cols-1 sm:grid-cols-2 gap-3 p-1.5 rounded-2xl border"
+          className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-1.5 rounded-2xl border"
           style={{ background: surface, borderColor: border }}
           role="tablist"
           aria-label="Kassa bo‘limlari"
@@ -139,13 +146,17 @@ export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
             <div className="p-5 sm:p-6">
               <CashierCashReceiveTab branchId={branchId} />
             </div>
-          ) : (
+          ) : tab === 'payout' ? (
             <div className="p-5 sm:p-6 space-y-4">
               <p className="text-sm" style={{ color: muted }}>
                 Taom va do‘kon buyurtmalari uchun to‘lovlar, QR va chek tasdiqlari — quyidagi jadvaldan boshqariladi.
                 Restoran / sotuvchi qabul qilgach, shu yerda «to‘lov kutilmoqda» ko‘rinishi kerak.
               </p>
               <Payments variant="cashier" branchId={branchId} branchInfo={branchInfo} />
+            </div>
+          ) : (
+            <div className="p-4 sm:p-5">
+              <BranchRefundsPanel variant="cashier" />
             </div>
           )}
         </div>

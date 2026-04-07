@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
 import { Store, MapPin, Clock, Phone, Package, Truck, ShoppingCart, Star, Heart, X, ChevronRight, Filter, Trash2 } from 'lucide-react';
@@ -14,12 +14,36 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { getEffectiveProductStockQuantity } from '../utils/cartStock';
 import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 
-// Generate unique rating based on shop ID
-const getShopRating = (shopId: string) => {
-  const hash = shopId.split('').reduce((acc, char) => acc + char.charCodeAt(0), 0);
-  const rating = 3.5 + ((hash % 26) / 10); // 3.5 to 6.0
-  return Math.min(5.0, rating);
-};
+/** API: `GET /shops` — `rating`, `reviewCount` (barcha mahsulot sharhlari yig‘indisi) */
+function shopRatingFromApi(shop: { rating?: unknown; reviewCount?: unknown } | null | undefined): {
+  rating: number;
+  reviewCount: number;
+} {
+  if (!shop) return { rating: 0, reviewCount: 0 };
+  const r = Number(shop.rating);
+  const c = Math.max(0, Math.floor(Number(shop.reviewCount) || 0));
+  const rating = Number.isFinite(r) && r > 0 ? Math.min(5, Math.round(r * 10) / 10) : 0;
+  return { rating, reviewCount: c };
+}
+
+/** Modal: ro‘yxatdagi shop bo‘sh bo‘lsa, yuklangan mahsulotlardan yig‘ma */
+function shopRatingFromProducts(products: Array<{ rating?: unknown; reviewCount?: unknown }>): {
+  rating: number;
+  reviewCount: number;
+} {
+  let tw = 0;
+  let tc = 0;
+  for (const p of products) {
+    const c = Math.max(0, Math.floor(Number(p.reviewCount) || 0));
+    const r = Number(p.rating) || 0;
+    if (c > 0 && r > 0) {
+      tw += r * c;
+      tc += c;
+    }
+  }
+  if (tc === 0) return { rating: 0, reviewCount: 0 };
+  return { rating: Math.min(5, Math.round((tw / tc) * 10) / 10), reviewCount: tc };
+}
 
 export default function OnlineShops({
   onAddToCart,
@@ -498,13 +522,18 @@ export default function OnlineShops({
                           <Store className="w-9 h-9 sm:w-11 sm:h-11 transition-transform sm:group-hover:scale-110" style={{ color: accentColor.color }} />
                         )}
                         
-                        {/* Rating Badge on Logo */}
+                        {/* Rating Badge on Logo — API dan haqiqiy */}
                         <div 
                           className="absolute top-1.5 right-1.5 px-2 py-0.5 rounded-md backdrop-blur-md flex items-center gap-0.5"
                           style={{ background: 'rgba(0, 0, 0, 0.6)' }}
                         >
                           <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
-                          <span className="text-white text-xs font-bold">{getShopRating(shop.id).toFixed(1)}</span>
+                          <span className="text-white text-xs font-bold">
+                            {(() => {
+                              const { rating, reviewCount } = shopRatingFromApi(shop);
+                              return reviewCount > 0 ? rating.toFixed(1) : '—';
+                            })()}
+                          </span>
                         </div>
                       </div>
 
@@ -1028,44 +1057,42 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
   // Variant selection menu state
   const [variantMenuProduct, setVariantMenuProduct] = useState<any>(null);
 
-  useEffect(() => {
-    loadProducts();
-  }, []);
-
-  const loadProducts = async () => {
+  const loadProducts = useCallback(async () => {
+    const sid = shop?.id;
+    if (!sid) return;
     setIsLoading(true);
     try {
-      console.log(`🔄 Loading products for shop: ${shop.id}`);
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops/${shop.id}/products`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops/${encodeURIComponent(sid)}/products`,
         {
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            Authorization: `Bearer ${publicAnonKey}`,
           },
-        }
+        },
       );
 
       if (response.ok) {
         const data = await response.json();
-        console.log(`✅ Products loaded for shop ${shop.name}:`, data);
-        console.log(`📦 Total products: ${data.products?.length || 0}`);
-        
-        if (data.products && data.products.length > 0) {
-          console.log('📦 First product sample:', data.products[0]);
-        }
-        
         setProducts(data.products || []);
       } else {
-        console.error(`❌ Failed to load products, status: ${response.status}`);
         setProducts([]);
       }
-    } catch (error) {
-      console.error('❌ Error loading products:', error);
+    } catch {
       setProducts([]);
     } finally {
       setIsLoading(false);
     }
-  };
+  }, [shop?.id]);
+
+  useEffect(() => {
+    void loadProducts();
+  }, [loadProducts]);
+
+  const modalShopRating = useMemo(() => {
+    const fromApi = shopRatingFromApi(shop);
+    if (fromApi.reviewCount > 0 && fromApi.rating > 0) return fromApi;
+    return shopRatingFromProducts(products);
+  }, [shop, products]);
 
   // Get region and district names for display
   const getLocationName = (regionId: string, districtId?: string) => {
@@ -1139,11 +1166,28 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
         <div className="px-4 sm:px-5 md:px-6 py-4 md:py-6">
           <h2 className="text-2xl sm:text-3xl md:text-4xl font-bold mb-2 md:mb-3">{shop.name}</h2>
           
-          {/* Rating & Status - Responsive */}
+          {/* Rating & Status - Responsive (KV sharhlardan) */}
           <div className="flex flex-wrap items-center gap-3 md:gap-4 mb-3 md:mb-4">
-            <div className="flex items-center gap-2">
+            <div className="flex items-center gap-2 flex-wrap">
               <Star className="w-4 h-4 md:w-5 md:h-5 fill-yellow-500 text-yellow-500" />
-              <span className="text-base md:text-lg font-medium">{getShopRating(shop.id).toFixed(1)}</span>
+              {modalShopRating.reviewCount > 0 ? (
+                <>
+                  <span className="text-base md:text-lg font-medium">{modalShopRating.rating.toFixed(1)}</span>
+                  <span
+                    className="text-sm md:text-base"
+                    style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}
+                  >
+                    ({modalShopRating.reviewCount})
+                  </span>
+                </>
+              ) : (
+                <span
+                  className="text-sm md:text-base font-medium"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}
+                >
+                  Hali baholanmagan
+                </span>
+              )}
             </div>
             <div 
               className="px-3 py-1.5 md:px-4 md:py-2 rounded-lg md:rounded-xl text-xs md:text-sm font-medium"
@@ -1215,23 +1259,7 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
-                  {products.map((product: any, index: number) => {
-                    // 🔍 Debugging: Log product data
-                    console.log(`📦 Mahsulot #${index + 1}:`, {
-                      id: product.id,
-                      name: product.name,
-                      price: product.price,
-                      oldPrice: product.oldPrice,
-                      image: product.image,
-                      stockQuantity: product.stockQuantity,
-                      rating: product.rating,
-                      category: product.category,
-                      variantsCount: product.variantsCount,
-                      isNew: product.isNew,
-                      isBestseller: product.isBestseller,
-                      fullData: product
-                    });
-                    
+                  {products.map((product: any) => {
                     return (
                     <div
                       key={product.id}
@@ -1666,21 +1694,43 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
                         <p className="text-sm font-medium mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
                           Baholash
                         </p>
-                        <div className="flex items-center gap-2">
+                        <div className="flex flex-wrap items-center gap-2">
                           <div className="flex items-center gap-0.5">
                             {[...Array(5)].map((_, i) => (
                               <Star
                                 key={i}
                                 className="w-4 h-4 sm:w-5 sm:h-5"
-                                fill={i < Math.floor(getShopRating(shop.id)) ? '#fbbf24' : 'none'}
+                                fill={
+                                  modalShopRating.reviewCount > 0 &&
+                                  i < Math.floor(modalShopRating.rating)
+                                    ? '#fbbf24'
+                                    : 'none'
+                                }
                                 stroke="#fbbf24"
                                 strokeWidth={2}
                               />
                             ))}
                           </div>
-                          <span className="font-bold text-lg sm:text-xl">
-                            {getShopRating(shop.id).toFixed(1)}
-                          </span>
+                          {modalShopRating.reviewCount > 0 ? (
+                            <>
+                              <span className="font-bold text-lg sm:text-xl">
+                                {modalShopRating.rating.toFixed(1)}
+                              </span>
+                              <span
+                                className="text-sm sm:text-base"
+                                style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}
+                              >
+                                ({modalShopRating.reviewCount} sharh)
+                              </span>
+                            </>
+                          ) : (
+                            <span
+                              className="text-sm font-medium"
+                              style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                            >
+                              Hali baholanmagan
+                            </span>
+                          )}
                         </div>
                       </div>
                     </div>

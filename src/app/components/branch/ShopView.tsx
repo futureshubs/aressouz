@@ -26,6 +26,7 @@ import { regions } from '../../data/regions';
 import { buildAdminHeaders, buildBranchHeaders } from '../../utils/requestAuth';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { getVariantStockQuantity, getEffectiveProductStockQuantity } from '../../utils/cartStock';
+import { branchIdsEqual } from '../../utils/branchIdNormalize';
 
 interface ShopViewProps {
   branchId: string;
@@ -133,7 +134,9 @@ export default function ShopView({ branchId }: ShopViewProps) {
     );
     if (!response.ok) throw new Error('Do‘konlar ro‘yxati yuklanmadi');
     const data = await response.json();
-    const branchShops = (data.shops || []).filter((s: any) => s.branchId === branchId);
+    const branchShops = (data.shops || []).filter((s: any) =>
+      branchIdsEqual(s?.branchId, branchId),
+    );
     return branchShops;
   }, [branchId]);
 

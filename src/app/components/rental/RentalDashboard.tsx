@@ -7,6 +7,7 @@ import { RentalOrdersView } from './RentalOrdersView';
 import { RentalStatisticsView } from './RentalStatisticsView';
 import { RentalAnalyticsView } from './RentalAnalyticsView';
 import { RentalApplicationsView } from './RentalApplicationsView';
+import { RentalBranchTelegramSettings } from './RentalBranchTelegramSettings';
 
 export function RentalDashboard({ branchId }: { branchId: string }) {
   const { theme, accentColor } = useTheme();
@@ -25,6 +26,8 @@ export function RentalDashboard({ branchId }: { branchId: string }) {
 
   return (
     <div className="space-y-6">
+      <RentalBranchTelegramSettings branchId={branchId} />
+
       {/* Tabs */}
       <div className="flex gap-2 overflow-x-auto pb-2">
         {tabs.map((tab) => {

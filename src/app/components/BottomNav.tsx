@@ -3,7 +3,6 @@ import { useState, useEffect, memo } from 'react';
 import { MenuModal } from './MenuModal';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
-import { devLog } from '../utils/devLog';
 
 interface BottomNavProps {
   activeTab: string;
@@ -12,42 +11,25 @@ interface BottomNavProps {
   menuCloseRef?: React.MutableRefObject<(() => void) | null>;
 }
 
-export const BottomNav = memo(function BottomNav({ activeTab, onTabChange, onAddProductClick, menuCloseRef }: BottomNavProps) {
+export const BottomNav = memo(function BottomNav({
+  activeTab,
+  onTabChange,
+  menuCloseRef,
+}: BottomNavProps) {
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const { theme, accentColor } = useTheme();
   const { locationModalOpen } = useLocation();
   const isDark = theme === 'dark';
 
-  // Debug: Log isMenuOpen state changes
   useEffect(() => {
-    devLog('🟡 BottomNav: isMenuOpen state changed:', isMenuOpen);
-  }, [isMenuOpen]);
-
-  // Close menu when location modal opens
-  useEffect(() => {
-    devLog('🟣 BottomNav: locationModalOpen changed:', locationModalOpen);
     if (locationModalOpen && isMenuOpen) {
-      devLog('🟣 BottomNav: Closing menu because location modal opened');
-      devLog('🟣 BottomNav: isMenuOpen BEFORE setIsMenuOpen(false):', isMenuOpen);
       setIsMenuOpen(false);
-      devLog('🟣 BottomNav: setIsMenuOpen(false) called');
     }
   }, [locationModalOpen, isMenuOpen]);
 
-  // Expose close function via ref
   useEffect(() => {
     if (menuCloseRef) {
-      devLog('🟢 BottomNav: Setting menuCloseRef.current');
-      menuCloseRef.current = () => {
-        devLog('🟢 BottomNav: menuCloseRef.current() called - closing menu');
-        setIsMenuOpen(prev => {
-          devLog('🟢 BottomNav: isMenuOpen PREVIOUS VALUE:', prev);
-          devLog('🟢 BottomNav: Setting to FALSE');
-          return false;
-        });
-      };
-    } else {
-      devLog('🔴 BottomNav: menuCloseRef is undefined');
+      menuCloseRef.current = () => setIsMenuOpen(false);
     }
   }, [menuCloseRef]);
 
@@ -61,12 +43,24 @@ export const BottomNav = memo(function BottomNav({ activeTab, onTabChange, onAdd
 
   const handleTabClick = (tabId: string) => {
     if (tabId === 'menu') {
-      setIsMenuOpen(prev => !prev);
+      setIsMenuOpen((prev) => !prev);
     } else {
       setIsMenuOpen(false);
       onTabChange(tabId);
     }
   };
+
+  /** Menu orqali ochilgan bo‘limlar — pastki «Menu» tabi faol ko‘rinsin */
+  const menuRouteTabs = new Set([
+    'auksion',
+    'moshina',
+    'community',
+    'atrof',
+    'xizmatlar',
+    'mening-uyim',
+    'mashinalar',
+    'xonalar',
+  ]);
 
   const handleMenuSelect = (menuId: string) => {
     if (menuId === 'auksion') {
@@ -84,114 +78,96 @@ export const BottomNav = memo(function BottomNav({ activeTab, onTabChange, onAdd
     }
   };
 
+  const barBg = isDark
+    ? 'linear-gradient(180deg, rgba(22,22,24,0.98) 0%, rgba(12,12,14,0.99) 100%)'
+    : 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.99) 100%)';
+
   return (
     <>
       <nav
-        className="fixed bottom-4 left-4 right-4 z-40 transition-all duration-300 
-                   sm:bottom-6 sm:left-1/2 sm:-translate-x-1/2 sm:w-auto sm:max-w-lg
-                   md:max-w-xl lg:max-w-2xl"
+        className="fixed bottom-0 left-0 right-0 z-40 border-t"
         style={{
-          background: isDark
-            ? 'linear-gradient(135deg, rgba(30, 30, 30, 0.95), rgba(20, 20, 20, 0.98))'
-            : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(249, 250, 251, 0.98))',
-          backdropFilter: 'blur(30px)',
+          background: barBg,
+          backdropFilter: 'blur(24px)',
+          WebkitBackdropFilter: 'blur(24px)',
+          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
           boxShadow: isDark
-            ? `0 20px 60px rgba(0, 0, 0, 0.9), 0 8px 24px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px ${accentColor.color}20`
-            : `0 20px 60px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 0 0 1px ${accentColor.color}15`,
-          borderRadius: '24px',
-          border: isDark ? '0.5px solid rgba(255, 255, 255, 0.1)' : '0.5px solid rgba(0, 0, 0, 0.08)',
-          // Mobile: Add safe area padding
-          paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))',
+            ? `0 -8px 32px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04)`
+            : `0 -8px 28px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.9)`,
+          paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0px))',
+          borderTopLeftRadius: '20px',
+          borderTopRightRadius: '20px',
         }}
       >
-        {/* iOS Style Tabs */}
-        <div className="flex items-center justify-around h-16 sm:h-18 md:h-20 px-2 sm:px-4 md:px-6">
-          {tabs.map((tab, index) => {
-            const isActive = activeTab === tab.id || (tab.id === 'menu' && isMenuOpen);
+        <div
+          className="absolute top-0 left-0 right-0 h-px pointer-events-none"
+          style={{
+            background: `linear-gradient(90deg, transparent, ${accentColor.color}55, transparent)`,
+          }}
+        />
+        <div className="flex items-stretch justify-between gap-0 px-1 pt-1 min-h-[58px] max-w-[1600px] mx-auto sm:px-4">
+          {tabs.map((tab) => {
+            const isActive =
+              activeTab === tab.id ||
+              (tab.id === 'menu' && (isMenuOpen || menuRouteTabs.has(activeTab)));
             const Icon = tab.icon;
 
             return (
               <button
                 key={tab.id}
+                type="button"
                 onClick={() => handleTabClick(tab.id)}
-                className="relative flex flex-col items-center justify-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 md:px-3 py-2 transition-all duration-300 active:scale-95 touch-manipulation"
-                style={{
-                  flex: '1',
-                  maxWidth: '90px',
-                  minWidth: '56px',
-                  animation: isActive ? 'none' : 'none',
-                }}
+                className="relative flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 min-w-0 transition-transform active:scale-95 touch-manipulation"
               >
-                {/* Icon container with glassmorphic effect */}
                 <div
-                  className="relative flex items-center justify-center transition-all duration-300"
+                  className="relative flex items-center justify-center"
                   style={{
-                    width: '40px',
-                    height: '40px',
-                    borderRadius: '12px',
+                    width: 40,
+                    height: 40,
+                    borderRadius: 14,
                     background: isActive
                       ? isDark
-                        ? `linear-gradient(135deg, ${accentColor.color}30, ${accentColor.color}20)`
-                        : `linear-gradient(135deg, ${accentColor.color}25, ${accentColor.color}15)`
+                        ? `${accentColor.color}28`
+                        : `${accentColor.color}20`
                       : 'transparent',
                     boxShadow: isActive
-                      ? isDark
-                        ? `0 8px 24px ${accentColor.color}40, inset 0 1px 0 rgba(255, 255, 255, 0.1)`
-                        : `0 8px 24px ${accentColor.color}30, inset 0 1px 0 rgba(255, 255, 255, 0.5)`
+                      ? `0 0 20px ${accentColor.color}45, inset 0 1px 0 rgba(255,255,255,0.12)`
                       : 'none',
-                    transform: isActive ? 'translateY(-4px) scale(1.05)' : 'translateY(0)',
                   }}
                 >
                   <Icon
-                    className="transition-all duration-300"
                     style={{
-                      width: '22px',
-                      height: '22px',
+                      width: 22,
+                      height: 22,
                       color: isActive ? accentColor.color : isDark ? '#9ca3af' : '#6b7280',
                       strokeWidth: isActive ? 2.5 : 2,
-                      filter: isActive ? `drop-shadow(0 2px 8px ${accentColor.color}60)` : 'none',
+                      filter: isActive ? `drop-shadow(0 0 6px ${accentColor.color}88)` : undefined,
                     }}
                   />
                 </div>
-
-                {/* Label */}
                 <span
-                  className="text-[10px] sm:text-xs font-semibold transition-all duration-300 line-clamp-1"
+                  className="text-[9px] sm:text-[10px] font-semibold truncate max-w-full px-0.5"
                   style={{
                     color: isActive ? accentColor.color : isDark ? '#9ca3af' : '#6b7280',
-                    textShadow: isActive ? `0 2px 8px ${accentColor.color}40` : 'none',
                   }}
                 >
                   {tab.label}
                 </span>
-
-                {/* Active indicator dot */}
-                {isActive && (
-                  <div
-                    className="absolute -bottom-0.5 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
+                {isActive ? (
+                  <span
+                    className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
                     style={{
                       background: accentColor.color,
-                      boxShadow: `0 0 12px ${accentColor.color}`,
-                      animation: 'pulse 2s ease-in-out infinite',
+                      boxShadow: `0 0 8px ${accentColor.color}`,
                     }}
                   />
-                )}
+                ) : null}
               </button>
             );
           })}
         </div>
-        
-        {/* Glow effect at top */}
-        <div 
-          className="absolute top-0 left-0 right-0 h-px rounded-t-3xl"
-          style={{
-            background: `linear-gradient(90deg, transparent, ${accentColor.color}40 50%, transparent)`,
-            boxShadow: `0 0 16px ${accentColor.color}30`,
-          }}
-        />
       </nav>
 
-      {/* Menu Modal */}
       <MenuModal
         isOpen={isMenuOpen}
         onClose={() => setIsMenuOpen(false)}

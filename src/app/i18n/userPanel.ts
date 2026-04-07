@@ -210,6 +210,10 @@ const UZ: Record<string, string> = {
   'rental.extendApprox': 'Taxminiy qo‘shimcha:',
   'rental.extendSubmit': 'Tasdiqlash',
   'rental.extendSuccess': 'Muddat yangilandi',
+  'rental.confirmReceivedCta': 'Mahsulotni oldim',
+  'rental.confirmReceivedHint':
+    'Kuryer ijara narsasini topshirgach bosing — shu paytdan ijara muddati va tugash vaqti hisoblanadi.',
+  'rental.confirmReceivedSuccess': 'Yetkazish tasdiqlandi — ijara muddati boshlandi',
   'rental.extendDisabled': 'Kuryer yetkazguncha yoki ijara boshlanmaguncha qo‘sha olmaysiz',
   'rental.contractTotalShort': 'Shartnoma jami',
   'rental.cashHandoffUserHint':
@@ -426,6 +430,10 @@ const RU: Record<string, string> = {
   'rental.extendApprox': 'Примерная доплата:',
   'rental.extendSubmit': 'Подтвердить',
   'rental.extendSuccess': 'Срок обновлён',
+  'rental.confirmReceivedCta': 'Товар получил',
+  'rental.confirmReceivedHint':
+    'Нажмите, когда курьер передаст вещь — с этого момента начнётся срок аренды и конечная дата.',
+  'rental.confirmReceivedSuccess': 'Доставка подтверждена — аренда началась',
   'rental.extendDisabled': 'До доставки курьером или начала аренды продлить нельзя',
   'rental.contractTotalShort': 'Итого по договору',
   'rental.cashHandoffUserHint':
@@ -642,6 +650,10 @@ const EN: Record<string, string> = {
   'rental.extendApprox': 'Approx. extra:',
   'rental.extendSubmit': 'Confirm',
   'rental.extendSuccess': 'Rental period updated',
+  'rental.confirmReceivedCta': 'I received the item',
+  'rental.confirmReceivedHint':
+    'Tap after the courier hands over the rental — your rental period and end time start then.',
+  'rental.confirmReceivedSuccess': 'Delivery confirmed — rental period started',
   'rental.extendDisabled': 'Wait for courier delivery or rental start before extending',
   'rental.contractTotalShort': 'Contract total',
   'rental.cashHandoffUserHint':

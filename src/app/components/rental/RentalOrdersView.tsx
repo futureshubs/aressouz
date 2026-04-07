@@ -1,14 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { Clock, CheckCircle, XCircle, ArrowRight, Loader2 } from 'lucide-react';
+import { Clock, CheckCircle, XCircle, ArrowRight, Loader2, Sparkles } from 'lucide-react';
 import {
-  publicAnonKey,
   API_BASE_URL,
   DEV_API_BASE_URL,
 } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
-import { buildBranchHeaders } from '../../utils/requestAuth';
+import { buildBranchHeaders, buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { RentalNextPaymentInfo } from './RentalNextPaymentInfo';
 
 export function RentalOrdersView({ branchId }: { branchId: string }) {
@@ -25,8 +24,11 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
   const [couriersLoading, setCouriersLoading] = useState(true);
   const [deliveryCourierByOrder, setDeliveryCourierByOrder] = useState<Record<string, string>>({});
   const [confirmDeliveryBusyId, setConfirmDeliveryBusyId] = useState<string | null>(null);
+  const [acceptBranchBusyId, setAcceptBranchBusyId] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
-  const [filter, setFilter] = useState<'all' | 'active' | 'returned' | 'extended' | 'cancelled'>('all');
+  const [filter, setFilter] = useState<
+    'all' | 'pending_new' | 'active' | 'returned' | 'extended' | 'cancelled'
+  >('all');
   const [visibilityTick, setVisibilityTick] = useState(0);
   useVisibilityRefetch(() => setVisibilityTick((t) => t + 1));
 
@@ -75,10 +77,7 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
       const response = await fetch(
         `${apiBaseUrl}/rentals/orders/${encodeURIComponent(branchId)}`,
         {
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-            apikey: publicAnonKey,
-          },
+          headers: buildRentalPanelHeaders(),
         },
       );
 
@@ -103,10 +102,7 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
       const response = await fetch(
         `${apiBaseUrl}/rentals/products/${encodeURIComponent(branchId)}`,
         {
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-            apikey: publicAnonKey,
-          },
+          headers: buildRentalPanelHeaders(),
         },
       );
 
@@ -124,7 +120,38 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
     return product?.name || 'Noma\'lum mahsulot';
   };
 
-  const confirmCourierDelivered = async (order: any) => {
+  const acceptBranchOrder = async (order: any) => {
+    const oid = String(order.id || '');
+    if (!oid) return;
+    setAcceptBranchBusyId(oid);
+    try {
+      const res = await fetch(`${apiBaseUrl}/rentals/orders/${encodeURIComponent(oid)}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json',
+          ...buildRentalPanelHeaders(),
+        },
+        body: JSON.stringify({
+          branchId,
+          acceptByBranch: true,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (res.ok && data.success) {
+        toast.success('Qabul qilindi — ijara beruvchi va kuryerlarga xabar yuborildi');
+        await loadOrders();
+      } else {
+        toast.error(data.error || 'Qabul qilishda xatolik');
+      }
+    } catch {
+      toast.error('Tarmoq xatosi');
+    } finally {
+      setAcceptBranchBusyId(null);
+    }
+  };
+
+  /** Kuryerni biriktirish (ijara muddati mijoz/kuryer «yetkazildi» bilan boshlanadi) */
+  const assignCourierToOrder = async (order: any) => {
     const oid = String(order.id || '');
     const pick = deliveryCourierByOrder[oid] || String(order.deliveryCourierId || '').trim();
     if (!pick) {
@@ -137,20 +164,20 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
         method: 'PUT',
         headers: {
           'Content-Type': 'application/json',
-          ...buildBranchHeaders(),
+          ...buildRentalPanelHeaders(),
         },
         body: JSON.stringify({
           branchId,
-          confirmDelivery: true,
+          assignDeliveryCourier: true,
           deliveryCourierId: pick,
         }),
       });
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.success) {
-        toast.success('Yetkazish tasdiqlandi — ijara muddati boshlandi');
+        toast.success('Kuryer biriktirildi — mijoz yoki kuryer yetkazilgach muddat boshlanadi');
         await loadOrders();
       } else {
-        toast.error(data.error || 'Tasdiqlashda xatolik');
+        toast.error(data.error || 'Biriktirishda xatolik');
       }
     } catch {
       toast.error('Tarmoq xatosi');
@@ -167,7 +194,7 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            ...buildBranchHeaders(),
+            ...buildRentalPanelHeaders(),
           },
           body: JSON.stringify({
             branchId,
@@ -198,7 +225,7 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
           method: 'PUT',
           headers: {
             'Content-Type': 'application/json',
-            ...buildBranchHeaders(),
+            ...buildRentalPanelHeaders(),
           },
           body: JSON.stringify({
             branchId,
@@ -222,16 +249,20 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
     }
   };
 
-  const filteredOrders = filter === 'all' 
-    ? orders 
-    : orders.filter(order => order.status === filter);
+  const filteredOrders =
+    filter === 'all'
+      ? orders
+      : filter === 'pending_new'
+        ? orders.filter((o) => o.needsBranchAcceptance === true)
+        : orders.filter((order) => order.status === filter);
 
   const stats = {
     all: orders.length,
-    active: orders.filter(o => o.status === 'active').length,
-    returned: orders.filter(o => o.status === 'returned').length,
-    extended: orders.filter(o => o.status === 'extended').length,
-    cancelled: orders.filter(o => o.status === 'cancelled').length,
+    pending_new: orders.filter((o) => o.needsBranchAcceptance === true).length,
+    active: orders.filter((o) => o.status === 'active').length,
+    returned: orders.filter((o) => o.status === 'returned').length,
+    extended: orders.filter((o) => o.status === 'extended').length,
+    cancelled: orders.filter((o) => o.status === 'cancelled').length,
   };
 
   const getStatusIcon = (status: string) => {
@@ -296,15 +327,18 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
       <div className="flex gap-2 overflow-x-auto pb-2">
         {[
           { key: 'all', label: 'Hammasi', count: stats.all },
+          { key: 'pending_new', label: 'Yangi', count: stats.pending_new, icon: Sparkles },
           { key: 'active', label: 'Ijarada', count: stats.active },
           { key: 'returned', label: 'Qaytib keldi', count: stats.returned },
           { key: 'extended', label: 'Cho\'zildi', count: stats.extended },
           { key: 'cancelled', label: 'Bekor qilindi', count: stats.cancelled },
-        ].map((item) => (
+        ].map((item) => {
+          const TabIcon = 'icon' in item ? item.icon : null;
+          return (
           <button
             key={item.key}
             onClick={() => setFilter(item.key as any)}
-            className="px-4 py-2 rounded-2xl font-medium whitespace-nowrap transition-all"
+            className="inline-flex items-center gap-1.5 px-4 py-2 rounded-2xl font-medium whitespace-nowrap transition-all"
             style={{
               background: filter === item.key 
                 ? accentColor.color 
@@ -312,9 +346,11 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
               color: filter === item.key ? '#ffffff' : undefined,
             }}
           >
+            {TabIcon ? <TabIcon className="w-4 h-4 shrink-0 opacity-90" /> : null}
             {item.label} ({item.count})
           </button>
-        ))}
+          );
+        })}
       </div>
 
       {/* Orders List */}
@@ -331,7 +367,11 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
           <Clock className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
           <h3 className="text-xl font-bold mb-2">Buyurtmalar yo'q</h3>
           <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-            {filter === 'all' ? 'Hali buyurtmalar yo\'q' : `${getStatusText(filter)} buyurtmalar yo'q`}
+            {filter === 'all'
+              ? 'Hali buyurtmalar yo\'q'
+              : filter === 'pending_new'
+                ? 'Yangi (filial qabuli kutilayotgan) buyurtmalar yo‘q'
+                : `${getStatusText(filter)} buyurtmalar yo'q`}
           </p>
         </div>
       ) : (
@@ -371,6 +411,90 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
                 </div>
               </div>
 
+              {order.status === 'active' && (
+                <div
+                  className="mb-4 flex flex-wrap gap-1.5 text-[10px] sm:text-xs font-semibold"
+                  aria-label="Buyurtma bosqichlari"
+                >
+                  {(
+                    [
+                      { id: 'b', label: 'Filial qabuli', done: !order.needsBranchAcceptance, warn: false },
+                      {
+                        id: 'c',
+                        label: order.requiresAutoCourier ? 'Avto-kuryer' : 'Kuryer',
+                        done: Boolean(String(order.deliveryCourierId || '').trim()),
+                        warn: false,
+                      },
+                      {
+                        id: 'd',
+                        label: 'Mijozga yetkazildi (hisob boshlanadi)',
+                        done: Boolean(order.rentalPeriodStartedAt),
+                        warn: false,
+                      },
+                      {
+                        id: 'p',
+                        label:
+                          order.pickupAlert === 'overdue'
+                            ? 'Qaytarish (majburiy)'
+                            : order.pickupAlert === 'due_soon'
+                              ? 'Qaytarish (tez orada)'
+                              : 'Qaytarish (muddati tugagach)',
+                        done: false,
+                        warn: order.pickupAlert === 'overdue',
+                      },
+                    ] as const
+                  ).map((step, idx, arr) => {
+                    const inactive =
+                      !step.done &&
+                      step.id !== 'p' &&
+                      (step.id === 'c'
+                        ? order.needsBranchAcceptance
+                        : step.id === 'd'
+                          ? !String(order.deliveryCourierId || '').trim()
+                          : false);
+                    return (
+                      <span key={step.id} className="inline-flex items-center gap-1.5">
+                        <span
+                          className="px-2 py-1 rounded-lg"
+                          style={{
+                            background: step.warn
+                              ? 'rgba(239,68,68,0.2)'
+                              : step.done
+                                ? `${accentColor.color}28`
+                                : inactive
+                                  ? isDark
+                                    ? 'rgba(255,255,255,0.04)'
+                                    : 'rgba(0,0,0,0.04)'
+                                  : isDark
+                                    ? 'rgba(255,255,255,0.06)'
+                                    : 'rgba(0,0,0,0.06)',
+                            color: step.warn
+                              ? '#ef4444'
+                              : step.done
+                                ? accentColor.color
+                                : isDark
+                                  ? 'rgba(255,255,255,0.45)'
+                                  : 'rgba(0,0,0,0.45)',
+                          }}
+                        >
+                          {step.label}
+                        </span>
+                        {idx < arr.length - 1 ? (
+                          <span style={{ color: isDark ? 'rgba(255,255,255,0.25)' : 'rgba(0,0,0,0.2)' }}>→</span>
+                        ) : null}
+                      </span>
+                    );
+                  })}
+                </div>
+              )}
+
+              {order.productWeightKg != null && Number(order.productWeightKg) > 0 ? (
+                <p className="text-xs mb-3 font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                  Og‘irlik: {order.productWeightKg} kg
+                  {order.requiresAutoCourier ? ' · avto-kuryer navbati yoki filial tanlovi' : ''}
+                </p>
+              ) : null}
+
               {order.status === 'active' && order.pickupAlert === 'overdue' && order.rentalPeriodStartedAt && (
                 <div
                   className="mb-4 p-3 rounded-2xl border text-sm font-semibold"
@@ -384,59 +508,119 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
                 </div>
               )}
 
-              {order.status === 'active' && order.awaitingCourierDelivery === true && (
+              {order.status === 'active' && order.needsBranchAcceptance === true && (
                 <div
                   className="mb-4 p-4 rounded-2xl border space-y-3"
                   style={{
-                    background: isDark ? 'rgba(245,158,11,0.1)' : 'rgba(245,158,11,0.08)',
-                    borderColor: isDark ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.3)',
+                    background: isDark ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.08)',
+                    borderColor: isDark ? 'rgba(59,130,246,0.35)' : 'rgba(59,130,246,0.28)',
                   }}
                 >
-                  <p className="text-sm font-bold" style={{ color: '#b45309' }}>
-                    Kuryer mijozga yetkazib berdi
+                  <p className="text-sm font-bold" style={{ color: '#1d4ed8' }}>
+                    Yangi buyurtma — filial qabuli
                   </p>
                   <p className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
-                    Tasdiqlanganda ijara muddati va tugash vaqti shu paytdan boshlanadi; kuryer panelida «Ijara» bo‘limida ko‘rinadi.
+                    «Qabul qilish» dan keyin ijara beruvchiga Telegram va (kerak bo‘lsa) avto-kuryerga xabar ketadi; keyin kuryer biriktiriladi.
                   </p>
-                  <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
-                    <select
-                      className="flex-1 px-3 py-2 rounded-xl border text-sm bg-transparent disabled:opacity-60"
-                      style={{
-                        borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)',
-                        color: isDark ? '#fff' : '#111',
-                      }}
-                      disabled={couriersLoading}
-                      value={deliveryCourierByOrder[order.id] || ''}
-                      onChange={(e) =>
-                        setDeliveryCourierByOrder((prev) => ({ ...prev, [order.id]: e.target.value }))
-                      }
-                    >
-                      <option value="">
-                        {couriersLoading ? 'Kuryerlar yuklanmoqda...' : 'Kuryerni tanlang'}
-                      </option>
-                      {couriers.map((c) => (
-                        <option key={c.id} value={c.id}>
-                          {c.name}
-                        </option>
-                      ))}
-                    </select>
-                    {couriersLoading ? (
-                      <Loader2
-                        className="size-5 animate-spin shrink-0 self-center"
-                        style={{ color: accentColor.color }}
-                        aria-hidden
-                      />
+                  <button
+                    type="button"
+                    disabled={acceptBranchBusyId === order.id}
+                    onClick={() => acceptBranchOrder(order)}
+                    className="px-4 py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ background: '#2563eb' }}
+                  >
+                    {acceptBranchBusyId === order.id ? 'Yuborilmoqda...' : 'Qabul qilish'}
+                  </button>
+                </div>
+              )}
+
+              {order.status === 'active' &&
+                order.needsBranchAcceptance !== true &&
+                order.awaitingCourierAssignment === true && (
+                  <div
+                    className="mb-4 p-4 rounded-2xl border space-y-3"
+                    style={{
+                      background: isDark ? 'rgba(245,158,11,0.1)' : 'rgba(245,158,11,0.08)',
+                      borderColor: isDark ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.3)',
+                    }}
+                  >
+                    <p className="text-sm font-bold" style={{ color: '#b45309' }}>
+                      {order.requiresAutoCourier
+                        ? 'Katta yuk — avto-kuryer navbati'
+                        : 'Oddiy kuryer biriktirish'}
+                    </p>
+                    <p className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
+                      {order.requiresAutoCourier
+                        ? 'Avto-kuryer o‘z panelida «Olish» bosguncha kuting. Biriktirilgach, u ijara beruvchi manzilidan olib mijozga yetkazadi.'
+                        : 'Pastdan filial kuryerini tanlang — u ijara beruvchidan olib mijozga yetkazadi. Ijara muddati mijoz yoki kuryer «yetkazildi» tasdig‘idan keyin boshlanadi.'}
+                    </p>
+                    {!order.requiresAutoCourier ? (
+                      <div className="flex flex-col sm:flex-row gap-2 sm:items-center">
+                        <select
+                          className="flex-1 px-3 py-2 rounded-xl border text-sm bg-transparent disabled:opacity-60"
+                          style={{
+                            borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)',
+                            color: isDark ? '#fff' : '#111',
+                          }}
+                          disabled={couriersLoading}
+                          value={
+                            deliveryCourierByOrder[order.id] ||
+                            String(order.deliveryCourierId || '')
+                          }
+                          onChange={(e) =>
+                            setDeliveryCourierByOrder((prev) => ({ ...prev, [order.id]: e.target.value }))
+                          }
+                        >
+                          <option value="">
+                            {couriersLoading ? 'Kuryerlar yuklanmoqda...' : 'Kuryerni tanlang'}
+                          </option>
+                          {couriers.map((c) => (
+                            <option key={c.id} value={c.id}>
+                              {c.name}
+                            </option>
+                          ))}
+                        </select>
+                        {couriersLoading ? (
+                          <Loader2
+                            className="size-5 animate-spin shrink-0 self-center"
+                            style={{ color: accentColor.color }}
+                            aria-hidden
+                          />
+                        ) : null}
+                        <button
+                          type="button"
+                          disabled={confirmDeliveryBusyId === order.id}
+                          onClick={() => assignCourierToOrder(order)}
+                          className="px-4 py-2 rounded-xl text-sm font-semibold text-white shrink-0 disabled:opacity-50"
+                          style={{ background: accentColor.color }}
+                        >
+                          {confirmDeliveryBusyId === order.id ? 'Yuborilmoqda...' : 'Kuryerni biriktirish'}
+                        </button>
+                      </div>
                     ) : null}
-                    <button
-                      type="button"
-                      disabled={confirmDeliveryBusyId === order.id}
-                      onClick={() => confirmCourierDelivered(order)}
-                      className="px-4 py-2 rounded-xl text-sm font-semibold text-white shrink-0 disabled:opacity-50"
-                      style={{ background: accentColor.color }}
-                    >
-                      {confirmDeliveryBusyId === order.id ? 'Yuborilmoqda...' : 'Tasdiqlash'}
-                    </button>
                   </div>
+                )}
+
+              {order.status === 'active' && order.awaitingDeliveryConfirmation === true && (
+                <div
+                  className="mb-4 p-4 rounded-2xl border space-y-2"
+                  style={{
+                    background: isDark ? 'rgba(16,185,129,0.1)' : 'rgba(16,185,129,0.08)',
+                    borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.28)',
+                  }}
+                >
+                  <p className="text-sm font-bold" style={{ color: '#047857' }}>
+                    Yetkazish jarayonida
+                  </p>
+                  <p className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
+                    Kuryer tayinlangan. Ijara muddati mijoz ilovada «Mahsulotni oldim» yoki kuryer «Mijozga yetkazildi» bosganda
+                    boshlanadi; shundan keyin tugash vaqti va «Ijara» bo‘limidagi qaytarish ochiladi.
+                  </p>
+                  {order.deliveryCourierId ? (
+                    <p className="text-[11px] font-mono" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                      Kuryer ID: {order.deliveryCourierId}
+                    </p>
+                  ) : null}
                 </div>
               )}
 

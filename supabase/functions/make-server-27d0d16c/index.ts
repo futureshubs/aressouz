@@ -10,6 +10,12 @@ import * as carSeed from "./car-seed.tsx";
 import * as telegram from "./telegram.tsx";
 import restaurantRoutes from "./restaurants.tsx";
 import rentalRoutes from "./rentals.tsx";
+import {
+  normalizeRentalProviderLogin,
+  rentalProviderLoginLookupKey,
+  rentalProviderRecordKey,
+  rentalProviderSessionPrefix,
+} from "./rental_provider_kv.ts";
 import autoCourierRoutes from "./auto-courier.tsx";
 import auctionRoutes from "./auction.tsx";
 import bonusRoutes, { deductBonusForOrderPurchase, getUserBonusData } from "./bonus.tsx";
@@ -237,7 +243,9 @@ app.use("*", async (c, next) => {
       c.req.header("X-Seller-Token") ||
       c.req.header("x-seller-token") ||
       c.req.header("X-Accountant-Token") ||
-      c.req.header("x-accountant-token"),
+      c.req.header("x-accountant-token") ||
+      c.req.header("X-Rental-Provider-Token") ||
+      c.req.header("x-rental-provider-token"),
   );
 
   if (!hasAnyAuthHeader) {
@@ -298,6 +306,8 @@ app.use("/*", async (c, next) => {
       "x-branch-supabase-jwt",
       "X-Accountant-Token",
       "x-accountant-token",
+      "X-Rental-Provider-Token",
+      "x-rental-provider-token",
       "X-Request-ID",
       "x-request-id",
       "apikey",
@@ -336,7 +346,7 @@ app.options('*', (c) => {
   return c.text('OK', 200, {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Access-Token, x-access-token, X-Seller-Token, x-seller-token, X-Courier-Token, x-courier-token, X-Admin-Code, x-admin-code, X-Admin-Session, x-admin-session, X-Admin-Login-Token, x-admin-login-token, X-Admin-Device-Id, x-admin-device-id, X-Request-ID, x-request-id, X-Branch-Token, x-branch-token, X-Branch-Supabase-Jwt, x-branch-supabase-jwt, X-Accountant-Token, x-accountant-token, apikey',
+    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Access-Token, x-access-token, X-Seller-Token, x-seller-token, X-Courier-Token, x-courier-token, X-Admin-Code, x-admin-code, X-Admin-Session, x-admin-session, X-Admin-Login-Token, x-admin-login-token, X-Admin-Device-Id, x-admin-device-id, X-Request-ID, x-request-id, X-Branch-Token, x-branch-token, X-Branch-Supabase-Jwt, x-branch-supabase-jwt, X-Accountant-Token, x-accountant-token, X-Rental-Provider-Token, x-rental-provider-token, apikey',
     'Access-Control-Expose-Headers': 'Content-Length, Content-Type, X-Request-ID',
     'Access-Control-Max-Age': '600',
   });
@@ -1563,6 +1573,306 @@ async function purgeAllManagedR2UrlsInRecord(obj: unknown) {
   for (const url of collectHttpMediaUrls(obj)) {
     await r2.deleteManagedR2UrlIfKnown(url);
   }
+}
+
+function kvBranchMatches(recordBranchId: unknown, branchId: string): boolean {
+  const t = normalizeBranchId(branchId);
+  if (!t) return false;
+  return normalizeBranchId(recordBranchId) === t;
+}
+
+function rentalPhoneDigitsForCustomerIndex(phone: string): string {
+  const d = String(phone || "").replace(/\D/g, "");
+  if (!d) return "";
+  if (d.length === 9) return `998${d}`;
+  if (d.startsWith("998")) return d;
+  if (d.length === 12 && d.startsWith("998")) return d;
+  return d;
+}
+
+/**
+ * Filial KV o‘chirilganda: zonalar, buyurtmalar, ijara, restoran, auksion, banner va hok.
+ */
+async function purgeKvDataForDeletedBranch(branchId: string): Promise<Record<string, number>> {
+  const counts: Record<string, number> = {};
+  const bump = (k: string, n = 1) => {
+    counts[k] = (counts[k] || 0) + n;
+  };
+  const bid = normalizeBranchId(branchId);
+  if (!bid) return counts;
+
+  try {
+    const { error: memErr } = await supabase
+      .from("branch_staff_memberships")
+      .delete()
+      .eq("branch_kv_id", bid);
+    if (memErr) console.error("purgeKvDataForDeletedBranch branch_staff_memberships:", memErr);
+  } catch (e) {
+    console.error("purgeKvDataForDeletedBranch branch_staff_memberships:", e);
+  }
+
+  const zoneRows = await kv.getByPrefixWithKeys("delivery-zone:");
+  for (const { key, value: z } of zoneRows) {
+    if (z && kvBranchMatches(z.branchId, bid)) {
+      await kv.del(key);
+      bump("deliveryZones");
+    }
+  }
+
+  const orderRows = await kv.getByPrefixWithKeys("order:");
+  for (const { key, value: o } of orderRows) {
+    if (o && kvBranchMatches(o.branchId, bid)) {
+      await purgeAllManagedR2UrlsInRecord(o);
+      await kv.del(key);
+      bump("orders");
+    }
+  }
+
+  const saleRows = await kv.getByPrefixWithKeys("sale:");
+  for (const { key, value: s } of saleRows) {
+    if (s && kvBranchMatches(s.branchId, bid)) {
+      await kv.del(key);
+      bump("sales");
+    }
+  }
+
+  const invRows = await kv.getByPrefixWithKeys("inventory_history:");
+  for (const { key, value: h } of invRows) {
+    if (h && kvBranchMatches(h.branchId, bid)) {
+      await kv.del(key);
+      bump("inventoryHistory");
+    }
+  }
+
+  const rackRows = await kv.getByPrefixWithKeys(`pickup_rack:${bid}:`);
+  for (const { key } of rackRows) {
+    await kv.del(key);
+    bump("pickupRacks");
+  }
+
+  const staffRows = await kv.getByPrefixWithKeys("staff:");
+  for (const { key, value: st } of staffRows) {
+    if (st && kvBranchMatches(st.branchId, bid)) {
+      await purgeAllManagedR2UrlsInRecord(st);
+      await kv.del(key);
+      bump("staff");
+    }
+  }
+
+  const courierRows = await kv.getByPrefixWithKeys("courier:");
+  for (const { key, value: co } of courierRows) {
+    if (co && kvBranchMatches(co.branchId, bid)) {
+      await purgeAllManagedR2UrlsInRecord(co);
+      await kv.del(key);
+      bump("couriers");
+    }
+  }
+
+  const courierSessRows = await kv.getByPrefixWithKeys("courier_session:");
+  for (const { key, value: sess } of courierSessRows) {
+    const cid = String(sess?.courierId || "").trim();
+    const cour = cid ? await kv.get(buildCourierKey(cid)) : null;
+    if (!cour || kvBranchMatches(cour.branchId, bid)) {
+      await kv.del(key);
+      bump("courierSessions");
+    }
+  }
+
+  const acRows = await kv.getByPrefixWithKeys("auto_courier:");
+  for (const { key, value: row } of acRows) {
+    if (row && kvBranchMatches(row.branchId, bid)) {
+      await kv.del(key);
+      bump("autoCouriers");
+    }
+  }
+  const acSess = await kv.getByPrefixWithKeys("auto_courier_session:");
+  for (const { key, value: s } of acSess) {
+    if (s && kvBranchMatches(s.branchId, bid)) {
+      await kv.del(key);
+      bump("autoCourierSessions");
+    }
+  }
+
+  const rProdRows = await kv.getByPrefixWithKeys(`rental_product_${bid}_`);
+  for (const { key, value: p } of rProdRows) {
+    await purgeAllManagedR2UrlsInRecord(p);
+    await kv.del(key);
+    bump("rentalProducts");
+  }
+
+  const rOrderRows = await kv.getByPrefixWithKeys(`rental_order_${bid}_`);
+  for (const { key, value: o } of rOrderRows) {
+    const oid = String(o?.id || "").trim();
+    if (oid) {
+      try {
+        await kv.del(`rental_rating_${oid}`);
+        bump("rentalRatings");
+      } catch {
+        /* ignore */
+      }
+      const pk = rentalPhoneDigitsForCustomerIndex(String(o?.customerPhone || ""));
+      if (pk && oid) {
+        try {
+          await kv.del(`rental_customer_${pk}_${oid}`);
+          bump("rentalCustomerRefs");
+        } catch {
+          /* ignore */
+        }
+      }
+      const cid = String(o?.deliveryCourierId || "").trim();
+      if (cid && oid) {
+        try {
+          await kv.del(`rental_courier_active_${cid}_${oid}`);
+          bump("rentalCourierActive");
+        } catch {
+          /* ignore */
+        }
+      }
+    }
+    await kv.del(key);
+    bump("rentalOrders");
+  }
+
+  const rWhRows = await kv.getByPrefixWithKeys(`rental_warehouse_${bid}_`);
+  for (const { key } of rWhRows) {
+    await kv.del(key);
+    bump("rentalWarehouse");
+  }
+
+  const rAppRows = await kv.getByPrefixWithKeys(`rental_application_${bid}_`);
+  for (const { key } of rAppRows) {
+    await kv.del(key);
+    bump("rentalApplications");
+  }
+
+  const rProvRows = await kv.getByPrefixWithKeys(`rental_provider_${bid}_`);
+  for (const { key, value: pr } of rProvRows) {
+    const loginNorm = normalizeRentalProviderLogin(String(pr?.login || ""));
+    if (loginNorm) {
+      try {
+        await kv.del(rentalProviderLoginLookupKey(loginNorm));
+      } catch {
+        /* ignore */
+      }
+    }
+    await kv.del(key);
+    bump("rentalProviders");
+  }
+
+  const rSessRows = await kv.getByPrefixWithKeys(rentalProviderSessionPrefix);
+  for (const { key, value: rs } of rSessRows) {
+    if (rs && kvBranchMatches(rs.branchId, bid)) {
+      await kv.del(key);
+      bump("rentalProviderSessions");
+    }
+  }
+
+  const restRows = await kv.getByPrefixWithKeys("restaurant:");
+  for (const { key, value: r } of restRows) {
+    if (!r || !kvBranchMatches(r.branchId, bid)) continue;
+    const rid = String(r.id || "").trim();
+    if (rid) {
+      const dishRows = await kv.getByPrefixWithKeys(`dish:${rid}:`);
+      for (const dr of dishRows) {
+        await purgeAllManagedR2UrlsInRecord(dr.value);
+        await kv.del(dr.key);
+        bump("restaurantDishes");
+      }
+    }
+    await purgeAllManagedR2UrlsInRecord(r);
+    await kv.del(key);
+    bump("restaurants");
+  }
+
+  const aucRows = await kv.getByPrefixWithKeys("auction:");
+  for (const { key, value: a } of aucRows) {
+    if (!a || !kvBranchMatches(a.branchId, bid)) continue;
+    const aid = String(a.id || a.auctionId || "").trim();
+    if (aid) {
+      const bids = await kv.getByPrefixWithKeys(`auction_bid:${aid}:`);
+      for (const b of bids) {
+        await kv.del(b.key);
+        bump("auctionBids");
+      }
+      const parts = await kv.getByPrefixWithKeys(`auction_participant:${aid}:`);
+      for (const p of parts) {
+        await kv.del(p.key);
+        bump("auctionParticipants");
+      }
+    }
+    await purgeAllManagedR2UrlsInRecord(a);
+    await kv.del(key);
+    bump("auctions");
+  }
+
+  const reqRows = await kv.getByPrefixWithKeys("auction_request:");
+  for (const { key, value: req } of reqRows) {
+    if (req && kvBranchMatches(req.branchId, bid)) {
+      await kv.del(key);
+      bump("auctionRequests");
+    }
+  }
+
+  const bankRows = await kv.getByPrefixWithKeys("bank:");
+  for (const { key, value: b } of bankRows) {
+    if (b && kvBranchMatches(b.branchId, bid)) {
+      await purgeAllManagedR2UrlsInRecord(b);
+      await kv.del(key);
+      bump("banks");
+    }
+  }
+
+  const banRows = await kv.getByPrefixWithKeys("banner:");
+  for (const { key, value: bn } of banRows) {
+    if (bn && kvBranchMatches(bn.branchId, bid)) {
+      await purgeAllManagedR2UrlsInRecord(bn);
+      await kv.del(key);
+      bump("banners");
+    }
+  }
+
+  const repRows = await kv.getByPrefixWithKeys(`report:${bid}:`);
+  for (const { key } of repRows) {
+    await kv.del(key);
+    bump("reports");
+  }
+
+  const placeRows = await kv.getByPrefixWithKeys("place:");
+  for (const { key, value: p } of placeRows) {
+    if (p && kvBranchMatches(p.branchId, bid)) {
+      await purgeAllManagedR2UrlsInRecord(p);
+      await kv.del(key);
+      bump("branchPlaces");
+    }
+  }
+
+  const propRows = await kv.getByPrefixWithKeys("property:");
+  for (const { key, value: p } of propRows) {
+    if (p && kvBranchMatches(p.branchId, bid)) {
+      await purgeAllManagedR2UrlsInRecord(p);
+      await kv.del(key);
+      bump("branchProperties");
+    }
+  }
+
+  const vehRows = await kv.getByPrefixWithKeys("vehicle:");
+  for (const { key, value: v } of vehRows) {
+    if (v && kvBranchMatches(v.branchId, bid)) {
+      await purgeAllManagedR2UrlsInRecord(v);
+      await kv.del(key);
+      bump("branchVehicles");
+    }
+  }
+
+  const bsRows = await kv.getByPrefixWithKeys("branch_session:");
+  for (const { key, value: s } of bsRows) {
+    if (s && kvBranchMatches(s.branchId, bid)) {
+      await kv.del(key);
+      bump("branchSessions");
+    }
+  }
+
+  return counts;
 }
 
 async function deleteListingRecordMediaFromR2(listing: Record<string, unknown> | null | undefined) {
@@ -3966,8 +4276,13 @@ app.delete("/make-server-27d0d16c/branches/:id", async (c) => {
     }
     console.log(`✅ Deleted ${branchShops.length} shops`);
     
-    // 5. Delete the branch itself
-    console.log('🗑️ Step 5: Deleting branch...');
+    // 5. Zonalar, KV buyurtmalar, ijara, restoran, auksion va boshqa filial bog‘liqlari
+    console.log('🗑️ Step 5: Purging branch-scoped KV (zones, orders, rentals, …)...');
+    const extraPurged = await purgeKvDataForDeletedBranch(id);
+    console.log('✅ Step 5 extra purge:', JSON.stringify(extraPurged));
+
+    // 6. Delete the branch itself
+    console.log('🗑️ Step 6: Deleting branch record...');
     await purgeAllManagedR2UrlsInRecord(branch);
     await kv.del(`branch:${id}`);
     
@@ -3979,6 +4294,7 @@ app.delete("/make-server-27d0d16c/branches/:id", async (c) => {
         shops: branchShops.length,
         shopProducts: totalShopProducts,
         shopOrders: totalShopOrders,
+        extraKvPurge: extraPurged,
       }
     };
     
@@ -9513,6 +9829,49 @@ app.post("/make-server-27d0d16c/user/:userId/purchases", async (c) => {
 
 // ==================== SHOPS (DO'KONLAR) ROUTES ====================
 
+/** `review:product:*` dan mahsulot ID bo‘yicha jami yulduz va sharh soni */
+function buildProductReviewStatsMap(allReviews: unknown): Map<string, { total: number; count: number }> {
+  const reviewStats = new Map<string, { total: number; count: number }>();
+  const list = Array.isArray(allReviews) ? allReviews : [];
+  for (const review of list) {
+    const r = review as Record<string, unknown>;
+    if (!r || r.hidden) continue;
+    const productId = String(r.productId || "").trim();
+    if (!productId) continue;
+    const cur = reviewStats.get(productId) || { total: 0, count: 0 };
+    cur.total += Number(r.rating || 0);
+    cur.count += 1;
+    reviewStats.set(productId, cur);
+  }
+  return reviewStats;
+}
+
+function aggregateReviewsForShop(
+  allShopProducts: unknown,
+  reviewStats: Map<string, { total: number; count: number }>,
+  shopId: string,
+): { rating: number; reviewCount: number } {
+  const sid = String(shopId || "").trim();
+  let totalStars = 0;
+  let totalReviews = 0;
+  const plist = Array.isArray(allShopProducts) ? allShopProducts : [];
+  for (const p of plist) {
+    const row = p as Record<string, unknown>;
+    if (!row || row.deleted || String(row.shopId || "").trim() !== sid) continue;
+    const pid = String(row.id || "").trim();
+    if (!pid) continue;
+    const st = reviewStats.get(pid);
+    if (!st || st.count === 0) continue;
+    totalStars += st.total;
+    totalReviews += st.count;
+  }
+  if (totalReviews === 0) return { rating: 0, reviewCount: 0 };
+  return {
+    rating: Number((totalStars / totalReviews).toFixed(1)),
+    reviewCount: totalReviews,
+  };
+}
+
 // Get all shops
 app.get("/make-server-27d0d16c/shops", async (c) => {
   try {
@@ -9521,7 +9880,12 @@ app.get("/make-server-27d0d16c/shops", async (c) => {
     
     console.log(`📍 Get shops filter - Region: ${region}, District: ${district}`);
     
-    const shops = await kv.getByPrefix('shop:');
+    const [shops, allShopProducts, allReviews] = await Promise.all([
+      kv.getByPrefix('shop:'),
+      kv.getByPrefix('shop_product:'),
+      kv.getByPrefix('review:product:'),
+    ]);
+    const reviewStats = buildProductReviewStatsMap(allReviews);
     
     // Filter out deleted shops and add services/products count
     const activeShops = shops
@@ -9541,11 +9905,16 @@ app.get("/make-server-27d0d16c/shops", async (c) => {
         console.log(`  ✅ Shop ${shop.id} (${shop.name}) passed filter (region: ${shop.region}, district: ${shop.district})`);
         return true;
       })
-      .map((shop: any) => ({
-        ...shop,
-        servicesCount: shop.services?.length || 0,
-        productsCount: shop.productsCount || 0,
-      }));
+      .map((shop: any) => {
+        const agg = aggregateReviewsForShop(allShopProducts, reviewStats, shop.id);
+        return {
+          ...shop,
+          servicesCount: shop.services?.length || 0,
+          productsCount: shop.productsCount || 0,
+          rating: agg.rating,
+          reviewCount: agg.reviewCount,
+        };
+      });
     
     console.log(`📦 Returning ${activeShops.length} shops for region: ${region}, district: ${district}`);
     
@@ -10964,6 +11333,143 @@ app.get("/make-server-27d0d16c/branch/staff/me", async (c) => {
       authUserId: (branchAuth as any).authUserId || null,
     });
   } catch (error: any) {
+    return c.json({ success: false, error: error?.message || "Xatolik" }, 500);
+  }
+});
+
+/** Filial: ijara beruvchi akkauntlari (login/parol — alohida panel) */
+app.get("/make-server-27d0d16c/branch/rental-providers", async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json(
+        { success: false, error: branchAuth.error || "Unauthorized" },
+        401,
+      );
+    }
+    const branchId = String(branchAuth.branchId || "");
+    const all = (await kv.getByPrefix(`rental_provider_${branchId}_`)) || [];
+    const providers = (all as any[])
+      .filter((x) => x && !x.deleted)
+      .map((p) => ({
+        id: p.id,
+        login: p.login,
+        displayName: p.displayName || p.name || p.login,
+        createdAt: p.createdAt,
+      }));
+    return c.json({ success: true, providers });
+  } catch (error: any) {
+    console.error("branch/rental-providers GET:", error);
+    return c.json({ success: false, error: error?.message || "Xatolik" }, 500);
+  }
+});
+
+app.post("/make-server-27d0d16c/branch/rental-providers", async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json(
+        { success: false, error: branchAuth.error || "Unauthorized" },
+        401,
+      );
+    }
+    const branchId = String(branchAuth.branchId || "");
+    const body = await c.req.json();
+    const login = String(body.login || "").trim();
+    const password = String(body.password || "");
+    const displayName = String(body.displayName || body.name || login).trim();
+    if (!login || !password) {
+      return c.json(
+        { success: false, error: "Login va parol majburiy" },
+        400,
+      );
+    }
+    const norm = normalizeRentalProviderLogin(login);
+    if (!norm) {
+      return c.json({ success: false, error: "Login noto‘g‘ri" }, 400);
+    }
+    const lk = rentalProviderLoginLookupKey(norm);
+    const existing = await kv.get(lk);
+    if (existing) {
+      return c.json({ success: false, error: "Bu login allaqachon band" }, 409);
+    }
+    const providerId = `rp_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+    const rec = {
+      id: providerId,
+      branchId,
+      login,
+      password,
+      displayName,
+      createdAt: new Date().toISOString(),
+      deleted: false,
+    };
+    await kv.set(rentalProviderRecordKey(branchId, providerId), rec);
+    await kv.set(lk, { branchId, providerId });
+    return c.json({
+      success: true,
+      provider: { id: providerId, login, displayName },
+    });
+  } catch (error: any) {
+    console.error("branch/rental-providers POST:", error);
+    return c.json({ success: false, error: error?.message || "Xatolik" }, 500);
+  }
+});
+
+app.patch("/make-server-27d0d16c/branch/rental-providers/:providerId", async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json(
+        { success: false, error: branchAuth.error || "Unauthorized" },
+        401,
+      );
+    }
+    const branchId = String(branchAuth.branchId || "");
+    const providerId = c.req.param("providerId");
+    const body = await c.req.json();
+    const password = String(body.password || "");
+    if (!password) {
+      return c.json({ success: false, error: "Yangi parol majburiy" }, 400);
+    }
+    const key = rentalProviderRecordKey(branchId, providerId);
+    const rec = (await kv.get(key)) as any;
+    if (!rec || rec.deleted) {
+      return c.json({ success: false, error: "Akkaunt topilmadi" }, 404);
+    }
+    rec.password = password;
+    rec.updatedAt = new Date().toISOString();
+    await kv.set(key, rec);
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error("branch/rental-providers PATCH:", error);
+    return c.json({ success: false, error: error?.message || "Xatolik" }, 500);
+  }
+});
+
+app.delete("/make-server-27d0d16c/branch/rental-providers/:providerId", async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json(
+        { success: false, error: branchAuth.error || "Unauthorized" },
+        401,
+      );
+    }
+    const branchId = String(branchAuth.branchId || "");
+    const providerId = c.req.param("providerId");
+    const key = rentalProviderRecordKey(branchId, providerId);
+    const rec = (await kv.get(key)) as any;
+    if (!rec || rec.deleted) {
+      return c.json({ success: false, error: "Akkaunt topilmadi" }, 404);
+    }
+    const norm = normalizeRentalProviderLogin(String(rec.login || ""));
+    rec.deleted = true;
+    rec.updatedAt = new Date().toISOString();
+    await kv.set(key, rec);
+    if (norm) await kv.del(rentalProviderLoginLookupKey(norm));
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error("branch/rental-providers DELETE:", error);
     return c.json({ success: false, error: error?.message || "Xatolik" }, 500);
   }
 });
@@ -15012,7 +15518,12 @@ app.get("/make-server-27d0d16c/shops/:shopId/products", async (c) => {
     
     console.log(`📍 Filter parameters - Region: ${region}, District: ${district}`);
     
-    const products = await kv.getByPrefix('shop_product:');
+    const [products, allReviews] = await Promise.all([
+      kv.getByPrefix('shop_product:'),
+      kv.getByPrefix('review:product:'),
+    ]);
+    const reviewStats = buildProductReviewStatsMap(allReviews);
+
     const shopProducts = products
       .filter((p: any) => {
         if (!p || p.deleted) return false;
@@ -15033,6 +15544,13 @@ app.get("/make-server-27d0d16c/shops/:shopId/products", async (c) => {
       .map((product: any) => {
         const { base, totalStock } = normalizeShopProductForPublicResponse(product);
         const firstVariant = base.variants?.[0];
+        const pid = String(base.id || "").trim();
+        const st = pid ? reviewStats.get(pid) : undefined;
+        const reviewCount = st?.count || 0;
+        const rating =
+          reviewCount > 0 && st
+            ? Number((st.total / st.count).toFixed(1))
+            : 0;
         
         return {
           ...base,
@@ -15045,8 +15563,8 @@ app.get("/make-server-27d0d16c/shops/:shopId/products", async (c) => {
           // Add display-ready fields
           category: base.category || 'Mahsulot',
           shopName: base.shopName || null, // Add shop name for display
-          rating: 4.8, // Default rating - can be updated with real reviews later
-          reviewCount: Math.floor(Math.random() * 500) + 100, // Random for demo
+          rating,
+          reviewCount,
           isNew: base.createdAt && new Date(base.createdAt) > new Date(Date.now() - 7 * 24 * 60 * 60 * 1000), // New if created in last 7 days
           isBestseller: false, // Can be updated based on sales data later
         };
@@ -18231,19 +18749,44 @@ app.get("/make-server-27d0d16c/districts", async (c) => {
 // Get all delivery zones for a branch
 app.get("/make-server-27d0d16c/delivery-zones", async (c) => {
   try {
-    const branchId = c.req.query('branchId');
+    const qBranch = String(c.req.query('branchId') || '').trim();
     
-    console.log('🗺️ Getting delivery zones for branch:', branchId);
+    console.log('🗺️ Getting delivery zones, query branchId:', qBranch);
     
     const allZones = await kv.getByPrefix('delivery-zone:');
-    
-    // Filter by branchId if provided
-    let zones = allZones;
-    if (branchId) {
-      zones = allZones.filter((zone: any) => zone.branchId === branchId);
+
+    const branchAuth = await validateBranchSession(c);
+    if (branchAuth.success) {
+      const bid = normalizeBranchId(branchAuth.branchId);
+      const zones = allZones.filter(
+        (zone: any) => zone && kvBranchMatches(zone.branchId, bid),
+      );
+      console.log(`✅ Filial sessiyasi: ${zones.length} zona`);
+      return c.json({ zones });
     }
-    
-    console.log(`✅ Returning ${zones.length} delivery zones`);
+
+    const admin = await validateAdminAccess(c);
+    if (admin.success) {
+      if (!qBranch) {
+        console.log(`✅ Admin: barcha zonalarni qaytarish (${allZones.length})`);
+        return c.json({ zones: allZones });
+      }
+      const zones = allZones.filter(
+        (zone: any) => zone && kvBranchMatches(zone.branchId, qBranch),
+      );
+      console.log(`✅ Admin + branchId: ${zones.length} zona`);
+      return c.json({ zones });
+    }
+
+    if (!qBranch) {
+      console.log('⚠️ branchId yo‘q — boshqa filial zonalari berilmaydi');
+      return c.json({ zones: [] });
+    }
+
+    const zones = allZones.filter(
+      (zone: any) => zone && kvBranchMatches(zone.branchId, qBranch),
+    );
+    console.log(`✅ Ochiq so‘rov (branchId): ${zones.length} zona`);
     
     return c.json({ zones });
   } catch (error: any) {
@@ -18361,6 +18904,177 @@ app.delete("/make-server-27d0d16c/delivery-zones/:id", async (c) => {
   }
 });
 
+/** Filial paneli: yetkazish zonasi statistikasi, kuryerlar, zona bo‘yicha buyurtmalar */
+app.get("/make-server-27d0d16c/branch/delivery-zones-analytics", async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ success: false, error: branchAuth.error }, 403);
+    }
+    const branchId = String(branchAuth.branchId || "").trim();
+
+    const now = Date.now();
+    const dayMs = 24 * 60 * 60 * 1000;
+    const startToday = new Date(now);
+    startToday.setUTCHours(0, 0, 0, 0);
+    const t0 = startToday.getTime();
+    const t7 = now - 7 * dayMs;
+    const t30 = now - 30 * dayMs;
+
+    const rows = await kv.getByPrefixWithKeys("order:");
+    const normalized = rows
+      .map(({ key, value }) => normalizeOrderRowForAdmin(value, key))
+      .filter((o): o is NonNullable<typeof o> => o != null);
+    const deduped = dedupeNormalizedOrdersForAdmin(normalized);
+
+    const branchOrders = deduped.filter(
+      (o: any) => String(o.branchId || "") === branchId,
+    );
+
+    const relevant = branchOrders.filter((o: any) => {
+      const ot = String(o.orderType || "").toLowerCase();
+      return ot === "market" || ot === "shop" || ot === "food" || ot === "restaurant";
+    });
+
+    const isCancelled = (o: any) => {
+      const st = String(o.status || "").toLowerCase();
+      return st === "cancelled" || st === "canceled";
+    };
+
+    const createdMs = (o: any) => {
+      const t = new Date(o.createdAt || 0).getTime();
+      return Number.isFinite(t) ? t : 0;
+    };
+
+    let ordersToday = 0;
+    let orders7d = 0;
+    let orders30d = 0;
+    const zToday: Record<string, number> = {};
+    const z7: Record<string, number> = {};
+    const z30: Record<string, number> = {};
+
+    const bump = (m: Record<string, number>, k: string) => {
+      m[k] = (m[k] || 0) + 1;
+    };
+
+    for (const o of relevant) {
+      if (isCancelled(o)) continue;
+      const cms = createdMs(o);
+      const zidRaw = String(o.deliveryZone || (o as any).deliveryZoneId || "").trim();
+      const zid = zidRaw || "_none";
+
+      if (cms >= t0) {
+        ordersToday++;
+        bump(zToday, zid);
+      }
+      if (cms >= t7) {
+        orders7d++;
+        bump(z7, zid);
+      }
+      if (cms >= t30) {
+        orders30d++;
+        bump(z30, zid);
+      }
+    }
+
+    const allZones = (await kv.getByPrefix("delivery-zone:")) || [];
+    const myZones = allZones.filter(
+      (zone: any) => zone && kvBranchMatches(zone.branchId, branchId),
+    );
+
+    const zoneById = new Map<string, any>();
+    for (const z of myZones) {
+      if (z?.id) zoneById.set(String(z.id), z);
+    }
+
+    const zoneBreakdown = myZones.map((z: any) => {
+      const id = String(z.id);
+      return {
+        zoneId: id,
+        zoneName: String(z.name || id),
+        isActive: z.isActive !== false,
+        deliveryPrice: Number(z.deliveryPrice) || 0,
+        ordersToday: zToday[id] || 0,
+        orders7d: z7[id] || 0,
+        orders30d: z30[id] || 0,
+      };
+    });
+
+    const noneToday = zToday["_none"] || 0;
+    const none7 = z7["_none"] || 0;
+    const none30 = z30["_none"] || 0;
+    if (noneToday + none7 + none30 > 0) {
+      zoneBreakdown.push({
+        zoneId: "_none",
+        zoneName: "Zona ko‘rsatilmagan",
+        isActive: true,
+        deliveryPrice: 0,
+        ordersToday: noneToday,
+        orders7d: none7,
+        orders30d: none30,
+      });
+    }
+
+    zoneBreakdown.sort((a, b) => b.orders30d - a.orders30d);
+
+    let rawCouriers = (await kv.getByPrefix("courier:")) || [];
+    rawCouriers = rawCouriers
+      .map(normalizeCourierRecord)
+      .filter((c: any) => c && !c.deleted && String(c.branchId || "") === branchId);
+
+    const couriersSanitized = rawCouriers.map((c: any) => ({
+      id: String(c.id || ""),
+      name: String(c.name || ""),
+      phone: String(c.phone || ""),
+      status: String(c.status || "offline"),
+      isAvailable: c.isAvailable !== false,
+      activeOrderId: c.activeOrderId || null,
+      totalDeliveries: Math.max(0, Math.floor(Number(c.totalDeliveries) || 0)),
+      completedDeliveries: Math.max(0, Math.floor(Number(c.completedDeliveries) || 0)),
+      lastActive: c.lastActive || c.last_active || c.updatedAt || "",
+      vehicleType: String(c.vehicleType || ""),
+      vehicleNumber: String(c.vehicleNumber || ""),
+      serviceZoneNames: Array.isArray(c.serviceZoneNames) ? c.serviceZoneNames : [],
+    }));
+
+    couriersSanitized.sort(
+      (a: any, b: any) =>
+        String(b.lastActive || "").localeCompare(String(a.lastActive || "")),
+    );
+
+    const activeStatuses = new Set(["active", "busy"]);
+    const couriersActive = couriersSanitized.filter((c: any) =>
+      activeStatuses.has(String(c.status || "").toLowerCase()),
+    ).length;
+    const couriersBusy = couriersSanitized.filter(
+      (c: any) =>
+        String(c.status || "").toLowerCase() === "busy" || Boolean(c.activeOrderId),
+    ).length;
+
+    return c.json({
+      success: true,
+      summary: {
+        zonesTotal: myZones.length,
+        zonesActive: myZones.filter((z: any) => z.isActive !== false).length,
+        ordersToday,
+        orders7d,
+        orders30d,
+        couriersTotal: couriersSanitized.length,
+        couriersActive,
+        couriersBusy,
+      },
+      zoneBreakdown,
+      couriers: couriersSanitized,
+    });
+  } catch (error: any) {
+    console.error("branch delivery-zones-analytics:", error);
+    return c.json(
+      { success: false, error: error?.message || "Statistikani olishda xatolik" },
+      500,
+    );
+  }
+});
+
 // Detect delivery zone by coordinates (Point-in-Polygon)
 app.post("/make-server-27d0d16c/delivery-zones/detect", async (c) => {
   try {
@@ -18372,13 +19086,14 @@ app.post("/make-server-27d0d16c/delivery-zones/detect", async (c) => {
       return c.json({ error: 'Koordinatalar majburiy' }, 400);
     }
     
-    // Get all zones
+    // Get all zones — boshqa filial poligonlari tekshirilmaydi
     const allZones = await kv.getByPrefix('delivery-zone:');
-    
-    // Filter by branchId if provided
+    const bid = String(branchId || '').trim();
     let zones = allZones;
-    if (branchId) {
-      zones = allZones.filter((zone: any) => zone.branchId === branchId);
+    if (bid) {
+      zones = allZones.filter((zone: any) => zone && kvBranchMatches(zone.branchId, bid));
+    } else {
+      zones = [];
     }
     
     // Filter only active zones with polygons
@@ -20002,6 +20717,95 @@ app.post('/make-server-27d0d16c/orders/:orderId/cancel-by-branch', async (c) => 
     return c.json({ error: error?.message || 'Xatolik' }, 500);
   }
 });
+
+/**
+ * Kassa: mijozga onlayn to‘lov qaytarilgach — navbatdan yechish (provayder kabinetida qaytarib bo‘linganini tasdiqlash).
+ */
+app.post(
+  '/make-server-27d0d16c/orders/:orderId/confirm-refund-by-cashier',
+  async (c) => {
+    try {
+      const branchAuth = await validateBranchSession(c);
+      if (!branchAuth.success) {
+        return c.json({ error: branchAuth.error }, 403);
+      }
+
+      const orderId = String(c.req.param('orderId') || '').trim();
+      if (!orderId) {
+        return c.json({ error: 'Buyurtma ID kerak' }, 400);
+      }
+
+      const record = await getOrderRecord(orderId);
+      if (!record?.order) {
+        return c.json({ error: 'Buyurtma topilmadi' }, 404);
+      }
+
+      const o = record.order as Record<string, any>;
+      if (String(o.branchId || '') !== String(branchAuth.branchId || '')) {
+        return c.json({ error: "Bu filial uchun ruxsat yo'q" }, 403);
+      }
+
+      const st = String(o.status || '').toLowerCase();
+      if (st !== 'cancelled' && st !== 'canceled') {
+        return c.json({ error: 'Faqat bekor qilingan buyurtma uchun' }, 400);
+      }
+      if (o.refundPending !== true) {
+        return c.json(
+          { error: 'Qaytarish navbatida emas yoki allaqachon yopilgan' },
+          400,
+        );
+      }
+      if (o.refundResolvedAt) {
+        return c.json({ error: 'Qaytarish allaqachon tasdiqlangan' }, 400);
+      }
+
+      const body = await c.req.json().catch(() => ({}));
+      const note = String(body.note || '').trim();
+
+      const now = new Date().toISOString();
+      const updated = {
+        ...o,
+        refundPending: false,
+        refundResolvedAt: now,
+        refundResolvedBy: 'cashier',
+        ...(note ? { refundCashierNote: note } : {}),
+        paymentStatus: 'refunded',
+        refundedAt: o.refundedAt || now,
+        updatedAt: now,
+        statusHistory: [
+          ...(Array.isArray(o.statusHistory) ? o.statusHistory : []),
+          {
+            status: 'cancelled',
+            timestamp: now,
+            note: note
+              ? `Kassa: to‘lov qaytarildi — ${note}`
+              : 'Kassa: mijozga to‘lov qaytarildi (tasdiq)',
+          },
+        ],
+      };
+
+      await kv.set(record.key, updated);
+      await syncFoodOrderMirrorKv(updated);
+      try {
+        await syncRelationalOrderFromLegacy({
+          legacyOrderId: String(updated.id ?? orderId),
+          kvStatus: 'cancelled',
+          kvPaymentStatus: 'refunded',
+          paymentRequiresVerification: Boolean(
+            updated.paymentRequiresVerification ?? o.paymentRequiresVerification,
+          ),
+        });
+      } catch (e) {
+        console.warn('[confirm-refund-cashier] v2 sync:', e);
+      }
+
+      return c.json({ success: true, order: updated });
+    } catch (error: any) {
+      console.error('confirm-refund-by-cashier error:', error);
+      return c.json({ error: error?.message || 'Xatolik' }, 500);
+    }
+  },
+);
 
 // Branch-specific orders from relational marketplace (Postgres) for operator/support UI
 app.get('/make-server-27d0d16c/v2/branch/orders', async (c) => {
@@ -21982,6 +22786,49 @@ app.get('/make-server-27d0d16c/analytics', async (c) => {
         ? Math.max(0, Number((currentMetrics as any).uniqueLineItemKinds || 0))
         : totalProducts;
 
+    /** Tugallangan ijara buyurtmalari: mahsulotdagi % bo‘yicha platforma ulushi (tanlangan davr) */
+    const rentalProductsKv = (await kv.getByPrefix(`rental_product_${branchId}_`)) || [];
+    const rentalOrdersKv = (await kv.getByPrefix(`rental_order_${branchId}_`)) || [];
+    const rentalPctByProduct = new Map<string, number>();
+    for (const p of rentalProductsKv as any[]) {
+      const id = String(p?.id || "").trim();
+      if (!id) continue;
+      const n = Number(p?.platformCommissionPercent);
+      rentalPctByProduct.set(
+        id,
+        Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0,
+      );
+    }
+    const rentalCompletionDate = (o: any) =>
+      parseDate(o?.returnedAt) ||
+      parseDate(o?.pickupCompletedAt) ||
+      parseDate(o?.updatedAt) ||
+      parseDate(o?.createdAt);
+    const sumRentalForPeriod = (start: Date, end: Date) => {
+      let revenue = 0;
+      let platform = 0;
+      let count = 0;
+      for (const o of rentalOrdersKv as any[]) {
+        if (String(o?.status || "") !== "returned") continue;
+        const d = rentalCompletionDate(o);
+        if (!d || d < start || d > end) continue;
+        const price = Math.max(0, Math.round(Number(o.totalPrice) || 0));
+        const pct = rentalPctByProduct.get(String(o.productId || "")) ?? 0;
+        const comm = Math.round((price * pct) / 100);
+        revenue += price;
+        platform += comm;
+        count += 1;
+      }
+      return {
+        rentalCompletedRevenue: revenue,
+        rentalPlatformCommission: platform,
+        rentalBranchNet: Math.max(0, revenue - platform),
+        rentalCompletedCount: count,
+      };
+    };
+    const rentalCurrent = sumRentalForPeriod(currentStart, currentEnd);
+    const rentalPrevious = sumRentalForPeriod(previousStart, previousEnd);
+
     return c.json({
       success: true,
       data: {
@@ -21995,6 +22842,14 @@ app.get('/make-server-27d0d16c/analytics', async (c) => {
         topProducts: currentMetrics.topProducts,
         categoryStats: currentMetrics.categoryStats,
         dailyStats: currentMetrics.dailyStats,
+        rentalCompletedRevenue: rentalCurrent.rentalCompletedRevenue,
+        rentalPlatformCommission: rentalCurrent.rentalPlatformCommission,
+        rentalBranchNet: rentalCurrent.rentalBranchNet,
+        rentalCompletedCount: rentalCurrent.rentalCompletedCount,
+        rentalPlatformCommissionGrowth: buildGrowth(
+          rentalCurrent.rentalPlatformCommission,
+          rentalPrevious.rentalPlatformCommission,
+        ),
       },
       categories,
     });

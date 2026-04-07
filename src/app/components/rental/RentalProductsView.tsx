@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { Plus, Package, Edit, Trash2, ImageIcon, X, LayoutGrid } from 'lucide-react';
+import { Plus, Package, Edit, Trash2, ImageIcon, X, LayoutGrid, Send } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { ImageWithFallback } from '../figma/ImageWithFallback';
@@ -51,10 +52,14 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
     telegramChatId: '',
     weightKg: '',
     requiresAutoCourier: false,
+    platformCommissionPercent: '',
+    latitude: '',
+    longitude: '',
   });
 
   const [newFeature, setNewFeature] = useState('');
   const [visibilityTick, setVisibilityTick] = useState(0);
+  const [telegramTestLoading, setTelegramTestLoading] = useState(false);
   useVisibilityRefetch(() => setVisibilityTick((t) => t + 1));
 
   useEffect(() => {
@@ -67,9 +72,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${branchId}`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
+          headers: buildRentalPanelHeaders(),
         }
       );
 
@@ -106,9 +109,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
 
         const response = await fetch(uploadUrl, {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          },
+          headers: buildRentalPanelHeaders(),
           body: uploadFormData
         });
 
@@ -158,6 +159,34 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
       return;
     }
 
+    const latStr = String(formData.latitude || '').trim();
+    const lngStr = String(formData.longitude || '').trim();
+    if ((latStr && !lngStr) || (!latStr && lngStr)) {
+      toast.error('Koordinata: kenglik va uzunlik ikkalasini ham kiriting yoki ikkalasini ham bo‘sh qoldiring');
+      return;
+    }
+    if (latStr && lngStr) {
+      const lat = parseFloat(latStr.replace(',', '.'));
+      const lng = parseFloat(lngStr.replace(',', '.'));
+      if (!Number.isFinite(lat) || lat < -90 || lat > 90) {
+        toast.error('Kenglik -90 dan 90 gacha bo‘lishi kerak');
+        return;
+      }
+      if (!Number.isFinite(lng) || lng < -180 || lng > 180) {
+        toast.error('Uzunlik -180 dan 180 gacha bo‘lishi kerak');
+        return;
+      }
+    }
+
+    const pctStr = String(formData.platformCommissionPercent || '').trim();
+    if (pctStr) {
+      const p = parseFloat(pctStr.replace(',', '.'));
+      if (!Number.isFinite(p) || p < 0 || p > 100) {
+        toast.error('Platforma foizi 0 dan 100 gacha bo‘lishi kerak');
+        return;
+      }
+    }
+
     try {
       const url = editingProduct
         ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${editingProduct.id}`
@@ -169,6 +198,9 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
         branchId,
         weightKg: w,
         requiresAutoCourier: formData.requiresAutoCourier || w > 10,
+        platformCommissionPercent: pctStr ? parseFloat(pctStr.replace(',', '.')) : null,
+        latitude: latStr ? parseFloat(latStr.replace(',', '.')) : null,
+        longitude: lngStr ? parseFloat(lngStr.replace(',', '.')) : null,
       };
 
       console.log('📤 Sending request to:', url);
@@ -176,10 +208,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
 
       const response = await fetch(url, {
         method: editingProduct ? 'PUT' : 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`
-        },
+        headers: buildRentalPanelHeaders({ 'Content-Type': 'application/json' }),
         body: JSON.stringify(payload)
       });
 
@@ -208,9 +237,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${branchId}/${productId}`,
         {
           method: 'DELETE',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
+          headers: buildRentalPanelHeaders(),
         }
       );
 
@@ -255,6 +282,18 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
           ? String(product.weightKg)
           : '',
       requiresAutoCourier: Boolean(product.requiresAutoCourier),
+      platformCommissionPercent:
+        product.platformCommissionPercent != null && product.platformCommissionPercent !== ''
+          ? String(product.platformCommissionPercent)
+          : '',
+      latitude:
+        product.latitude != null && product.latitude !== ''
+          ? String(product.latitude)
+          : '',
+      longitude:
+        product.longitude != null && product.longitude !== ''
+          ? String(product.longitude)
+          : '',
     });
     setShowModal(true);
   };
@@ -282,6 +321,9 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
       telegramChatId: '',
       weightKg: '',
       requiresAutoCourier: false,
+      platformCommissionPercent: '',
+      latitude: '',
+      longitude: '',
     });
     setEditingProduct(null);
     setNewFeature('');
@@ -309,6 +351,39 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
       ...prev,
       images: prev.images.filter((_, i) => i !== index)
     }));
+  };
+
+  const sendTelegramPrepTest = async () => {
+    const chatId = String(formData.telegramChatId || '').trim();
+    if (!chatId) {
+      toast.error('Avval Telegram chat ID kiriting');
+      return;
+    }
+    setTelegramTestLoading(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/telegram/test-prep`,
+        {
+          method: 'POST',
+          headers: buildRentalPanelHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ branchId, telegramChatId: chatId }),
+        },
+      );
+      const data = await response.json().catch(() => ({}));
+      if (data.success) {
+        toast.success('Sinov xabari yuborildi — Telegramda tekshiring');
+      } else {
+        toast.error(
+          typeof data.error === 'string' && data.error
+            ? data.error
+            : 'Yuborishda xatolik',
+        );
+      }
+    } catch {
+      toast.error('Tarmoq xatolik');
+    } finally {
+      setTelegramTestLoading(false);
+    }
   };
 
   // Filter products
@@ -689,6 +764,91 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                 </div>
               </div>
 
+              {/* Platforma foizi va joy koordinatalari */}
+              <div
+                className="rounded-2xl p-4 space-y-4 border"
+                style={{
+                  borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+                  background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                }}
+              >
+                <p className="font-semibold text-sm" style={{ color: accentColor.color }}>
+                  Platforma va joylashuv
+                </p>
+                <div>
+                  <label className="block mb-2 font-medium">
+                    Platforma oladigan foiz (%)
+                  </label>
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={formData.platformCommissionPercent}
+                    onChange={(e) =>
+                      setFormData((prev) => ({
+                        ...prev,
+                        platformCommissionPercent: e.target.value,
+                      }))
+                    }
+                    className="w-full px-4 py-3 rounded-2xl outline-none font-mono text-sm"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                    }}
+                    placeholder="Masalan: 10 (ixtiyoriy, 0–100)"
+                  />
+                  <p
+                    className="text-xs mt-1.5"
+                    style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
+                  >
+                    Shu ijara e’loni uchun platforma komissiyasi foizi. Bo‘sh qoldirsangiz, keyinchalik
+                    umumiy qoida ishlatilishi mumkin.
+                  </p>
+                </div>
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label className="block mb-2 font-medium">Kenglik (latitude)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formData.latitude}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, latitude: e.target.value }))
+                      }
+                      className="w-full px-4 py-3 rounded-2xl outline-none font-mono text-sm"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                      }}
+                      placeholder="Masalan: 41.3111"
+                    />
+                  </div>
+                  <div>
+                    <label className="block mb-2 font-medium">Uzunlik (longitude)</label>
+                    <input
+                      type="text"
+                      inputMode="decimal"
+                      value={formData.longitude}
+                      onChange={(e) =>
+                        setFormData((prev) => ({ ...prev, longitude: e.target.value }))
+                      }
+                      className="w-full px-4 py-3 rounded-2xl outline-none font-mono text-sm"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                      }}
+                      placeholder="Masalan: 69.2797"
+                    />
+                  </div>
+                </div>
+                <p
+                  className="text-xs"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
+                >
+                  Mahsulot turgan joyning GPS koordinatalari (xarita uchun). Ikkala maydonni ham
+                  to‘ldiring yoki ikkalasini ham bo‘sh qoldiring.
+                </p>
+              </div>
+
               {/* Quantity */}
               <div>
                 <label className="block mb-2 font-medium">Miqdori *</label>
@@ -1059,9 +1219,25 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                     className="text-xs mt-1.5"
                     style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
                   >
-                    Buyurtma tushganda shu chatga «tayyorlab turing» xabari ketadi. Alohida bot: Supabase
-                    secrets — TELEGRAM_RENTAL_BOT_TOKEN (yo‘q bo‘lsa TELEGRAM_BOT_TOKEN).
+                    Buyurtma tushganda shu chatga «Sizdan buyurtma qilindi» xabari ketadi. Filial uchun
+                    umumiy chatni yuqoridagi «Filial: ijara buyurtma Telegram» blokida ham kiritishingiz
+                    mumkin. Bot: TELEGRAM_RENTAL_BOT_TOKEN (yo‘q bo‘lsa TELEGRAM_BOT_TOKEN). Guruhda
+                    sinov qilayotgan bo‘lsangiz, botni guruhga qo‘shing va xabar yuborish huquqi bering.
                   </p>
+                  <button
+                    type="button"
+                    onClick={() => void sendTelegramPrepTest()}
+                    disabled={telegramTestLoading || !String(formData.telegramChatId || '').trim()}
+                    className="mt-3 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-opacity disabled:opacity-40"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                      color: accentColor.color,
+                    }}
+                  >
+                    <Send className="w-4 h-4 shrink-0" />
+                    {telegramTestLoading ? 'Yuborilmoqda…' : 'Sinov xabari yuborish'}
+                  </button>
                 </div>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div>

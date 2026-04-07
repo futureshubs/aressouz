@@ -25,6 +25,11 @@ export type ProfileActiveRentalOrder = {
   rentalPeriodEndsAt?: string | null;
   rentalPeriod?: string | null;
   awaitingCourierDelivery?: boolean;
+  needsBranchAcceptance?: boolean;
+  awaitingCourierAssignment?: boolean;
+  requiresAutoCourier?: boolean;
+  /** Kuryer tayinlangan, lekin ijara muddati hali boshlanmagan — mijoz «oldim» bosishi mumkin */
+  awaitingDeliveryConfirmation?: boolean;
   pickupAlert?: string;
   paymentAlert?: string;
   deliveryPending?: boolean;
@@ -57,6 +62,7 @@ export function ProfileActiveRentalCard({
   const [extendOpen, setExtendOpen] = useState(false);
   const [units, setUnits] = useState(1);
   const [extending, setExtending] = useState(false);
+  const [confirmReceivedBusy, setConfirmReceivedBusy] = useState(false);
 
   const imgRaw = String(order.productImage || '').trim();
   const img = normalizeRentalProductImageUrl(imgRaw, apiBaseUrl);
@@ -78,6 +84,37 @@ export function ProfileActiveRentalCard({
     Boolean(order.rentalPeriodStartedAt && order.rentalPeriodEndsAt) &&
     order.awaitingCourierDelivery !== true &&
     order.deliveryPending !== true;
+
+  const submitConfirmReceived = async () => {
+    if (confirmReceivedBusy || phonePk.length < 9) return;
+    setConfirmReceivedBusy(true);
+    try {
+      const res = await fetch(`${apiBaseUrl}/rentals/my-rentals/confirm-received`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
+          apikey: publicAnonKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          phone: phonePk,
+          branchId: order.branchId,
+          orderId: order.id,
+        }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        toast.error(typeof data.error === 'string' ? data.error : t('profile.confirmError'));
+        return;
+      }
+      toast.success(t('rental.confirmReceivedSuccess'));
+      onExtended(data.order && typeof data.order === 'object' ? data.order : undefined);
+    } catch {
+      toast.error(t('profile.confirmError'));
+    } finally {
+      setConfirmReceivedBusy(false);
+    }
+  };
 
   const submitExtend = async () => {
     if (!canExtend || extending) return;
@@ -188,6 +225,41 @@ export function ProfileActiveRentalCard({
                 </p>
               ) : null}
             </div>
+          ) : null}
+          {order.awaitingDeliveryConfirmation === true ? (
+            <div
+              className="mt-2 rounded-xl border px-2.5 py-2.5 space-y-2"
+              style={{
+                borderColor: isDark ? 'rgba(16,185,129,0.35)' : 'rgba(16,185,129,0.3)',
+                background: isDark ? 'rgba(16,185,129,0.1)' : 'rgba(16,185,129,0.06)',
+              }}
+            >
+              <p className="text-[11px] leading-snug" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
+                {t('rental.confirmReceivedHint')}
+              </p>
+              <button
+                type="button"
+                disabled={confirmReceivedBusy || phonePk.length < 9}
+                onClick={() => void submitConfirmReceived()}
+                className="w-full py-2 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-2 disabled:opacity-45"
+                style={{ background: accentColor, boxShadow: `0 4px 14px ${accentColor}44` }}
+              >
+                {confirmReceivedBusy ? <Loader2 className="size-4 animate-spin" /> : null}
+                {t('rental.confirmReceivedCta')}
+              </button>
+            </div>
+          ) : null}
+          {order.needsBranchAcceptance === true ? (
+            <p className="text-[11px] mt-1" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+              Filial buyurtmani qabul qilguncha kuting.
+            </p>
+          ) : null}
+          {order.awaitingCourierAssignment === true && order.awaitingDeliveryConfirmation !== true ? (
+            <p className="text-[11px] mt-1" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+              {order.requiresAutoCourier
+                ? 'Avto-kuryer biriktirilmoqda…'
+                : 'Kuryer tayinlanmoqda…'}
+            </p>
           ) : null}
           <RentalNextPaymentInfo
             compact

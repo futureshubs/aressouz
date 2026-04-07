@@ -313,6 +313,45 @@ export async function sendHtmlTelegramWithToken(
   }
 }
 
+/** Sinov / diagnostika: Telegram API javobidagi `description` ni qaytaradi */
+export async function sendHtmlTelegramWithTokenDetailed(
+  botToken: string | undefined | null,
+  chatId: string,
+  html: string,
+): Promise<{ ok: true } | { ok: false; message: string }> {
+  const tok = String(botToken || '').trim();
+  const cid = String(chatId || '').trim();
+  const text = String(html || '').trim();
+  if (!tok) return { ok: false, message: 'Bot token sozlanmagan (TELEGRAM_RENTAL_BOT_TOKEN / TELEGRAM_BOT_TOKEN)' };
+  if (!cid) return { ok: false, message: 'Chat ID bo‘sh' };
+  if (!isValidTelegramTarget(cid)) {
+    return { ok: false, message: 'Chat ID formati noto‘g‘ri (masalan: -100… yoki @username)' };
+  }
+  if (!text) return { ok: false, message: 'Xabar bo‘sh' };
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${tok}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: cid, text, parse_mode: 'HTML' }),
+    });
+    const data = (await response.json().catch(() => ({}))) as {
+      ok?: boolean;
+      description?: string;
+    };
+    if (!response.ok || data.ok === false) {
+      const desc =
+        typeof data.description === 'string' && data.description.trim()
+          ? data.description.trim()
+          : `Telegram ${response.status}`;
+      return { ok: false, message: desc };
+    }
+    return { ok: true };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    return { ok: false, message: msg || 'Tarmoq xatolik' };
+  }
+}
+
 /**
  * Kassa cheki: Telegram serverlari R2 URL ni ocholmasa ham ishlashi uchun
  * avvalo rasmni Edge orqali yuklab multipart sendPhoto, keyin URL bilan, oxirida matn+havola.

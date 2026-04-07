@@ -57,7 +57,7 @@ function clampPosition(p: Pos): Pos {
 function defaultPosition(): Pos {
   if (typeof window === 'undefined') return { left: 16, top: 400 };
   // Old fixed: right-4 bottom ~5.75rem + tab bar — taxminan past-o‘ng
-  const bottomReserve = window.matchMedia('(min-width: 640px)').matches ? 112 : 100;
+  const bottomReserve = window.matchMedia('(min-width: 640px)').matches ? 120 : 108;
   return clampPosition({
     left: window.innerWidth - BTN - 16,
     top: window.innerHeight - BTN - bottomReserve,

@@ -31,6 +31,8 @@ const BogalterLogin = lazy(() => import('./pages/BogalterLogin'));
 const BogalterDashboard = lazy(() => import('./pages/BogalterDashboard'));
 const StaffLogin = lazy(() => import('./pages/StaffLogin'));
 const StaffDashboard = lazy(() => import('./pages/StaffDashboard'));
+const RentalProviderLogin = lazy(() => import('./pages/RentalProviderLogin'));
+const RentalProviderDashboard = lazy(() => import('./pages/RentalProviderDashboard'));
 const Payment = lazy(() => import('./pages/Payment'));
 const PaymentDemo = lazy(() => import('./components/PaymentDemo'));
 const OrdersPage = lazy(() => import('./pages/Orders'));
@@ -148,6 +150,14 @@ export const router = createBrowserRouter([
   {
     path: '/tayyorlovchi',
     element: <AdminRoute>{withSuspense(<PrepareWrapper />)}</AdminRoute>,
+  },
+  {
+    path: '/ijara-panel',
+    element: <AdminRoute>{withSuspense(<RentalProviderLogin />)}</AdminRoute>,
+  },
+  {
+    path: '/ijara-panel/dashboard',
+    element: <AdminRoute>{withSuspense(<RentalProviderDashboard />)}</AdminRoute>,
   },
   {
     path: '/seller',

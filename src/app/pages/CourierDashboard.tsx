@@ -517,7 +517,9 @@ export default function CourierDashboard() {
   const [activeOrders, setActiveOrders] = useState<CourierOrder[]>([]);
   const [deliveredOrders, setDeliveredOrders] = useState<CourierOrder[]>([]);
   const [courierRentalOrders, setCourierRentalOrders] = useState<any[]>([]);
+  const [courierRentalDeliveryJobs, setCourierRentalDeliveryJobs] = useState<any[]>([]);
   const [rentalPickupBusyId, setRentalPickupBusyId] = useState<string | null>(null);
+  const [rentalDeliverToCustomerBusyId, setRentalDeliverToCustomerBusyId] = useState<string | null>(null);
   const rentalPickupToastedRef = useRef<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -570,7 +572,7 @@ export default function CourierDashboard() {
       : API_BASE_URL;
 
     try {
-      const [meResult, availableResult, activeResult, historyResult, rentalIjaraResult] =
+      const [meResult, availableResult, activeResult, historyResult, rentalIjaraResult, rentalDeliveryJobsResult] =
         await Promise.allSettled([
         fetchWithRetry(
           `${baseUrl}/courier/me${tokenQuery}`,
@@ -600,6 +602,16 @@ export default function CourierDashboard() {
             },
           },
         ),
+        fetchWithRetry(
+          `${baseUrl}/rentals/courier/rental-delivery-jobs${tokenQuery}`,
+          {
+            headers: {
+              'X-Courier-Token': courierToken,
+              apikey: publicAnonKey,
+              Authorization: `Bearer ${publicAnonKey}`,
+            },
+          },
+        ),
       ]);
 
       const meResponse = meResult.status === 'fulfilled' ? meResult.value : null;
@@ -608,6 +620,8 @@ export default function CourierDashboard() {
       const historyResponse = historyResult.status === 'fulfilled' ? historyResult.value : null;
       const rentalIjaraResponse =
         rentalIjaraResult.status === 'fulfilled' ? rentalIjaraResult.value : null;
+      const rentalDeliveryJobsResponse =
+        rentalDeliveryJobsResult.status === 'fulfilled' ? rentalDeliveryJobsResult.value : null;
 
       if (meResponse && (meResponse.status === 401 || meResponse.status === 403)) {
         localStorage.removeItem('courierSession');
@@ -621,6 +635,9 @@ export default function CourierDashboard() {
       const activeData = activeResponse ? await readPayload(activeResponse) : null;
       const historyData = historyResponse ? await readPayload(historyResponse) : null;
       const rentalIjaraData = rentalIjaraResponse ? await readPayload(rentalIjaraResponse) : null;
+      const rentalDeliveryJobsData = rentalDeliveryJobsResponse
+        ? await readPayload(rentalDeliveryJobsResponse)
+        : null;
 
       if (meResponse?.ok && meData?.success) {
         const nextProfile = meData.courier || null;
@@ -657,6 +674,15 @@ export default function CourierDashboard() {
         setCourierRentalOrders(rentalIjaraData.orders);
       } else {
         setCourierRentalOrders([]);
+      }
+      if (
+        rentalDeliveryJobsResponse?.ok &&
+        rentalDeliveryJobsData?.success &&
+        Array.isArray(rentalDeliveryJobsData.orders)
+      ) {
+        setCourierRentalDeliveryJobs(rentalDeliveryJobsData.orders);
+      } else {
+        setCourierRentalDeliveryJobs([]);
       }
 
       // FIXED: Update courier status based on active orders
@@ -766,6 +792,50 @@ export default function CourierDashboard() {
         toast.error('Tarmoq xatosi');
       } finally {
         setRentalPickupBusyId(null);
+      }
+    },
+    [loadDashboard],
+  );
+
+  const confirmRentalDeliveredToCustomer = useCallback(
+    async (order: any) => {
+      const courierToken = getStoredCourierToken();
+      if (!courierToken) return;
+      const baseUrl =
+        typeof window !== 'undefined' && window.location.hostname === 'localhost'
+          ? DEV_API_BASE_URL
+          : API_BASE_URL;
+      const oid = String(order?.id || '');
+      if (!oid || !order?.branchId) {
+        toast.error('Buyurtma ma’lumoti to‘liq emas');
+        return;
+      }
+      setRentalDeliverToCustomerBusyId(oid);
+      try {
+        const res = await fetch(`${baseUrl}/rentals/orders/${encodeURIComponent(oid)}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Courier-Token': courierToken,
+            apikey: publicAnonKey,
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            branchId: order.branchId,
+            courierMarkDeliveredToCustomer: true,
+          }),
+        });
+        const data = await readPayload(res);
+        if (res.ok && data?.success) {
+          toast.success('Mijozga yetkazildi — ijara muddati boshlandi');
+          await loadDashboard(true);
+        } else {
+          toast.error(data?.error || 'Tasdiqlashda xatolik');
+        }
+      } catch {
+        toast.error('Tarmoq xatosi');
+      } finally {
+        setRentalDeliverToCustomerBusyId(null);
       }
     },
     [loadDashboard],
@@ -1632,6 +1702,61 @@ export default function CourierDashboard() {
                   )}
                 </div>
               </>
+            )}
+
+            {mobileSection === 'orders' && courierRentalDeliveryJobs.length > 0 && (
+              <div
+                className="rounded-2xl border p-3 mb-4 space-y-3"
+                style={{
+                  background: isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.08)',
+                  borderColor: isDark ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.28)',
+                }}
+              >
+                <div className="flex items-center justify-between gap-2">
+                  <p className="font-bold" style={{ color: '#d97706' }}>
+                    Ijara — mijozga yetkazish
+                  </p>
+                  <span
+                    className="text-xs font-semibold px-2 py-0.5 rounded-full"
+                    style={{ background: 'rgba(245,158,11,0.2)', color: '#b45309' }}
+                  >
+                    {courierRentalDeliveryJobs.length}
+                  </span>
+                </div>
+                <p className="text-xs" style={{ color: mutedTextColor }}>
+                  Ijara beruvchidan olib mijoz manziliga yetkazing. «Mijozga yetkazildi» — ijara muddati shundan boshlanadi.
+                </p>
+                {courierRentalDeliveryJobs.map((job: any) => (
+                  <div
+                    key={job.id}
+                    className="rounded-xl border p-3 space-y-2"
+                    style={{
+                      background: isDark ? 'rgba(0,0,0,0.2)' : '#fff',
+                      borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+                    }}
+                  >
+                    <p className="font-semibold text-sm">{job.productName || 'Ijara'}</p>
+                    <p className="text-xs" style={{ color: mutedTextColor }}>
+                      {job.customerName} · {job.customerPhone}
+                    </p>
+                    {job.address ? (
+                      <p className="text-xs flex gap-1" style={{ color: mutedTextColor }}>
+                        <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                        {job.address}
+                      </p>
+                    ) : null}
+                    <button
+                      type="button"
+                      disabled={rentalDeliverToCustomerBusyId === job.id}
+                      onClick={() => confirmRentalDeliveredToCustomer(job)}
+                      className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                      style={{ background: '#d97706' }}
+                    >
+                      {rentalDeliverToCustomerBusyId === job.id ? 'Yuborilmoqda...' : 'Mijozga yetkazildi'}
+                    </button>
+                  </div>
+                ))}
+              </div>
             )}
 
             {mobileSection === 'orders' && courierRentalOrders.length > 0 && (
@@ -2622,6 +2747,55 @@ export default function CourierDashboard() {
             </div>
           ))}
         </div>
+
+        {courierRentalDeliveryJobs.length > 0 ? (
+          <div
+            className="rounded-3xl border p-5 md:p-6 mb-4"
+            style={{
+              background: isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.07)',
+              borderColor: isDark ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.25)',
+            }}
+          >
+            <h2 className="text-xl font-bold mb-1" style={{ color: '#d97706' }}>
+              Ijara — mijozga yetkazish
+            </h2>
+            <p className="text-sm mb-4" style={{ color: mutedTextColor }}>
+              Ijara beruvchidan olib mijoz manziliga yetkazing. «Mijozga yetkazildi» bosilgach ijara muddati boshlanadi.
+            </p>
+            <div className="grid md:grid-cols-2 gap-4">
+              {courierRentalDeliveryJobs.map((job: any) => (
+                <div
+                  key={job.id}
+                  className="rounded-2xl border p-4 space-y-2"
+                  style={{
+                    background: isDark ? 'rgba(0,0,0,0.25)' : '#ffffff',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <p className="font-semibold">{job.productName || 'Ijara'}</p>
+                  <p className="text-sm" style={{ color: mutedTextColor }}>
+                    {job.customerName} · {job.customerPhone}
+                  </p>
+                  {job.address ? (
+                    <p className="text-sm flex gap-2" style={{ color: mutedTextColor }}>
+                      <MapPin className="w-4 h-4 shrink-0" />
+                      {job.address}
+                    </p>
+                  ) : null}
+                  <button
+                    type="button"
+                    disabled={rentalDeliverToCustomerBusyId === job.id}
+                    onClick={() => confirmRentalDeliveredToCustomer(job)}
+                    className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+                    style={{ background: '#d97706' }}
+                  >
+                    {rentalDeliverToCustomerBusyId === job.id ? 'Yuborilmoqda...' : 'Mijozga yetkazildi'}
+                  </button>
+                </div>
+              ))}
+            </div>
+          </div>
+        ) : null}
 
         {courierRentalOrders.length > 0 ? (
           <div

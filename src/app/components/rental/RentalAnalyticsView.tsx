@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { BarChart3, TrendingUp, Calendar, Package } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import { BarChart3, TrendingUp, Calendar, Package, Building2, Percent, Wallet } from 'lucide-react';
+import { projectId } from '../../../../utils/supabase/info';
+import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 
@@ -25,10 +26,10 @@ export function RentalAnalyticsView({ branchId }: { branchId: string }) {
       
       const [ordersRes, productsRes] = await Promise.all([
         fetch(`https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/orders/${branchId}`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+          headers: buildRentalPanelHeaders(),
         }),
         fetch(`https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${branchId}`, {
-          headers: { 'Authorization': `Bearer ${publicAnonKey}` }
+          headers: buildRentalPanelHeaders(),
         })
       ]);
 
@@ -45,42 +46,82 @@ export function RentalAnalyticsView({ branchId }: { branchId: string }) {
     }
   };
 
+  const rentalPeriodDate = (order: any) => {
+    const s =
+      order.returnedAt ||
+      order.pickupCompletedAt ||
+      order.updatedAt ||
+      order.createdAt;
+    const d = new Date(s);
+    return Number.isNaN(d.getTime()) ? new Date(0) : d;
+  };
+
+  const productCommissionPercent = (productId: string) => {
+    const p = products.find((x) => x.id === productId);
+    const n = Number(p?.platformCommissionPercent);
+    return Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : 0;
+  };
+
+  const returnedOrders = orders.filter((o) => o.status === 'returned');
+
+  const totalRentalRevenue = returnedOrders.reduce(
+    (s, o) => s + (Number(o.totalPrice) || 0),
+    0,
+  );
+  const totalPlatformProfit = returnedOrders.reduce((s, o) => {
+    const price = Number(o.totalPrice) || 0;
+    const pct = productCommissionPercent(String(o.productId || ''));
+    return s + Math.round((price * pct) / 100);
+  }, 0);
+  const totalBranchNet = Math.max(0, Math.round(totalRentalRevenue - totalPlatformProfit));
+
   // Calculate analytics
   const getMonthlyData = () => {
     const monthlyRevenue: { [key: string]: number } = {};
     const monthlyOrders: { [key: string]: number } = {};
+    const monthlyPlatform: { [key: string]: number } = {};
 
-    orders.forEach(order => {
+    orders.forEach((order) => {
       if (order.status === 'returned') {
-        const month = new Date(order.createdAt).toLocaleDateString('uz-UZ', { 
-          year: 'numeric', 
-          month: 'short' 
+        const month = rentalPeriodDate(order).toLocaleDateString('uz-UZ', {
+          year: 'numeric',
+          month: 'short',
         });
-        
-        monthlyRevenue[month] = (monthlyRevenue[month] || 0) + (order.totalPrice || 0);
+        const price = Number(order.totalPrice) || 0;
+        const pct = productCommissionPercent(String(order.productId || ''));
+        const comm = Math.round((price * pct) / 100);
+
+        monthlyRevenue[month] = (monthlyRevenue[month] || 0) + price;
         monthlyOrders[month] = (monthlyOrders[month] || 0) + 1;
+        monthlyPlatform[month] = (monthlyPlatform[month] || 0) + comm;
       }
     });
 
-    return { monthlyRevenue, monthlyOrders };
+    return { monthlyRevenue, monthlyOrders, monthlyPlatform };
   };
 
   const getTopProducts = () => {
-    const productStats: { [key: string]: { count: number; revenue: number; name: string } } = {};
+    const productStats: {
+      [key: string]: { count: number; revenue: number; platformProfit: number; name: string };
+    } = {};
 
-    orders.forEach(order => {
+    orders.forEach((order) => {
       if (!productStats[order.productId]) {
-        const product = products.find(p => p.id === order.productId);
+        const product = products.find((p) => p.id === order.productId);
         productStats[order.productId] = {
           count: 0,
           revenue: 0,
-          name: product?.name || 'Noma\'lum'
+          platformProfit: 0,
+          name: product?.name || "Noma'lum",
         };
       }
 
       productStats[order.productId].count++;
       if (order.status === 'returned') {
-        productStats[order.productId].revenue += order.totalPrice || 0;
+        const price = Number(order.totalPrice) || 0;
+        const pct = productCommissionPercent(String(order.productId || ''));
+        productStats[order.productId].revenue += price;
+        productStats[order.productId].platformProfit += Math.round((price * pct) / 100);
       }
     });
 
@@ -102,7 +143,7 @@ export function RentalAnalyticsView({ branchId }: { branchId: string }) {
       .sort((a, b) => b.count - a.count);
   };
 
-  const { monthlyRevenue, monthlyOrders } = getMonthlyData();
+  const { monthlyRevenue, monthlyOrders, monthlyPlatform } = getMonthlyData();
   const topProducts = getTopProducts();
   const categoryDistribution = getCategoryDistribution();
 
@@ -132,6 +173,69 @@ export function RentalAnalyticsView({ branchId }: { branchId: string }) {
         <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
           Ijara bo'limi tahlili va hisobotlar
         </p>
+      </div>
+
+      {/* Ijara foyda / ulushlar */}
+      <div
+        className="grid grid-cols-1 md:grid-cols-3 gap-4"
+      >
+        {[
+          {
+            title: 'Tugallangan ijara aylanmasi',
+            value: `${Math.round(totalRentalRevenue).toLocaleString()} so'm`,
+            sub: `${returnedOrders.length} ta yakunlangan buyurtma`,
+            Icon: Building2,
+          },
+          {
+            title: 'Platforma ulushi (foyda)',
+            value: `${totalPlatformProfit.toLocaleString()} so'm`,
+            sub: 'Mahsulotda ko‘rsatilgan % bo‘yicha',
+            Icon: Percent,
+          },
+          {
+            title: 'Filial qoldig‘i',
+            value: `${totalBranchNet.toLocaleString()} so'm`,
+            sub: 'Aylanma − platforma ulushi',
+            Icon: Wallet,
+          },
+        ].map(({ title, value, sub, Icon }) => (
+          <div
+            key={title}
+            className="rounded-3xl p-5 border"
+            style={{
+              background: isDark
+                ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.06), rgba(255, 255, 255, 0.02))'
+                : 'linear-gradient(145deg, #ffffff, #f9fafb)',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+            }}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <p
+                  className="text-sm font-medium"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}
+                >
+                  {title}
+                </p>
+                <p className="text-xl font-bold mt-2" style={{ color: accentColor.color }}>
+                  {value}
+                </p>
+                <p
+                  className="text-xs mt-2 leading-snug"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                >
+                  {sub}
+                </p>
+              </div>
+              <div
+                className="p-3 rounded-2xl shrink-0"
+                style={{ background: `${accentColor.color}18` }}
+              >
+                <Icon className="w-6 h-6" style={{ color: accentColor.color }} />
+              </div>
+            </div>
+          </div>
+        ))}
       </div>
 
       {/* Top Products */}
@@ -192,7 +296,13 @@ export function RentalAnalyticsView({ branchId }: { branchId: string }) {
                       </div>
                     </div>
                     <div className="text-right">
-                      <p className="font-bold">{parseInt(product.revenue).toLocaleString()} so'm</p>
+                      <p className="font-bold">{parseInt(String(product.revenue)).toLocaleString()} so'm</p>
+                      <p
+                        className="text-xs mt-0.5"
+                        style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
+                      >
+                        Platforma: {product.platformProfit.toLocaleString()} so'm
+                      </p>
                     </div>
                   </div>
                   <div 
@@ -232,9 +342,9 @@ export function RentalAnalyticsView({ branchId }: { branchId: string }) {
             <Calendar className="w-6 h-6" style={{ color: accentColor.color }} />
           </div>
           <div>
-            <h3 className="text-lg font-bold">Oylik daromad</h3>
+            <h3 className="text-lg font-bold">Oylik daromad va platforma ulushi</h3>
             <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-              So'nggi oylar bo'yicha
+              Yakunlangan ijaralar — oy bo‘yicha
             </p>
           </div>
         </div>
@@ -256,6 +366,12 @@ export function RentalAnalyticsView({ branchId }: { branchId: string }) {
                       <p className="font-medium">{month}</p>
                       <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
                         {monthlyOrders[month]} ta buyurtma
+                      </p>
+                      <p
+                        className="text-xs mt-0.5"
+                        style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                      >
+                        Platforma ulushi: {(monthlyPlatform[month] || 0).toLocaleString()} so'm
                       </p>
                     </div>
                     <p className="font-bold">{parseInt(revenue.toString()).toLocaleString()} so'm</p>

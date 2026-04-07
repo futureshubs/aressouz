@@ -228,13 +228,20 @@ app.get("/auto-courier/rental-queue", async (c) => {
     const prefix = `rental_order_${auth.branchId}_`;
     const rows = (await kv.getByPrefix(prefix)) || [];
     const list = rows
-      .filter(
-        (o: any) =>
-          o &&
-          o.requiresAutoCourier === true &&
-          o.deliveryPending === true &&
-          !o.assignedAutoCourierId,
-      )
+      .filter((o: any) => {
+        if (
+          !o ||
+          o.requiresAutoCourier !== true ||
+          o.deliveryPending !== true ||
+          o.assignedAutoCourierId
+        ) {
+          return false;
+        }
+        const branchOk =
+          o.branchAcceptedAt != null ||
+          !Object.prototype.hasOwnProperty.call(o, "branchAcceptedAt");
+        return branchOk;
+      })
       .map((o: any) => ({
         id: o.id,
         productName: o.productName,
@@ -272,11 +279,31 @@ app.post("/auto-courier/claim-rental", async (c) => {
     if (order.assignedAutoCourierId) {
       return c.json({ success: false, error: "Allaqachon biriktirilgan" }, 409);
     }
+    const branchOk =
+      order.branchAcceptedAt != null ||
+      !Object.prototype.hasOwnProperty.call(order, "branchAcceptedAt");
+    if (!branchOk) {
+      return c.json({ success: false, error: "Filial hali buyurtmani qabul qilmagan" }, 400);
+    }
+    const nowIso = new Date().toISOString();
     order.assignedAutoCourierId = auth.courierId;
-    order.assignedAutoCourierAt = new Date().toISOString();
-    order.updatedAt = order.assignedAutoCourierAt;
+    order.assignedAutoCourierAt = nowIso;
+    order.deliveryCourierId = auth.courierId;
+    order.courierAssignedForDeliveryAt = nowIso;
+    order.updatedAt = nowIso;
+    await kv.set(
+      `rental_courier_delivery_pending_${auth.courierId}_${orderId}`,
+      { branchId: auth.branchId, orderId },
+    );
     await kv.set(k, order);
-    return c.json({ success: true, order: { id: order.id, assignedAutoCourierId: auth.courierId } });
+    return c.json({
+      success: true,
+      order: {
+        id: order.id,
+        assignedAutoCourierId: auth.courierId,
+        deliveryCourierId: auth.courierId,
+      },
+    });
   } catch (e: any) {
     console.error("auto-courier claim-rental", e);
     return c.json({ success: false, error: e?.message || "xato" }, 500);

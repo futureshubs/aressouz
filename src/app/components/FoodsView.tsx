@@ -242,7 +242,10 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   }, [allDishes, selectedDish]);
 
   return (
-    <div className="min-h-screen pb-24" style={{ background: isDark ? '#000000' : '#f5f5f5' }}>
+    <div
+      className="min-h-screen pb-[max(5.5rem,calc(4.5rem+env(safe-area-inset-bottom)))]"
+      style={{ background: isDark ? '#000000' : '#f5f5f5' }}
+    >
       {/* Food Banners - Only show if location selected */}
       {selectedRegionName && selectedDistrictName && (
         <div className="px-4 pt-6 pb-2">
@@ -300,11 +303,11 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
 
       {/* Search */}
       <div className="px-4 mb-6">
-        <div 
-          className="flex items-center gap-3 px-4 py-3 rounded-2xl hidden"
+        <div
+          className="flex items-center gap-3 px-4 py-3 rounded-2xl"
           style={{
             background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`
+            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
           }}
         >
           <Search className="w-5 h-5" style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)' }} />

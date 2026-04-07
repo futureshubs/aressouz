@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { FileText, CheckCircle, XCircle, Clock, Phone, Mail, MapPin } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import { projectId } from '../../../../utils/supabase/info';
+import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 
@@ -25,9 +26,7 @@ export function RentalApplicationsView({ branchId }: { branchId: string }) {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/applications/${branchId}`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
+          headers: buildRentalPanelHeaders(),
         }
       );
 
@@ -53,10 +52,7 @@ export function RentalApplicationsView({ branchId }: { branchId: string }) {
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/applications/${applicationId}`,
         {
           method: 'PUT',
-          headers: {
-            'Content-Type': 'application/json',
-            'Authorization': `Bearer ${localStorage.getItem('authToken')}`
-          },
+          headers: buildRentalPanelHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             branchId,
             status,

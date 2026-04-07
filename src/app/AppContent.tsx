@@ -1,7 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
 import { X } from 'lucide-react';
 import { Header } from './components/Header';
-import { Hero } from './components/Hero';
 import { ViewToggle } from './components/ViewToggle';
 import { ProductCard } from './components/ProductCard';
 import { BottomNav } from './components/BottomNav';
@@ -299,6 +298,7 @@ export default function AppContent() {
   const selectedCategoryId = parsed.categoryId;
 
   const mainNavBoot = useRef(false);
+  const menuCloseRef = useRef<(() => void) | null>(null);
   useLayoutEffect(() => {
     if (mainNavBoot.current) return;
     mainNavBoot.current = true;
@@ -1003,8 +1003,7 @@ export default function AppContent() {
               ].join(' ')
       } bg-background text-foreground`}
     >
-      {/* Backend health test - runs on mount */}
-      <TestBackend />
+      {import.meta.env.DEV ? <TestBackend /> : null}
       <CommunityBackgroundNotifier activeTab={activeTab} />
       
       <div className={appScrollShellClass}>
@@ -1019,7 +1018,7 @@ export default function AppContent() {
               setProfileOrderCategoryPreset(undefined);
               pushPatch({ profile: '1' });
             }}
-            onAuthClick={!isAuthenticated ? () => pushPatch({ auth: '1' }) : undefined}
+            menuCloseRef={menuCloseRef}
           />
         )}
 
@@ -1519,9 +1518,10 @@ export default function AppContent() {
 
         {/* Bottom Navigation - Always visible, responsive positioning */}
         {!isCommunityFullscreen && !isProfileOpen && (
-          <BottomNav 
-            activeTab={activeTab} 
+          <BottomNav
+            activeTab={activeTab}
             onTabChange={goTab}
+            menuCloseRef={menuCloseRef}
           />
         )}
 
@@ -1557,7 +1557,9 @@ export default function AppContent() {
         />
 
         {!isCommunityFullscreen && !isProfileOpen && (
-          <SiteFooter onNavigateTab={goTab} />
+          <div className="hidden md:block">
+            <SiteFooter onNavigateTab={goTab} />
+          </div>
         )}
       </div>
       </div>

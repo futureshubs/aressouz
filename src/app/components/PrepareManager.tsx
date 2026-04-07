@@ -126,12 +126,26 @@ export default function PrepareManager() {
 
   const loadZones = async () => {
     try {
+      let adminSessionHeader: Record<string, string> = {};
+      try {
+        const raw = localStorage.getItem('adminSession');
+        if (raw) {
+          const parsed = JSON.parse(raw) as { sessionToken?: string };
+          if (parsed?.sessionToken) {
+            adminSessionHeader = { 'X-Admin-Session': parsed.sessionToken };
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/delivery-zones`,
         {
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            Authorization: `Bearer ${publicAnonKey}`,
             'Content-Type': 'application/json',
+            ...adminSessionHeader,
           },
         }
       );

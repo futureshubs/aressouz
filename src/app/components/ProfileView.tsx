@@ -346,6 +346,8 @@ function normalizeKvOrderForProfile(o: any) {
   if (s === 'cancelled' || s === 'canceled' || s === 'rejected') orderStatus = 'cancelled';
   else if (s === 'delivered' || s === 'completed') orderStatus = 'completed';
   const refundWait = o.refundPending === true && (s === 'cancelled' || s === 'canceled');
+  const payRefunded =
+    String(o.paymentStatus || o.payment_status || '').toLowerCase() === 'refunded';
   const statusLabel =
     s === 'awaiting_receipt'
       ? 'Kuryer topshirdi — tekshiring'
@@ -353,6 +355,8 @@ function normalizeKvOrderForProfile(o: any) {
         ? 'Yetkazildi'
         : refundWait
           ? 'Bekor qilingan — to‘lov qaytarish kutilmoqda'
+          : (s === 'cancelled' || s === 'canceled' || s === 'rejected') && payRefunded
+            ? 'Bekor qilingan — to‘lov qaytarildi'
           : s === 'cancelled' || s === 'canceled' || s === 'rejected'
             ? 'Bekor qilingan'
             : typeof o.status === 'string' && o.status.trim()

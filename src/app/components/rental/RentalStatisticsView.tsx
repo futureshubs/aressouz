@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { TrendingUp, Package, Clock, DollarSign, CheckCircle, XCircle } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import { TrendingUp, Package, Clock, DollarSign, CheckCircle, XCircle, Percent, Wallet } from 'lucide-react';
+import { projectId } from '../../../../utils/supabase/info';
+import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 
@@ -24,9 +25,7 @@ export function RentalStatisticsView({ branchId }: { branchId: string }) {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/statistics/${branchId}`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
+          headers: buildRentalPanelHeaders(),
         }
       );
 
@@ -70,6 +69,15 @@ export function RentalStatisticsView({ branchId }: { branchId: string }) {
     );
   }
 
+  const branchNetIjar =
+    statistics.totalBranchRentalNet != null
+      ? Number(statistics.totalBranchRentalNet)
+      : Math.max(
+          0,
+          (Number(statistics.totalRevenue) || 0) -
+            (Number(statistics.totalPlatformCommission) || 0),
+        );
+
   const stats = [
     {
       icon: Package,
@@ -103,15 +111,29 @@ export function RentalStatisticsView({ branchId }: { branchId: string }) {
       icon: DollarSign,
       label: 'Jami daromad',
       value: `${parseInt(statistics.totalRevenue || 0).toLocaleString()}`,
-      subtext: 'so\'m',
+      subtext: 'so\'m (yakunlangan ijara)',
       color: accentColor.color
+    },
+    {
+      icon: Percent,
+      label: 'Platforma ulushi',
+      value: `${parseInt(statistics.totalPlatformCommission ?? 0).toLocaleString()}`,
+      subtext: 'so\'m — mahsulotdagi % bo\'yicha',
+      color: '#8b5cf6'
+    },
+    {
+      icon: Wallet,
+      label: 'Filial ulushi (ijara)',
+      value: `${Math.round(branchNetIjar).toLocaleString()}`,
+      subtext: 'so\'m — daromad − platforma',
+      color: '#10b981'
     },
     {
       icon: TrendingUp,
       label: 'Kutilmoqda',
       value: statistics.pendingApplications,
       subtext: 'ta ariza',
-      color: '#8b5cf6'
+      color: '#f59e0b'
     }
   ];
 

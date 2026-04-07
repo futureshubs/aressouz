@@ -6,7 +6,14 @@ import {
   escapeTelegramHtml,
   isValidTelegramTarget,
   sendHtmlTelegramWithToken,
+  sendHtmlTelegramWithTokenDetailed,
 } from "./telegram.tsx";
+import {
+  normalizeRentalProviderLogin,
+  rentalProviderLoginLookupKey,
+  rentalProviderRecordKey,
+  rentalProviderSessionKey,
+} from "./rental_provider_kv.ts";
 
 function telegramRentalBotToken(): string {
   return (
@@ -22,27 +29,69 @@ function telegramAutoCourierBotToken(): string {
   );
 }
 
+function buildRentalOrderCustomerNotifyHtml(order: any): string {
+  return [
+    `<b>📦 Sizdan buyurtma qilindi</b>`,
+    `<i>Ijara bo‘limi</i>`,
+    ``,
+    `Mijoz sizning e’loningiz bo‘yicha ijara buyurtmasi berdi. Tayyorlovni boshlang.`,
+    ``,
+    `<b>Mahsulot:</b> ${escapeTelegramHtml(String(order.productName || ""))}`,
+    `<b>Mijoz:</b> ${escapeTelegramHtml(String(order.customerName || ""))}`,
+    `<b>Tel:</b> ${escapeTelegramHtml(String(order.customerPhone || ""))}`,
+    order.address
+      ? `<b>Manzil:</b> ${escapeTelegramHtml(String(order.address))}`
+      : "",
+    `<b>Summa:</b> ${escapeTelegramHtml(String(order.totalPrice ?? ""))} so'm`,
+    `<b>Buyurtma ID:</b> <code>${escapeTelegramHtml(String(order.id || ""))}</code>`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+async function readBranchRentalTelegramChatId(branchId: string): Promise<string> {
+  try {
+    const br = await kv.get(`branch:${branchId}`);
+    if (!br || typeof br !== "object") return "";
+    const o = br as Record<string, unknown>;
+    return String(o.rentalTelegramChatId || o.ijaraTelegramChatId || "").trim();
+  } catch {
+    return "";
+  }
+}
+
+/** Filialda og‘ir ijara uchun avto-kuryer (Telegram + navbat). Default: yoqilgan */
+async function readBranchAutoCourierRentalsEnabled(branchId: string): Promise<boolean> {
+  try {
+    const br = await kv.get(`branch:${branchId}`);
+    if (!br || typeof br !== "object") return true;
+    return (br as Record<string, unknown>).autoCourierRentalsEnabled !== false;
+  } catch {
+    return true;
+  }
+}
+
 async function sendRentalOrderTelegrams(order: any, product: any, branchId: string) {
   try {
     const prepChat = String(
       product?.telegramChatId || order.prepTelegramChatId || "",
     ).trim();
+    const branchChat = await readBranchRentalTelegramChatId(branchId);
     const rentalBot = telegramRentalBotToken();
-    if (prepChat && isValidTelegramTarget(prepChat) && rentalBot) {
-      const html = [
-        `<b>Ijara: buyurtma tushdi</b>`,
-        `Tayyorlab turing.`,
-        ``,
-        `Mahsulot: ${escapeTelegramHtml(order.productName)}`,
-        `Mijoz: ${escapeTelegramHtml(order.customerName)}`,
-        `Tel: ${escapeTelegramHtml(order.customerPhone)}`,
-        order.address ? `Manzil: ${escapeTelegramHtml(order.address)}` : "",
-        `Summa: ${escapeTelegramHtml(String(order.totalPrice))} so'm`,
-        `ID: ${escapeTelegramHtml(order.id)}`,
-      ]
-        .filter(Boolean)
-        .join("\n");
-      await sendHtmlTelegramWithToken(rentalBot, prepChat, html);
+
+    if (rentalBot) {
+      const html = buildRentalOrderCustomerNotifyHtml(order);
+      const sent = new Set<string>();
+      for (const cid of [prepChat, branchChat]) {
+        if (!cid || !isValidTelegramTarget(cid) || sent.has(cid)) continue;
+        sent.add(cid);
+        await sendHtmlTelegramWithToken(rentalBot, cid, html);
+      }
+      if (sent.size === 0) {
+        console.warn(
+          "sendRentalOrderTelegrams: ijara buyurtmasi uchun Telegram chat yo‘q (mahsulot/filial sozlamalari)",
+        );
+      }
     }
 
     if (order.requiresAutoCourier === true) {
@@ -189,8 +238,39 @@ function maxCustomerExtendUnits(rentalPeriod: string): number {
   return 60;
 }
 
+function parseOptionalPlatformCommissionPercent(v: unknown): number | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = parseFloat(s.replace(",", "."));
+  if (!Number.isFinite(n)) return null;
+  return Math.min(100, Math.max(0, n));
+}
+
+function parseOptionalLatitude(v: unknown): number | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = parseFloat(s.replace(",", "."));
+  if (!Number.isFinite(n) || n < -90 || n > 90) return null;
+  return n;
+}
+
+function parseOptionalLongitude(v: unknown): number | null {
+  if (v === undefined || v === null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const n = parseFloat(s.replace(",", "."));
+  if (!Number.isFinite(n) || n < -180 || n > 180) return null;
+  return n;
+}
+
 function rentalCourierActiveKey(courierId: string, orderId: string) {
   return `rental_courier_active_${courierId}_${orderId}`;
+}
+
+function rentalCourierDeliveryPendingKey(courierId: string, orderId: string) {
+  return `rental_courier_delivery_pending_${courierId}_${orderId}`;
 }
 
 async function removeRentalCourierIndex(order: any) {
@@ -200,7 +280,72 @@ async function removeRentalCourierIndex(order: any) {
     try {
       await kv.del(rentalCourierActiveKey(cid, oid));
     } catch (_) { /* ignore */ }
+    try {
+      await kv.del(rentalCourierDeliveryPendingKey(cid, oid));
+    } catch (_) { /* ignore */ }
   }
+}
+
+/** Yangi buyurtmalar: null = filial hali qabul qilmagan. Eski yozuvlarda maydon bo‘lmasa — avtomatik qabul qilingan hisoblanadi */
+function rentalBranchEffectivelyAccepted(order: any): boolean {
+  return !Object.prototype.hasOwnProperty.call(order, "branchAcceptedAt") ||
+    order.branchAcceptedAt != null;
+}
+
+async function resolveAutoCourierSession(c: any): Promise<{ courierId: string } | null> {
+  const token =
+    c.req.header("X-Auto-Courier-Token") ||
+    c.req.header("x-auto-courier-token") ||
+    c.req.query("token") ||
+    "";
+  const tok = String(token || "").trim();
+  if (!tok) return null;
+  const s = await kv.get(`auto_courier_session:${tok}`);
+  if (!s || Date.now() > Number(s.expiresAt || 0)) return null;
+  const courierId = String(s.courierId || "").trim();
+  if (!courierId) return null;
+  const row = await kv.get(`auto_courier:${courierId}`);
+  if (!row || row.deleted || String(row.status) !== "active") return null;
+  return { courierId };
+}
+
+async function resolveRentalDeliveryActorSession(c: any): Promise<{ courierId: string } | null> {
+  const reg = await resolveCourierSession(c);
+  if (reg) return { courierId: reg.courierId };
+  return await resolveAutoCourierSession(c);
+}
+
+async function finalizeRentalDeliveryToCustomer(
+  order: any,
+  orderKey: string,
+  orderId: string,
+): Promise<void> {
+  const nowIso = new Date().toISOString();
+  const courierId = String(order.deliveryCourierId || "").trim();
+  order.rentalPeriodStartedAt = nowIso;
+  order.rentalPeriodEndsAt = computeRentalPeriodEndIso(
+    nowIso,
+    order.rentalPeriod,
+    order.rentalDuration,
+  );
+  order.deliveryConfirmedAt = nowIso;
+  order.contractStartDate = nowIso;
+  order.deliveryPending = false;
+  const sched = order.paymentSchedule === "weekly" || order.paymentSchedule === "monthly"
+    ? order.paymentSchedule
+    : "upfront";
+  order.nextPaymentDue = computeInitialNextDue(nowIso, sched);
+  order.updatedAt = nowIso;
+  if (courierId) {
+    try {
+      await kv.del(rentalCourierDeliveryPendingKey(courierId, orderId));
+    } catch (_) { /* ignore */ }
+    await kv.set(rentalCourierActiveKey(courierId, orderId), {
+      branchId: order.branchId,
+      orderId,
+    });
+  }
+  await kv.set(orderKey, order);
 }
 
 /** Naqd bo‘lsa kuryer kassaga topshiradi (market buyurtma qoidasi: jami − yetkazish haqi). */
@@ -264,14 +409,28 @@ function enrichRentalOrderForClient(order: any) {
     if (now > endT) pickupAlert = "overdue";
     else if (now > endT - 24 * 60 * 60 * 1000) pickupAlert = "due_soon";
   }
-  /** Kuryer «yetkazildi» qilguncha ijara vaqti boshlanmagan — profil va mijoz UI */
-  const awaitingCourierDelivery =
-    String(order.status || "").toLowerCase() === "active" && !order.rentalPeriodStartedAt;
+  const st = String(order.status || "").toLowerCase();
+  const active = st === "active";
+  const branchOk = rentalBranchEffectivelyAccepted(order);
+  const courierIdSet = Boolean(String(order.deliveryCourierId || "").trim());
+  /** Filial «qabul qilish» kutilmoqda (yangi buyurtmalar) */
+  const needsBranchAcceptance = active && order.deliveryPending === true && !branchOk;
+  /** Filial qabul qilingan, lekin kuryer hali tayinlanmagan / avto-kuryer kutilyapti */
+  const awaitingCourierAssignment =
+    active && branchOk && order.deliveryPending === true && !courierIdSet;
+  /** Kuryer tayinlangan, mijoz yoki kuryer «yetkazildi» tasdig‘i kutilmoqda — shundan keyin muddat boshlanadi */
+  const awaitingDeliveryConfirmation =
+    active && branchOk && courierIdSet && !order.rentalPeriodStartedAt;
+  /** Yetkazish bosqichida (ijara muddati hali boshlanmagan) — keng ma’noda */
+  const awaitingCourierDelivery = active && !order.rentalPeriodStartedAt;
   const handoff = computeRentalCourierHandoffUzs(order);
   return {
     ...order,
     paymentAlert,
     pickupAlert,
+    needsBranchAcceptance,
+    awaitingCourierAssignment,
+    awaitingDeliveryConfirmation,
     awaitingCourierDelivery,
     rentalCourierToCashierPreviewUzs: handoff.expectedUzs,
     rentalPaymentIsCashLike: handoff.isCashLike,
@@ -297,12 +456,313 @@ async function validateUser(c: any) {
   return user;
 }
 
+async function legacyBranchIdFromHeaders(c: any): Promise<string | null> {
+  const t = String(
+    c.req.header("X-Branch-Token") ||
+      c.req.header("x-branch-token") ||
+      "",
+  ).trim();
+  if (!t) return null;
+  const session = await kv.get(`branch_session:${t}`);
+  if (!session || Date.now() > Number(session.expiresAt || 0)) return null;
+  return String(session.branchId || "").trim() || null;
+}
+
+/** Filial SaaS: X-Branch-Supabase-Jwt yoki Bearer (anon emas) → membership → KV filial id */
+async function resolveJwtStaffBranchId(c: any): Promise<string | null> {
+  const anonKey = String(Deno.env.get("SUPABASE_ANON_KEY") || "").trim();
+  const jwtHdr = String(
+    c.req.header("X-Branch-Supabase-Jwt") ||
+      c.req.header("x-branch-supabase-jwt") ||
+      "",
+  ).trim();
+  const authHeader = String(c.req.header("Authorization") || "").trim();
+  const bearer = authHeader.startsWith("Bearer ")
+    ? authHeader.slice(7).trim()
+    : authHeader;
+  const token = jwtHdr || (bearer && bearer !== anonKey ? bearer : "");
+  if (!token) return null;
+  const { data: { user }, error } = await supabase.auth.getUser(token);
+  if (error || !user) return null;
+  const { data: existingUser } = await supabase
+    .from("users")
+    .select("id")
+    .eq("auth_user_id", user.id)
+    .maybeSingle();
+  const relationalUserId = existingUser?.id as string | undefined;
+  if (!relationalUserId) return null;
+  const { data: membership } = await supabase
+    .from("branch_staff_memberships")
+    .select("branch_kv_id, branch_id")
+    .eq("user_id", relationalUserId)
+    .eq("status", "active")
+    .limit(1)
+    .maybeSingle();
+  if (!membership) return null;
+  const kvId = String(membership.branch_kv_id || "").trim();
+  const relId = String(membership.branch_id || "").trim();
+  return kvId || relId || null;
+}
+
+/**
+ * Ijara paneli (filial token/JWT yoki ijara beruvchi sessiyasi).
+ * Anon kalit yoliga ruxsat bermaydi.
+ */
+async function assertRentalBranchPanelAccess(
+  c: any,
+  branchId: string,
+): Promise<Response | null> {
+  const bid = String(branchId || "").trim();
+  if (!bid) {
+    return c.json({ success: false, error: "branchId majburiy" }, 400);
+  }
+
+  const rpTok = String(
+    c.req.header("X-Rental-Provider-Token") ||
+      c.req.header("x-rental-provider-token") ||
+      "",
+  ).trim();
+
+  if (rpTok) {
+    const session = await kv.get(rentalProviderSessionKey(rpTok));
+    if (!session || Date.now() > Number(session.expiresAt || 0)) {
+      return c.json({ success: false, error: "Ijara beruvchi sessiyasi tugagan" }, 401);
+    }
+    if (String(session.branchId || "") !== bid) {
+      return c.json({ success: false, error: "Ruxsat yo‘q" }, 403);
+    }
+    return null;
+  }
+
+  if ((await legacyBranchIdFromHeaders(c)) === bid) return null;
+  if ((await resolveJwtStaffBranchId(c)) === bid) return null;
+
+  return c.json({
+    success: false,
+    error:
+      "Filial (X-Branch-Token / JWT) yoki ijara beruvchi (X-Rental-Provider-Token) talab qilinadi",
+  }, 403);
+}
+
+async function assertRentalApplicationWrite(
+  c: any,
+  branchId: string,
+): Promise<Response | null> {
+  const bid = String(branchId || "").trim();
+  const user = await validateUser(c);
+  if (user) return null;
+  return await assertRentalBranchPanelAccess(c, bid);
+}
+
+// ==================== IJARA BERUVCHI AUTH ====================
+
+app.post("/provider/login", async (c) => {
+  try {
+    const body = await c.req.json();
+    const loginRaw = String(body.login || "").trim();
+    const password = String(body.password || "");
+    if (!loginRaw || !password) {
+      return c.json({ success: false, error: "Login va parol majburiy" }, 400);
+    }
+    const norm = normalizeRentalProviderLogin(loginRaw);
+    if (!norm) {
+      return c.json({ success: false, error: "Login noto‘g‘ri" }, 400);
+    }
+    const ref = await kv.get(rentalProviderLoginLookupKey(norm)) as
+      | { branchId?: string; providerId?: string }
+      | null;
+    if (!ref?.branchId || !ref?.providerId) {
+      return c.json({ success: false, error: "Login yoki parol noto‘g‘ri" }, 401);
+    }
+    const rec = await kv.get(
+      rentalProviderRecordKey(String(ref.branchId), String(ref.providerId)),
+    ) as Record<string, unknown> | null;
+    if (
+      !rec ||
+      rec.deleted === true ||
+      String(rec.password || "") !== password
+    ) {
+      return c.json({ success: false, error: "Login yoki parol noto‘g‘ri" }, 401);
+    }
+    const token = `rp-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
+    const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    await kv.set(rentalProviderSessionKey(token), {
+      branchId: String(ref.branchId),
+      providerId: String(ref.providerId),
+      login: String(rec.login || loginRaw),
+      displayName: String(rec.displayName || rec.name || loginRaw),
+      expiresAt,
+      createdAt: new Date().toISOString(),
+    });
+    return c.json({
+      success: true,
+      token,
+      branchId: String(ref.branchId),
+      provider: {
+        id: String(ref.providerId),
+        displayName: String(rec.displayName || rec.name || loginRaw),
+        login: String(rec.login || loginRaw),
+      },
+    });
+  } catch (e: any) {
+    console.error("rental provider login:", e);
+    return c.json({ success: false, error: e?.message || "Xatolik" }, 500);
+  }
+});
+
+app.post("/provider/logout", async (c) => {
+  try {
+    const tok = String(
+      c.req.header("X-Rental-Provider-Token") ||
+        c.req.header("x-rental-provider-token") ||
+        "",
+    ).trim();
+    if (tok) await kv.del(rentalProviderSessionKey(tok));
+    return c.json({ success: true });
+  } catch (e: any) {
+    return c.json({ success: false, error: e?.message || "Xatolik" }, 500);
+  }
+});
+
 // ==================== RENTAL PRODUCTS ====================
+
+/** Filial paneli: tayyorlovchi chat ID ni sinash (buyurtmadan oldin) */
+app.post("/telegram/test-prep", async (c) => {
+  try {
+    const body = await c.req.json();
+    const branchId = String(body.branchId || "").trim();
+    const denied = await assertRentalBranchPanelAccess(c, branchId);
+    if (denied) return denied;
+    const telegramChatId = String(body.telegramChatId || "").trim();
+    if (!branchId) {
+      return c.json({ success: false, error: "branchId majburiy" }, 400);
+    }
+    if (!telegramChatId) {
+      return c.json({ success: false, error: "Telegram chat ID kiriting" }, 400);
+    }
+    const rentalBot = telegramRentalBotToken();
+    if (!rentalBot) {
+      return c.json({
+        success: false,
+        error:
+          "Serverda ijara bot tokeni yo‘q: TELEGRAM_RENTAL_BOT_TOKEN yoki TELEGRAM_BOT_TOKEN",
+      }, 503);
+    }
+    const html = [
+      `<b>Ijara bot — sinov xabari</b>`,
+      `Filial panelidan yuborildi.`,
+      ``,
+      `Agar buni ko‘ryapsiz — chat ID to‘g‘ri va bot ushbu chatga xabar yubora oladi.`,
+      `Haqiqiy buyurtmada shu yerga «Sizdan buyurtma qilindi» xabari keladi.`,
+      ``,
+      `Filial: <code>${escapeTelegramHtml(branchId)}</code>`,
+    ].join("\n");
+    const result = await sendHtmlTelegramWithTokenDetailed(
+      rentalBot,
+      telegramChatId,
+      html,
+    );
+    if (!result.ok) {
+      return c.json({ success: false, error: result.message }, 400);
+    }
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error("telegram/test-prep:", error);
+    return c.json(
+      { success: false, error: error?.message || "Xatolik" },
+      500,
+    );
+  }
+});
+
+/** Filial bo‘yicha barcha ijara buyurtmalari uchun Telegram (mahsulotda chat bo‘lmasa ham) */
+app.get("/branch/rental-notify-settings/:branchId", async (c) => {
+  try {
+    const branchId = String(c.req.param("branchId") || "").trim();
+    const denied = await assertRentalBranchPanelAccess(c, branchId);
+    if (denied) return denied;
+    const chat = await readBranchRentalTelegramChatId(branchId);
+    const autoOn = await readBranchAutoCourierRentalsEnabled(branchId);
+    return c.json({
+      success: true,
+      rentalTelegramChatId: chat,
+      autoCourierRentalsEnabled: autoOn,
+    });
+  } catch (error: any) {
+    console.error("branch/rental-notify-settings get:", error);
+    return c.json(
+      { success: false, error: error?.message || "Xatolik" },
+      500,
+    );
+  }
+});
+
+app.put("/branch/rental-notify-settings", async (c) => {
+  try {
+    const body = await c.req.json();
+    const branchId = String(body.branchId || "").trim();
+    const denied = await assertRentalBranchPanelAccess(c, branchId);
+    if (denied) return denied;
+    const existing = await kv.get(`branch:${branchId}`);
+    if (!existing || typeof existing !== "object") {
+      return c.json({ success: false, error: "Filial topilmadi" }, 404);
+    }
+    const prev = existing as Record<string, unknown>;
+    let nextChat: string | undefined;
+    if (body.rentalTelegramChatId !== undefined && body.rentalTelegramChatId !== null) {
+      const s = String(body.rentalTelegramChatId).trim();
+      if (s) {
+        if (!isValidTelegramTarget(s)) {
+          return c.json(
+            { success: false, error: "Telegram chat ID noto‘g‘ri" },
+            400,
+          );
+        }
+        nextChat = s;
+      } else {
+        nextChat = "";
+      }
+    }
+    let nextAuto: boolean | undefined;
+    if (typeof body.autoCourierRentalsEnabled === "boolean") {
+      nextAuto = body.autoCourierRentalsEnabled;
+    }
+    if (nextChat === undefined && nextAuto === undefined) {
+      return c.json(
+        { success: false, error: "rentalTelegramChatId yoki autoCourierRentalsEnabled yuboring" },
+        400,
+      );
+    }
+    const merged: Record<string, unknown> = {
+      ...prev,
+      updatedAt: new Date().toISOString(),
+    };
+    if (nextChat !== undefined) merged.rentalTelegramChatId = nextChat;
+    if (nextAuto !== undefined) merged.autoCourierRentalsEnabled = nextAuto;
+    await kv.set(`branch:${branchId}`, merged);
+    const chatOut =
+      nextChat !== undefined ? nextChat : await readBranchRentalTelegramChatId(branchId);
+    const autoOut =
+      nextAuto !== undefined ? nextAuto : await readBranchAutoCourierRentalsEnabled(branchId);
+    return c.json({
+      success: true,
+      rentalTelegramChatId: chatOut,
+      autoCourierRentalsEnabled: autoOut,
+    });
+  } catch (error: any) {
+    console.error("branch/rental-notify-settings put:", error);
+    return c.json(
+      { success: false, error: error?.message || "Xatolik" },
+      500,
+    );
+  }
+});
 
 // Get all rental products for a branch
 app.get('/products/:branchId', async (c) => {
   try {
     const branchId = c.req.param('branchId');
+    /** Do‘kon / katalog: ochiq o‘qish; tahrirlash POST/PUT/DELETE da himoyalangan */
     console.log('📦 ===== GET RENTAL PRODUCTS =====');
     console.log('📦 Getting rental products for branch:', branchId);
     
@@ -347,6 +807,8 @@ app.get('/product/:id', async (c) => {
 app.post('/products', async (c) => {
   try {
     const body = await c.req.json();
+    const denied = await assertRentalBranchPanelAccess(c, String(body.branchId || ""));
+    if (denied) return denied;
     console.log('📝 Creating rental product:', JSON.stringify(body, null, 2));
     
     if (!body.branchId || !body.name || !body.category || !body.region) {
@@ -363,12 +825,21 @@ app.post('/products', async (c) => {
     const requiresAutoCourier =
       Boolean(body.requiresAutoCourier) || weightKg > 10;
 
+    const platformCommissionPercent = parseOptionalPlatformCommissionPercent(
+      body.platformCommissionPercent,
+    );
+    const latitude = parseOptionalLatitude(body.latitude);
+    const longitude = parseOptionalLongitude(body.longitude);
+
     const product = {
       id: productId,
       ...body,
       telegramChatId: isValidTelegramTarget(rawChat) ? rawChat : "",
       weightKg,
       requiresAutoCourier,
+      platformCommissionPercent,
+      latitude,
+      longitude,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
       status: 'active',
@@ -405,6 +876,8 @@ app.put('/products/:id', async (c) => {
   try {
     const id = c.req.param('id');
     const body = await c.req.json();
+    const denied = await assertRentalBranchPanelAccess(c, String(body.branchId || ""));
+    if (denied) return denied;
     
     console.log('📝 Updating rental product:', id, 'with data:', JSON.stringify(body, null, 2));
     
@@ -432,6 +905,20 @@ app.put('/products/:id', async (c) => {
         ? Boolean(body.requiresAutoCourier) || weightKg > 10
         : Boolean(existingProduct.requiresAutoCourier) || weightKg > 10;
 
+    const ex = existingProduct as Record<string, unknown>;
+    const platformCommissionPercent =
+      body.platformCommissionPercent !== undefined
+        ? parseOptionalPlatformCommissionPercent(body.platformCommissionPercent)
+        : (ex.platformCommissionPercent as number | null | undefined) ?? null;
+    const latitude =
+      body.latitude !== undefined
+        ? parseOptionalLatitude(body.latitude)
+        : parseOptionalLatitude(ex.latitude);
+    const longitude =
+      body.longitude !== undefined
+        ? parseOptionalLongitude(body.longitude)
+        : parseOptionalLongitude(ex.longitude);
+
     const updatedProduct = {
       ...existingProduct,
       ...body,
@@ -439,6 +926,9 @@ app.put('/products/:id', async (c) => {
       telegramChatId: isValidTelegramTarget(rawChat) ? rawChat : "",
       weightKg,
       requiresAutoCourier,
+      platformCommissionPercent,
+      latitude,
+      longitude,
       updatedAt: new Date().toISOString()
     };
     
@@ -458,6 +948,8 @@ app.delete('/products/:branchId/:id', async (c) => {
   try {
     const id = c.req.param('id');
     const branchId = c.req.param('branchId');
+    const denied = await assertRentalBranchPanelAccess(c, branchId);
+    if (denied) return denied;
     
     console.log('🗑️ Deleting rental product:', branchId, id);
     
@@ -481,6 +973,8 @@ app.delete('/products/:branchId/:id', async (c) => {
 app.get('/warehouse/:branchId', async (c) => {
   try {
     const branchId = c.req.param('branchId');
+    const denied = await assertRentalBranchPanelAccess(c, branchId);
+    if (denied) return denied;
     const warehouse = await kv.getByPrefix(`rental_warehouse_${branchId}_`);
     
     return c.json({ success: true, warehouse: warehouse || [] });
@@ -496,6 +990,8 @@ app.get('/warehouse/:branchId', async (c) => {
 app.get('/orders/:branchId', async (c) => {
   try {
     const branchId = c.req.param('branchId');
+    const denied = await assertRentalBranchPanelAccess(c, branchId);
+    if (denied) return denied;
     const orders = await kv.getByPrefix(`rental_order_${branchId}_`);
     const list = (orders || []).map((o: any) => enrichRentalOrderForClient(o));
     return c.json({ success: true, orders: list });
@@ -616,10 +1112,91 @@ app.post("/my-rentals/extend", async (c) => {
   }
 });
 
-/** Kuryer: o‘zi yetkazgan faol ijaralar (qaytarib olish uchun) */
+/** Mijoz: mahsulot yetkazilganini tasdiqlash — shu paytdan ijara muddati boshlanadi */
+app.post("/my-rentals/confirm-received", async (c) => {
+  try {
+    const body = await c.req.json();
+    const pk = normalizePhoneDigits(String(body.phone || ""));
+    const branchId = String(body.branchId || "").trim();
+    const orderId = String(body.orderId || body.id || "").trim();
+    if (pk.length < 9 || !branchId || !orderId) {
+      return c.json({ success: false, error: "phone, branchId, orderId majburiy" }, 400);
+    }
+    const orderKey = `rental_order_${branchId}_${orderId}`;
+    const raw = await kv.get(orderKey);
+    if (!raw) {
+      return c.json({ success: false, error: "Buyurtma topilmadi" }, 404);
+    }
+    const orderPhone = normalizePhoneDigits(String(raw.customerPhone || ""));
+    if (orderPhone !== pk) {
+      return c.json({ success: false, error: "Telefon mos kelmaydi" }, 403);
+    }
+    if (String(raw.status || "").toLowerCase() !== "active") {
+      return c.json({ success: false, error: "Buyurtma aktiv emas" }, 400);
+    }
+    if (!rentalBranchEffectivelyAccepted(raw)) {
+      return c.json({ success: false, error: "Filial buyurtmani hali qabul qilmagan" }, 400);
+    }
+    if (!String(raw.deliveryCourierId || "").trim()) {
+      return c.json({ success: false, error: "Kuryer hali tayinlanmagan" }, 400);
+    }
+    if (raw.rentalPeriodStartedAt) {
+      return c.json({ success: false, error: "Yetkazish allaqachon tasdiqlangan" }, 400);
+    }
+    await finalizeRentalDeliveryToCustomer(raw, orderKey, orderId);
+    const updated = await kv.get(orderKey);
+    return c.json({ success: true, order: enrichRentalOrderForClient(updated || raw) });
+  } catch (error: any) {
+    console.error("❌ my-rentals/confirm-received:", error);
+    return c.json({ success: false, error: error.message || "Xatolik" }, 500);
+  }
+});
+
+/** Kuryer / avto-kuryer: ijara beruvchidan olib mijozga yetkazish (muddat hali boshlanmagan) */
+app.get("/courier/rental-delivery-jobs", async (c) => {
+  try {
+    const auth = await resolveRentalDeliveryActorSession(c);
+    if (!auth) {
+      return c.json({ success: false, error: "Sessiya topilmadi" }, 401);
+    }
+    const prefix = `rental_courier_delivery_pending_${auth.courierId}_`;
+    const refs = await kv.getByPrefix(prefix);
+    const orders: any[] = [];
+    for (const ref of refs || []) {
+      const bid = ref?.branchId;
+      const oid = ref?.orderId;
+      if (!bid || !oid) continue;
+      const row = await kv.get(`rental_order_${bid}_${oid}`);
+      if (
+        row &&
+        row.status === "active" &&
+        !row.rentalPeriodStartedAt &&
+        String(row.deliveryCourierId || "") === auth.courierId
+      ) {
+        if (!row.productImage && row.productId && row.branchId) {
+          try {
+            const prod = await kv.get(`rental_product_${row.branchId}_${row.productId}`);
+            const img = prod?.image || prod?.coverImage;
+            if (typeof img === "string" && img.trim()) row.productImage = img.trim();
+          } catch (_) { /* ignore */ }
+        }
+        orders.push(enrichRentalOrderForClient(row));
+      }
+    }
+    orders.sort((a, b) =>
+      String(b.createdAt || "").localeCompare(String(a.createdAt || "")),
+    );
+    return c.json({ success: true, orders });
+  } catch (error: any) {
+    console.error("❌ courier rental-delivery-jobs:", error);
+    return c.json({ success: false, error: error.message }, 500);
+  }
+});
+
+/** Kuryer yoki avto-kuryer: o‘zi yetkazgan faol ijaralar (qaytarib olish uchun) */
 app.get('/courier/active-rentals', async (c) => {
   try {
-    const auth = await resolveCourierSession(c);
+    const auth = await resolveRentalDeliveryActorSession(c);
     if (!auth) {
       return c.json({ success: false, error: "Kuryer sessiyasi topilmadi" }, 401);
     }
@@ -673,8 +1250,10 @@ app.post('/orders', async (c) => {
         productRow?.weightKg ?? body.productWeightKg ?? body.weightKg ?? 0,
       ) || 0,
     );
+    const branchAutoCourierOn = await readBranchAutoCourierRentalsEnabled(body.branchId);
     const requiresAutoCourier =
-      Boolean(productRow?.requiresAutoCourier) || weightKg > 10;
+      branchAutoCourierOn &&
+      (Boolean(productRow?.requiresAutoCourier) || weightKg > 10);
     const prepTelegramChatId = String(productRow?.telegramChatId || "").trim();
 
     const orderId = `${body.branchId}_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -751,11 +1330,11 @@ app.post('/orders', async (c) => {
       requiresAutoCourier,
       assignedAutoCourierId: null,
       assignedAutoCourierAt: null,
+      /** Filial «Qabul qilish» dan keyin Telegram va kuryer navbati ochiladi */
+      branchAcceptedAt: null,
     };
 
     await kv.set(`rental_order_${body.branchId}_${orderId}`, order);
-
-    void sendRentalOrderTelegrams(order, productRow, body.branchId);
 
     const pk = normalizePhoneDigits(order.customerPhone);
     if (pk) {
@@ -789,18 +1368,22 @@ app.put('/orders/:id', async (c) => {
   try {
     const id = c.req.param('id');
     const body = await c.req.json();
-    
-    const orderKey = `rental_order_${body.branchId}_${id}`;
+    const branchIdParam = String(body.branchId || "").trim();
+    if (!branchIdParam) {
+      return c.json({ success: false, error: "branchId majburiy" }, 400);
+    }
+
+    const orderKey = `rental_order_${branchIdParam}_${id}`;
     const order = await kv.get(orderKey);
-    
+
     if (!order) {
       return c.json({ success: false, error: 'Order not found' }, 404);
     }
-    
+
     const oldStatus = order.status;
 
     if (body.confirmPickupReturn === true) {
-      const auth = await resolveCourierSession(c);
+      const auth = await resolveRentalDeliveryActorSession(c);
       if (!auth) {
         return c.json({ success: false, error: "Kuryer sessiyasi topilmadi" }, 401);
       }
@@ -835,35 +1418,83 @@ app.put('/orders/:id', async (c) => {
       return c.json({ success: true, order: enrichRentalOrderForClient(order) });
     }
 
-    if (body.confirmDelivery === true) {
+    if (body.courierMarkDeliveredToCustomer === true) {
+      const auth = await resolveRentalDeliveryActorSession(c);
+      if (!auth) {
+        return c.json({ success: false, error: "Sessiya topilmadi" }, 401);
+      }
+      if (order.status !== "active") {
+        return c.json({ success: false, error: "Buyurtma aktiv emas" }, 400);
+      }
       if (order.rentalPeriodStartedAt) {
         return c.json({ success: false, error: "Yetkazish allaqachon tasdiqlangan" }, 400);
+      }
+      if (String(order.deliveryCourierId || "") !== auth.courierId) {
+        return c.json({ success: false, error: "Bu buyurtma sizga biriktirilmagan" }, 403);
+      }
+      if (!rentalBranchEffectivelyAccepted(order)) {
+        return c.json({ success: false, error: "Filial buyurtmani hali qabul qilmagan" }, 400);
+      }
+      await finalizeRentalDeliveryToCustomer(order, orderKey, id);
+      const updated = await kv.get(orderKey);
+      return c.json({ success: true, order: enrichRentalOrderForClient(updated || order) });
+    }
+
+    const panelDenied = await assertRentalBranchPanelAccess(c, branchIdParam);
+    if (panelDenied) return panelDenied;
+
+    if (body.acceptByBranch === true) {
+      if (!Object.prototype.hasOwnProperty.call(order, "branchAcceptedAt")) {
+        return c.json({ success: true, order: enrichRentalOrderForClient(order) });
+      }
+      if (order.branchAcceptedAt) {
+        return c.json({ success: true, order: enrichRentalOrderForClient(order) });
+      }
+      const nowIso = new Date().toISOString();
+      order.branchAcceptedAt = nowIso;
+      order.updatedAt = nowIso;
+      await kv.set(orderKey, order);
+      const prodKey = `rental_product_${order.branchId}_${order.productId}`;
+      const productRow = await kv.get(prodKey);
+      await sendRentalOrderTelegrams(order, productRow, order.branchId);
+      const fresh = await kv.get(orderKey);
+      return c.json({ success: true, order: enrichRentalOrderForClient(fresh || order) });
+    }
+
+    if (body.assignDeliveryCourier === true || body.confirmDelivery === true) {
+      if (order.rentalPeriodStartedAt) {
+        return c.json({ success: false, error: "Ijara muddati allaqachon boshlangan" }, 400);
       }
       const courierId = String(body.deliveryCourierId || body.courierId || "").trim();
       if (!courierId) {
         return c.json({ success: false, error: "deliveryCourierId (kuryer) majburiy" }, 400);
       }
+      const assignedAc = String(order.assignedAutoCourierId || "").trim();
+      if (assignedAc && assignedAc !== courierId) {
+        return c.json({
+          success: false,
+          error: "Bu buyurtma boshqa avto-kuryerga biriktirilgan",
+        }, 400);
+      }
+      if (!rentalBranchEffectivelyAccepted(order)) {
+        return c.json({ success: false, error: "Avval filial buyurtmani qabul qilishi kerak" }, 400);
+      }
+      const oid = String(order.id || id);
+      const prev = String(order.deliveryCourierId || "").trim();
+      if (prev && prev !== courierId) {
+        try {
+          await kv.del(rentalCourierDeliveryPendingKey(prev, oid));
+        } catch (_) { /* ignore */ }
+      }
       const nowIso = new Date().toISOString();
-      order.rentalPeriodStartedAt = nowIso;
-      order.rentalPeriodEndsAt = computeRentalPeriodEndIso(
-        nowIso,
-        order.rentalPeriod,
-        order.rentalDuration,
-      );
       order.deliveryCourierId = courierId;
-      order.deliveryConfirmedAt = nowIso;
-      order.contractStartDate = nowIso;
-      order.deliveryPending = false;
-      const sched = order.paymentSchedule === "weekly" || order.paymentSchedule === "monthly"
-        ? order.paymentSchedule
-        : "upfront";
-      order.nextPaymentDue = computeInitialNextDue(nowIso, sched);
+      order.courierAssignedForDeliveryAt = nowIso;
       order.updatedAt = nowIso;
-      await kv.set(orderKey, order);
-      await kv.set(rentalCourierActiveKey(courierId, id), {
+      await kv.set(rentalCourierDeliveryPendingKey(courierId, oid), {
         branchId: order.branchId,
-        orderId: id,
+        orderId: oid,
       });
+      await kv.set(orderKey, order);
       return c.json({ success: true, order: enrichRentalOrderForClient(order) });
     }
 
@@ -930,6 +1561,8 @@ app.put('/orders/:id', async (c) => {
 app.get('/applications/:branchId', async (c) => {
   try {
     const branchId = c.req.param('branchId');
+    const denied = await assertRentalBranchPanelAccess(c, branchId);
+    if (denied) return denied;
     const applications = await kv.getByPrefix(`rental_application_${branchId}_`);
     
     return c.json({ success: true, applications: applications || [] });
@@ -966,14 +1599,12 @@ app.post('/applications', async (c) => {
 // Update application status
 app.put('/applications/:id', async (c) => {
   try {
-    const user = await validateUser(c);
-    if (!user) {
-      return c.json({ success: false, error: 'Unauthorized' }, 401);
-    }
-
     const id = c.req.param('id');
     const body = await c.req.json();
-    
+    const appBranch = String(body.branchId || "").trim();
+    const authDenied = await assertRentalApplicationWrite(c, appBranch);
+    if (authDenied) return authDenied;
+
     const applicationKey = `rental_application_${body.branchId}_${id}`;
     const application = await kv.get(applicationKey);
     
@@ -1000,6 +1631,8 @@ app.put('/applications/:id', async (c) => {
 app.get('/statistics/:branchId', async (c) => {
   try {
     const branchId = c.req.param('branchId');
+    const denied = await assertRentalBranchPanelAccess(c, branchId);
+    if (denied) return denied;
     
     const products = await kv.getByPrefix(`rental_product_${branchId}_`) || [];
     const orders = await kv.getByPrefix(`rental_order_${branchId}_`) || [];
@@ -1010,6 +1643,21 @@ app.get('/statistics/:branchId', async (c) => {
     const cancelledOrders = orders.filter((o: any) => o.status === 'cancelled');
     
     const totalRevenue = completedOrders.reduce((sum: number, o: any) => sum + (o.totalPrice || 0), 0);
+
+    const pctByProduct = new Map<string, number>();
+    for (const p of products as any[]) {
+      const id = String(p?.id || "").trim();
+      if (!id) continue;
+      const parsed = parseOptionalPlatformCommissionPercent(p.platformCommissionPercent);
+      pctByProduct.set(id, parsed === null ? 0 : parsed);
+    }
+    let totalPlatformCommission = 0;
+    for (const o of completedOrders) {
+      const price = Math.max(0, Math.round(Number(o.totalPrice) || 0));
+      const pct = pctByProduct.get(String(o.productId || "")) ?? 0;
+      totalPlatformCommission += Math.round((price * pct) / 100);
+    }
+    const totalBranchRentalNet = Math.max(0, Math.round(totalRevenue - totalPlatformCommission));
     
     const pendingApplications = applications.filter((a: any) => a.status === 'pending');
     
@@ -1021,6 +1669,8 @@ app.get('/statistics/:branchId', async (c) => {
       completedRentals: completedOrders.length,
       cancelledRentals: cancelledOrders.length,
       totalRevenue,
+      totalPlatformCommission,
+      totalBranchRentalNet,
       pendingApplications: pendingApplications.length,
       totalApplications: applications.length
     };

@@ -1,23 +1,26 @@
-import { useState, useEffect } from 'react';
-import { 
-  MapPin, 
-  Plus, 
-  Edit2, 
-  Trash2, 
-  X, 
+import { useState, useEffect, useCallback } from 'react';
+import { useNavigate } from 'react-router';
+import {
+  MapPin,
+  Plus,
+  Edit2,
+  Trash2,
+  X,
   Save,
   BarChart3,
   Users,
   TrendingUp,
-  Clock,
-  DollarSign,
   Map,
-  Navigation
+  RefreshCw,
+  Bike,
+  Package,
+  Activity,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import { projectId, publicAnonKey, API_BASE_URL, DEV_API_BASE_URL } from '../../../../utils/supabase/info';
 import PolygonMapPicker from './PolygonMapPicker';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
+import { buildBranchHeaders } from '../../utils/requestAuth';
 
 interface DeliveryZone {
   id: string;
@@ -42,7 +45,73 @@ interface DeliveryZonesProps {
   branchInfo: any;
 }
 
+function branchApiBase(): string {
+  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
+    return DEV_API_BASE_URL;
+  }
+  return API_BASE_URL;
+}
+
+interface DeliveryZonesAnalyticsSummary {
+  zonesTotal: number;
+  zonesActive: number;
+  ordersToday: number;
+  orders7d: number;
+  orders30d: number;
+  couriersTotal: number;
+  couriersActive: number;
+  couriersBusy: number;
+}
+
+interface DeliveryZonesZoneBreakdown {
+  zoneId: string;
+  zoneName: string;
+  isActive: boolean;
+  deliveryPrice: number;
+  ordersToday: number;
+  orders7d: number;
+  orders30d: number;
+}
+
+interface DeliveryZonesCourierRow {
+  id: string;
+  name: string;
+  phone: string;
+  status: string;
+  isAvailable: boolean;
+  activeOrderId: string | null;
+  totalDeliveries: number;
+  completedDeliveries: number;
+  lastActive: string;
+  vehicleType: string;
+  vehicleNumber: string;
+  serviceZoneNames: string[];
+}
+
+interface DeliveryZonesAnalyticsPayload {
+  success: boolean;
+  summary?: DeliveryZonesAnalyticsSummary;
+  zoneBreakdown?: DeliveryZonesZoneBreakdown[];
+  couriers?: DeliveryZonesCourierRow[];
+  error?: string;
+}
+
+function formatRelativeTime(iso: string): string {
+  if (!iso) return '—';
+  const t = new Date(iso).getTime();
+  if (!Number.isFinite(t)) return '—';
+  const diff = Date.now() - t;
+  const m = Math.floor(diff / 60000);
+  if (m < 1) return 'hozirgina';
+  if (m < 60) return `${m} daq oldin`;
+  const h = Math.floor(m / 60);
+  if (h < 48) return `${h} soat oldin`;
+  const d = Math.floor(h / 24);
+  return `${d} kun oldin`;
+}
+
 export default function DeliveryZones({ isDark, accentColor, branchInfo }: DeliveryZonesProps) {
+  const navigate = useNavigate();
   const [activeTab, setActiveTab] = useState<'zones' | 'stats' | 'couriers' | 'popular'>('zones');
   const [zones, setZones] = useState<DeliveryZone[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -51,6 +120,10 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
   const [regions, setRegions] = useState<any[]>([]);
   const [districts, setDistricts] = useState<any[]>([]);
   const [showMapPicker, setShowMapPicker] = useState(false);
+
+  const [analytics, setAnalytics] = useState<DeliveryZonesAnalyticsPayload | null>(null);
+  const [analyticsLoading, setAnalyticsLoading] = useState(false);
+  const [analyticsError, setAnalyticsError] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -144,6 +217,44 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
       setIsLoading(false);
     }
   };
+
+  const loadAnalytics = useCallback(async () => {
+    if (!branchInfo?.id) return;
+    setAnalyticsLoading(true);
+    setAnalyticsError(null);
+    try {
+      const res = await fetch(`${branchApiBase()}/branch/delivery-zones-analytics`, {
+        headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+      });
+
+      if (res.status === 401 || res.status === 403) {
+        localStorage.removeItem('branchSession');
+        toast.error('Sessiya tugadi. Qayta kiring.');
+        navigate('/filyal');
+        return;
+      }
+
+      const data = (await res.json().catch(() => ({}))) as DeliveryZonesAnalyticsPayload;
+      if (!res.ok || !data.success) {
+        setAnalytics(null);
+        setAnalyticsError(data.error || 'Ma’lumot yuklanmadi');
+        return;
+      }
+      setAnalytics(data);
+    } catch {
+      setAnalytics(null);
+      setAnalyticsError('Tarmoq xatosi');
+    } finally {
+      setAnalyticsLoading(false);
+    }
+  }, [branchInfo?.id, navigate]);
+
+  useEffect(() => {
+    if (!branchInfo?.id) return;
+    if (activeTab === 'stats' || activeTab === 'couriers' || activeTab === 'popular') {
+      void loadAnalytics();
+    }
+  }, [branchInfo?.id, activeTab, visibilityRefetchTick, loadAnalytics]);
 
   const openModal = (zone?: DeliveryZone) => {
     if (zone) {
@@ -491,84 +602,504 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
       {/* Stats Tab */}
       {activeTab === 'stats' && (
         <div className="space-y-6">
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-            {[
-              { label: 'Jami zonalar', value: zones.length.toString(), icon: Map, color: '#14b8a6' },
-              { label: 'Faol zonalar', value: zones.filter(z => z.isActive).length.toString(), icon: MapPin, color: '#10b981' },
-              { label: 'Bugungi buyurtmalar', value: '0', icon: TrendingUp, color: '#f59e0b' },
-              { label: 'Jami kuryerlar', value: '0', icon: Users, color: '#3b82f6' },
-            ].map((stat, index) => {
-              const Icon = stat.icon;
-              return (
-                <div
-                  key={index}
-                  className="p-6 rounded-2xl border"
-                  style={{
-                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                  }}
-                >
-                  <div className="flex items-center gap-3 mb-3">
-                    <div className="p-2 rounded-xl" style={{ background: `${stat.color}20` }}>
-                      <Icon className="w-5 h-5" style={{ color: stat.color }} />
-                    </div>
-                    <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                      {stat.label}
-                    </p>
-                  </div>
-                  <p className="text-3xl font-bold">{stat.value}</p>
-                </div>
-              );
-            })}
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold">Yetkazish statistikasi</h2>
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                Buyurtmalar (market / shop / food / restaurant), bekor qilinmagan
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadAnalytics()}
+              disabled={analyticsLoading}
+              className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-50"
+              style={{
+                borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
+              }}
+            >
+              <RefreshCw className={`h-4 w-4 ${analyticsLoading ? 'animate-spin' : ''}`} />
+              Yangilash
+            </button>
           </div>
 
-          <div
-            className="p-12 rounded-2xl border text-center"
-            style={{
-              background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-            }}
-          >
-            <BarChart3 className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color }} />
-            <h3 className="text-xl font-bold mb-2">Statistika tez orada...</h3>
-            <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-              Batafsil statistika va grafiklar qo'shilmoqda
-            </p>
-          </div>
+          {analyticsError && (
+            <div
+              className="rounded-2xl border px-4 py-3 text-sm"
+              style={{
+                borderColor: 'rgba(239,68,68,0.35)',
+                background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.08)',
+                color: isDark ? '#fecaca' : '#991b1b',
+              }}
+            >
+              {analyticsError}
+            </div>
+          )}
+
+          {analyticsLoading && !analytics?.summary ? (
+            <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+              {[1, 2, 3, 4, 5, 6, 7, 8].map(i => (
+                <div
+                  key={i}
+                  className="h-28 animate-pulse rounded-2xl border"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 gap-3 sm:grid-cols-3 lg:grid-cols-4">
+                {(
+                  [
+                    {
+                      label: 'Jami zonalar',
+                      value: analytics?.summary?.zonesTotal ?? zones.length,
+                      icon: Map,
+                      color: '#14b8a6',
+                    },
+                    {
+                      label: 'Faol zonalar',
+                      value: analytics?.summary?.zonesActive ?? zones.filter(z => z.isActive).length,
+                      icon: MapPin,
+                      color: '#10b981',
+                    },
+                    {
+                      label: 'Bugun',
+                      value: analytics?.summary?.ordersToday ?? '—',
+                      icon: Package,
+                      color: '#f59e0b',
+                    },
+                    {
+                      label: '7 kun',
+                      value: analytics?.summary?.orders7d ?? '—',
+                      icon: BarChart3,
+                      color: '#a855f7',
+                    },
+                    {
+                      label: '30 kun',
+                      value: analytics?.summary?.orders30d ?? '—',
+                      icon: TrendingUp,
+                      color: '#ec4899',
+                    },
+                    {
+                      label: 'Jami kuryerlar',
+                      value: analytics?.summary?.couriersTotal ?? '—',
+                      icon: Users,
+                      color: '#3b82f6',
+                    },
+                    {
+                      label: 'Faol holat',
+                      value: analytics?.summary?.couriersActive ?? '—',
+                      icon: Activity,
+                      color: '#22c55e',
+                    },
+                    {
+                      label: 'Band kuryerlar',
+                      value: analytics?.summary?.couriersBusy ?? '—',
+                      icon: Bike,
+                      color: '#f97316',
+                    },
+                  ] as const
+                ).map((stat, index) => {
+                  const Icon = stat.icon;
+                  const v =
+                    typeof stat.value === 'number' ? stat.value.toLocaleString() : String(stat.value);
+                  return (
+                    <div
+                      key={index}
+                      className="rounded-2xl border p-4 sm:p-5"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)',
+                        borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                      }}
+                    >
+                      <div className="mb-2 flex items-center gap-2">
+                        <div className="rounded-lg p-1.5" style={{ background: `${stat.color}22` }}>
+                          <Icon className="h-4 w-4" style={{ color: stat.color }} />
+                        </div>
+                        <span
+                          className="text-xs font-medium sm:text-sm"
+                          style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}
+                        >
+                          {stat.label}
+                        </span>
+                      </div>
+                      <p className="text-2xl font-bold tabular-nums sm:text-3xl">{v}</p>
+                    </div>
+                  );
+                })}
+              </div>
+
+              <div
+                className="rounded-2xl border p-4 sm:p-6"
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                }}
+              >
+                <h3 className="mb-1 text-base font-bold">Zonalar bo‘yicha (30 kun)</h3>
+                <p
+                  className="mb-4 text-sm"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
+                >
+                  Eng yuqori hajm — kengaytirilgan bar
+                </p>
+                {(() => {
+                  const rows = analytics?.zoneBreakdown?.length
+                    ? analytics.zoneBreakdown
+                    : zones.map(z => ({
+                        zoneId: z.id,
+                        zoneName: z.name,
+                        isActive: z.isActive,
+                        deliveryPrice: z.deliveryPrice,
+                        ordersToday: 0,
+                        orders7d: 0,
+                        orders30d: 0,
+                      }));
+                  const max30 = Math.max(1, ...rows.map(r => r.orders30d));
+                  if (rows.length === 0) {
+                    return (
+                      <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                        Zona ma’lumoti yo‘q
+                      </p>
+                    );
+                  }
+                  return (
+                    <ul className="space-y-3">
+                      {rows.map(z => (
+                        <li key={z.zoneId} className="space-y-1.5">
+                          <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                            <span className="font-semibold">{z.zoneName}</span>
+                            <span
+                              className="tabular-nums text-xs font-medium"
+                              style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}
+                            >
+                              bugun {z.ordersToday} · 7k {z.orders7d} · 30k {z.orders30d}
+                            </span>
+                          </div>
+                          <div
+                            className="h-2.5 overflow-hidden rounded-full"
+                            style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+                          >
+                            <div
+                              className="h-full rounded-full transition-all"
+                              style={{
+                                width: `${(z.orders30d / max30) * 100}%`,
+                                background: accentColor.gradient,
+                                minWidth: z.orders30d > 0 ? '4px' : 0,
+                              }}
+                            />
+                          </div>
+                        </li>
+                      ))}
+                    </ul>
+                  );
+                })()}
+              </div>
+            </>
+          )}
         </div>
       )}
 
       {/* Couriers Tab */}
       {activeTab === 'couriers' && (
-        <div
-          className="p-12 rounded-2xl border text-center"
-          style={{
-            background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-          }}
-        >
-          <Users className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color }} />
-          <h3 className="text-xl font-bold mb-2">Kuryerlar tez orada...</h3>
-          <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Faol kuryerlar va ularning holati ko'rsatiladi
-          </p>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold">Kuryerlar</h2>
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                Filialga biriktirilgan kuryerlar
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadAnalytics()}
+              disabled={analyticsLoading}
+              className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-50"
+              style={{
+                borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
+              }}
+            >
+              <RefreshCw className={`h-4 w-4 ${analyticsLoading ? 'animate-spin' : ''}`} />
+              Yangilash
+            </button>
+          </div>
+
+          {analyticsError && (
+            <div
+              className="rounded-2xl border px-4 py-3 text-sm"
+              style={{
+                borderColor: 'rgba(239,68,68,0.35)',
+                background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.08)',
+                color: isDark ? '#fecaca' : '#991b1b',
+              }}
+            >
+              {analyticsError}
+            </div>
+          )}
+
+          {analyticsLoading && !analytics?.couriers ? (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {[1, 2, 3, 4].map(i => (
+                <div
+                  key={i}
+                  className="h-36 animate-pulse rounded-2xl border"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                  }}
+                />
+              ))}
+            </div>
+          ) : !analytics?.couriers?.length ? (
+            <div
+              className="rounded-2xl border p-10 text-center"
+              style={{
+                background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              }}
+            >
+              <Bike className="mx-auto mb-3 h-12 w-12 opacity-40" style={{ color: accentColor.color }} />
+              <p className="font-semibold">Hozircha kuryer yo‘q</p>
+              <p className="mt-1 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                Admin panel orqali filialga kuryer biriktirilganda shu yerda ko‘rinadi
+              </p>
+            </div>
+          ) : (
+            <div className="grid gap-3 sm:grid-cols-2">
+              {analytics.couriers.map(c => {
+                const st = String(c.status || '').toLowerCase();
+                const busy = Boolean(c.activeOrderId) || st === 'busy';
+                const active = st === 'active' || busy;
+                const statusLabel =
+                  busy ? 'Band' : st === 'active' ? 'Faol' : st === 'offline' ? 'Oflayn' : c.status || 'Noma’lum';
+                const statusBg = busy
+                  ? 'rgba(249,115,22,0.2)'
+                  : active
+                    ? 'rgba(34,197,94,0.2)'
+                    : 'rgba(148,163,184,0.25)';
+                const statusColor = busy ? '#fb923c' : active ? '#4ade80' : '#94a3b8';
+                return (
+                  <div
+                    key={c.id}
+                    className="rounded-2xl border p-4 sm:p-5"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)',
+                      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate font-bold">{c.name || 'Ismsiz'}</p>
+                        {c.phone ? (
+                          <a
+                            href={`tel:${c.phone.replace(/\s/g, '')}`}
+                            className="mt-0.5 block truncate text-sm"
+                            style={{ color: accentColor.color }}
+                          >
+                            {c.phone}
+                          </a>
+                        ) : null}
+                      </div>
+                      <span
+                        className="shrink-0 rounded-lg px-2 py-1 text-xs font-semibold"
+                        style={{ background: statusBg, color: statusColor }}
+                      >
+                        {statusLabel}
+                      </span>
+                    </div>
+                    <div className="mt-3 grid grid-cols-2 gap-2 text-xs sm:text-sm">
+                      <div>
+                        <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>Yakunlangan</p>
+                        <p className="font-semibold tabular-nums">{c.completedDeliveries}</p>
+                      </div>
+                      <div>
+                        <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>Jami yetkazish</p>
+                        <p className="font-semibold tabular-nums">{c.totalDeliveries}</p>
+                      </div>
+                      <div className="col-span-2">
+                        <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>Oxirgi faollik</p>
+                        <p className="font-medium">{formatRelativeTime(c.lastActive)}</p>
+                      </div>
+                      {(c.vehicleType || c.vehicleNumber) && (
+                        <div className="col-span-2">
+                          <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>Transport</p>
+                          <p className="font-medium">
+                            {[c.vehicleType, c.vehicleNumber].filter(Boolean).join(' · ') || '—'}
+                          </p>
+                        </div>
+                      )}
+                      {c.serviceZoneNames?.length ? (
+                        <div className="col-span-2">
+                          <p style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>Zonalar</p>
+                          <p className="font-medium">{c.serviceZoneNames.slice(0, 4).join(', ')}</p>
+                        </div>
+                      ) : null}
+                    </div>
+                    {c.activeOrderId ? (
+                      <div
+                        className="mt-3 rounded-xl border px-3 py-2 text-xs"
+                        style={{
+                          borderColor: `${accentColor.color}40`,
+                          background: `${accentColor.color}14`,
+                        }}
+                      >
+                        <span className="font-semibold" style={{ color: accentColor.color }}>
+                          Buyurtma:{' '}
+                        </span>
+                        {c.activeOrderId}
+                      </div>
+                    ) : null}
+                  </div>
+                );
+              })}
+            </div>
+          )}
         </div>
       )}
 
       {/* Popular Tab */}
       {activeTab === 'popular' && (
-        <div
-          className="p-12 rounded-2xl border text-center"
-          style={{
-            background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-          }}
-        >
-          <TrendingUp className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color }} />
-          <h3 className="text-xl font-bold mb-2">Ko'p buyurtmalar tez orada...</h3>
-          <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Eng ko'p buyurtma berilgan zonalar ko'rsatiladi
-          </p>
+        <div className="space-y-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <div>
+              <h2 className="text-lg font-bold">Eng ko‘p buyurtma — zonalar</h2>
+              <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                30 kunlik hajm bo‘yicha tartib (yuqoridan pastga)
+              </p>
+            </div>
+            <button
+              type="button"
+              onClick={() => void loadAnalytics()}
+              disabled={analyticsLoading}
+              className="inline-flex items-center gap-2 rounded-xl border px-4 py-2 text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-50"
+              style={{
+                borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
+              }}
+            >
+              <RefreshCw className={`h-4 w-4 ${analyticsLoading ? 'animate-spin' : ''}`} />
+              Yangilash
+            </button>
+          </div>
+
+          {analyticsError && (
+            <div
+              className="rounded-2xl border px-4 py-3 text-sm"
+              style={{
+                borderColor: 'rgba(239,68,68,0.35)',
+                background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.08)',
+                color: isDark ? '#fecaca' : '#991b1b',
+              }}
+            >
+              {analyticsError}
+            </div>
+          )}
+
+          {analyticsLoading && !analytics?.zoneBreakdown ? (
+            <div className="space-y-3">
+              {[1, 2, 3, 4, 5].map(i => (
+                <div
+                  key={i}
+                  className="h-20 animate-pulse rounded-2xl border"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                  }}
+                />
+              ))}
+            </div>
+          ) : (
+            (() => {
+              const rows = analytics?.zoneBreakdown ?? [];
+              const max30 = Math.max(1, ...rows.map(r => r.orders30d));
+              if (!rows.length) {
+                return (
+                  <div
+                    className="rounded-2xl border p-10 text-center"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+                      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                    }}
+                  >
+                    <TrendingUp className="mx-auto mb-3 h-12 w-12 opacity-40" style={{ color: accentColor.color }} />
+                    <p className="font-semibold">Zonalar bo‘yicha ma’lumot yo‘q</p>
+                  </div>
+                );
+              }
+              const medals = ['🥇', '🥈', '🥉'];
+              return (
+                <ul className="space-y-3">
+                  {rows.map((z, idx) => (
+                    <li
+                      key={z.zoneId}
+                      className="space-y-3 rounded-2xl border p-4 sm:p-5"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.02)',
+                        borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                      }}
+                    >
+                      <div className="flex flex-wrap items-start justify-between gap-3">
+                        <div className="flex min-w-0 flex-1 items-center gap-3">
+                          <span className="text-2xl tabular-nums">{medals[idx] ?? `#${idx + 1}`}</span>
+                          <div className="min-w-0">
+                            <p className="truncate font-bold">{z.zoneName}</p>
+                            <p
+                              className="text-xs"
+                              style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                            >
+                              {z.zoneId === '_none'
+                                ? 'Buyurtmada zona ko‘rsatilmagan'
+                                : z.isActive
+                                  ? 'Faol zona'
+                                  : 'Nofaol'}
+                            </p>
+                          </div>
+                        </div>
+                        <div className="flex shrink-0 flex-col items-end gap-1 text-right">
+                          <p
+                            className="text-2xl font-bold tabular-nums leading-none"
+                            style={{ color: accentColor.color }}
+                          >
+                            {z.orders30d}
+                          </p>
+                          <p className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                            30 kun
+                          </p>
+                          <div
+                            className="flex gap-2 text-xs font-medium tabular-nums"
+                            style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}
+                          >
+                            <span>bugun {z.ordersToday}</span>
+                            <span>·</span>
+                            <span>7k {z.orders7d}</span>
+                          </div>
+                        </div>
+                      </div>
+                      <div
+                        className="h-2 overflow-hidden rounded-full"
+                        style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+                      >
+                        <div
+                          className="h-full rounded-full"
+                          style={{
+                            width: `${(z.orders30d / max30) * 100}%`,
+                            background: accentColor.gradient,
+                            minWidth: z.orders30d > 0 ? '4px' : 0,
+                          }}
+                        />
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              );
+            })()
+          )}
         </div>
       )}
 
