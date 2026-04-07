@@ -68,7 +68,7 @@ export function SharePlacePage() {
   if (error || !place) {
     return (
       <div
-        className={`fixed inset-0 flex items-center justify-center ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}
+        className={`fixed inset-0 flex items-center justify-center app-safe-pad ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}
       >
         <div className="text-center max-w-md px-6">
           <div className="size-20 rounded-full bg-red-500/10 flex items-center justify-center mx-auto mb-4">
@@ -90,7 +90,7 @@ export function SharePlacePage() {
   }
 
   return (
-    <div className={`fixed inset-0 ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}>
+    <div className={`fixed inset-0 app-safe-pad ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}>
       <PlaceDetailModal place={place} isOpen={true} onClose={handleClose} />
     </div>
   );

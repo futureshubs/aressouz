@@ -166,7 +166,7 @@ export default function SellerDashboard() {
 
   if (!shop) {
     return (
-      <div className="min-h-screen flex items-center justify-center p-6">
+      <div className="min-h-screen flex items-center justify-center p-6 app-safe-pt">
         <div 
           className="max-w-md w-full p-12 rounded-3xl text-center"
           style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}

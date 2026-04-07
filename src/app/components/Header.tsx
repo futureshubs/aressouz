@@ -67,7 +67,8 @@ export const Header = memo(function Header({
       <header
         className="sticky z-50 shrink-0"
         style={{
-          top: 'var(--app-safe-top)',
+          top: 0,
+          paddingTop: 'var(--app-safe-top)',
           background: bgGradient,
           backdropFilter: 'blur(20px)',
           WebkitBackdropFilter: 'blur(20px)',

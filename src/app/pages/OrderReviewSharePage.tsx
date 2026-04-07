@@ -87,7 +87,7 @@ export function OrderReviewSharePage() {
 
   return (
     <div
-      className={`min-h-screen px-4 py-10 ${
+      className={`min-h-screen px-4 py-10 app-safe-pt ${
         isDark ? 'bg-gradient-to-b from-[#0f172a] to-[#0a0a0a]' : 'bg-gradient-to-b from-slate-50 to-gray-100'
       }`}
     >

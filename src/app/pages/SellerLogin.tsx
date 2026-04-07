@@ -101,7 +101,7 @@ export default function SellerLogin() {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center p-4"
+      className="min-h-screen flex items-center justify-center p-4 app-safe-pt"
       style={{
         background: isDark ? '#000000' : '#f9fafb',
       }}

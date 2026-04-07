@@ -40,30 +40,11 @@
   --sidebar-accent-foreground: oklch(0.205 0 0);
   --sidebar-border: oklch(0.922 0 0);
   --sidebar-ring: oklch(0.708 0 0);
-  /* PWA / notch: body padding va sticky header top bir xil bo‘lsin */
+  /* PWA / notch / Dynamic Island — Telegram WebApp inline --app-safe-top bilan almashtirishi mumkin */
   --app-safe-top: env(safe-area-inset-top, 0px);
   --app-safe-right: env(safe-area-inset-right, 0px);
   --app-safe-bottom: env(safe-area-inset-bottom, 0px);
   --app-safe-left: env(safe-area-inset-left, 0px);
-}
-
-/*
- * Tor ekran: pointer: coarse ba’zan false (Android WebView) — faqat max-width ishonchliroq.
- * Chrome Custom Tab / oddiy mobil: display-mode standalone bo‘lmasa ham indent kerak.
- */
-@media (max-width: 1024px) {
-  :root {
-    --app-safe-top: max(3rem, env(safe-area-inset-top, 0px));
-    --app-safe-bottom: max(0.65rem, env(safe-area-inset-bottom, 0px));
-  }
-}
-
-/* O‘rnatilgan PWA: status + tirqish + ramka — yanada katta minimum */
-@media (display-mode: standalone), (display-mode: fullscreen), (display-mode: minimal-ui) {
-  :root {
-    --app-safe-top: max(3.5rem, env(safe-area-inset-top, 0px));
-    --app-safe-bottom: max(0.85rem, env(safe-area-inset-bottom, 0px));
-  }
 }
 
 .dark {
@@ -201,7 +182,8 @@
     min-height: 100%;
     min-height: 100dvh;
     min-height: -webkit-fill-available;
-    padding-top: var(--app-safe-top);
+    /* Safe tepa: Header / app-safe-pt / panellar o‘zlari beradi — ikki marta indent va qora “yo‘lak” bo‘lmasin */
+    padding-top: 0;
     box-sizing: border-box;
     overflow-x: hidden;
     width: 100%;

@@ -16,7 +16,7 @@ export default function PaymentDemo() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-4">
+    <div className="min-h-screen bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900 p-4 app-safe-pt">
       <div className="max-w-4xl mx-auto py-8">
         {/* Header */}
         <div className="text-center mb-12">

@@ -271,14 +271,14 @@ export default function PrepareManager() {
 
   if (isLoading) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
+      <div className="min-h-screen flex items-center justify-center app-safe-pt">
         <div className="animate-spin rounded-full h-12 w-12 border-b-2" style={{ borderColor: accentColor.color }} />
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen p-4 md:p-8">
+    <div className="min-h-screen p-4 md:p-8 app-safe-pt">
       {/* Header */}
       <div className="max-w-7xl mx-auto mb-6">
         <div className="flex items-center justify-between mb-2">

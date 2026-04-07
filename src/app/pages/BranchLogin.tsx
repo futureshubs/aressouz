@@ -172,7 +172,7 @@ export default function BranchLogin() {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center p-4"
+      className="min-h-screen flex items-center justify-center p-4 app-safe-pt"
       style={{
         background: isDark
           ? 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)'

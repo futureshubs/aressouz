@@ -23,7 +23,7 @@ export default function ShareTargetPage() {
 
   return (
     <div
-      className="min-h-screen flex items-center justify-center p-4"
+      className="min-h-screen flex items-center justify-center p-4 app-safe-pt"
       style={{
         background: isDark
           ? 'radial-gradient(1100px 600px at 20% 10%, rgba(20,184,166,0.12), transparent 55%), #000'

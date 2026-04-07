@@ -64,7 +64,7 @@ export default function RentalProviderDashboard() {
 
   if (!session) {
     return (
-      <div className="min-h-screen flex items-center justify-center" style={{ background: isDark ? '#000' : '#f9fafb' }}>
+      <div className="min-h-screen flex items-center justify-center app-safe-pt" style={{ background: isDark ? '#000' : '#f9fafb' }}>
         <p className="text-sm opacity-60">Yuklanmoqda…</p>
       </div>
     );

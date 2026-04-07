@@ -78,7 +78,7 @@ export default function PrepareWrapper() {
   if (isLoading) {
     return (
       <div
-        className="min-h-screen flex items-center justify-center"
+        className="min-h-screen flex items-center justify-center app-safe-pt"
         style={{
           background: isDark ? '#000000' : '#f9fafb',
           color: isDark ? '#ffffff' : '#111827',

@@ -101,7 +101,7 @@ export default function Payment() {
 
   return (
     <div
-      className={`min-h-screen flex items-center justify-center p-4 ${
+      className={`min-h-screen flex items-center justify-center p-4 app-safe-pt ${
         isDark
           ? 'bg-gradient-to-br from-gray-900 via-gray-800 to-gray-900'
           : 'bg-gradient-to-br from-slate-50 via-gray-50 to-slate-100'
