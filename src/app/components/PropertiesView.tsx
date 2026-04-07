@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { Platform } from '../utils/platform';
 import { PropertyCategoryCard } from './PropertyCategoryCard';
@@ -6,6 +6,8 @@ import { PropertyCard } from './PropertyCard';
 import { PropertyDetailModal } from './PropertyDetailModal';
 import { propertyCategories, properties, Property, PropertyCategory } from '../data/properties';
 import { Home, FolderOpen } from 'lucide-react';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 interface PropertiesViewProps {
   platform: Platform;
@@ -13,6 +15,7 @@ interface PropertiesViewProps {
 
 export function PropertiesView({ platform }: PropertiesViewProps) {
   const { theme, accentColor } = useTheme();
+  const { query: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
   
   const [viewMode, setViewMode] = useState<'properties' | 'categories'>('properties');
@@ -34,6 +37,27 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
   const filteredProperties = selectedCategory
     ? properties.filter(p => p.categoryId === selectedCategory.id)
     : properties;
+
+  const visibleCategories = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return propertyCategories;
+    return propertyCategories.filter((c) => matchesHeaderSearch(headerSearch, [c.name, c.description]));
+  }, [headerSearch]);
+
+  const searchFilteredProperties = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return filteredProperties;
+    return filteredProperties.filter((p) =>
+      matchesHeaderSearch(headerSearch, [
+        p.title,
+        p.description,
+        p.location,
+        p.district,
+        p.ownerName,
+        p.phone,
+        String(p.price),
+        ...(p.features ?? []),
+      ]),
+    );
+  }, [filteredProperties, headerSearch]);
 
   const isAndroid = platform === 'android';
 
@@ -88,7 +112,7 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
         {viewMode === 'categories' ? (
           // Categories Grid
           <div className="grid grid-cols-2 gap-4">
-            {propertyCategories.map((category) => (
+            {visibleCategories.map((category) => (
               <PropertyCategoryCard
                 key={category.id}
                 category={category}
@@ -102,7 +126,7 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
         ) : (
           // Properties Grid
           <div className="grid grid-cols-2 gap-4">
-            {filteredProperties.map((property) => (
+            {searchFilteredProperties.map((property) => (
               <PropertyCard
                 key={property.id}
                 property={property}
@@ -113,7 +137,7 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
         )}
 
         {/* Empty State */}
-        {viewMode === 'properties' && filteredProperties.length === 0 && (
+        {viewMode === 'properties' && searchFilteredProperties.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16">
             <div 
               className="size-20 rounded-2xl flex items-center justify-center mb-4"

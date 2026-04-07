@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
@@ -13,6 +13,8 @@ import { regions as allRegions } from '../data/regions';
 import { BannerCarousel } from './BannerCarousel';
 import { matchesSelectedLocation } from '../utils/locationMatching';
 import { ProductGridSkeleton } from './skeletons';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 interface RentalsViewProps {
   platform: Platform;
@@ -21,6 +23,7 @@ interface RentalsViewProps {
 export function RentalsView({ platform }: RentalsViewProps) {
   const { theme, accentColor } = useTheme();
   const { selectedRegion: selectedRegionId, selectedDistrict: selectedDistrictId } = useLocation();
+  const { query: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
   
   const [activeView, setActiveView] = useState<'products' | 'catalog'>('products');
@@ -177,6 +180,51 @@ export function RentalsView({ platform }: RentalsViewProps) {
     isInSelectedLocation(product)
   );
 
+  const searchFilteredCategories = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return filteredCategories;
+    return filteredCategories.filter((c) =>
+      matchesHeaderSearch(headerSearch, [c.name, selectedCatalog?.name]),
+    );
+  }, [filteredCategories, headerSearch, selectedCatalog]);
+
+  const searchFinalCatalogProducts = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return finalCatalogProducts;
+    return finalCatalogProducts.filter((product: Record<string, unknown>) =>
+      matchesHeaderSearch(headerSearch, [
+        product.name,
+        product.description,
+        product.location,
+        product.region,
+        product.district,
+        ...(Array.isArray(product.features) ? product.features : []).map(String),
+      ]),
+    );
+  }, [finalCatalogProducts, headerSearch]);
+
+  const searchFilteredBackendProducts = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return filteredBackendProducts;
+    return filteredBackendProducts.filter((product: Record<string, unknown>) =>
+      matchesHeaderSearch(headerSearch, [
+        product.name,
+        product.description,
+        product.location,
+        product.region,
+        product.district,
+        ...(Array.isArray(product.features) ? product.features : []).map(String),
+      ]),
+    );
+  }, [filteredBackendProducts, headerSearch]);
+
+  const visibleRentalCatalogs = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return rentalCatalogs;
+    return rentalCatalogs.filter((c) =>
+      matchesHeaderSearch(headerSearch, [
+        c.name,
+        ...rentalCategories.filter((cat) => cat.catalogId === c.id).map((cat) => cat.name),
+      ]),
+    );
+  }, [headerSearch]);
+
   return (
     <div className="min-h-screen pb-[max(5.5rem,calc(4.5rem+env(safe-area-inset-bottom)))]">
       {/* Banner - Only show on main view */}
@@ -260,7 +308,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
             </h2>
             
             <div className="text-sm font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-              {filteredBackendProducts.length} ta mahsulot
+              {searchFilteredBackendProducts.length} ta mahsulot
             </div>
           </div>
           
@@ -272,10 +320,10 @@ export function RentalsView({ platform }: RentalsViewProps) {
               gridClassName="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 md:gap-4"
               imageClassName="aspect-[4/3]"
             />
-          ) : filteredBackendProducts.length > 0 ? (
+          ) : searchFilteredBackendProducts.length > 0 ? (
             /* Backend products */
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 md:gap-4">
-              {filteredBackendProducts.map((product) => (
+              {searchFilteredBackendProducts.map((product) => (
                 <div
                   key={product.id}
                   onClick={() => {
@@ -466,7 +514,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
             Kataloglar
           </h2>
           <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-4">
-            {rentalCatalogs.map((catalog) => (
+            {visibleRentalCatalogs.map((catalog) => (
               <button
                 key={catalog.id}
                 onClick={() => handleCatalogSelect(catalog.id)}
@@ -573,7 +621,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
             Kategoriyalar
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {filteredCategories.map((category) => (
+            {searchFilteredCategories.map((category) => (
               <RentalCategoryCard
                 key={category.id}
                 category={category}
@@ -634,7 +682,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
             className="text-lg font-semibold mb-3 sm:mb-4"
             style={{ color: isDark ? '#ffffff' : '#111827' }}
           >
-            Mahsulotlar ({finalCatalogProducts.length})
+            Mahsulotlar ({searchFinalCatalogProducts.length})
           </h2>
           
           {loading ? (
@@ -644,9 +692,9 @@ export function RentalsView({ platform }: RentalsViewProps) {
               gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4"
               imageClassName="aspect-square"
             />
-          ) : finalCatalogProducts.length > 0 ? (
+          ) : searchFinalCatalogProducts.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4">
-              {finalCatalogProducts.map((product) => (
+              {searchFinalCatalogProducts.map((product) => (
                 <div
                   key={product.id}
                   onClick={() => {

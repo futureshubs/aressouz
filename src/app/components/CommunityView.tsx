@@ -159,6 +159,9 @@ export function CommunityView({ onBack }: CommunityViewProps) {
   const [showScrollDown, setShowScrollDown] = useState(false);
   const [replyTarget, setReplyTarget] = useState<CommunityMessage | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [isMdUp, setIsMdUp] = useState(false);
+  const [mobileChatOpen, setMobileChatOpen] = useState(true);
+  const wasJoinedRef = useRef(false);
 
   // Client-side safety net:
   // even if backend moderation misses some variants, we never render community
@@ -420,13 +423,33 @@ export function CommunityView({ onBack }: CommunityViewProps) {
   }, [loadRoom]);
 
   useEffect(() => {
+    const mq = window.matchMedia('(min-width: 768px)');
+    const fn = () => setIsMdUp(mq.matches);
+    fn();
+    mq.addEventListener('change', fn);
+    return () => mq.removeEventListener('change', fn);
+  }, []);
+
+  useEffect(() => {
+    if (!joined) {
+      setMobileChatOpen(false);
+      wasJoinedRef.current = false;
+      return;
+    }
+    if (!wasJoinedRef.current) {
+      setMobileChatOpen(true);
+    }
+    wasJoinedRef.current = true;
+  }, [joined]);
+
+  useEffect(() => {
     if (!roomsApiAvailable) {
       return;
     }
 
     const intervalId = window.setInterval(() => {
       loadRoomsList(true);
-    }, 10000);
+    }, 2000);
 
     return () => window.clearInterval(intervalId);
   }, [loadRoomsList, roomsApiAvailable]);
@@ -440,7 +463,7 @@ export function CommunityView({ onBack }: CommunityViewProps) {
     loadMessages({ targetRoom: room });
     const intervalId = window.setInterval(() => {
       loadMessages({ targetRoom: room, silent: true });
-    }, 4000);
+    }, 2000);
 
     return () => window.clearInterval(intervalId);
   }, [joined, loadMessages, room]);
@@ -477,6 +500,7 @@ export function CommunityView({ onBack }: CommunityViewProps) {
 
       setRoom(data.room || room);
       setJoined(true);
+      setMobileChatOpen(true);
       const joinedRoom = data.room || room;
       if (joinedRoom?.id) {
         saveCommunityMembership({
@@ -889,11 +913,30 @@ export function CommunityView({ onBack }: CommunityViewProps) {
             </button>
           ) : (
             <div
-              className="rounded-xl border px-2.5 py-2"
+              className={`rounded-xl border px-2.5 py-2${
+                joined && room && !isMdUp && !mobileChatOpen
+                  ? ' cursor-pointer transition-transform active:scale-[0.99]'
+                  : ''
+              }`}
               style={{
                 borderColor: `${accentColor.color}44`,
                 background: isDark ? `${accentColor.color}14` : `${accentColor.color}0f`,
               }}
+              role={joined && room && !isMdUp && !mobileChatOpen ? 'button' : undefined}
+              tabIndex={joined && room && !isMdUp && !mobileChatOpen ? 0 : undefined}
+              onClick={
+                joined && room && !isMdUp && !mobileChatOpen ? () => setMobileChatOpen(true) : undefined
+              }
+              onKeyDown={
+                joined && room && !isMdUp && !mobileChatOpen
+                  ? e => {
+                      if (e.key === 'Enter' || e.key === ' ') {
+                        e.preventDefault();
+                        setMobileChatOpen(true);
+                      }
+                    }
+                  : undefined
+              }
             >
               <div className="flex items-start gap-2">
                 <div
@@ -931,7 +974,10 @@ export function CommunityView({ onBack }: CommunityViewProps) {
               </div>
               <button
                 type="button"
-                onClick={() => setLocationModalOpen(true)}
+                onClick={e => {
+                  e.stopPropagation();
+                  setLocationModalOpen(true);
+                }}
                 className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-lg py-1.5 text-[11px] font-semibold transition-opacity active:opacity-80"
                 style={{
                   background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.06)',
@@ -975,6 +1021,46 @@ export function CommunityView({ onBack }: CommunityViewProps) {
     </div>
   );
 
+  const renderMobileCommunityListGate = () => (
+    <div className="flex min-h-0 flex-1 flex-col justify-center gap-4 px-4 py-6">
+      <div className="mx-auto w-full max-w-md text-center">
+        <div
+          className="mx-auto mb-3 flex h-14 w-14 items-center justify-center rounded-2xl"
+          style={{ backgroundImage: accentColor.gradient }}
+        >
+          <MessageCircle className="h-7 w-7 text-white" />
+        </div>
+        <h2 className="text-lg font-bold" style={{ color: isDark ? '#fff' : '#111827' }}>
+          {room?.name}
+        </h2>
+        <p className="mt-1 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : '#4b5563' }}>
+          {room?.description}
+        </p>
+      </div>
+      <button
+        type="button"
+        onClick={() => setMobileChatOpen(true)}
+        className="mx-auto inline-flex items-center justify-center gap-2 rounded-2xl px-8 py-3.5 text-sm font-semibold text-white transition-transform active:scale-[0.98]"
+        style={{ backgroundImage: accentColor.gradient, boxShadow: `0 14px 30px ${accentColor.color}35` }}
+      >
+        <MessageCircle className="h-5 w-5" />
+        Xabarlarga o‘tish
+      </button>
+    </div>
+  );
+
+  const handleBack = useCallback(() => {
+    if (isMdUp) {
+      onBack();
+      return;
+    }
+    if (joined && room && mobileChatOpen) {
+      setMobileChatOpen(false);
+      return;
+    }
+    onBack();
+  }, [isMdUp, joined, room, mobileChatOpen, onBack]);
+
   const renderTopBar = () => (
     <div
       className="flex h-[72px] items-center justify-between gap-3 border-b px-4"
@@ -982,7 +1068,8 @@ export function CommunityView({ onBack }: CommunityViewProps) {
     >
       <div className="flex min-w-0 items-center gap-3">
         <button
-          onClick={onBack}
+          type="button"
+          onClick={handleBack}
           className="inline-flex h-11 w-11 items-center justify-center rounded-2xl transition-transform active:scale-[0.98]"
           style={{ background: isDark ? 'rgba(255,255,255,0.06)' : '#ffffff', color: isDark ? '#fff' : '#111827' }}
         >
@@ -994,7 +1081,9 @@ export function CommunityView({ onBack }: CommunityViewProps) {
           </h1>
           <p className="truncate text-[11px] md:text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.58)' : '#6b7280' }}>
             {locationMeta.isReady
-              ? `${locationMeta.regionName} · mahalliy chat`
+              ? !isMdUp && joined && room && mobileChatOpen
+                ? 'Xabarlar'
+                : `${locationMeta.regionName} · mahalliy chat`
               : 'Hudud tanlang — faqat shu yerga oid chat'}
           </p>
         </div>
@@ -1095,13 +1184,14 @@ export function CommunityView({ onBack }: CommunityViewProps) {
       </div>
     );
   } else {
-    mainContent = (
-      <div className="flex min-h-0 flex-1 flex-col">
+    const joinedChatPanel = (
+      <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
         <div
-          className="border-b px-3 py-2 md:px-4"
+          className="shrink-0 border-b px-3 py-2 md:px-4"
           style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(15,23,42,0.08)' }}
         >
-          <div className="flex flex-wrap items-center gap-1.5 text-[11px] md:text-xs">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-[11px] md:text-xs">
+            <span style={{ color: isDark ? 'rgba(255,255,255,0.45)' : '#6b7280' }}>A&apos;zolar</span>
             <span
               className="inline-flex items-center gap-1 rounded-full px-2 py-0.5"
               style={{
@@ -1109,22 +1199,24 @@ export function CommunityView({ onBack }: CommunityViewProps) {
                 color: isDark ? 'rgba(255,255,255,0.75)' : '#4b5563',
               }}
             >
-              <Users className="h-3 w-3" />
+              <Users className="h-3 w-3" aria-hidden />
               {room?.memberCount ?? 0}
             </span>
             {lastSyncedAt ? (
               <span style={{ color: isDark ? 'rgba(255,255,255,0.4)' : '#9ca3af' }}>
+                <span className="opacity-80">Yangilandi</span>{' '}
                 {new Date(lastSyncedAt).toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}
               </span>
             ) : null}
           </div>
         </div>
 
-        <div className="relative flex min-h-0 flex-1 flex-col gap-2 p-2 sm:gap-2.5 sm:p-3 md:p-4">
+        <div className="relative flex min-h-0 flex-1 flex-col gap-2 overflow-hidden p-2 sm:gap-2.5 sm:p-3 md:p-4">
           <div
             ref={messagesScrollRef}
-            className="relative min-h-0 flex-1 overflow-y-auto rounded-2xl px-1 py-2 sm:px-2"
+            className="relative min-h-0 flex-1 overflow-y-auto overscroll-y-contain rounded-2xl px-1 py-2 sm:px-2"
             style={{
+              WebkitOverflowScrolling: 'touch',
               backgroundColor: isDark ? '#0e1620' : '#d1d5db',
               backgroundImage: isDark
                 ? 'radial-gradient(circle at 1px 1px, rgba(255,255,255,0.055) 1px, transparent 0)'
@@ -1274,7 +1366,7 @@ export function CommunityView({ onBack }: CommunityViewProps) {
                               />
                               {message.content ? (
                                 <p
-                                  className="mt-1 whitespace-pre-wrap text-[13px] leading-[1.38]"
+                                  className="mt-1 break-words whitespace-pre-wrap text-[13px] leading-[1.38]"
                                   style={{ color: isOwnMessage ? textColorOwn : textColorIn }}
                                 >
                                   {message.content}
@@ -1304,7 +1396,7 @@ export function CommunityView({ onBack }: CommunityViewProps) {
                           ) : null}
                           {msgType === 'text' ? (
                             <p
-                              className="whitespace-pre-wrap text-[13px] leading-[1.38]"
+                              className="break-words whitespace-pre-wrap text-[13px] leading-[1.38]"
                               style={{ color: isOwnMessage ? textColorOwn : textColorIn }}
                             >
                               {message.content}
@@ -1395,7 +1487,7 @@ export function CommunityView({ onBack }: CommunityViewProps) {
             onChange={handlePickImage}
           />
 
-          <form onSubmit={handleSend} className="flex flex-col gap-1">
+          <form onSubmit={handleSend} className="flex shrink-0 flex-col gap-1">
             {replyTarget ? (
               <div
                 className="flex items-center gap-2 rounded-xl border px-2.5 py-2 text-left"
@@ -1473,7 +1565,7 @@ export function CommunityView({ onBack }: CommunityViewProps) {
                   placeholder="Xabar…"
                   rows={1}
                   maxLength={1000}
-                  className="max-h-28 min-h-[40px] w-full resize-y rounded-2xl border px-3 py-2 text-[13px] leading-snug outline-none transition-colors"
+                  className="max-h-28 min-h-[40px] w-full resize-y overflow-y-auto rounded-2xl border px-3 py-2 text-[13px] leading-snug outline-none transition-colors"
                   style={{
                     background: isDark ? 'rgba(255,255,255,0.07)' : '#ffffff',
                     borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(15,23,42,0.1)',
@@ -1507,17 +1599,21 @@ export function CommunityView({ onBack }: CommunityViewProps) {
         </div>
       </div>
     );
+    mainContent = isMdUp || mobileChatOpen ? joinedChatPanel : renderMobileCommunityListGate();
   }
+
+  const showMobileChatFullscreen = !isMdUp && joined && !!room && mobileChatOpen;
+  const showCommunitySidebar = isMdUp || !showMobileChatFullscreen;
 
   return (
     <div
-      className="flex min-h-dvh flex-col overflow-hidden app-safe-pb"
+      className="flex h-full min-h-0 w-full flex-col overflow-hidden app-safe-pb"
       style={{ background: isDark ? '#000' : '#f8fafc' }}
     >
       <div className="app-safe-pt shrink-0">{renderTopBar()}</div>
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        {renderSidebar()}
-        {mainContent}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col md:flex-row">
+        {showCommunitySidebar ? renderSidebar() : null}
+        <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">{mainContent}</div>
       </div>
     </div>
   );

@@ -54,6 +54,8 @@ import {
 } from './components/skeletons';
 import { devLog } from './utils/devLog';
 import { captureReferralFromUrlToSession } from './utils/bonusReferralDeepLink';
+import { HeaderSearchProvider } from './context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from './utils/headerSearchMatch';
 
 const MAIN_ACTIVE_TAB_KEY = 'aresso:mainActiveTab';
 
@@ -284,11 +286,17 @@ export default function AppContent() {
   const { selectedRegion, selectedDistrict } = useLocation();
   const { cartItems: rentalLineItems, clearCart: clearRentalCart } = useRentalCart();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
+  const [headerSearchQuery, setHeaderSearchQuery] = useState('');
   const [profileOrderCategoryPreset, setProfileOrderCategoryPreset] = useState<
     undefined | 'all' | 'market' | 'shop' | 'rent' | 'food' | 'auction'
   >(undefined);
 
   const activeTab = parsed.tab;
+
+  useEffect(() => {
+    setHeaderSearchQuery('');
+  }, [activeTab]);
+
   const isCartOpen = parsed.cart;
   const isProfileOpen = parsed.profile;
   const flowCheckoutOpen = parsed.checkout;
@@ -891,6 +899,29 @@ export default function AppContent() {
   const selectedCatalog = catalogs.find(c => c.id === selectedCatalogId);
   const selectedCategory = selectedCatalog?.categories.find(c => c.id === selectedCategoryId);
 
+  const searchFilteredProducts = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearchQuery)) return filteredProducts;
+    return filteredProducts.filter((p) =>
+      matchesHeaderSearch(headerSearchQuery, [
+        p.name,
+        p.description,
+        p.recommendation,
+        p.branchName,
+        p.sku,
+        p.barcode,
+        selectedCatalog?.name,
+        selectedCategory?.name,
+        ...(p.variants?.flatMap((v) => [v.name, v.sku, v.barcode]) ?? []),
+        ...(p.specs?.flatMap((s) => [s.name, s.value]) ?? []),
+      ]),
+    );
+  }, [filteredProducts, headerSearchQuery, selectedCatalog, selectedCategory]);
+
+  const headerSearchApi = useMemo(
+    () => ({ query: headerSearchQuery, setQuery: setHeaderSearchQuery }),
+    [headerSearchQuery],
+  );
+
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
   const headerCartBadge = cartCount + rentalLineItems.length;
   useMarketplaceNativeCartBadge(headerCartBadge);
@@ -985,16 +1016,19 @@ export default function AppContent() {
   const appScrollShellClass = mainAppMobileScroll
     ? 'max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto max-sm:overflow-x-hidden max-sm:overscroll-y-contain max-sm:touch-pan-y max-sm:[-webkit-overflow-scrolling:touch] max-sm:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))] sm:contents'
     : isCommunityFullscreen
-      ? 'h-full min-h-0 flex flex-col overflow-hidden'
+      ? 'min-h-0 flex flex-1 flex-col overflow-hidden'
       : 'contents';
-  const appInnerColumnClass = isCommunityFullscreen ? 'h-full min-h-0' : 'mx-auto max-w-[1600px]';
+  const appInnerColumnClass = isCommunityFullscreen
+    ? 'flex min-h-0 min-w-0 w-full flex-1 flex-col'
+    : 'mx-auto max-w-[1600px]';
 
   return (
     <CheckoutFlowProvider value={{ openCheckoutFlow }}>
+    <HeaderSearchProvider value={headerSearchApi}>
     <div
       className={`${
         isCommunityFullscreen
-          ? 'h-dvh min-h-dvh overflow-hidden'
+          ? 'flex h-dvh min-h-dvh flex-col overflow-hidden'
           : isProfileOpen
             ? 'h-dvh min-h-dvh overflow-hidden'
             : [
@@ -1074,7 +1108,7 @@ export default function AppContent() {
                             color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)',
                           }}
                         >
-                          {filteredProducts.length} ta
+                          {searchFilteredProducts.length} ta
                         </span>
                       </>
                     )}
@@ -1159,9 +1193,29 @@ export default function AppContent() {
                   )}
 
                   {/* Products Grid - Only show if there are products */}
-                  {!marketProductsLoading && filteredProducts.length > 0 && (
+                  {!marketProductsLoading &&
+                    filteredProducts.length > 0 &&
+                    searchFilteredProducts.length === 0 &&
+                    normalizeHeaderSearch(headerSearchQuery) && (
+                    <div
+                      className="text-center py-14 rounded-2xl"
+                      style={{
+                        background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
+                      }}
+                    >
+                      <div className="text-4xl mb-3">🔎</div>
+                      <h3 className="text-lg font-semibold mb-1" style={{ color: isDark ? '#fff' : '#111827' }}>
+                        Natija topilmadi
+                      </h3>
+                      <p className="text-sm px-4" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                        «{headerSearchQuery.trim()}» bo‘yicha mos mahsulot yo‘q. Boshqa so‘z yoki katalogdan qidirib ko‘ring.
+                      </p>
+                    </div>
+                  )}
+
+                  {!marketProductsLoading && searchFilteredProducts.length > 0 && (
                     <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 sm:gap-5 md:gap-6 lg:gap-7 xl:gap-8">
-                      {filteredProducts.map((product) => (
+                      {searchFilteredProducts.map((product) => (
                         <ProductCard
                           key={product.productUuid || product.id}
                           product={product}
@@ -1423,7 +1477,9 @@ export default function AppContent() {
         )}
 
         {activeTab === 'community' && !isProfileOpen && (
-          <CommunityView onBack={() => goBack()} />
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
+            <CommunityView onBack={() => goBack()} />
+          </div>
         )}
 
         {/* Auction Tab - Full Screen */}
@@ -1614,6 +1670,7 @@ export default function AppContent() {
         />
       )}
     </div>
+    </HeaderSearchProvider>
     </CheckoutFlowProvider>
   );
 }

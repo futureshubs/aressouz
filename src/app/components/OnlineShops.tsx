@@ -13,6 +13,8 @@ import { matchesSelectedLocation } from '../utils/locationMatching';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { getEffectiveProductStockQuantity } from '../utils/cartStock';
 import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 /** API: `GET /shops` — `rating`, `reviewCount` (barcha mahsulot sharhlari yig‘indisi) */
 function shopRatingFromApi(shop: { rating?: unknown; reviewCount?: unknown } | null | undefined): {
@@ -57,6 +59,7 @@ export default function OnlineShops({
 }) {
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict, setLocation } = useLocation();
+  const { query: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
 
   const [shops, setShops] = useState<any[]>([]);
@@ -248,6 +251,47 @@ export default function OnlineShops({
     matchesSelectedLocation(product, locationSelection)
   );
 
+  const shopNameById = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const s of shops) {
+      if (s?.id != null) m.set(String(s.id), String(s.name ?? s.shopName ?? ''));
+    }
+    return m;
+  }, [shops]);
+
+  const searchFilteredShops = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return filteredShops;
+    return filteredShops.filter((s: Record<string, unknown>) =>
+      matchesHeaderSearch(headerSearch, [
+        s.name,
+        s.shopName,
+        s.description,
+        s.address,
+        s.region,
+        s.district,
+        s.phone,
+      ]),
+    );
+  }, [filteredShops, headerSearch]);
+
+  const searchFilteredProducts = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return filteredProducts;
+    return filteredProducts.filter((p: Record<string, unknown>) => {
+      const sid = p.shopId != null ? String(p.shopId) : '';
+      const shopName = sid ? shopNameById.get(sid) : '';
+      return matchesHeaderSearch(headerSearch, [
+        p.name,
+        p.description,
+        p.sku,
+        p.barcode,
+        shopName,
+        ...(Array.isArray(p.variants)
+          ? (p.variants as { name?: string }[]).flatMap((v) => [v.name])
+          : []),
+      ]);
+    });
+  }, [filteredProducts, headerSearch, shopNameById]);
+
   useEffect(() => {
     if (selectedShop && !filteredShopIds.has(selectedShop.id)) {
       setSelectedShop(null);
@@ -256,7 +300,7 @@ export default function OnlineShops({
 
   // Get product count for a shop
   const getShopProductCount = (shopId: string) => {
-    return filteredProducts.filter(product => product.shopId === shopId).length;
+    return searchFilteredProducts.filter((product) => product.shopId === shopId).length;
   };
 
   // Get region and district names for display
@@ -460,13 +504,13 @@ export default function OnlineShops({
                 )}
               </div>
               <span className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-                {filteredShops.length} ta
+                {searchFilteredShops.length} ta
               </span>
             </div>
 
             {isLoading ? (
               <ShopListSkeleton isDark={isDark} rows={6} />
-            ) : filteredShops.length === 0 ? (
+            ) : searchFilteredShops.length === 0 ? (
               <div 
                 className="p-12 rounded-3xl text-center"
                 style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
@@ -482,7 +526,7 @@ export default function OnlineShops({
               </div>
             ) : (
               <div className="space-y-3">
-                {filteredShops.map((shop: any) => (
+                {searchFilteredShops.map((shop: any) => (
                   <div
                     key={shop.id}
                     onClick={() => setSelectedShop(shop)}
@@ -604,7 +648,7 @@ export default function OnlineShops({
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Barcha mahsulotlar</h2>
               <span className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-                {filteredProducts.length} ta
+                {searchFilteredProducts.length} ta
               </span>
             </div>
 
@@ -614,7 +658,7 @@ export default function OnlineShops({
                 count={10}
                 gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6"
               />
-            ) : filteredProducts.length === 0 ? (
+            ) : searchFilteredProducts.length === 0 ? (
               <div 
                 className="p-12 rounded-3xl text-center"
                 style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
@@ -627,7 +671,7 @@ export default function OnlineShops({
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
-                {filteredProducts.map((product: any) => (
+                {searchFilteredProducts.map((product: any) => (
                   <div
                     key={product.id}
                     className="rounded-xl md:rounded-2xl overflow-hidden transition-all hover:scale-[1.02] active:scale-95 group cursor-pointer relative"

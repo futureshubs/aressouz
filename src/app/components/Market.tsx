@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
@@ -8,6 +8,8 @@ import { toast } from 'sonner';
 import { regions } from '../data/regions';
 import { ProductCard } from './ProductCard';
 import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 interface Product {
   id: number;
@@ -58,6 +60,7 @@ interface Branch {
 export default function Market() {
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict } = useLocation();
+  const { query: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
 
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -281,6 +284,46 @@ export default function Market() {
     return true;
   });
 
+  const searchFilteredProducts = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return products;
+    return products.filter((p) =>
+      matchesHeaderSearch(headerSearch, [
+        p.name,
+        p.description,
+        p.recommendation,
+        p.branchName,
+        p.sku,
+        p.barcode,
+        ...(p.variants?.map((v) => v.name) ?? []),
+      ]),
+    );
+  }, [products, headerSearch]);
+
+  const searchFilteredBranches = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return filteredBranches;
+    return filteredBranches.filter((b) =>
+      matchesHeaderSearch(headerSearch, [
+        b.branchName,
+        b.managerName,
+        b.phone,
+        getLocationName(b.regionId, b.districtId),
+      ]),
+    );
+  }, [filteredBranches, headerSearch]);
+
+  const searchFilteredBranchProducts = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return branchProducts;
+    return branchProducts.filter((p) =>
+      matchesHeaderSearch(headerSearch, [
+        p.name,
+        p.description,
+        p.sku,
+        p.barcode,
+        ...(p.variants?.map((v) => v.name) ?? []),
+      ]),
+    );
+  }, [branchProducts, headerSearch]);
+
   return (
     <div className="min-h-screen" style={{ background: isDark ? '#0a0a0a' : '#f5f5f5' }}>
       {/* Header Banner */}
@@ -346,7 +389,7 @@ export default function Market() {
                 )}
               </div>
               <span className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-                {products.length} ta
+                {searchFilteredProducts.length} ta
               </span>
             </div>
 
@@ -370,9 +413,20 @@ export default function Market() {
                   }
                 </p>
               </div>
+            ) : searchFilteredProducts.length === 0 ? (
+              <div
+                className="p-12 rounded-3xl text-center"
+                style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
+              >
+                <Package className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
+                <h3 className="text-lg font-bold mb-2 text-foreground">Qidiruv bo‘yicha natija yo‘q</h3>
+                <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                  Boshqa so‘z bilan qidirib ko‘ring yoki qidiruvni tozalang.
+                </p>
+              </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {products.map((product) => (
+                {searchFilteredProducts.map((product) => (
                   <ProductCard
                     key={product.id}
                     product={product}
@@ -396,7 +450,7 @@ export default function Market() {
                 )}
               </div>
               <span className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-                {filteredBranches.length} ta
+                {searchFilteredBranches.length} ta
               </span>
             </div>
 
@@ -416,9 +470,17 @@ export default function Market() {
                   }
                 </p>
               </div>
+            ) : searchFilteredBranches.length === 0 ? (
+              <div
+                className="p-12 rounded-3xl text-center"
+                style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
+              >
+                <Store className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
+                <h3 className="text-lg font-bold mb-2 text-foreground">Qidiruv bo‘yicha filial topilmadi</h3>
+              </div>
             ) : (
               <div className="space-y-4">
-                {filteredBranches.map((branch) => (
+                {searchFilteredBranches.map((branch) => (
                   <div
                     key={branch.id}
                     onClick={() => {
@@ -501,9 +563,19 @@ export default function Market() {
                     Hozircha mahsulotlar yo'q
                   </p>
                 </div>
+              ) : searchFilteredBranchProducts.length === 0 ? (
+                <div
+                  className="p-12 rounded-2xl text-center"
+                  style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)' }}
+                >
+                  <Package className="w-16 h-16 mx-auto mb-4" style={{ color: accentColor.color, opacity: 0.5 }} />
+                  <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+                    Qidiruv bo‘yicha bu filialda mahsulot topilmadi.
+                  </p>
+                </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {branchProducts.map((product) => (
+                  {searchFilteredBranchProducts.map((product) => (
                     <ProductCard
                       key={product.id}
                       product={product}

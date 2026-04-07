@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
@@ -18,6 +18,8 @@ import { regions as allRegions } from '../data/regions';
 import { matchesSelectedLocation } from '../utils/locationMatching';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton } from './skeletons';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -159,6 +161,7 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
   const { theme, accentColor } = useTheme();
   const { user, session } = useAuth();
   const { selectedRegion, selectedDistrict } = useLocation();
+  const { query: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
   
   const [activeView, setActiveView] = useState<'services' | 'categories' | 'portfolios'>('services');
@@ -211,6 +214,28 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
     : selectedCatalogId
     ? services.filter(service => service.catalogId === selectedCatalogId)
     : services;
+
+  const searchFilteredCategories = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return filteredCategories;
+    return filteredCategories.filter((c) =>
+      matchesHeaderSearch(headerSearch, [c.name, c.description, selectedCatalog?.name]),
+    );
+  }, [filteredCategories, headerSearch, selectedCatalog]);
+
+  const searchFilteredServices = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return filteredServices;
+    return filteredServices.filter((s) =>
+      matchesHeaderSearch(headerSearch, [
+        s.name,
+        s.description,
+        s.profession,
+        s.location,
+        s.phone,
+        ...(s.skills ?? []),
+        ...(s.languages ?? []),
+      ]),
+    );
+  }, [filteredServices, headerSearch]);
 
   const handleCatalogSelect = (catalogId: string) => {
     setSelectedCatalogId(catalogId);
@@ -626,7 +651,7 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
             Kategoriyalar - {selectedCatalog?.name}
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-            {filteredCategories.map((category) => (
+            {searchFilteredCategories.map((category) => (
               <ServiceCategoryCard
                 key={category.id}
                 category={category}
@@ -662,10 +687,10 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
             className="text-lg font-semibold mb-3 sm:mb-4"
             style={{ color: isDark ? '#ffffff' : '#111827' }}
           >
-            {selectedCategory?.name} - {filteredServices.length} ta usta
+            {selectedCategory?.name} - {searchFilteredServices.length} ta usta
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4">
-            {filteredServices.map((service) => (
+            {searchFilteredServices.map((service) => (
               <ServiceCard
                 key={service.id}
                 service={service}

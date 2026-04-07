@@ -15,6 +15,8 @@ import { BannerCarousel } from './BannerCarousel';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton } from './skeletons';
 import { regions as allRegions } from '../data/regions';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -22,6 +24,7 @@ export function HousesView() {
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict } = useLocation();
   const { isAuthenticated, user, session, setIsAuthOpen } = useAuth();
+  const { query: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
   
   const [activeView, setActiveView] = useState<'houses' | 'categories'>('houses');
@@ -190,6 +193,44 @@ export function HousesView() {
     return houses.filter(h => h.categoryId === selectedCategoryId);
   }, [houses, selectedCategoryId]);
 
+  const searchFilteredHousesAll = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return houses;
+    return houses.filter((h) =>
+      matchesHeaderSearch(headerSearch, [
+        h.title,
+        h.description,
+        h.address,
+        h.region,
+        h.district,
+        String(h.price),
+        h.ownerName,
+        h.ownerPhone,
+        ...(h.features ?? []),
+      ]),
+    );
+  }, [houses, headerSearch]);
+
+  const searchFilteredHouses = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return filteredHouses;
+    return filteredHouses.filter((h) =>
+      matchesHeaderSearch(headerSearch, [
+        h.title,
+        h.description,
+        h.address,
+        h.region,
+        h.district,
+        String(h.price),
+        h.ownerName,
+        ...(h.features ?? []),
+      ]),
+    );
+  }, [filteredHouses, headerSearch]);
+
+  const visibleHouseCategories = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return categoriesWithCounts;
+    return categoriesWithCounts.filter((c) => matchesHeaderSearch(headerSearch, [c.name]));
+  }, [categoriesWithCounts, headerSearch]);
+
   const selectedCategory = houseCategories.find(c => c.id === selectedCategoryId);
 
   return (
@@ -284,20 +325,7 @@ export function HousesView() {
               count={12}
               gridClassName="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3"
             />
-          ) : houses.length > 0 ? (
-            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3 [grid-auto-rows:min-content]">
-              {houses.map((house) => (
-                <ListingCard
-                  key={house.id}
-                  listing={houseToListingCardModel(house)}
-                  compact
-                  hideFavorite
-                  showHousePromoBadges
-                  onClick={() => setSelectedHouse(house)}
-                />
-              ))}
-            </div>
-          ) : (
+          ) : houses.length === 0 ? (
             <div className="text-center py-12">
               <Home
                 className="size-16 mx-auto mb-4"
@@ -307,6 +335,25 @@ export function HousesView() {
               <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
                 Hozircha uylar yo'q
               </p>
+            </div>
+          ) : searchFilteredHousesAll.length === 0 ? (
+            <div className="text-center py-12">
+              <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
+                Qidiruv bo‘yicha uy topilmadi.
+              </p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3 [grid-auto-rows:min-content]">
+              {searchFilteredHousesAll.map((house) => (
+                <ListingCard
+                  key={house.id}
+                  listing={houseToListingCardModel(house)}
+                  compact
+                  hideFavorite
+                  showHousePromoBadges
+                  onClick={() => setSelectedHouse(house)}
+                />
+              ))}
             </div>
           )}
         </div>
@@ -322,7 +369,7 @@ export function HousesView() {
             Kategoriyalar
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-            {categoriesWithCounts.map((category) => (
+            {visibleHouseCategories.map((category) => (
               <HouseCategoryCard
                 key={category.id}
                 category={category}
@@ -358,12 +405,12 @@ export function HousesView() {
             className="text-lg font-semibold mb-3 sm:mb-4"
             style={{ color: isDark ? '#ffffff' : '#111827' }}
           >
-            {selectedCategory?.name} - {filteredHouses.length} ta uy
+            {selectedCategory?.name} - {searchFilteredHouses.length} ta uy
           </h2>
 
-          {filteredHouses.length > 0 ? (
+          {searchFilteredHouses.length > 0 ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3 [grid-auto-rows:min-content]">
-              {filteredHouses.map((house, index) => (
+              {searchFilteredHouses.map((house, index) => (
                 <ListingCard
                   key={house.id != null && String(house.id) !== '' ? String(house.id) : `house-row-${index}`}
                   listing={houseToListingCardModel(house)}

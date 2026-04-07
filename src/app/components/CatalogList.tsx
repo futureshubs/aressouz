@@ -1,6 +1,9 @@
+import { useMemo } from 'react';
 import { ChevronRight } from 'lucide-react';
 import { Catalog } from '../data/categories';
 import { useTheme } from '../context/ThemeContext';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 interface CatalogListProps {
   catalogs: Catalog[];
@@ -9,7 +12,15 @@ interface CatalogListProps {
 
 export function CatalogList({ catalogs, onCatalogSelect }: CatalogListProps) {
   const { theme, accentColor } = useTheme();
+  const { query: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
+
+  const visibleCatalogs = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return catalogs;
+    return catalogs.filter((c) =>
+      matchesHeaderSearch(headerSearch, [c.name, ...c.categories.map((cat) => cat.name)]),
+    );
+  }, [catalogs, headerSearch]);
 
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
@@ -20,9 +31,15 @@ export function CatalogList({ catalogs, onCatalogSelect }: CatalogListProps) {
         >
           Kataloglar
         </h2>
+
+        {visibleCatalogs.length === 0 && normalizeHeaderSearch(headerSearch) ? (
+          <p className="text-center py-12 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}>
+            «{headerSearch.trim()}» bo‘yicha katalog topilmadi.
+          </p>
+        ) : null}
         
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-          {catalogs.map((catalog) => (
+          {visibleCatalogs.map((catalog) => (
             <button
               key={catalog.id}
               onClick={() => onCatalogSelect(catalog.id)}

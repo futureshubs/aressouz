@@ -13,6 +13,8 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { BannerCarousel } from './BannerCarousel';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { CarGridSkeleton } from './skeletons';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -88,6 +90,7 @@ interface CarsViewProps {
 export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsViewProps) {
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict } = useLocation();
+  const { query: headerSearch } = useHeaderSearchOptional();
   const { isAuthenticated, user, session, setIsAuthOpen } = useAuth();
   const [activeTab, setActiveTab] = useState<'cars' | 'categories'>('cars');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -243,13 +246,29 @@ export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsVi
 
   // Filter cars for display
   const filteredCars = useMemo(() => {
-    return cars.filter(car => {
+    return cars.filter((car) => {
       if (selectedCategory && car.category_id !== selectedCategory) return false;
       if (selectedRegion && car.region_id !== selectedRegion) return false;
       if (selectedDistrict && car.district_id !== selectedDistrict) return false;
+      if (normalizeHeaderSearch(headerSearch)) {
+        const ok = matchesHeaderSearch(headerSearch, [
+          car.name,
+          car.brand,
+          car.model,
+          car.description,
+          car.location,
+          car.owner,
+          car.fuel_type,
+          car.transmission,
+          car.color,
+          String(car.year),
+          ...(car.features ?? []),
+        ]);
+        if (!ok) return false;
+      }
       return true;
     });
-  }, [cars, selectedCategory, selectedRegion, selectedDistrict]);
+  }, [cars, selectedCategory, selectedRegion, selectedDistrict, headerSearch]);
 
   // Add "all" category to beginning
   const categoriesWithAll = useMemo(() => [

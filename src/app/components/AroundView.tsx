@@ -1,4 +1,4 @@
-import { useState, useEffect, memo, useRef, useCallback } from 'react';
+import { useState, useEffect, memo, useRef, useCallback, useMemo } from 'react';
 import { MapPin, Map as MapIcon, Grid3x3, Plus } from 'lucide-react';
 import { placeCategories, Place, PlaceCategory } from '../data/places';
 import { PlaceCard } from './PlaceCard';
@@ -13,6 +13,8 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { calculateDistance, formatDistance, getUserLocation } from '../utils/distance';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton } from './skeletons';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 interface AroundViewProps {
   platform: Platform;
@@ -21,6 +23,7 @@ interface AroundViewProps {
 export const AroundView = memo(function AroundView({ platform }: AroundViewProps) {
   const { theme, accentColor } = useTheme();
   const { selectedRegion: headerRegion, selectedDistrict: headerDistrict } = useLocation();
+  const { query: headerSearch } = useHeaderSearchOptional();
   const [activeTab, setActiveTab] = useState<'around' | 'map' | 'catalog'>('around');
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -52,13 +55,30 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
     ? places.filter(place => place.categoryId === selectedCategoryId)
     : places;
 
-  filteredPlacesLenRef.current = filteredPlaces.length;
+  const searchFilteredPlaces = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return filteredPlaces;
+    return filteredPlaces.filter((place) =>
+      matchesHeaderSearch(headerSearch, [
+        place.name,
+        place.category,
+        place.address,
+        place.description,
+        place.phone,
+        place.location,
+        place.region,
+        place.district,
+        ...(place.services ?? []),
+      ]),
+    );
+  }, [filteredPlaces, headerSearch]);
+
+  filteredPlacesLenRef.current = searchFilteredPlaces.length;
 
   // Intersection Observer — visibleCount dependency yo'q: aks holda observer qayta yaratilib,
   // sentinel hali ko'rinsa ketma-ket +10 bo'lib, kartalar "doim yangilanayotgandek" bo'lardi.
   useEffect(() => {
     const node = loadMoreRef.current;
-    if (!node || filteredPlaces.length === 0) return;
+    if (!node || searchFilteredPlaces.length === 0) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -75,12 +95,12 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [filteredPlaces.length]);
+  }, [searchFilteredPlaces.length]);
 
   // Reset visible count when filters change
   useEffect(() => {
     setVisibleCount(10);
-  }, [selectedCategoryId, headerRegion, headerDistrict]);
+  }, [selectedCategoryId, headerRegion, headerDistrict, headerSearch]);
 
   // Fetch places from backend (showSkeleton: tab/filtr o'zgarganda; silent: fonda yangilash)
   const fetchPlaces = useCallback(
@@ -296,7 +316,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                         className="text-[10px] sm:text-xs md:text-sm"
                         style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
                       >
-                        {loading ? '...' : `${filteredPlaces.length} ta`}
+                        {loading ? '...' : `${searchFilteredPlaces.length} ta`}
                       </span>
                     </div>
                   </div>
@@ -312,7 +332,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                       className="text-[10px] sm:text-xs md:text-sm"
                       style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
                     >
-                      {loading ? '...' : `${filteredPlaces.length} ta`}
+                      {loading ? '...' : `${searchFilteredPlaces.length} ta`}
                     </span>
                   </div>
                 )}
@@ -323,7 +343,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                     count={10}
                     gridClassName="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4"
                   />
-                ) : filteredPlaces.length === 0 ? (
+                ) : searchFilteredPlaces.length === 0 ? (
                   <div className="text-center py-12 sm:py-20">
                     <MapPin className="size-12 sm:size-16 mx-auto mb-3 sm:mb-4 opacity-30" />
                     <p className="text-base sm:text-lg font-semibold mb-1 sm:mb-2"
@@ -349,7 +369,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4">
-                    {filteredPlaces.slice(0, visibleCount).map((place) => (
+                    {searchFilteredPlaces.slice(0, visibleCount).map((place) => (
                       <PlaceCard
                         key={place.id}
                         place={place}
@@ -359,7 +379,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                       />
                     ))}
                     {/* Lazy loading sentinel */}
-                    {filteredPlaces.length > visibleCount && (
+                    {searchFilteredPlaces.length > visibleCount && (
                       <div ref={loadMoreRef} className="col-span-full text-center py-4 mt-2">
                         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl"
                           style={{

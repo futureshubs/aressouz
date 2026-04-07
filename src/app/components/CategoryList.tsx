@@ -1,6 +1,9 @@
+import { useMemo } from 'react';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Category } from '../data/categories';
 import { useTheme } from '../context/ThemeContext';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 interface CategoryListProps {
   catalogName: string;
@@ -11,7 +14,13 @@ interface CategoryListProps {
 
 export function CategoryList({ catalogName, categories, onCategorySelect, onBack }: CategoryListProps) {
   const { theme, accentColor } = useTheme();
+  const { query: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
+
+  const visibleCategories = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return categories;
+    return categories.filter((c) => matchesHeaderSearch(headerSearch, [c.name, catalogName]));
+  }, [categories, catalogName, headerSearch]);
 
   return (
     <div className="px-4 sm:px-6 lg:px-8 py-4 sm:py-8">
@@ -54,8 +63,14 @@ export function CategoryList({ catalogName, categories, onCategorySelect, onBack
           </h2>
         </div>
         
+        {visibleCategories.length === 0 && normalizeHeaderSearch(headerSearch) ? (
+          <p className="text-center py-12 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}>
+            «{headerSearch.trim()}» bo‘yicha kategoriya topilmadi.
+          </p>
+        ) : null}
+
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-4">
-          {categories.map((category) => (
+          {visibleCategories.map((category) => (
             <button
               key={category.id}
               onClick={() => onCategorySelect(category.id)}

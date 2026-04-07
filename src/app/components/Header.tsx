@@ -4,6 +4,7 @@ import { LocationModal } from './LocationModal';
 import { LocationPromptModal } from './LocationPromptModal';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { regions } from '../data/regions';
 
 interface HeaderProps {
@@ -25,6 +26,7 @@ export const Header = memo(function Header({
   const { selectedRegion, selectedDistrict, setLocation, showLocationPrompt, dismissLocationPrompt, setLocationModalOpen } =
     useLocation();
   const { theme, accentColor } = useTheme();
+  const { query: headerSearchQuery, setQuery: setHeaderSearchQuery } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
 
   const bgGradient = isDark
@@ -78,8 +80,8 @@ export const Header = memo(function Header({
         }}
       >
         <div className="px-3 sm:px-4 max-w-[1600px] mx-auto pt-2 pb-2 space-y-2">
-          {/* Hudud — kapsula */}
-          <div className="flex justify-center">
+          {/* Hudud — kapsula (chapga yopishgan) */}
+          <div className="flex justify-start">
             <button
               type="button"
               onClick={handleLocationOpen}
@@ -128,6 +130,12 @@ export const Header = memo(function Header({
                 type="search"
                 enterKeyHint="search"
                 placeholder="Qidirish..."
+                autoComplete="off"
+                autoCorrect="off"
+                spellCheck={false}
+                value={headerSearchQuery}
+                onChange={(e) => setHeaderSearchQuery(e.target.value)}
+                aria-label="Qidiruv"
                 className={`relative w-full pl-10 pr-3 py-2.5 bg-transparent focus:outline-none text-sm font-medium rounded-2xl ${
                   isDark ? 'placeholder:text-white/35' : 'placeholder:text-black/35'
                 }`}

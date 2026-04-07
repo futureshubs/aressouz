@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
-import { Search, Star, Clock, MapPin, ChevronRight, Utensils, TrendingUp, Leaf, X, Plus, Minus, Phone, Heart, Share2, PackageCheck, Timer } from 'lucide-react';
+import { Star, Clock, MapPin, ChevronRight, Utensils, TrendingUp, Leaf, X, Plus, Minus, Phone, Heart, Share2, PackageCheck, Timer } from 'lucide-react';
 import { toast } from 'sonner';
 import { notifyCartAdded } from '../utils/appToast';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
@@ -11,6 +11,8 @@ import { matchesSelectedLocation } from '../utils/locationMatching';
 import { getMaxOrderableUnits } from '../utils/cartStock';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 interface Restaurant {
   id: string;
@@ -70,7 +72,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const [allDishes, setAllDishes] = useState<Dish[]>([]);
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
-  const [searchQuery, setSearchQuery] = useState('');
+  const { query: headerSearch } = useHeaderSearchOptional();
   const [loading, setLoading] = useState(true);
 
   const [selectedVariant, setSelectedVariant] = useState<any>(null);
@@ -215,19 +217,41 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     return restaurant?.name || '';
   };
 
-  const filteredDishes = allDishes.filter(d => 
-    d.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    getRestaurantName(d.restaurantId).toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredDishes = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return allDishes;
+    return allDishes.filter((d) =>
+      matchesHeaderSearch(headerSearch, [
+        d.name,
+        d.description,
+        Array.isArray(d.ingredients) ? d.ingredients.join(' ') : '',
+        getRestaurantName(d.restaurantId),
+        d.weight,
+        String(d.kcal || ''),
+      ]),
+    );
+  }, [allDishes, headerSearch, restaurants]);
 
-  const filteredRestaurants = restaurants.filter(r => 
-    r.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
-    r.type.toLowerCase().includes(searchQuery.toLowerCase())
-  );
+  const filteredRestaurants = useMemo(() => {
+    if (!normalizeHeaderSearch(headerSearch)) return restaurants;
+    return restaurants.filter((r) =>
+      matchesHeaderSearch(headerSearch, [r.name, r.type, r.description, r.contact?.address, r.contact?.phone]),
+    );
+  }, [restaurants, headerSearch]);
 
-  const selectedRestaurantDishes = selectedRestaurant 
-    ? allDishes.filter(d => d.restaurantId === selectedRestaurant.id)
-    : [];
+  const selectedRestaurantDishes = useMemo(() => {
+    if (!selectedRestaurant) return [];
+    const base = allDishes.filter((d) => d.restaurantId === selectedRestaurant.id);
+    if (!normalizeHeaderSearch(headerSearch)) return base;
+    return base.filter((d) =>
+      matchesHeaderSearch(headerSearch, [
+        d.name,
+        d.description,
+        Array.isArray(d.ingredients) ? d.ingredients.join(' ') : '',
+        d.weight,
+        String(d.kcal || ''),
+      ]),
+    );
+  }, [selectedRestaurant, allDishes, headerSearch]);
 
   useEffect(() => {
     if (selectedRestaurant && !restaurants.some(restaurant => restaurant.id === selectedRestaurant.id)) {
@@ -301,25 +325,12 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
         </div>
       </div>
 
-      {/* Search */}
-      <div className="px-4 mb-6">
-        <div
-          className="flex items-center gap-3 px-4 py-3 rounded-2xl"
-          style={{
-            background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'}`,
-          }}
-        >
-          <Search className="w-5 h-5" style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)' }} />
-          <input
-            type="text"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder={activeTab === 'dishes' ? "Taom qidirish..." : "Restoran qidirish..."}
-            className="flex-1 bg-transparent outline-none"
-          />
-        </div>
-      </div>
+      <p
+        className="text-xs px-4 -mt-2 mb-4"
+        style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.45)' }}
+      >
+        Qidiruv — sahifa tepasidagi maydon orqali (taom nomi, restoran, tavsif).
+      </p>
 
       {loading ? (
         <div className="px-4 pb-8">
