@@ -111,6 +111,8 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
+  /** Variant rasmini R2 ga yuklash — qaysi variant.id hozir yuklanmoqda */
+  const [variantImageUploadingId, setVariantImageUploadingId] = useState<string | null>(null);
 
   // POS States
   const [isPOSOpen, setIsPOSOpen] = useState(false);
@@ -256,6 +258,10 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       void loadCategories();
     }
   }, [isModalOpen, branchId]);
+
+  useEffect(() => {
+    if (!isModalOpen) setVariantImageUploadingId(null);
+  }, [isModalOpen]);
 
   useEffect(() => {
     if (formData.catalogId) {
@@ -750,23 +756,22 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
   };
 
   const handleImageUpload = async (variantId: string, file: File) => {
+    setVariantImageUploadingId(variantId);
     try {
       console.log('📤 Uploading image to R2:', file.name);
-      
-      // Create FormData for file upload
+
       const formData = new FormData();
       formData.append('file', file);
-      
-      // Upload to R2 via public endpoint
+
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/public/upload`,
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            Authorization: `Bearer ${publicAnonKey}`,
           },
           body: formData,
-        }
+        },
       );
 
       if (!response.ok) {
@@ -775,12 +780,14 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
 
       const data = await response.json();
       console.log('✅ Image uploaded to R2:', data.url);
-      
+
       updateVariant(variantId, 'image', data.url);
       toast.success('Rasm yuklandi');
     } catch (error) {
       console.error('❌ Error uploading image:', error);
       toast.error('Rasm yuklashda xatolik');
+    } finally {
+      setVariantImageUploadingId(null);
     }
   };
 
@@ -2904,31 +2911,80 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                       {/* Image Upload */}
                       <div className="md:col-span-2">
                         <label className="block text-sm font-medium mb-2">Rasm</label>
-                        <div className="flex items-center gap-3">
-                          {variant.image && (
-                            <img 
-                              src={variant.image} 
-                              alt="Preview" 
-                              className="w-20 h-20 rounded-xl object-cover"
-                            />
-                          )}
-                          <label 
-                            className="flex items-center gap-2 px-4 py-2.5 rounded-xl border cursor-pointer transition-all active:scale-95"
-                            style={{
-                              background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                            }}
-                          >
-                            <Upload className="w-4 h-4" />
-                            <span className="text-sm">Rasm yuklash</span>
-                            <input
-                              type="file"
-                              accept="image/*"
-                              onChange={(e) => e.target.files?.[0] && handleImageUpload(variant.id, e.target.files[0])}
-                              className="hidden"
-                            />
-                          </label>
-                        </div>
+                        {(() => {
+                          const isUploadingThis = variantImageUploadingId === variant.id;
+                          return (
+                            <div className="flex flex-wrap items-center gap-3">
+                              {variant.image ? (
+                                <div className="relative h-20 w-20 shrink-0">
+                                  <img
+                                    src={variant.image}
+                                    alt="Preview"
+                                    className={`h-20 w-20 rounded-xl object-cover ${isUploadingThis ? 'opacity-50' : ''}`}
+                                  />
+                                  {isUploadingThis ? (
+                                    <div
+                                      className="absolute inset-0 flex items-center justify-center rounded-xl"
+                                      style={{ background: 'rgba(0,0,0,0.45)' }}
+                                    >
+                                      <Loader2 className="h-8 w-8 animate-spin text-white" aria-hidden />
+                                    </div>
+                                  ) : null}
+                                </div>
+                              ) : isUploadingThis ? (
+                                <div
+                                  className="flex h-20 w-20 shrink-0 items-center justify-center rounded-xl border"
+                                  style={{
+                                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
+                                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                                  }}
+                                >
+                                  <Loader2
+                                    className="h-8 w-8 animate-spin"
+                                    style={{ color: accentColor.color }}
+                                    aria-hidden
+                                  />
+                                </div>
+                              ) : null}
+                              <label
+                                className={`flex items-center gap-2 rounded-xl border px-4 py-2.5 transition-all active:scale-95 ${
+                                  isUploadingThis ? 'cursor-not-allowed opacity-60' : 'cursor-pointer'
+                                }`}
+                                style={{
+                                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                                }}
+                              >
+                                {isUploadingThis ? (
+                                  <>
+                                    <Loader2
+                                      className="h-4 w-4 shrink-0 animate-spin"
+                                      style={{ color: accentColor.color }}
+                                      aria-hidden
+                                    />
+                                    <span className="text-sm">Yuklanmoqda...</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Upload className="h-4 w-4 shrink-0" aria-hidden />
+                                    <span className="text-sm">Rasm yuklash</span>
+                                  </>
+                                )}
+                                <input
+                                  type="file"
+                                  accept="image/*"
+                                  disabled={isUploadingThis}
+                                  onChange={(e) => {
+                                    const f = e.target.files?.[0];
+                                    if (f) void handleImageUpload(variant.id, f);
+                                    e.target.value = '';
+                                  }}
+                                  className="hidden"
+                                />
+                              </label>
+                            </div>
+                          );
+                        })()}
                       </div>
 
                       <div>

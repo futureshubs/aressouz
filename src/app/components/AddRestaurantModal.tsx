@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { X, Upload, Image as ImageIcon, Send, Store, Phone, Clock, MapPin, DollarSign, Truck, FileText } from 'lucide-react';
+import { X, Upload, Image as ImageIcon, Send, Store, Phone, Clock, MapPin, DollarSign, Truck, FileText, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { regions, getDistrictsByRegionId } from '../data/regions';
@@ -47,7 +47,7 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
     password: ''
   });
   
-  const [uploading, setUploading] = useState(false);
+  const [uploadingField, setUploadingField] = useState<null | 'logo' | 'banner' | 'paymentQrImage'>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [testingTelegram, setTestingTelegram] = useState(false);
 
@@ -56,9 +56,8 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
   const availableDistricts = selectedRegion?.districts || [];
 
   const handleImageUpload = async (type: 'logo' | 'banner' | 'paymentQrImage', file: File) => {
+    setUploadingField(type);
     try {
-      setUploading(true);
-      
       const uploadFormData = new FormData();
       uploadFormData.append('file', file);
 
@@ -67,26 +66,33 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
+            Authorization: `Bearer ${publicAnonKey}`,
           },
-          body: uploadFormData
-        }
+          body: uploadFormData,
+        },
       );
 
-      const result = await response.json();
-      
-      if (result.success) {
-        setFormData(prev => ({ ...prev, [type]: result.url }));
-        const label = type === 'logo' ? 'Logo' : type === 'banner' ? 'Banner' : "To'lov QR";
-        toast.success(`${label} yuklandi!`);
-      } else {
+      const result = await response.json().catch(() => ({} as Record<string, unknown>));
+
+      if (!response.ok) {
         toast.error('Yuklashda xatolik!');
+        return;
       }
+
+      const url = String((result as { url?: string }).url || (result as { data?: { url?: string } }).data?.url || '').trim();
+      if (!url) {
+        toast.error('Yuklashda xatolik!');
+        return;
+      }
+
+      setFormData((prev) => ({ ...prev, [type]: url }));
+      const label = type === 'logo' ? 'Logo' : type === 'banner' ? 'Banner' : "To'lov QR";
+      toast.success(`${label} yuklandi!`);
     } catch (error) {
       console.error('Upload error:', error);
       toast.error('Yuklashda xatolik!');
     } finally {
-      setUploading(false);
+      setUploadingField(null);
     }
   };
 
@@ -225,23 +231,43 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
               {/* Logo */}
               <div>
                 <label className="block text-sm font-bold mb-2">Logo *</label>
-                <div 
-                  className="relative w-full h-32 rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer overflow-hidden"
+                <div
+                  className={`relative flex h-32 w-full items-center justify-center overflow-hidden rounded-xl border-2 border-dashed ${
+                    uploadingField !== null ? 'cursor-not-allowed' : 'cursor-pointer'
+                  }`}
                   style={{ borderColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' }}
                 >
                   {formData.logo ? (
-                    <img src={formData.logo} alt="Logo" className="w-full h-full object-cover" />
-                  ) : (
+                    <img
+                      src={formData.logo}
+                      alt="Logo"
+                      className={`h-full w-full object-cover ${uploadingField === 'logo' ? 'opacity-50' : ''}`}
+                    />
+                  ) : uploadingField === 'logo' ? null : (
                     <div className="text-center">
-                      <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: accentColor.color }} />
+                      <Upload className="mx-auto mb-2 h-8 w-8" style={{ color: accentColor.color }} aria-hidden />
                       <p className="text-xs">Logo yuklash</p>
                     </div>
                   )}
+                  {uploadingField === 'logo' ? (
+                    <div
+                      className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl"
+                      style={{ background: 'rgba(0,0,0,0.45)' }}
+                    >
+                      <Loader2 className="h-9 w-9 animate-spin text-white" aria-hidden />
+                      <span className="text-xs font-medium text-white">Yuklanmoqda...</span>
+                    </div>
+                  ) : null}
                   <input
                     type="file"
                     accept="image/*"
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                    onChange={(e) => e.target.files?.[0] && handleImageUpload('logo', e.target.files[0])}
+                    disabled={uploadingField !== null}
+                    className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void handleImageUpload('logo', f);
+                      e.target.value = '';
+                    }}
                   />
                 </div>
               </div>
@@ -249,23 +275,43 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
               {/* Banner */}
               <div>
                 <label className="block text-sm font-bold mb-2">Banner</label>
-                <div 
-                  className="relative w-full h-32 rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer overflow-hidden"
+                <div
+                  className={`relative flex h-32 w-full items-center justify-center overflow-hidden rounded-xl border-2 border-dashed ${
+                    uploadingField !== null ? 'cursor-not-allowed' : 'cursor-pointer'
+                  }`}
                   style={{ borderColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' }}
                 >
                   {formData.banner ? (
-                    <img src={formData.banner} alt="Banner" className="w-full h-full object-cover" />
-                  ) : (
+                    <img
+                      src={formData.banner}
+                      alt="Banner"
+                      className={`h-full w-full object-cover ${uploadingField === 'banner' ? 'opacity-50' : ''}`}
+                    />
+                  ) : uploadingField === 'banner' ? null : (
                     <div className="text-center">
-                      <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: accentColor.color }} />
+                      <Upload className="mx-auto mb-2 h-8 w-8" style={{ color: accentColor.color }} aria-hidden />
                       <p className="text-xs">Banner yuklash</p>
                     </div>
                   )}
+                  {uploadingField === 'banner' ? (
+                    <div
+                      className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl"
+                      style={{ background: 'rgba(0,0,0,0.45)' }}
+                    >
+                      <Loader2 className="h-9 w-9 animate-spin text-white" aria-hidden />
+                      <span className="text-xs font-medium text-white">Yuklanmoqda...</span>
+                    </div>
+                  ) : null}
                   <input
                     type="file"
                     accept="image/*"
-                    className="absolute inset-0 opacity-0 cursor-pointer"
-                    onChange={(e) => e.target.files?.[0] && handleImageUpload('banner', e.target.files[0])}
+                    disabled={uploadingField !== null}
+                    className="absolute inset-0 cursor-pointer opacity-0 disabled:cursor-not-allowed"
+                    onChange={(e) => {
+                      const f = e.target.files?.[0];
+                      if (f) void handleImageUpload('banner', f);
+                      e.target.value = '';
+                    }}
                   />
                 </div>
               </div>
@@ -275,42 +321,62 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
             <div>
               <label className="block text-sm font-bold mb-2">To'lov QR rasm</label>
               <div
-                className="relative w-full h-32 rounded-xl border-2 border-dashed flex items-center justify-center cursor-pointer overflow-hidden"
+                className={`relative flex h-32 w-full flex-col items-center justify-center overflow-hidden rounded-xl border-2 border-dashed ${
+                  uploadingField !== null ? 'cursor-not-allowed' : 'cursor-pointer'
+                }`}
                 style={{ borderColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)' }}
-                onClick={() => document.getElementById('restaurant-payment-qr-upload')?.click()}
+                onClick={() => {
+                  if (uploadingField !== null) return;
+                  document.getElementById('restaurant-payment-qr-upload')?.click();
+                }}
               >
                 <input
                   id="restaurant-payment-qr-upload"
                   type="file"
                   accept="image/*"
-                  className="absolute inset-0 opacity-0 cursor-pointer"
-                  onChange={(e) => e.target.files?.[0] && handleImageUpload('paymentQrImage', e.target.files[0])}
+                  disabled={uploadingField !== null}
+                  className="pointer-events-none absolute inset-0 opacity-0"
+                  onChange={(e) => {
+                    const f = e.target.files?.[0];
+                    if (f) void handleImageUpload('paymentQrImage', f);
+                    e.target.value = '';
+                  }}
                 />
                 {formData.paymentQrImage ? (
-                  <div className="space-y-3">
+                  <>
                     <img
                       src={formData.paymentQrImage}
                       alt="Payment QR"
-                      className="w-full h-full object-contain bg-white/5"
+                      className={`max-h-24 w-full object-contain ${uploadingField === 'paymentQrImage' ? 'opacity-50' : ''}`}
                     />
                     <button
                       type="button"
+                      disabled={uploadingField !== null}
                       onClick={(e) => {
                         e.stopPropagation();
                         setFormData((prev) => ({ ...prev, paymentQrImage: '' }));
                       }}
-                      className="px-4 py-2 rounded-lg text-sm"
+                      className="mt-2 rounded-lg px-4 py-2 text-sm disabled:opacity-50"
                       style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}
                     >
                       O'chirish
                     </button>
-                  </div>
-                ) : (
+                  </>
+                ) : uploadingField === 'paymentQrImage' ? null : (
                   <div className="text-center">
-                    <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: accentColor.color }} />
+                    <Upload className="mx-auto mb-2 h-8 w-8" style={{ color: accentColor.color }} aria-hidden />
                     <p className="text-xs">To'lov QR yuklash</p>
                   </div>
                 )}
+                {uploadingField === 'paymentQrImage' ? (
+                  <div
+                    className="absolute inset-0 flex flex-col items-center justify-center gap-2 rounded-xl"
+                    style={{ background: 'rgba(0,0,0,0.45)' }}
+                  >
+                    <Loader2 className="h-9 w-9 animate-spin text-white" aria-hidden />
+                    <span className="text-xs font-medium text-white">Yuklanmoqda...</span>
+                  </div>
+                ) : null}
               </div>
             </div>
 
@@ -611,7 +677,7 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
             {/* Submit Button */}
             <button
               type="submit"
-              disabled={isSubmitting || uploading}
+              disabled={isSubmitting || uploadingField !== null}
               className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
               style={{ background: accentColor.color, color: '#ffffff' }}
             >
