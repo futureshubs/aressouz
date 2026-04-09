@@ -39,6 +39,7 @@ import {
   sellerOrderTotal,
 } from '../components/seller/sellerOrderPaymentUtils';
 import { useBodyScrollLock } from '../utils/useBodyScrollLock';
+import { readValidSellerSession } from '../utils/sellerSession';
 
 export default function SellerDashboard() {
   const navigate = useNavigate();
@@ -75,38 +76,11 @@ export default function SellerDashboard() {
   }, [activeTab, sellerInfo]);
 
   const checkSession = () => {
-    const session = localStorage.getItem('sellerSession');
-    if (!session) {
+    const sessionData = readValidSellerSession();
+    if (!sessionData) {
       navigate('/seller');
       return;
     }
-
-    const sessionData = JSON.parse(session);
-    console.log('🔐 Checking seller session:', sessionData);
-    console.log('🔑 Token format:', sessionData.token ? sessionData.token.substring(0, 30) + '...' : 'MISSING');
-    
-    // Validate token format - NEW format: seller-{timestamp}-{random}
-    // OLD format was: seller-shop-{shopId}-{timestamp}-{random}
-    // Reject old format tokens (contains 'seller-shop-')
-    if (!sessionData.token || !sessionData.token.startsWith('seller-') || sessionData.token.includes('seller-shop-')) {
-      console.error('❌ Invalid or outdated token format, logging out');
-      toast.error('Session muddati tugagan. Qaytadan kiring.');
-      localStorage.removeItem('sellerSession');
-      navigate('/seller');
-      return;
-    }
-    
-    // Additional validation: new tokens should have format seller-{number}-{string}
-    const tokenParts = sessionData.token.split('-');
-    if (tokenParts.length < 3 || tokenParts[0] !== 'seller') {
-      console.error('❌ Invalid token structure, logging out');
-      toast.error('Session noto\'g\'ri. Qaytadan kiring.');
-      localStorage.removeItem('sellerSession');
-      navigate('/seller');
-      return;
-    }
-    
-    console.log('✅ Token validation passed');
     setSellerInfo(sessionData);
   };
 
@@ -355,6 +329,10 @@ export default function SellerDashboard() {
     return s === 'delivered' || s === 'completed';
   };
   const isSellerOrderActive = (o: any) => !isSellerOrderCancelled(o) && !isSellerOrderDone(o);
+
+  /** Naqd: filial «Qabul qilish» (release-to-preparer) qilmaguncha tayyorlovchiga chiqmaydi — sotuvchi ko‘radi, lekin holatni o‘zgartirish xavfsiz emas */
+  const isSellerOrderAwaitingBranchCashRelease = (o: any) =>
+    Boolean(o?.branchCashHold) && !o?.releasedToPreparerAt;
 
   const sellerOrderCounts = useMemo(
     () => ({
@@ -1138,11 +1116,23 @@ export default function SellerDashboard() {
                               ))}
                             </ul>
                           )}
+                          {isSellerOrderAwaitingBranchCashRelease(o) ? (
+                            <p
+                              className="text-xs font-semibold mb-3 px-3 py-2 rounded-xl"
+                              style={{
+                                background: isDark ? 'rgba(245, 158, 11, 0.15)' : 'rgba(245, 158, 11, 0.12)',
+                                color: '#b45309',
+                                border: '1px solid rgba(245, 158, 11, 0.35)',
+                              }}
+                            >
+                              Filial naqd to‘lovni qabul qilguncha kuting — keyin bu yerda «Qabul qilish» faollashadi.
+                            </p>
+                          ) : null}
                           <div className="flex flex-wrap gap-2">
                             {(st === 'pending' || st === 'new') && (
                               <button
                                 type="button"
-                                disabled={!!orderActionId}
+                                disabled={!!orderActionId || isSellerOrderAwaitingBranchCashRelease(o)}
                                 onClick={() => oid && handleSellerOrderStatus(oid, 'confirmed')}
                                 className="px-4 py-2.5 rounded-xl text-sm font-bold text-white disabled:opacity-50"
                                 style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}

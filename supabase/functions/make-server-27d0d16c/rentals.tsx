@@ -29,19 +29,54 @@ function telegramAutoCourierBotToken(): string {
   );
 }
 
-function buildRentalOrderCustomerNotifyHtml(order: any): string {
+function formatRentalDepositTelegramLine(order: any): string {
+  const desc = String(order.depositDescription || "").trim();
+  const amt = Math.max(0, Math.round(Number(order.depositAmountUzs) || 0));
+  const parts: string[] = [];
+  if (desc) parts.push(desc);
+  if (amt > 0) parts.push(`${amt.toLocaleString("uz-UZ")} so'm`);
+  return parts.length ? parts.join(" · ") : "—";
+}
+
+/** Filial «Qabul qilish» dan keyin ijara beruvchi / filial chatiga */
+function buildRentalBranchAcceptedNotifyHtml(order: any): string {
+  const pickup = String(order.pickupAddress || "").trim();
+  const delivery = String(order.deliveryAddress || order.address || "").trim();
+  const garov = formatRentalDepositTelegramLine(order);
   return [
-    `<b>📦 Sizdan buyurtma qilindi</b>`,
-    `<i>Ijara bo‘limi</i>`,
+    `<b>✅ Filial buyurtmani qabul qildi</b>`,
+    `<i>Ijara — tayyorlang va topshirish</i>`,
     ``,
-    `Mijoz sizning e’loningiz bo‘yicha ijara buyurtmasi berdi. Tayyorlovni boshlang.`,
+    `Buyurtma tasdiqlandi. Mahsulotni tayyorlab, kuryer olib ketishiga topshiring.`,
     ``,
     `<b>Mahsulot:</b> ${escapeTelegramHtml(String(order.productName || ""))}`,
     `<b>Mijoz:</b> ${escapeTelegramHtml(String(order.customerName || ""))}`,
     `<b>Tel:</b> ${escapeTelegramHtml(String(order.customerPhone || ""))}`,
-    order.address
-      ? `<b>Manzil:</b> ${escapeTelegramHtml(String(order.address))}`
-      : "",
+    `<b>Olib ketish (ijara beruvchi):</b> ${escapeTelegramHtml(pickup || "—")}`,
+    delivery ? `<b>Mijozga yetkazish:</b> ${escapeTelegramHtml(delivery)}` : "",
+    `<b>Garov:</b> ${escapeTelegramHtml(garov)}`,
+    `<b>Summa:</b> ${escapeTelegramHtml(String(order.totalPrice ?? ""))} so'm`,
+    `<b>Buyurtma ID:</b> <code>${escapeTelegramHtml(String(order.id || ""))}</code>`,
+  ]
+    .filter(Boolean)
+    .join("\n");
+}
+
+/** Mijoz ijara bo‘limidan buyurtma berganda — filial / ijara beruvchi chatiga */
+function buildRentalNewOrderNotifyHtml(order: any): string {
+  const pickup = String(order.pickupAddress || "").trim();
+  const delivery = String(order.deliveryAddress || order.address || "").trim();
+  const garov = formatRentalDepositTelegramLine(order);
+  return [
+    `<b>🆕 Yangi ijara buyurtmasi</b>`,
+    `Filial yoki ijara panelida «Qabul qilish» ni bosing.`,
+    ``,
+    `<b>Mahsulot:</b> ${escapeTelegramHtml(String(order.productName || ""))}`,
+    `<b>Mijoz:</b> ${escapeTelegramHtml(String(order.customerName || ""))}`,
+    `<b>Tel:</b> ${escapeTelegramHtml(String(order.customerPhone || ""))}`,
+    `<b>Olib ketish (ijara beruvchi):</b> ${escapeTelegramHtml(pickup || "—")}`,
+    delivery ? `<b>Mijozga yetkazish:</b> ${escapeTelegramHtml(delivery)}` : "",
+    `<b>Garov:</b> ${escapeTelegramHtml(garov)}`,
     `<b>Summa:</b> ${escapeTelegramHtml(String(order.totalPrice ?? ""))} so'm`,
     `<b>Buyurtma ID:</b> <code>${escapeTelegramHtml(String(order.id || ""))}</code>`,
   ]
@@ -80,7 +115,7 @@ async function sendRentalOrderTelegrams(order: any, product: any, branchId: stri
     const rentalBot = telegramRentalBotToken();
 
     if (rentalBot) {
-      const html = buildRentalOrderCustomerNotifyHtml(order);
+      const html = buildRentalBranchAcceptedNotifyHtml(order);
       const sent = new Set<string>();
       for (const cid of [prepChat, branchChat]) {
         if (!cid || !isValidTelegramTarget(cid) || sent.has(cid)) continue;
@@ -108,15 +143,20 @@ async function sendRentalOrderTelegrams(order: any, product: any, branchId: stri
         const w = order.productWeightKg != null
           ? String(order.productWeightKg)
           : "—";
+        const pickup = String(order.pickupAddress || "").trim();
+        const delivery = String(order.deliveryAddress || order.address || "").trim();
+        const garov = formatRentalDepositTelegramLine(order);
         const html = [
           `<b>Ijara: katta yuk / avto-kuryer</b>`,
-          `Yangi buyurtma — yetkazish uchun panelda ko'ring.`,
+          `Filial buyurtmani qabul qildi — panelda «Olish».`,
           ``,
           `Mahsulot: ${escapeTelegramHtml(order.productName)}`,
           `Og'irlik: ${escapeTelegramHtml(w)} kg`,
           `Mijoz: ${escapeTelegramHtml(order.customerName)}`,
           `Tel: ${escapeTelegramHtml(order.customerPhone)}`,
-          order.address ? `Manzil: ${escapeTelegramHtml(order.address)}` : "",
+          pickup ? `Olib ketish: ${escapeTelegramHtml(pickup)}` : "",
+          delivery ? `Mijozga: ${escapeTelegramHtml(delivery)}` : "",
+          `Garov: ${escapeTelegramHtml(garov)}`,
           `ID: ${escapeTelegramHtml(order.id)}`,
         ]
           .filter(Boolean)
@@ -131,6 +171,37 @@ async function sendRentalOrderTelegrams(order: any, product: any, branchId: stri
     }
   } catch (e) {
     console.error("sendRentalOrderTelegrams:", e);
+  }
+}
+
+/** Buyurtma yaratilishi bilan — mahsulot chat + filial ijara Telegram (avto-kuryer yo‘q) */
+async function sendRentalNewOrderTelegrams(order: any, product: any, branchId: string) {
+  try {
+    const prepChat = String(
+      product?.telegramChatId || order.prepTelegramChatId || "",
+    ).trim();
+    const branchChat = await readBranchRentalTelegramChatId(branchId);
+    const rentalBot = telegramRentalBotToken();
+    if (!rentalBot) {
+      console.warn(
+        "sendRentalNewOrderTelegrams: bot token yo‘q (TELEGRAM_RENTAL_BOT_TOKEN yoki TELEGRAM_BOT_TOKEN)",
+      );
+      return;
+    }
+    const html = buildRentalNewOrderNotifyHtml(order);
+    const sent = new Set<string>();
+    for (const cid of [prepChat, branchChat]) {
+      if (!cid || !isValidTelegramTarget(cid) || sent.has(cid)) continue;
+      sent.add(cid);
+      await sendHtmlTelegramWithToken(rentalBot, cid, html);
+    }
+    if (sent.size === 0) {
+      console.warn(
+        "sendRentalNewOrderTelegrams: Telegram chat yo‘q — filialda «Ijara Telegram» yoki mahsulotda chat ID qo‘ying",
+      );
+    }
+  } catch (e) {
+    console.error("sendRentalNewOrderTelegrams:", e);
   }
 }
 
@@ -286,13 +357,24 @@ async function removeRentalCourierIndex(order: any) {
   }
 }
 
+async function attachRentalProductImageIfNeeded(row: any): Promise<void> {
+  if (!row || row.productImage || !row.productId || !row.branchId) return;
+  try {
+    const prod = await kv.get(`rental_product_${row.branchId}_${row.productId}`);
+    const img = prod?.image || prod?.coverImage;
+    if (typeof img === "string" && img.trim()) row.productImage = img.trim();
+  } catch (_) { /* ignore */ }
+}
+
 /** Yangi buyurtmalar: null = filial hali qabul qilmagan. Eski yozuvlarda maydon bo‘lmasa — avtomatik qabul qilingan hisoblanadi */
 function rentalBranchEffectivelyAccepted(order: any): boolean {
   return !Object.prototype.hasOwnProperty.call(order, "branchAcceptedAt") ||
     order.branchAcceptedAt != null;
 }
 
-async function resolveAutoCourierSession(c: any): Promise<{ courierId: string } | null> {
+async function resolveAutoCourierSession(
+  c: any,
+): Promise<{ courierId: string; branchId: string } | null> {
   const token =
     c.req.header("X-Auto-Courier-Token") ||
     c.req.header("x-auto-courier-token") ||
@@ -306,12 +388,16 @@ async function resolveAutoCourierSession(c: any): Promise<{ courierId: string } 
   if (!courierId) return null;
   const row = await kv.get(`auto_courier:${courierId}`);
   if (!row || row.deleted || String(row.status) !== "active") return null;
-  return { courierId };
+  const branchId = String(s.branchId || row.branchId || "").trim();
+  if (!branchId) return null;
+  return { courierId, branchId };
 }
 
-async function resolveRentalDeliveryActorSession(c: any): Promise<{ courierId: string } | null> {
+async function resolveRentalDeliveryActorSession(
+  c: any,
+): Promise<{ courierId: string; branchId?: string } | null> {
   const reg = await resolveCourierSession(c);
-  if (reg) return { courierId: reg.courierId };
+  if (reg) return reg;
   return await resolveAutoCourierSession(c);
 }
 
@@ -373,7 +459,9 @@ function computeRentalCourierHandoffUzs(order: {
   return { expectedUzs: Math.max(0, totalNum - deliveryFeeNum), isCashLike: true };
 }
 
-async function resolveCourierSession(c: any): Promise<{ courierId: string } | null> {
+async function resolveCourierSession(
+  c: any,
+): Promise<{ courierId: string; branchId?: string } | null> {
   const token =
     c.req.header("X-Courier-Token") ||
     c.req.header("x-courier-token") ||
@@ -385,7 +473,8 @@ async function resolveCourierSession(c: any): Promise<{ courierId: string } | nu
   if (!courierId) return null;
   const courier = await kv.get(`courier:${courierId}`);
   if (!courier || courier.deleted) return null;
-  return { courierId };
+  const branchId = String(courier.branchId || "").trim();
+  return { courierId, branchId: branchId || undefined };
 }
 
 function enrichRentalOrderForClient(order: any) {
@@ -1162,6 +1251,7 @@ app.get("/courier/rental-delivery-jobs", async (c) => {
     const prefix = `rental_courier_delivery_pending_${auth.courierId}_`;
     const refs = await kv.getByPrefix(prefix);
     const orders: any[] = [];
+    const seenIds = new Set<string>();
     for (const ref of refs || []) {
       const bid = ref?.branchId;
       const oid = ref?.orderId;
@@ -1173,14 +1263,24 @@ app.get("/courier/rental-delivery-jobs", async (c) => {
         !row.rentalPeriodStartedAt &&
         String(row.deliveryCourierId || "") === auth.courierId
       ) {
-        if (!row.productImage && row.productId && row.branchId) {
-          try {
-            const prod = await kv.get(`rental_product_${row.branchId}_${row.productId}`);
-            const img = prod?.image || prod?.coverImage;
-            if (typeof img === "string" && img.trim()) row.productImage = img.trim();
-          } catch (_) { /* ignore */ }
-        }
+        await attachRentalProductImageIfNeeded(row);
         orders.push(enrichRentalOrderForClient(row));
+        seenIds.add(String(row.id || oid));
+      }
+    }
+    const scanBranch = String(auth.branchId || "").trim();
+    if (scanBranch) {
+      const allBranch = (await kv.getByPrefix(`rental_order_${scanBranch}_`)) || [];
+      for (const row of allBranch) {
+        if (!row || row.status !== "active" || row.rentalPeriodStartedAt) continue;
+        if (String(row.deliveryCourierId || "") !== auth.courierId) continue;
+        if (row.deliveryPending !== true) continue;
+        const oid = String(row.id || "").trim();
+        if (!oid || seenIds.has(oid)) continue;
+        seenIds.add(oid);
+        const copy = { ...row };
+        await attachRentalProductImageIfNeeded(copy);
+        orders.push(enrichRentalOrderForClient(copy));
       }
     }
     orders.sort((a, b) =>
@@ -1202,6 +1302,7 @@ app.get('/courier/active-rentals', async (c) => {
     }
     const refs = await kv.getByPrefix(`rental_courier_active_${auth.courierId}_`);
     const orders: any[] = [];
+    const seenActive = new Set<string>();
     for (const ref of refs || []) {
       const branchId = ref?.branchId;
       const orderId = ref?.orderId;
@@ -1209,13 +1310,22 @@ app.get('/courier/active-rentals', async (c) => {
       const order = await kv.get(`rental_order_${branchId}_${orderId}`);
       if (order && order.status === "active") {
         const row = { ...order };
-        if (!row.productImage && row.productId && row.branchId) {
-          try {
-            const prod = await kv.get(`rental_product_${row.branchId}_${row.productId}`);
-            const img = prod?.image || prod?.coverImage;
-            if (typeof img === "string" && img.trim()) row.productImage = img.trim();
-          } catch (_) { /* ignore */ }
-        }
+        await attachRentalProductImageIfNeeded(row);
+        orders.push(enrichRentalOrderForClient(row));
+        seenActive.add(String(row.id || orderId));
+      }
+    }
+    const scanBranchActive = String(auth.branchId || "").trim();
+    if (scanBranchActive) {
+      const allBranch = (await kv.getByPrefix(`rental_order_${scanBranchActive}_`)) || [];
+      for (const raw of allBranch) {
+        if (!raw || raw.status !== "active" || !raw.rentalPeriodStartedAt) continue;
+        if (String(raw.deliveryCourierId || "") !== auth.courierId) continue;
+        const oid = String(raw.id || "").trim();
+        if (!oid || seenActive.has(oid)) continue;
+        seenActive.add(oid);
+        const row = { ...raw };
+        await attachRentalProductImageIfNeeded(row);
         orders.push(enrichRentalOrderForClient(row));
       }
     }
@@ -1286,6 +1396,25 @@ app.post('/orders', async (c) => {
       ? null
       : computeInitialNextDue(contractStartDate, paymentSchedule);
 
+    const addr = String(body.address || "").trim();
+    const pickupAddr = String(
+      body.pickupAddress ?? productRow?.pickupAddress ?? "",
+    ).trim();
+    const depositDesc = String(
+      body.depositDescription ?? productRow?.deposit ?? "",
+    ).trim();
+    const depositAmt = Math.max(
+      0,
+      Math.round(
+        Number(
+          body.depositAmountUzs ??
+            productRow?.depositAmountUzs ??
+            productRow?.depositAmount ??
+            0,
+        ) || 0,
+      ),
+    );
+
     const order = {
       id: orderId,
       branchId: body.branchId,
@@ -1297,7 +1426,11 @@ app.post('/orders', async (c) => {
       customerPhone: String(body.customerPhone || ''),
       customerEmail: String(body.customerEmail || ''),
       passportSeriesNumber: String(body.passportSeriesNumber || body.passportOrId || ''),
-      address: String(body.address || ''),
+      /** Mijoz manzili (yetkazish) */
+      deliveryAddress: String(body.deliveryAddress || addr).trim(),
+      /** Ijara beruvchidan olish joyi */
+      pickupAddress: pickupAddr,
+      address: addr,
       notes: String(body.notes || body.additionalNotes || ''),
       rentalPeriod,
       rentalDuration: Number(body.rentalDuration) || 1,
@@ -1332,6 +1465,11 @@ app.post('/orders', async (c) => {
       assignedAutoCourierAt: null,
       /** Filial «Qabul qilish» dan keyin Telegram va kuryer navbati ochiladi */
       branchAcceptedAt: null,
+      /** Garov (matn + ixtiyoriy summa); kuryer rasmlarni `depositPhotoUrls` ga qo‘shadi */
+      depositDescription: depositDesc,
+      depositAmountUzs: depositAmt,
+      depositPhotoUrls: [] as string[],
+      depositPhotoUploadedAt: null as string | null,
     };
 
     await kv.set(`rental_order_${body.branchId}_${orderId}`, order);
@@ -1355,6 +1493,8 @@ app.post('/orders', async (c) => {
       warehouse.lastUpdated = new Date().toISOString();
       await kv.set(warehouseKey, warehouse);
     }
+
+    await sendRentalNewOrderTelegrams(order, productRow, body.branchId);
 
     return c.json({ success: true, order: enrichRentalOrderForClient(order) });
   } catch (error: any) {
@@ -1438,6 +1578,47 @@ app.put('/orders/:id', async (c) => {
       await finalizeRentalDeliveryToCustomer(order, orderKey, id);
       const updated = await kv.get(orderKey);
       return c.json({ success: true, order: enrichRentalOrderForClient(updated || order) });
+    }
+
+    if (body.courierUploadDepositPhoto === true) {
+      const auth = await resolveRentalDeliveryActorSession(c);
+      if (!auth) {
+        return c.json({ success: false, error: "Sessiya topilmadi" }, 401);
+      }
+      if (String(order.deliveryCourierId || "") !== auth.courierId) {
+        return c.json({ success: false, error: "Bu buyurtma sizga biriktirilmagan" }, 403);
+      }
+      if (order.status !== "active") {
+        return c.json({ success: false, error: "Buyurtma aktiv emas" }, 400);
+      }
+      const dataUrl = String(body.depositPhotoDataUrl || "").trim();
+      if (!/^data:image\/(png|jpeg|jpg|webp);base64,/i.test(dataUrl)) {
+        return c.json(
+          { success: false, error: "Rasm data:image (png/jpeg/webp) formatida yuborilishi kerak" },
+          400,
+        );
+      }
+      const urls = Array.isArray(order.depositPhotoUrls) ? [...order.depositPhotoUrls] : [];
+      if (urls.length >= 8) {
+        return c.json({ success: false, error: "Garov rasmlari limiti (8) to‘lgan" }, 400);
+      }
+      try {
+        const publicUrl = await r2.uploadImage(
+          dataUrl,
+          `rental-deposit-${id}-${Date.now()}`,
+        );
+        urls.push(publicUrl);
+        order.depositPhotoUrls = urls;
+        order.depositPhotoUploadedAt = new Date().toISOString();
+        order.updatedAt = order.depositPhotoUploadedAt;
+        await kv.set(orderKey, order);
+        return c.json({ success: true, order: enrichRentalOrderForClient(order) });
+      } catch (e: any) {
+        return c.json(
+          { success: false, error: e?.message || "Rasm yuklanmadi" },
+          500,
+        );
+      }
     }
 
     const panelDenied = await assertRentalBranchPanelAccess(c, branchIdParam);

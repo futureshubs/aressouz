@@ -40,6 +40,13 @@ import { buildAdminHeaders, buildBranchHeaders } from '../../utils/requestAuth';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { toast } from 'sonner';
 import { PendingCashMarketBranchPanel } from '../branch/PendingCashMarketBranchPanel';
+import { isShopProductCartLine } from '../../utils/submitRegularCartOrderQuick';
+
+/** Savat/API qatorida do‘kon mahsuloti (shop_product / source shop) bormi */
+function orderHasShopProductLine(order: Pick<Order, 'items'>): boolean {
+  const items = Array.isArray(order.items) ? order.items : [];
+  return items.some((it) => isShopProductCartLine(it));
+}
 
 interface Order {
   id: string;
@@ -456,9 +463,19 @@ export default function OrdersManagement({
   useEffect(() => {
     let filtered = orders;
 
-    // Filter by type
-    if (activeTab !== 'all') {
-      filtered = filtered.filter(order => order.type === activeTab);
+    // Filial «Market buyurtmalar» / «Do‘kon buyurtmalar»: `orderType` xato yoki aralash KV da bo‘lsa ham tarkib bo‘yicha ajratamiz
+    if (authMode === 'branch' && type === 'market') {
+      filtered = orders.filter(
+        (order) =>
+          String(order.type).toLowerCase() === 'market' && !orderHasShopProductLine(order),
+      );
+    } else if (authMode === 'branch' && type === 'shop') {
+      filtered = orders.filter(
+        (order) =>
+          String(order.type).toLowerCase() === 'shop' || orderHasShopProductLine(order),
+      );
+    } else if (activeTab !== 'all') {
+      filtered = filtered.filter((order) => order.type === activeTab);
     }
 
     // Filter by status (new + pending bitta «Yangi» tugmasida)
@@ -503,7 +520,7 @@ export default function OrdersManagement({
     }
 
     setFilteredOrders(filtered);
-  }, [orders, activeTab, statusFilter, searchQuery, authMode]);
+  }, [orders, activeTab, statusFilter, searchQuery, authMode, type]);
 
   const loadOrders = async (silent = false) => {
     if (!silent) setLoading(true);
@@ -2191,6 +2208,7 @@ export default function OrdersManagement({
         <PendingCashMarketBranchPanel
           readOnly={!!readOnly}
           onOrdersChanged={() => loadOrders(true)}
+          cashPendingScope={type === 'market' ? 'market' : 'shop'}
         />
       ) : null}
 

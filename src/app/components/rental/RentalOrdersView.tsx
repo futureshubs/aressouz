@@ -495,6 +495,71 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
                 </p>
               ) : null}
 
+              <div
+                className="mb-4 grid gap-3 rounded-2xl border p-4 text-sm"
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                }}
+              >
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide mb-1" style={{ color: '#0d9488' }}>
+                    Olib ketish (ijara beruvchi)
+                  </p>
+                  <p style={{ color: isDark ? 'rgba(255,255,255,0.85)' : '#111' }}>
+                    {order.pickupAddress || '—'}
+                  </p>
+                </div>
+                <div>
+                  <p className="text-[11px] font-bold uppercase tracking-wide mb-1 opacity-60">
+                    Mijozga yetkazish
+                  </p>
+                  <p style={{ color: isDark ? 'rgba(255,255,255,0.85)' : '#111' }}>
+                    {order.deliveryAddress || order.address || '—'}
+                  </p>
+                </div>
+                <div
+                  className="rounded-xl p-3 space-y-1"
+                  style={{
+                    background: isDark ? 'rgba(245,158,11,0.1)' : 'rgba(245,158,11,0.08)',
+                    border: `1px solid ${isDark ? 'rgba(245,158,11,0.3)' : 'rgba(245,158,11,0.25)'}`,
+                  }}
+                >
+                  <p className="text-[11px] font-bold text-amber-700 dark:text-amber-400">Garov</p>
+                  <p style={{ color: isDark ? 'rgba(255,255,255,0.75)' : '#374151' }}>
+                    {order.depositDescription || '—'}
+                  </p>
+                  {Number(order.depositAmountUzs) > 0 ? (
+                    <p className="font-semibold tabular-nums">
+                      {Number(order.depositAmountUzs).toLocaleString('uz-UZ')} so‘m
+                    </p>
+                  ) : null}
+                </div>
+                <div>
+                  <p className="text-[11px] font-semibold mb-2 opacity-70">Kuryer yuklagan garov rasmlari</p>
+                  {Array.isArray(order.depositPhotoUrls) && order.depositPhotoUrls.length > 0 ? (
+                    <div className="flex flex-wrap gap-2">
+                      {(order.depositPhotoUrls as string[]).map((u: string, i: number) => (
+                        <a
+                          key={`${u}-${i}`}
+                          href={u}
+                          target="_blank"
+                          rel="noreferrer"
+                          className="block w-16 h-16 rounded-lg overflow-hidden border shrink-0"
+                          style={{
+                            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                          }}
+                        >
+                          <img src={u} alt="" className="w-full h-full object-cover" />
+                        </a>
+                      ))}
+                    </div>
+                  ) : (
+                    <p className="text-xs opacity-55">Hali rasm yo‘q — kuryer panelidan yuklanadi</p>
+                  )}
+                </div>
+              </div>
+
               {order.status === 'active' && order.pickupAlert === 'overdue' && order.rentalPeriodStartedAt && (
                 <div
                   className="mb-4 p-3 rounded-2xl border text-sm font-semibold"

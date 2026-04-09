@@ -4,6 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { Store, Lock, User, ArrowLeft } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
+import { readValidSellerSession } from '../utils/sellerSession';
 
 export default function SellerLogin() {
   const navigate = useNavigate();
@@ -15,12 +16,17 @@ export default function SellerLogin() {
     password: '',
   });
   const [isLoading, setIsLoading] = useState(false);
+  /** Saqlangan sessiya tekshirilguncha forma ko‘rinmasin — «kirilgan» holatda darhol dashboard */
+  const [sessionCheckDone, setSessionCheckDone] = useState(false);
 
-  // Clear any existing seller sessions on mount
   useEffect(() => {
-    console.log('🔓 Clearing any existing seller sessions');
-    localStorage.removeItem('sellerSession');
-  }, []);
+    const saved = readValidSellerSession();
+    if (saved) {
+      navigate('/seller/dashboard', { replace: true });
+      return;
+    }
+    setSessionCheckDone(true);
+  }, [navigate]);
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -98,6 +104,23 @@ export default function SellerLogin() {
       setIsLoading(false);
     }
   };
+
+  if (!sessionCheckDone) {
+    return (
+      <div
+        className="min-h-screen flex flex-col items-center justify-center gap-3 p-4 app-safe-pt"
+        style={{ background: isDark ? '#000000' : '#f9fafb' }}
+      >
+        <div
+          className="h-10 w-10 rounded-full border-2 border-t-transparent animate-spin"
+          style={{ borderColor: `${accentColor.color}55`, borderTopColor: 'transparent' }}
+        />
+        <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}>
+          Tekshirilmoqda…
+        </p>
+      </div>
+    );
+  }
 
   return (
     <div

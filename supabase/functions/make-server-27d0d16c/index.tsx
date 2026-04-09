@@ -9454,11 +9454,11 @@ app.post("/make-server-27d0d16c/delivery-zones/detect", async (c) => {
     }
     
     console.log('❌ Point is not in any zone');
-    return c.json({ 
-      success: false, 
+    return c.json({
+      success: false,
       zone: null,
-      message: 'Bu joylashuv hech qaysi yetkazib berish zonasiga kirmaydi' 
-    }, 404);
+      message: 'Bu joylashuv hech qaysi yetkazib berish zonasiga kirmaydi',
+    });
   } catch (error: any) {
     console.error('Detect zone error:', error);
     return c.json({ error: `Zona aniqlashda xatolik: ${error.message}` }, 500);

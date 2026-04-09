@@ -47,7 +47,11 @@ import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uplo
 import { openExternalUrlSync } from '../utils/openExternalUrl';
 import { RentalLiveCountdown } from '../components/rental/RentalLiveCountdown';
 import { normalizeRentalProductImageUrl } from '../utils/rentalProductImage';
-import { computeRentalCourierHandoffUzs } from '../utils/rentalCashHandoff';
+import { computeMarketCourierHandoffUzs, computeRentalCourierHandoffUzs } from '../utils/rentalCashHandoff';
+import {
+  RentalCourierDeliveryJobCard,
+  RentalCourierDepositBlock,
+} from '../components/rental/RentalCourierDeliveryJobCard';
 
 type CourierBag = {
   id: string;
@@ -160,6 +164,16 @@ const getOrderGrandTotal = (order: CourierOrder) =>
 const getCourierPaymentMethodRaw = (order: CourierOrder) =>
   String(order.paymentMethod ?? order.payment_method ?? '').trim();
 
+/** Naqd / COD / QR kabi — mijozdan pul olinadi (oddiy kuryer UI). */
+const isCourierCashLike = (o: CourierOrder) => {
+  const pm = getCourierPaymentMethodRaw(o).toLowerCase();
+  const c = pm.replace(/\s+/g, '');
+  if (c === 'cash' || c === 'naqd' || c === 'naqdpul' || c === 'cod') return true;
+  if (pm.includes('naqd') || pm.includes('naqt') || pm.includes('cash')) return true;
+  if (c === 'qr' || c === 'qrcode' || pm.includes('qr')) return true;
+  return false;
+};
+
 const formatCourierPaymentMethodUz = (raw: string) => {
   const m = raw.toLowerCase().trim();
   if (!m) return "Ko'rsatilmagan";
@@ -194,6 +208,18 @@ const getCourierPaymentStatusText = (order: CourierOrder) => {
   if (ps === 'refunded') return 'Qaytarilgan';
   return ps || '—';
 };
+
+const isCourierPaymentDone = (order: CourierOrder) => {
+  const ps = String(order.paymentStatus ?? order.payment_status ?? '').toLowerCase().trim();
+  return ps === 'paid' || ps === 'completed' || ps === 'success';
+};
+
+const courierMarketCashBreakdown = (o: CourierOrder) =>
+  computeMarketCourierHandoffUzs(getOrderGrandTotal(o), getOrderDeliveryFee(o), isCourierCashLike(o));
+
+/** Naqd/COD/QR va hali to‘lanmagan — mijozdan olinadigan summa va kassaga ulush ko‘rsatiladi. */
+const shouldShowCourierCashCollectionHint = (o: CourierOrder) =>
+  isCourierCashLike(o) && !isCourierPaymentDone(o);
 
 const formatCustomerCoords = (order: CourierOrder) => {
   const cl = order.customerLocation;
@@ -520,6 +546,7 @@ export default function CourierDashboard() {
   const [courierRentalDeliveryJobs, setCourierRentalDeliveryJobs] = useState<any[]>([]);
   const [rentalPickupBusyId, setRentalPickupBusyId] = useState<string | null>(null);
   const [rentalDeliverToCustomerBusyId, setRentalDeliverToCustomerBusyId] = useState<string | null>(null);
+  const [rentalDepositUploadBusyId, setRentalDepositUploadBusyId] = useState<string | null>(null);
   const rentalPickupToastedRef = useRef<Set<string>>(new Set());
   const [isLoading, setIsLoading] = useState(true);
   const [actionLoading, setActionLoading] = useState<string | null>(null);
@@ -544,6 +571,56 @@ export default function CourierDashboard() {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const isMdUp = useMediaQueryMdUp();
+
+  const renderCourierCashCollectionHint = (order: CourierOrder, size: 'normal' | 'compact' = 'normal') => {
+    if (!shouldShowCourierCashCollectionHint(order)) return null;
+    const { totalUzs, deliveryKeptUzs, toCashierUzs } = courierMarketCashBreakdown(order);
+    const isCompact = size === 'compact';
+    return (
+      <div
+        className={isCompact ? 'mt-2 p-2.5 rounded-xl border' : 'mt-3 p-3 rounded-xl border'}
+        style={{
+          borderColor: isDark ? 'rgba(245,158,11,0.4)' : 'rgba(245,158,11,0.45)',
+          background: isDark ? 'rgba(245,158,11,0.1)' : 'rgba(245,158,11,0.08)',
+        }}
+      >
+        <p
+          className={
+            isCompact
+              ? 'text-[11px] font-semibold text-amber-700 dark:text-amber-300 mb-1'
+              : 'text-xs font-semibold text-amber-700 dark:text-amber-300 mb-2'
+          }
+        >
+          Mijozdan naqd olishingiz kerak
+        </p>
+        <p
+          className={isCompact ? 'text-lg font-bold tabular-nums' : 'text-xl font-bold tabular-nums'}
+          style={{ color: accentColor.color }}
+        >
+          {totalUzs.toLocaleString('uz-UZ')} so'm
+        </p>
+        <div
+          className={isCompact ? 'mt-1.5 text-[11px] space-y-0.5 leading-snug' : 'mt-2 text-xs space-y-1'}
+          style={{ color: mutedTextColor }}
+        >
+          {deliveryKeptUzs > 0 ? (
+            <p>
+              Yetkazish (sizda qoladi):{' '}
+              <span className="font-semibold tabular-nums">{deliveryKeptUzs.toLocaleString('uz-UZ')} so'm</span>
+            </p>
+          ) : null}
+          {toCashierUzs > 0 ? (
+            <p>
+              Filial kassasiga:{' '}
+              <span className="font-semibold tabular-nums text-amber-800 dark:text-amber-200">
+                {toCashierUzs.toLocaleString('uz-UZ')} so'm
+              </span>
+            </p>
+          ) : null}
+        </div>
+      </div>
+    );
+  };
 
   const loadDashboard = useCallback(async (silent = false) => {
     if (dashboardRequestInFlightRef.current) {
@@ -836,6 +913,61 @@ export default function CourierDashboard() {
         toast.error('Tarmoq xatosi');
       } finally {
         setRentalDeliverToCustomerBusyId(null);
+      }
+    },
+    [loadDashboard],
+  );
+
+  const uploadRentalDepositPhoto = useCallback(
+    async (order: any, file: File) => {
+      const courierToken = getStoredCourierToken();
+      if (!courierToken) return;
+      const baseUrl =
+        typeof window !== 'undefined' && window.location.hostname === 'localhost'
+          ? DEV_API_BASE_URL
+          : API_BASE_URL;
+      const oid = String(order?.id || '');
+      if (!oid || !order?.branchId) {
+        toast.error('Buyurtma ma’lumoti to‘liq emas');
+        return;
+      }
+      setRentalDepositUploadBusyId(oid);
+      try {
+        const dataUrl = await new Promise<string>((resolve, reject) => {
+          const r = new FileReader();
+          r.onload = () => resolve(String(r.result || ''));
+          r.onerror = () => reject(new Error('read'));
+          r.readAsDataURL(file);
+        });
+        if (!dataUrl.startsWith('data:image/')) {
+          toast.error('Faqat rasm fayli tanlang');
+          return;
+        }
+        const res = await fetch(`${baseUrl}/rentals/orders/${encodeURIComponent(oid)}`, {
+          method: 'PUT',
+          headers: {
+            'Content-Type': 'application/json',
+            'X-Courier-Token': courierToken,
+            apikey: publicAnonKey,
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            branchId: order.branchId,
+            courierUploadDepositPhoto: true,
+            depositPhotoDataUrl: dataUrl,
+          }),
+        });
+        const data = await readPayload(res);
+        if (res.ok && data?.success) {
+          toast.success('Garov rasmi saqlandi');
+          await loadDashboard(true);
+        } else {
+          toast.error(data?.error || 'Yuklashda xatolik');
+        }
+      } catch {
+        toast.error('Rasm o‘qilmadi yoki tarmoq xatosi');
+      } finally {
+        setRentalDepositUploadBusyId(null);
       }
     },
     [loadDashboard],
@@ -1183,16 +1315,6 @@ export default function CourierDashboard() {
   const canPressYetibKeldim = (o: CourierOrder) => {
     const w = workflowNorm(o);
     return ['accepted', 'picked_up', 'delivering', 'with_courier'].includes(w);
-  };
-
-  /** Naqd / COD / QR kabi — mijozdan pul olinadi */
-  const isCourierCashLike = (o: CourierOrder) => {
-    const pm = getCourierPaymentMethodRaw(o).toLowerCase();
-    const c = pm.replace(/\s+/g, '');
-    if (c === 'cash' || c === 'naqd' || c === 'naqdpul' || c === 'cod') return true;
-    if (pm.includes('naqd') || pm.includes('naqt') || pm.includes('cash')) return true;
-    if (c === 'qr' || c === 'qrcode' || pm.includes('qr')) return true;
-    return false;
   };
 
   /** Yetib kelgach avtomatik yakunlash: to‘langan + naqd emas */
@@ -1727,34 +1849,16 @@ export default function CourierDashboard() {
                   Ijara beruvchidan olib mijoz manziliga yetkazing. «Mijozga yetkazildi» — ijara muddati shundan boshlanadi.
                 </p>
                 {courierRentalDeliveryJobs.map((job: any) => (
-                  <div
+                  <RentalCourierDeliveryJobCard
                     key={job.id}
-                    className="rounded-xl border p-3 space-y-2"
-                    style={{
-                      background: isDark ? 'rgba(0,0,0,0.2)' : '#fff',
-                      borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-                    }}
-                  >
-                    <p className="font-semibold text-sm">{job.productName || 'Ijara'}</p>
-                    <p className="text-xs" style={{ color: mutedTextColor }}>
-                      {job.customerName} · {job.customerPhone}
-                    </p>
-                    {job.address ? (
-                      <p className="text-xs flex gap-1" style={{ color: mutedTextColor }}>
-                        <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                        {job.address}
-                      </p>
-                    ) : null}
-                    <button
-                      type="button"
-                      disabled={rentalDeliverToCustomerBusyId === job.id}
-                      onClick={() => confirmRentalDeliveredToCustomer(job)}
-                      className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
-                      style={{ background: '#d97706' }}
-                    >
-                      {rentalDeliverToCustomerBusyId === job.id ? 'Yuborilmoqda...' : 'Mijozga yetkazildi'}
-                    </button>
-                  </div>
+                    job={job}
+                    isDark={isDark}
+                    mutedTextColor={mutedTextColor}
+                    deliverBusyId={rentalDeliverToCustomerBusyId}
+                    depositBusyId={rentalDepositUploadBusyId}
+                    onDelivered={confirmRentalDeliveredToCustomer}
+                    onDepositPhoto={uploadRentalDepositPhoto}
+                  />
                 ))}
               </div>
             )}
@@ -1810,12 +1914,25 @@ export default function CourierDashboard() {
                           </p>
                         </div>
                       </div>
-                      {ro.address ? (
-                        <p className="text-xs flex gap-1" style={{ color: mutedTextColor }}>
+                      {ro.pickupAddress ? (
+                        <p className="text-xs flex gap-1 font-medium" style={{ color: '#0d9488' }}>
                           <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-                          <span>{ro.address}</span>
+                          <span>Olib ketilgan joy: {ro.pickupAddress}</span>
                         </p>
                       ) : null}
+                      {ro.deliveryAddress || ro.address ? (
+                        <p className="text-xs flex gap-1" style={{ color: mutedTextColor }}>
+                          <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
+                          <span>Mijoz: {ro.deliveryAddress || ro.address}</span>
+                        </p>
+                      ) : null}
+                      <RentalCourierDepositBlock
+                        job={ro}
+                        isDark={isDark}
+                        mutedTextColor={mutedTextColor}
+                        depositBusyId={rentalDepositUploadBusyId}
+                        onDepositPhoto={uploadRentalDepositPhoto}
+                      />
                       {endOk && ro.rentalPeriodEndsAt ? (
                         <div className="space-y-1">
                           <RentalLiveCountdown
@@ -1941,19 +2058,22 @@ export default function CourierDashboard() {
                               </p>
                               {isCourierCashLike(order) ? (
                                 <p className="text-[11px] mt-2 leading-snug" style={{ color: mutedTextColor }}>
-                                  Yetkazish sizda qoladi:{' '}
-                                  <span className="font-semibold">
-                                    {getOrderDeliveryFee(order).toLocaleString('uz-UZ')} so'm
-                                  </span>
-                                  <br />
-                                  Kassaga topshirasiz:{' '}
-                                  <span className="font-semibold text-amber-600 dark:text-amber-400">
-                                    {Math.max(
-                                      0,
-                                      getOrderGrandTotal(order) - getOrderDeliveryFee(order),
-                                    ).toLocaleString('uz-UZ')}{' '}
-                                    so'm
-                                  </span>
+                                  {(() => {
+                                    const b = courierMarketCashBreakdown(order);
+                                    return (
+                                      <>
+                                        Yetkazish sizda qoladi:{' '}
+                                        <span className="font-semibold">
+                                          {b.deliveryKeptUzs.toLocaleString('uz-UZ')} so'm
+                                        </span>
+                                        <br />
+                                        Kassaga topshirasiz:{' '}
+                                        <span className="font-semibold text-amber-600 dark:text-amber-400">
+                                          {b.toCashierUzs.toLocaleString('uz-UZ')} so'm
+                                        </span>
+                                      </>
+                                    );
+                                  })()}
                                 </p>
                               ) : null}
                             </div>
@@ -2035,6 +2155,7 @@ export default function CourierDashboard() {
                             {getCourierPaymentStatusText(order)}
                           </span>
                         </div>
+                        {renderCourierCashCollectionHint(order, 'compact')}
                         <div className="flex items-center justify-between text-sm mb-3" style={{ color: mutedTextColor }}>
                           <span>
                             {(mobileOrderTab === 'delivered'
@@ -2131,7 +2252,7 @@ export default function CourierDashboard() {
                                 Kassaga topshirish:{' '}
                                 {Number(
                                   order.courierCashHandoffExpectedUzs ??
-                                    Math.max(0, getOrderGrandTotal(order) - getOrderDeliveryFee(order)),
+                                    courierMarketCashBreakdown(order).toCashierUzs,
                                 ).toLocaleString('uz-UZ')}{' '}
                                 so'm
                               </div>
@@ -2764,34 +2885,16 @@ export default function CourierDashboard() {
             </p>
             <div className="grid md:grid-cols-2 gap-4">
               {courierRentalDeliveryJobs.map((job: any) => (
-                <div
+                <RentalCourierDeliveryJobCard
                   key={job.id}
-                  className="rounded-2xl border p-4 space-y-2"
-                  style={{
-                    background: isDark ? 'rgba(0,0,0,0.25)' : '#ffffff',
-                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-                  }}
-                >
-                  <p className="font-semibold">{job.productName || 'Ijara'}</p>
-                  <p className="text-sm" style={{ color: mutedTextColor }}>
-                    {job.customerName} · {job.customerPhone}
-                  </p>
-                  {job.address ? (
-                    <p className="text-sm flex gap-2" style={{ color: mutedTextColor }}>
-                      <MapPin className="w-4 h-4 shrink-0" />
-                      {job.address}
-                    </p>
-                  ) : null}
-                  <button
-                    type="button"
-                    disabled={rentalDeliverToCustomerBusyId === job.id}
-                    onClick={() => confirmRentalDeliveredToCustomer(job)}
-                    className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
-                    style={{ background: '#d97706' }}
-                  >
-                    {rentalDeliverToCustomerBusyId === job.id ? 'Yuborilmoqda...' : 'Mijozga yetkazildi'}
-                  </button>
-                </div>
+                  job={job}
+                  isDark={isDark}
+                  mutedTextColor={mutedTextColor}
+                  deliverBusyId={rentalDeliverToCustomerBusyId}
+                  depositBusyId={rentalDepositUploadBusyId}
+                  onDelivered={confirmRentalDeliveredToCustomer}
+                  onDepositPhoto={uploadRentalDepositPhoto}
+                />
               ))}
             </div>
           </div>
@@ -2852,12 +2955,25 @@ export default function CourierDashboard() {
                         </p>
                       </div>
                     </div>
-                    {ro.address ? (
-                      <p className="text-sm flex gap-2" style={{ color: mutedTextColor }}>
+                    {ro.pickupAddress ? (
+                      <p className="text-sm flex gap-2 font-medium" style={{ color: '#0d9488' }}>
                         <MapPin className="w-4 h-4 shrink-0" />
-                        {ro.address}
+                        Olib ketilgan joy: {ro.pickupAddress}
                       </p>
                     ) : null}
+                    {ro.deliveryAddress || ro.address ? (
+                      <p className="text-sm flex gap-2" style={{ color: mutedTextColor }}>
+                        <MapPin className="w-4 h-4 shrink-0" />
+                        Mijoz: {ro.deliveryAddress || ro.address}
+                      </p>
+                    ) : null}
+                    <RentalCourierDepositBlock
+                      job={ro}
+                      isDark={isDark}
+                      mutedTextColor={mutedTextColor}
+                      depositBusyId={rentalDepositUploadBusyId}
+                      onDepositPhoto={uploadRentalDepositPhoto}
+                    />
                     {endOk && ro.rentalPeriodEndsAt ? (
                       <div className="space-y-1">
                         <RentalLiveCountdown
@@ -3135,6 +3251,7 @@ export default function CourierDashboard() {
                     {getCourierPaymentStatusText(activeOrder)}
                   </span>
                 </div>
+                {renderCourierCashCollectionHint(activeOrder, 'normal')}
                 {activeOrder.notes ? (
                   <div className="mt-2 p-2 rounded-xl text-sm" style={{ background: isDark ? 'rgba(59,130,246,0.14)' : 'rgba(59,130,246,0.1)' }}>
                     Izoh: {activeOrder.notes}
@@ -3197,19 +3314,22 @@ export default function CourierDashboard() {
                 </p>
                 {isCourierCashLike(activeOrder) ? (
                   <p className="text-xs mt-3 leading-relaxed" style={{ color: mutedTextColor }}>
-                    Yetkazish sizda qoladi:{' '}
-                    <span className="font-semibold">
-                      {getOrderDeliveryFee(activeOrder).toLocaleString('uz-UZ')} so'm
-                    </span>
-                    {' · '}
-                    Kassaga topshirasiz:{' '}
-                    <span className="font-semibold text-amber-700 dark:text-amber-300">
-                      {Math.max(
-                        0,
-                        getOrderGrandTotal(activeOrder) - getOrderDeliveryFee(activeOrder),
-                      ).toLocaleString('uz-UZ')}{' '}
-                      so'm
-                    </span>
+                    {(() => {
+                      const b = courierMarketCashBreakdown(activeOrder);
+                      return (
+                        <>
+                          Yetkazish sizda qoladi:{' '}
+                          <span className="font-semibold">
+                            {b.deliveryKeptUzs.toLocaleString('uz-UZ')} so'm
+                          </span>
+                          {' · '}
+                          Kassaga topshirasiz:{' '}
+                          <span className="font-semibold text-amber-700 dark:text-amber-300">
+                            {b.toCashierUzs.toLocaleString('uz-UZ')} so'm
+                          </span>
+                        </>
+                      );
+                    })()}
                   </p>
                 ) : null}
               </div>
@@ -3228,11 +3348,7 @@ export default function CourierDashboard() {
               >
                 Kassaga topshirish kerak:{' '}
                 {Number(
-                  activeOrder.courierCashHandoffExpectedUzs ??
-                    Math.max(
-                      0,
-                      getOrderGrandTotal(activeOrder) - getOrderDeliveryFee(activeOrder),
-                    ),
+                  activeOrder.courierCashHandoffExpectedUzs ?? courierMarketCashBreakdown(activeOrder).toCashierUzs,
                 ).toLocaleString('uz-UZ')}{' '}
                 so'm
               </div>
@@ -3426,6 +3542,7 @@ export default function CourierDashboard() {
                         {getCourierPaymentStatusText(order)}
                       </span>
                     </div>
+                    {renderCourierCashCollectionHint(order, 'normal')}
                     {order.notes && (
                       <div className="text-sm p-2 rounded-xl" style={{ background: isDark ? 'rgba(59,130,246,0.14)' : 'rgba(59,130,246,0.1)' }}>
                         Izoh: {order.notes}

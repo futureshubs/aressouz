@@ -14956,12 +14956,7 @@ app.get("/make-server-27d0d16c/seller/orders", async (c) => {
       if (!order || order.deleted) continue;
       const ot = String(order.orderType || "").toLowerCase().trim();
       if (ot !== "shop") continue;
-      if (
-        !order.releasedToPreparerAt &&
-        isCashLikePaymentMethodRaw(order.paymentMethod ?? order.payment_method)
-      ) {
-        continue;
-      }
+      /** Do‘kon sotuvchisi barcha checkout buyurtmalarini ko‘rsin; naqd uchun filial `release-to-preparer` gacha `branchCashHold` saqlanadi. */
       const sid = inferShopIdFromCustomerOrder(order);
       if (normalizeShopIdForSeller(sid) !== sellerShopNorm) continue;
       const oid = String(order.id || "").trim();
@@ -19137,11 +19132,12 @@ app.post("/make-server-27d0d16c/delivery-zones/detect", async (c) => {
     }
     
     console.log('❌ Point is not in any zone');
-    return c.json({ 
-      success: false, 
+    // 200 — brauzer konsoli 404 deb xato ko‘rsatmasin; natija success: false
+    return c.json({
+      success: false,
       zone: null,
-      message: 'Bu joylashuv hech qaysi yetkazib berish zonasiga kirmaydi' 
-    }, 404);
+      message: 'Bu joylashuv hech qaysi yetkazib berish zonasiga kirmaydi',
+    });
   } catch (error: any) {
     console.error('Detect zone error:', error);
     return c.json({ error: `Zona aniqlashda xatolik: ${error.message}` }, 500);

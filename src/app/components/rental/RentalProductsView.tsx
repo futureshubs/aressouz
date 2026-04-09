@@ -55,6 +55,10 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
     platformCommissionPercent: '',
     latitude: '',
     longitude: '',
+    /** Kuryer mahsulotni shu manzildan oladi (ijara beruvchi) */
+    pickupAddress: '',
+    /** Garov summasi (so‘m), ixtiyoriy — kuryer/filial ko‘radi */
+    depositAmountUzs: '',
   });
 
   const [newFeature, setNewFeature] = useState('');
@@ -193,6 +197,10 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
         : `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products`;
 
       const w = Math.max(0, Number(formData.weightKg) || 0);
+      const depAmt = Math.max(
+        0,
+        Math.round(Number(String(formData.depositAmountUzs || '').replace(/\s/g, '')) || 0),
+      );
       const payload = {
         ...formData,
         branchId,
@@ -201,6 +209,8 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
         platformCommissionPercent: pctStr ? parseFloat(pctStr.replace(',', '.')) : null,
         latitude: latStr ? parseFloat(latStr.replace(',', '.')) : null,
         longitude: lngStr ? parseFloat(lngStr.replace(',', '.')) : null,
+        pickupAddress: String(formData.pickupAddress || '').trim(),
+        depositAmountUzs: depAmt,
       };
 
       console.log('📤 Sending request to:', url);
@@ -294,6 +304,11 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
         product.longitude != null && product.longitude !== ''
           ? String(product.longitude)
           : '',
+      pickupAddress: String(product.pickupAddress || ''),
+      depositAmountUzs:
+        product.depositAmountUzs != null && product.depositAmountUzs !== ''
+          ? String(product.depositAmountUzs)
+          : '',
     });
     setShowModal(true);
   };
@@ -324,6 +339,8 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
       platformCommissionPercent: '',
       latitude: '',
       longitude: '',
+      pickupAddress: '',
+      depositAmountUzs: '',
     });
     setEditingProduct(null);
     setNewFeature('');
@@ -972,6 +989,50 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                 </div>
               </div>
 
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div>
+                  <label className="block mb-2 font-medium">Garov summasi (so‘m, ixtiyoriy)</label>
+                  <input
+                    type="text"
+                    inputMode="numeric"
+                    value={formData.depositAmountUzs}
+                    onChange={(e) =>
+                      setFormData((prev) => ({ ...prev, depositAmountUzs: e.target.value }))
+                    }
+                    className="w-full px-4 py-3 rounded-2xl outline-none"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                    }}
+                    placeholder="Masalan: 500000"
+                  />
+                </div>
+              </div>
+
+              <div>
+                <label className="block mb-2 font-medium">Olib ketish manzili (ijara beruvchi)</label>
+                <textarea
+                  value={formData.pickupAddress}
+                  onChange={(e) =>
+                    setFormData((prev) => ({ ...prev, pickupAddress: e.target.value }))
+                  }
+                  rows={3}
+                  className="w-full px-4 py-3 rounded-2xl outline-none resize-y min-h-[5rem]"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
+                    border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
+                  }}
+                  placeholder="Kuryer mahsulotni qayerdan oladi — to‘liq manzil, orientir"
+                />
+                <p
+                  className="text-xs mt-1.5"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
+                >
+                  Buyurtmada kuryer va Telegram xabarda «olib ketish» sifatida chiqadi. Mijoz manzili alohida
+                  (checkout).
+                </p>
+              </div>
+
               {/* Min Duration */}
               <div>
                 <label className="block mb-2 font-medium">Minimal muddat</label>
@@ -1219,10 +1280,9 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                     className="text-xs mt-1.5"
                     style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
                   >
-                    Buyurtma tushganda shu chatga «Sizdan buyurtma qilindi» xabari ketadi. Filial uchun
-                    umumiy chatni yuqoridagi «Filial: ijara buyurtma Telegram» blokida ham kiritishingiz
-                    mumkin. Bot: TELEGRAM_RENTAL_BOT_TOKEN (yo‘q bo‘lsa TELEGRAM_BOT_TOKEN). Guruhda
-                    sinov qilayotgan bo‘lsangiz, botni guruhga qo‘shing va xabar yuborish huquqi bering.
+                    Filial buyurtmani qabul qilgach shu chatga «buyurtma qabul qilindi, tayyorlang» xabari ketadi
+                    (olib ketish / mijoz manzili / garov bilan). Filial uchun umumiy chatni «Filial: ijara buyurtma
+                    Telegram» da ham sozlashingiz mumkin. Bot: TELEGRAM_RENTAL_BOT_TOKEN yoki TELEGRAM_BOT_TOKEN.
                   </p>
                   <button
                     type="button"

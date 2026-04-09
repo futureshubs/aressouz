@@ -378,6 +378,46 @@ const parseMoneyValue = (value: unknown) => {
   return Number.isFinite(parsed) ? parsed : 0;
 };
 
+/** Do‘kon savati: `shopId` bor, `branchId` yo‘q — server zonalar uchun filial kerak. */
+async function inferBranchIdFromShopCartItems(items: any[]): Promise<string | null> {
+  if (!Array.isArray(items) || items.length === 0) return null;
+  const seenShop = new Set<string>();
+  for (const it of items) {
+    if (!isShopProductCartLine(it)) continue;
+    const candidates = [
+      it?.shopId,
+      it?.product?.shopId,
+      it?.variant?.shopId,
+      it?.product?.shop?.id,
+      it?.shop?.id,
+    ].filter(Boolean);
+    for (const c of candidates) {
+      let sid = String(c).trim();
+      if (sid.startsWith('shop:')) sid = sid.slice('shop:'.length);
+      if (!sid || seenShop.has(sid)) continue;
+      seenShop.add(sid);
+      try {
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops/${encodeURIComponent(sid)}`,
+          {
+            headers: {
+              Authorization: `Bearer ${publicAnonKey}`,
+              'Content-Type': 'application/json',
+            },
+          },
+        );
+        if (!response.ok) continue;
+        const data = await response.json();
+        const bid = data?.shop?.branchId;
+        if (bid) return String(bid).trim();
+      } catch {
+        /* ignore */
+      }
+    }
+  }
+  return null;
+}
+
 const inferCheckoutBranchId = async (items: any[]) => {
   const firstItem = items.find((item: any) =>
     item?.branchId ||
@@ -400,6 +440,11 @@ const inferCheckoutBranchId = async (items: any[]) => {
 
   if (directBranchId) {
     return directBranchId;
+  }
+
+  const branchFromShop = await inferBranchIdFromShopCartItems(items);
+  if (branchFromShop) {
+    return branchFromShop;
   }
 
   const normalizedRegion = normalizeLocationValue(firstItem?.restaurantRegion);
@@ -878,12 +923,14 @@ export default function Checkout({
     try {
       let branchIdRaw = await inferCheckoutBranchId(cartItems || []);
       if (!branchIdRaw && Array.isArray(rentalLineItems) && rentalLineItems.length > 0) {
-        const r0 = rentalLineItems[0] as Record<string, unknown>;
+        const r0 = rentalLineItems[0] as RentalCartItem & {
+          branchId?: string;
+          product?: { branchId?: string };
+        };
         branchIdRaw =
-          (r0?.branchId as string) ||
-          (r0?.product && typeof r0.product === 'object'
-            ? (r0.product as { branchId?: string }).branchId
-            : null) ||
+          r0?.item?.branchId ||
+          r0?.branchId ||
+          (r0?.product && typeof r0.product === 'object' ? r0.product.branchId : undefined) ||
           null;
       }
       const bid = branchIdRaw ? String(branchIdRaw).trim() : '';
@@ -940,7 +987,18 @@ export default function Checkout({
     zonesList?: any[],
   ) => {
     const zones = Array.isArray(zonesList) ? zonesList : deliveryZones;
-    const branchIdRaw = await inferCheckoutBranchId(cartItems || []);
+    let branchIdRaw = await inferCheckoutBranchId(cartItems || []);
+    if (!branchIdRaw && Array.isArray(rentalLineItems) && rentalLineItems.length > 0) {
+      const r0 = rentalLineItems[0] as RentalCartItem & {
+        branchId?: string;
+        product?: { branchId?: string };
+      };
+      branchIdRaw =
+        r0?.item?.branchId ||
+        r0?.branchId ||
+        (r0?.product && typeof r0.product === 'object' ? r0.product.branchId : undefined) ||
+        null;
+    }
     const branchId = branchIdRaw ? String(branchIdRaw).trim() : '';
 
     let remoteZone: any = null;
