@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { X, Upload, Plus, Trash2, Home, Car, ChevronRight } from 'lucide-react';
+import { X, Upload, Plus, Trash2, Home, Car, ChevronRight, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { houseCategories } from '../data/houses';
 import { carCategories } from '../data/cars';
@@ -770,7 +770,9 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         background: 'rgba(0, 0, 0, 0.7)',
         backdropFilter: 'blur(8px)',
       }}
-      onClick={onClose}
+      onClick={() => {
+        if (!isSubmitting) onClose();
+      }}
     >
       {/* Content Container - Full screen on mobile, centered on desktop */}
       <div className="w-full h-full flex items-start sm:items-center justify-center">
@@ -798,8 +800,10 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
             E'lon joylash
           </h2>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2.5 sm:p-3 rounded-full transition-all active:scale-95"
+            disabled={isSubmitting}
+            className="p-2.5 sm:p-3 rounded-full transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
             }}
@@ -2031,9 +2035,10 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
             }}
           >
             <button
+              type="button"
               onClick={handleSubmit}
-              disabled={isSubmitting}
-              className="w-full p-4 rounded-2xl transition-all active:scale-98 disabled:opacity-50"
+              disabled={isSubmitting || isUploadingImages}
+              className="w-full p-4 rounded-2xl transition-all active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               style={{
                 backgroundImage: accentColor.gradient,
                 boxShadow: isDark
@@ -2041,6 +2046,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                   : `0 6px 20px ${accentColor.color}4d, inset 0 1px 0 rgba(255, 255, 255, 0.5)`,
               }}
             >
+              {isSubmitting && <Loader2 className="w-5 h-5 animate-spin shrink-0 text-white" />}
               <span className="font-bold text-white text-lg">
                 {isSubmitting ? 'Yuklanmoqda...' : 'E\'lon joylash'}
               </span>

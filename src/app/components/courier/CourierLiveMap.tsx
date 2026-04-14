@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
-import { Maximize2, Minimize2, Navigation, X } from 'lucide-react';
+import { Maximize2, Minimize2, Navigation, X, Loader2 } from 'lucide-react';
 import { formatOrderNumber } from '../../utils/orderNumber';
 import { distanceKmForCourierUi, getOrderMapPoint } from '../../utils/courierOrderGeo';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
@@ -247,6 +247,7 @@ export default function CourierLiveMap({
   const hasAutoFittedRef = useRef(false);
   const ordersFitSignatureRef = useRef('');
   const [mapExpanded, setMapExpanded] = useState(false);
+  const [routeLoading, setRouteLoading] = useState(false);
   const mobileFullscreen = isMobileLayout && mapExpanded;
   const visibilityRefetchTick = useVisibilityTick();
 
@@ -366,26 +367,37 @@ export default function CourierLiveMap({
     routePolylineRef.current?.remove();
     routePolylineRef.current = null;
 
-    if (!routePreview) return;
+    if (!routePreview) {
+      setRouteLoading(false);
+      return;
+    }
 
     const ac = new AbortController();
     const { start, end } = routePreview;
 
     (async () => {
-      const pts = await fetchOsrmDrivingRoute(start, end, ac.signal);
-      if (ac.signal.aborted || !mapRef.current) return;
-      const line = L.polyline(pts, {
-        color: accentColor.color,
-        weight: 5,
-        opacity: 0.9,
-        lineJoin: 'round',
-      }).addTo(mapRef.current);
-      routePolylineRef.current = line;
-      const b = L.latLngBounds(pts);
-      map.fitBounds(b, { padding: [64, 64], maxZoom: 17, animate: true });
+      setRouteLoading(true);
+      try {
+        const pts = await fetchOsrmDrivingRoute(start, end, ac.signal);
+        if (ac.signal.aborted || !mapRef.current) return;
+        const line = L.polyline(pts, {
+          color: accentColor.color,
+          weight: 5,
+          opacity: 0.9,
+          lineJoin: 'round',
+        }).addTo(mapRef.current);
+        routePolylineRef.current = line;
+        const b = L.latLngBounds(pts);
+        map.fitBounds(b, { padding: [64, 64], maxZoom: 17, animate: true });
+      } finally {
+        if (!ac.signal.aborted) setRouteLoading(false);
+      }
     })();
 
-    return () => ac.abort();
+    return () => {
+      ac.abort();
+      setRouteLoading(false);
+    };
   }, [
     routePreview,
     accentColor.color,
@@ -798,6 +810,24 @@ export default function CourierLiveMap({
               transition: mobileFullscreen || pageMode ? undefined : 'height 0.25s ease, min-height 0.25s ease',
             }}
           />
+          {routeLoading && routePreview ? (
+            <div
+              className="pointer-events-none absolute inset-0 z-[900] flex items-center justify-center"
+              style={{ background: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.55)' }}
+            >
+              <div
+                className="flex items-center gap-2 rounded-2xl border px-4 py-2.5 text-sm font-semibold shadow-lg"
+                style={{
+                  background: isDark ? 'rgba(26,26,26,0.92)' : '#ffffff',
+                  borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                  color: isDark ? '#f3f4f6' : '#111827',
+                }}
+              >
+                <Loader2 className="h-5 w-5 animate-spin shrink-0" style={{ color: accentColor.color }} />
+                Yo‘l chizilmoqda…
+              </div>
+            </div>
+          ) : null}
           <button
             type="button"
             onClick={focusOnCourier}

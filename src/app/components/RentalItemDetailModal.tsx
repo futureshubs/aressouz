@@ -13,6 +13,7 @@ import {
   ChevronLeft,
   ChevronRight,
   ShoppingCart,
+  Loader2,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
@@ -506,7 +507,12 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
           </div>
 
           {/* Reviews Section */}
-          {ratings.length > 0 && (
+          {loadingRatings ? (
+            <div className="mb-6 flex items-center justify-center gap-2 py-6 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+              <Loader2 className="size-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
+              Sharhlar yuklanmoqda…
+            </div>
+          ) : ratings.length > 0 ? (
             <div className="mb-6">
               <h3 
                 className="text-lg font-semibold mb-3 flex items-center gap-2"
@@ -572,7 +578,7 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
                 </div>
               )}
             </div>
-          )}
+          ) : null}
           </div>
           </div>
 

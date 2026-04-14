@@ -164,15 +164,6 @@ function isPaidLikeRestaurant(ps: unknown): boolean {
   return s === 'paid' || s === 'completed' || s === 'success';
 }
 
-function isCashLikeRestaurant(pm: unknown): boolean {
-  const pmNorm = String(pm ?? '').toLowerCase().trim();
-  const c = pmNorm.replace(/\s+/g, '');
-  if (c === 'cash' || c === 'naqd' || c === 'naqdpul' || c === 'cod') return true;
-  if (pmNorm.includes('naqd') || pmNorm.includes('naqt')) return true;
-  if (pmNorm.includes('cash')) return true;
-  return false;
-}
-
 /** Taom buyurtmasi: asosiy `order:id` va restoran prefiksini birga yangilash */
 async function persistRestaurantOrderWrite(order: any, matchedKey: string): Promise<void> {
   await kv.set(matchedKey, order);
@@ -196,11 +187,8 @@ async function listRestaurantOrders(canonicalRestaurantId: string): Promise<any[
       ? await kv.getByPrefix(`order:restaurant:${legacyKey}:`)
       : [];
   const merged = mergeOrdersLists([primary, secondary]);
-  return merged.filter((o: any) => {
-    if (o?.releasedToPreparerAt) return true;
-    if (!isCashLikeRestaurant(o?.paymentMethod ?? o?.payment_method)) return true;
-    return false;
-  });
+  // Avval naqd + filial qabuli bo‘lmaguncha yashirilgan — restoran Telegram oladi, lekin panel bo‘sh qolardi.
+  return merged.filter((o: any) => !o?.deleted);
 }
 
 // ==================== RESTORANLAR ====================

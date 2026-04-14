@@ -34,7 +34,8 @@ import {
   Camera,
   FileText,
   Settings,
-  LogOut
+  LogOut,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
@@ -104,6 +105,8 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [roleFilter, setRoleFilter] = useState('all');
   const [showDetails, setShowDetails] = useState<Employee | null>(null);
+  const [employeeMutationBusy, setEmployeeMutationBusy] = useState(false);
+  const [employeeDeleteBusyId, setEmployeeDeleteBusyId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     firstName: '',
@@ -175,6 +178,7 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
   }, [branchId, searchTerm, statusFilter, roleFilter, visibilityRefetchTick]);
 
   const handleAddEmployee = async () => {
+    setEmployeeMutationBusy(true);
     try {
       console.log('➕ Adding new employee...');
 
@@ -224,13 +228,15 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
     } catch (error) {
       console.error('❌ Error adding employee:', error);
       toast.error('Ishchini qo\'shishda xatolik');
+    } finally {
+      setEmployeeMutationBusy(false);
     }
   };
 
   const handleUpdateEmployee = async () => {
+    if (!editingEmployee) return;
+    setEmployeeMutationBusy(true);
     try {
-      if (!editingEmployee) return;
-
       console.log('✏️ Updating employee...');
 
       const response = await fetch(
@@ -276,15 +282,15 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
     } catch (error) {
       console.error('❌ Error updating employee:', error);
       toast.error('Ishchini yangilashda xatolik');
+    } finally {
+      setEmployeeMutationBusy(false);
     }
   };
 
   const handleDeleteEmployee = async (id: string) => {
     if (!confirm('Rostdan ham bu ishchini o\'chirmoqchimisiz?')) return;
 
-    const prevEmployees = employees;
-    setEmployees((prev) => prev.filter((e) => e.id !== id));
-
+    setEmployeeDeleteBusyId(id);
     try {
       console.log('🗑️ Deleting employee:', id);
 
@@ -301,12 +307,14 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
       if (!response.ok) {
         throw new Error('Ishchini o\'chirishda xatolik');
       }
-      
+
+      setEmployees((prev) => prev.filter((e) => e.id !== id));
       toast.success('Ishchi muvaffaqiyatli o\'chirildi');
     } catch (error) {
       console.error('❌ Error deleting employee:', error);
-      setEmployees(prevEmployees);
       toast.error('Ishchini o\'chirishda xatolik');
+    } finally {
+      setEmployeeDeleteBusyId(null);
     }
   };
 
@@ -591,17 +599,23 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
                   Tahrirlash
                 </button>
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDeleteEmployee(employee.id);
+                    void handleDeleteEmployee(employee.id);
                   }}
-                  className="p-2 rounded-lg border text-red-500 transition-all hover:shadow-lg"
+                  disabled={employeeDeleteBusyId === employee.id}
+                  className="p-2 rounded-lg border text-red-500 transition-all hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[40px]"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.8)',
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
                   }}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  {employeeDeleteBusyId === employee.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>
@@ -854,16 +868,23 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
 
             <div className="flex items-center gap-3 mt-6">
               <button
-                onClick={editingEmployee ? handleUpdateEmployee : handleAddEmployee}
-                className="flex-1 py-2 rounded-xl font-medium transition-all"
+                type="button"
+                onClick={() => {
+                  void (editingEmployee ? handleUpdateEmployee() : handleAddEmployee());
+                }}
+                disabled={employeeMutationBusy}
+                className="flex-1 py-2 rounded-xl font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
                   background: accentColor.gradient,
                   color: '#ffffff'
                 }}
               >
+                {employeeMutationBusy && <Loader2 className="w-4 h-4 animate-spin shrink-0" />}
                 {editingEmployee ? 'Yangilash' : 'Qo\'shish'}
               </button>
               <button
+                type="button"
+                disabled={employeeMutationBusy}
                 onClick={() => {
                   setIsAddingEmployee(false);
                   setEditingEmployee(null);
@@ -888,7 +909,7 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
                     }
                   });
                 }}
-                className="flex-1 py-2 rounded-xl border font-medium transition-all"
+                className="flex-1 py-2 rounded-xl border font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
                   borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',

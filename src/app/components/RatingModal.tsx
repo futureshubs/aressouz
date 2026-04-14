@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { X, Star } from 'lucide-react';
+import { X, Star, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 
@@ -70,7 +70,9 @@ export function RatingModal({ isOpen, onClose, productId, productName, orderId, 
   return (
     <div 
       className="fixed inset-0 z-50 flex items-center justify-center p-4"
-      onClick={onClose}
+      onClick={() => {
+        if (!submitting) onClose();
+      }}
     >
       {/* Backdrop */}
       <div 
@@ -91,8 +93,10 @@ export function RatingModal({ isOpen, onClose, productId, productName, orderId, 
       >
         {/* Close Button */}
         <button
+          type="button"
           onClick={onClose}
-          className="absolute top-4 right-4 p-2 rounded-full backdrop-blur-xl transition-all active:scale-90"
+          disabled={submitting}
+          className="absolute top-4 right-4 p-2 rounded-full backdrop-blur-xl transition-all active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
             background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
           }}
@@ -120,10 +124,12 @@ export function RatingModal({ isOpen, onClose, productId, productName, orderId, 
             {[1, 2, 3, 4, 5].map((star) => (
               <button
                 key={star}
+                type="button"
                 onClick={() => setRating(star)}
                 onMouseEnter={() => setHoveredRating(star)}
                 onMouseLeave={() => setHoveredRating(0)}
-                className="transition-all active:scale-90"
+                disabled={submitting}
+                className="transition-all active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 <Star
                   className="size-12"
@@ -148,9 +154,10 @@ export function RatingModal({ isOpen, onClose, productId, productName, orderId, 
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
+              disabled={submitting}
               placeholder="Tajribangiz haqida yozing..."
               rows={4}
-              className="w-full px-4 py-3 rounded-2xl resize-none outline-none transition-all"
+              className="w-full px-4 py-3 rounded-2xl resize-none outline-none transition-all disabled:opacity-60"
               style={{
                 background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
                 border: `2px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
@@ -161,15 +168,17 @@ export function RatingModal({ isOpen, onClose, productId, productName, orderId, 
 
           {/* Submit Button */}
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={submitting || rating === 0}
-            className="w-full py-4 rounded-2xl font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="w-full py-4 rounded-2xl font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             style={{
               background: accentColor.color,
               color: '#ffffff',
               boxShadow: `0 8px 24px ${accentColor.color}66`,
             }}
           >
+            {submitting && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
             {submitting ? 'Yuklanmoqda...' : 'Baholash'}
           </button>
         </div>

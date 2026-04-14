@@ -19,6 +19,9 @@ import { coerceKvTestMode } from './payment-kv-utils.ts';
  *
  * X-Auth faqat Supabase Secrets: PAYCOM_REGISTER_ID + PAYCOM_SECRET_PROD / PAYCOM_SECRET_TEST.
  * `payment_method:payme` KV da faqat `enabled` (checkoutda ko‘rsatish) — kalitlar saqlanmaydi.
+ *
+ * Qisqa URL (ixtiyoriy `payment-webhooks` funksiyasi): `.../functions/v1/payment-webhooks/payme/create-receipt`
+ * (asosiy server: `.../make-server-27d0d16c/payme/create-receipt`).
  * Test/prod: Secret `PAYCOM_USE_TEST`.
  * Receipt KV da `useTest` saqlanadi — create/check bir xil muhitda bo‘lsin.
  *

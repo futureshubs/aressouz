@@ -1,5 +1,5 @@
-// Preparer Panel - For preparing market and rental orders
-// Tayyorlovchi paneli - Market va Ijara buyurtmalarini tayyorlash uchun
+// Preparer Panel - Market, rental va do‘kon buyurtmalari (filial naqd qabulidan keyin)
+// Tayyorlovchi paneli
 
 import { useState, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import {
   XCircle, Phone, MapPin, RefreshCw,
   User, Moon, Sun, Check, Scan, BarChart3, Award,
   TrendingUp, Activity, DollarSign, BriefcaseBusiness, Loader2,
+  ChevronRight,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
@@ -32,7 +33,7 @@ function shouldHideMarketCashBeforeBranchAccept(order: {
   releasedToPreparerAt?: string;
 }): boolean {
   const ot = String(order.orderType || order.type || '').toLowerCase();
-  if (ot !== 'market') return false;
+  if (ot !== 'market' && ot !== 'shop') return false;
   if (order.releasedToPreparerAt) return false;
   const raw = String(order.paymentMethod ?? order.payment_method ?? '')
     .toLowerCase()
@@ -106,26 +107,31 @@ type SwipeConfirmProps = {
   isDark: boolean;
   gradient: string;
   disabled?: boolean;
-  /** Qabul yuborilayotganda — tugma bloklanadi va aylanuvchi indikator */
+  /** Tashqi (masalan, boshqa kartochka) yuklanish — bloklash */
   busy?: boolean;
-  onConfirm: () => void;
+  onConfirm: () => void | Promise<void>;
 };
 
-function SwipeConfirm({ label, isDark, gradient, disabled = false, busy = false, onConfirm }: SwipeConfirmProps) {
+function SwipeConfirm({ label, isDark, gradient, disabled = false, busy: busyProp = false, onConfirm }: SwipeConfirmProps) {
   const trackRef = useRef<HTMLDivElement | null>(null);
+  const maxDragRef = useRef(0);
   const [dragging, setDragging] = useState(false);
   const [dragX, setDragX] = useState(0);
   const [startX, setStartX] = useState(0);
   const [startDragX, setStartDragX] = useState(0);
-  const knobSize = 42;
+  const [localBusy, setLocalBusy] = useState(false);
+  const knobSize = 48;
+
+  const busy = busyProp || localBusy;
 
   const maxDrag = () => {
     const width = trackRef.current?.clientWidth || 0;
-    return Math.max(0, width - knobSize - 6);
+    return Math.max(0, width - knobSize - 8);
   };
 
   const begin = (clientX: number) => {
     if (disabled || busy) return;
+    maxDragRef.current = maxDrag();
     setDragging(true);
     setStartX(clientX);
     setStartDragX(dragX);
@@ -133,61 +139,115 @@ function SwipeConfirm({ label, isDark, gradient, disabled = false, busy = false,
 
   const move = (clientX: number) => {
     if (!dragging || disabled || busy) return;
-    const next = Math.max(0, Math.min(maxDrag(), startDragX + (clientX - startX)));
+    const m = maxDrag();
+    if (m > 0) maxDragRef.current = m;
+    const cap = maxDragRef.current || m;
+    const next = Math.max(0, Math.min(cap, startDragX + (clientX - startX)));
     setDragX(next);
   };
 
   const end = () => {
     if (!dragging) return;
-    const max = maxDrag();
+    const max = maxDragRef.current || maxDrag();
     const confirmed = max > 0 && dragX >= max * 0.82;
     setDragging(false);
     if (confirmed) {
       setDragX(max);
-      onConfirm();
-      window.setTimeout(() => setDragX(0), 400);
+      void (async () => {
+        setLocalBusy(true);
+        try {
+          await Promise.resolve(onConfirm());
+        } finally {
+          setLocalBusy(false);
+          setDragX(0);
+        }
+      })();
       return;
     }
     setDragX(0);
   };
 
+  const maxForUi = maxDragRef.current || maxDrag();
+  const fillRatio = maxForUi > 0 ? Math.min(1, dragX / maxForUi) : 0;
+  const trackBg = disabled || busy
+    ? isDark
+      ? 'rgba(255,255,255,0.07)'
+      : 'rgba(0,0,0,0.06)'
+    : gradient;
+
   return (
     <div
       ref={trackRef}
-      className="relative h-12 rounded-2xl overflow-hidden select-none"
+      className="relative h-[52px] sm:h-14 rounded-2xl overflow-hidden select-none border shadow-md"
       style={{
-        background: disabled || busy
-          ? (isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)')
-          : gradient,
+        background: trackBg,
+        borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+        boxShadow: isDark
+          ? '0 4px 24px rgba(0,0,0,0.45), inset 0 1px 0 rgba(255,255,255,0.06)'
+          : '0 4px 20px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.7)',
+        touchAction: 'none',
       }}
       onPointerMove={(e) => move(e.clientX)}
       onPointerUp={end}
       onPointerCancel={end}
       onPointerLeave={end}
     >
-      <div className="absolute inset-0 flex items-center justify-center">
-        <span className="font-bold text-white px-10 text-center text-sm sm:text-base">
-          {busy ? 'Yuborilmoqda…' : label}
-        </span>
+      {/* Surish progressi — scaleX (width o‘rniga) silliq GPU animatsiya */}
+      {!busy && (
+        <div
+          className="absolute inset-y-0 left-0 w-full rounded-2xl pointer-events-none origin-left will-change-transform"
+          style={{
+            transform: `scaleX(${fillRatio})`,
+            transition: dragging ? 'none' : 'transform 420ms cubic-bezier(0.22, 1, 0.32, 1)',
+            background: 'linear-gradient(90deg, rgba(255,255,255,0.34) 0%, rgba(255,255,255,0.12) 100%)',
+            boxShadow: 'inset 0 0 28px rgba(255,255,255,0.2)',
+          }}
+        />
+      )}
+      <div
+        className="absolute inset-0 flex items-center justify-center pointer-events-none px-14 sm:px-16 will-change-transform"
+        style={{
+          transform: busy ? undefined : `translateX(${-dragX * 0.12}px)`,
+          opacity: busy ? 1 : 1 - fillRatio * 0.22,
+          transition: dragging ? 'none' : 'transform 420ms cubic-bezier(0.22, 1, 0.32, 1), opacity 420ms cubic-bezier(0.22, 1, 0.32, 1)',
+        }}
+      >
+        {busy ? (
+          <span className="flex items-center justify-center gap-2 font-bold text-white text-sm sm:text-base drop-shadow-md">
+            <Loader2 className="w-5 h-5 shrink-0 animate-spin opacity-95" />
+            Yuborilmoqda…
+          </span>
+        ) : (
+          <span className="flex items-center justify-center gap-2 font-bold text-white text-center text-sm sm:text-base tracking-wide drop-shadow-[0_1px_2px_rgba(0,0,0,0.35)]">
+            {label}
+            <ChevronRight className="w-4 h-4 shrink-0 opacity-80 sm:w-[18px] sm:h-[18px]" aria-hidden />
+          </span>
+        )}
       </div>
       <button
         type="button"
         disabled={disabled || busy}
         onPointerDown={(e) => begin(e.clientX)}
-        className="absolute top-[3px] left-[3px] w-[42px] h-[42px] rounded-xl flex items-center justify-center border"
+        className="absolute top-1 left-1 flex items-center justify-center rounded-xl z-10 border-2 border-white/40 will-change-transform"
         style={{
-          transform: `translateX(${dragX}px)`,
-          transition: dragging ? 'none' : 'transform 160ms ease',
-          background: 'rgba(255,255,255,0.92)',
-          borderColor: 'rgba(0,0,0,0.08)',
+          width: knobSize,
+          height: knobSize - 4,
+          transform: `translateX(${dragX}px) scale(${dragging ? 1.05 : 1}) rotate(${fillRatio * 5}deg)`,
+          transition: dragging
+            ? 'none'
+            : 'transform 480ms cubic-bezier(0.175, 0.85, 0.35, 1.18), box-shadow 240ms ease',
+          background: busy ? 'rgba(255,255,255,0.85)' : 'linear-gradient(180deg, #ffffff 0%, #f1f5f9 100%)',
+          boxShadow: dragging
+            ? '0 10px 28px rgba(0,0,0,0.28), 0 0 0 3px rgba(255,255,255,0.45)'
+            : '0 4px 14px rgba(0,0,0,0.18), 0 0 0 1px rgba(0,0,0,0.06)',
           touchAction: 'none',
         }}
         aria-label={label}
       >
         {busy ? (
-          <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#2563eb' }} />
+          <Loader2 className="w-5 h-5 animate-spin text-teal-600" />
         ) : (
-          <Check className="w-5 h-5" style={{ color: '#2563eb' }} />
+          <Check className="w-5 h-5 text-teal-600" strokeWidth={2.5} />
         )}
       </button>
     </div>
@@ -262,7 +322,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
             const allowedOrders = (data.orders || []).filter((order: Order) => {
               if (shouldHideMarketCashBeforeBranchAccept(order)) return false;
               const t = String(order.orderType || order.type || 'market').toLowerCase();
-              return t === 'market' || t === 'rental';
+              return t === 'market' || t === 'rental' || t === 'shop';
             });
             const dedupedOrders = Array.from(
               new Map(allowedOrders.map((order: Order) => [order.id, order])).values(),
@@ -291,6 +351,17 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
       if (!silent) setIsLoading(false);
     }
   };
+
+  const loadOrdersRef = useRef(loadOrders);
+  loadOrdersRef.current = loadOrders;
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void loadOrdersRef.current({ silent: true });
+    }, 8000);
+    return () => window.clearInterval(id);
+  }, [preparer.id]);
 
   useVisibilityRefetch(() => {
     void loadOrders({ silent: true });
@@ -677,16 +748,16 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
   };
 
   return (
-    <div 
-      className="min-h-dvh pb-24 sm:pb-28 max-[639px]:pb-[max(6rem,calc(6rem+env(safe-area-inset-bottom,0px)))]"
+    <div
+      className="app-panel-viewport app-safe-pad"
       style={{
         background: isDark ? '#000' : '#f5f5f5',
         color: textColor,
       }}
     >
-      {/* Header */}
+      {/* Header — scroll tashqarida, mobil WebViewda vertikal scroll ishlaydi */}
       <div
-        className="sticky top-0 z-10 border-b"
+        className="shrink-0 z-10 border-b"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -786,8 +857,8 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
         </div>
       </div>
 
-      {/* Content Area */}
-      <div className="p-3 sm:p-4 pb-24 sm:pb-28">
+      {/* Content Area — faqat bu qism scroll (filial/kuryer panellar bilan bir xil) */}
+      <div className="app-panel-main-scroll min-w-0 p-3 sm:p-4 pb-24 sm:pb-28 max-[639px]:pb-[max(6rem,calc(6rem+env(safe-area-inset-bottom,0px)))]">
         {/* Orders Tab */}
         {activeMainTab === 'orders' && (
           <>
@@ -983,7 +1054,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
                             gradient={`linear-gradient(135deg, ${accentColor.color}, ${accentColor.color}dd)`}
                             busy={acceptingOrderId === order.id}
                             disabled={acceptingOrderId !== null && acceptingOrderId !== order.id}
-                            onConfirm={() => void acceptOrder(order)}
+                            onConfirm={() => acceptOrder(order)}
                           />
                         )}
 

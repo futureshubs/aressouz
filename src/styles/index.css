@@ -2,3 +2,11 @@
 @import './tailwind.css';
 @import './theme.css';
 @import 'leaflet/dist/leaflet.css';
+
+/* Market buyurtmalar preview: Swiper dynamic bullets ostida bo‘sh joy */
+.market-orders-preview-swiper .swiper-pagination {
+  bottom: 2px !important;
+}
+.market-orders-preview-swiper.swiper {
+  padding-bottom: 2.25rem;
+}

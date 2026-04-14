@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router';
 import { RouteErrorBoundary } from '../components/RouteErrorBoundary';
 import { useTheme } from '../context/ThemeContext';
@@ -26,6 +26,7 @@ import {
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { useTabVisible } from '../hooks/useTabVisible';
 import AddProductModal from '../components/seller/AddProductModal';
 import EditProductModal from '../components/seller/EditProductModal';
 import SellerWarehousePanel, {
@@ -58,6 +59,7 @@ export default function SellerDashboard() {
   const [isProductModalOpen, setIsProductModalOpen] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [orderActionId, setOrderActionId] = useState<string | null>(null);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const [statistics, setStatistics] = useState<any>(null);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
@@ -151,10 +153,11 @@ export default function SellerDashboard() {
     return Array.isArray(data.orders) ? data.orders : [];
   };
 
-  const loadData = async () => {
+  const loadData = async (opts?: { silent?: boolean }) => {
     if (!sellerInfo) return;
+    const silent = opts?.silent === true;
 
-    setIsLoading(true);
+    if (!silent) setIsLoading(true);
     try {
       const token = sellerInfo.token;
       const sellerHeaders = {
@@ -190,7 +193,7 @@ export default function SellerDashboard() {
           applyInventoryPayload(dInv, prodList);
         } else {
           const msg = dInv.error || `Ombor: HTTP ${rInv.status}`;
-          toast.error(msg);
+          if (!silent) toast.error(msg);
           setInventoryLoadError(msg);
           applyInventoryPayload({}, prodList);
         }
@@ -204,7 +207,7 @@ export default function SellerDashboard() {
         );
         const data = await res.json().catch(() => ({}));
         if (!res.ok) {
-          toast.error(data.error || `Buyurtmalar: HTTP ${res.status}`);
+          if (!silent) toast.error(data.error || `Buyurtmalar: HTTP ${res.status}`);
           setOrders([]);
           return;
         }
@@ -247,7 +250,7 @@ export default function SellerDashboard() {
           applyInventoryPayload(data, prodList);
         } else {
           const msg = data.error || `Ombor: HTTP ${rInv.status}`;
-          toast.error(msg);
+          if (!silent) toast.error(msg);
           setInventoryLoadError(msg);
           if (rInv.status === 401) {
             setInventoryLines([]);
@@ -271,14 +274,27 @@ export default function SellerDashboard() {
       }
     } catch (error) {
       console.error('Error loading data:', error);
-      toast.error('Ma\'lumotlar yuklanmadi');
+      if (!silent) toast.error('Ma\'lumotlar yuklanmadi');
     } finally {
-      setIsLoading(false);
+      if (!silent) setIsLoading(false);
     }
   };
 
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+
+  const sellerTabVisible = useTabVisible();
+
+  useEffect(() => {
+    if (!sellerInfo || !sellerTabVisible) return undefined;
+    const id = window.setInterval(() => {
+      void loadDataRef.current({ silent: true });
+    }, 8000);
+    return () => window.clearInterval(id);
+  }, [sellerInfo?.token, activeTab, sellerTabVisible]);
+
   useVisibilityRefetch(() => {
-    if (sellerInfo) void loadData();
+    if (sellerInfo) void loadData({ silent: true });
   });
 
   const handleLogout = () => {
@@ -390,7 +406,9 @@ export default function SellerDashboard() {
 
   const handleDeleteProduct = async (productId: string) => {
     if (!confirm('Bu mahsulotni o\'chirishni tasdiqlaysizmi?')) return;
+    if (!sellerInfo?.token) return;
 
+    setDeletingProductId(productId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/products/${productId}?token=${sellerInfo.token}`,
@@ -414,6 +432,8 @@ export default function SellerDashboard() {
     } catch (error) {
       console.error('Error deleting product:', error);
       toast.error('Mahsulotni o\'chirishda xatolik');
+    } finally {
+      setDeletingProductId(null);
     }
   };
 
@@ -944,11 +964,17 @@ export default function SellerDashboard() {
                                   Tahrirlash
                                 </button>
                                 <button
+                                  type="button"
                                   onClick={() => handleDeleteProduct(product.id)}
-                                  className="flex-1 px-3 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all active:scale-95"
+                                  disabled={deletingProductId === product.id}
+                                  className="flex-1 px-3 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                                   style={{ background: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}
                                 >
-                                  <Trash2 className="w-4 h-4" />
+                                  {deletingProductId === product.id ? (
+                                    <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                                  ) : (
+                                    <Trash2 className="w-4 h-4 shrink-0" />
+                                  )}
                                   O'chirish
                                 </button>
                               </div>

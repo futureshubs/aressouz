@@ -11,7 +11,14 @@ const supabase = createClient(
   Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
 );
 
-console.log('🎯 Auction routes initialized');
+const __auctionVerbose = () => {
+  const v = Deno.env.get("VERBOSE_SERVER_LOG")?.trim().toLowerCase();
+  const d = Deno.env.get("DEBUG_HTTP")?.trim().toLowerCase();
+  return v === "1" || v === "true" || d === "1" || d === "true";
+};
+if (__auctionVerbose()) {
+  console.log("🎯 Auction routes initialized");
+}
 
 // ==================== HELPER FUNCTIONS ====================
 

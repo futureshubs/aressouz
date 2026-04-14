@@ -7,7 +7,7 @@ import {
   ShoppingCart,
   DollarSign,
   Package,
-  RefreshCw,
+  Loader2,
   ArrowUpRight,
   ArrowDownRight,
   Building2,
@@ -208,7 +208,7 @@ export default function Analytics({ branchId, orderType = 'all' }: AnalyticsProp
     return (
       <div className="flex items-center justify-center min-h-96">
         <div className="text-center">
-          <RefreshCw className="w-8 h-8 animate-spin mx-auto mb-4" style={{ color: accentColor.color }} />
+          <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" style={{ color: accentColor.color }} />
           <p className={isDark ? 'text-gray-300' : 'text-gray-600'}>Analitika yuklanmoqda...</p>
         </div>
       </div>

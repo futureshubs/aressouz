@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { KeyRound, Lock, User, ArrowLeft } from 'lucide-react';
+import { KeyRound, Lock, User, ArrowLeft, Loader2 } from 'lucide-react';
 import {
   API_BASE_URL,
   DEV_API_BASE_URL,
@@ -149,9 +149,10 @@ export default function RentalProviderLogin() {
             <button
               type="submit"
               disabled={loading}
-              className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50"
+              className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50 flex items-center justify-center gap-2"
               style={{ background: accentColor.color }}
             >
+              {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
               {loading ? 'Kirilmoqda…' : 'Kirish'}
             </button>
           </form>

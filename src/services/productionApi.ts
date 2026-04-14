@@ -61,19 +61,14 @@ export class ProductionApiService {
       },
     };
 
-    console.log(`🌐 API Request: ${options.method || 'GET'} ${url} [${requestId}]`);
-
     for (let attempt = 1; attempt <= retries; attempt++) {
       try {
         const response = await fetch(url, config);
-        
-        console.log(`📊 Response Status: ${response.status} (attempt ${attempt}/${retries}) [${requestId}]`);
 
         // Handle successful responses
         if (response.ok) {
           const data = await response.json();
-          console.log(`✅ API Success:`, data);
-          
+
           return {
             success: true,
             data: data as T,
@@ -87,14 +82,12 @@ export class ProductionApiService {
 
         // Handle 401 Unauthorized - try fallback
         if (response.status === 401) {
-          console.warn(`⚠️ 401 Unauthorized - Attempting fallback [${requestId}]`);
           return this.handleUnauthorizedFallback(endpoint, requestId);
         }
 
         // Handle other errors
         const errorText = await response.text();
-        console.error(`❌ API Error (${response.status}):`, errorText);
-        
+
         if (attempt === retries) {
           return {
             success: false,
@@ -111,8 +104,6 @@ export class ProductionApiService {
         await this.delay(1000 * attempt);
 
       } catch (error) {
-        console.error(`❌ Request Failed (attempt ${attempt}/${retries}):`, error);
-        
         if (attempt === retries) {
           return {
             success: false,
@@ -146,8 +137,6 @@ export class ProductionApiService {
    * Handles 401 errors with fallback data
    */
   private static handleUnauthorizedFallback(endpoint: string, requestId: string): ApiResponse {
-    console.warn(`⚠️ Using fallback data for ${endpoint} [${requestId}]`);
-    
     // Return appropriate fallback data
     if (endpoint.includes('/public/branches')) {
       return {

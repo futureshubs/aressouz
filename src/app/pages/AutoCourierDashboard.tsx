@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { Car, LogOut, MapPin, Package, Phone, RefreshCw, Sparkles, User } from 'lucide-react';
+import { Car, LogOut, MapPin, Package, Phone, RefreshCw, Sparkles, User, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -96,14 +96,15 @@ export default function AutoCourierDashboard() {
     setSession(s);
   }, [navigate]);
 
-  const loadQueue = useCallback(async () => {
+  const loadQueue = useCallback(async (opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     const s = readSession();
     if (!s) {
       navigate('/avtokuryer');
       return;
     }
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const u = new URLSearchParams({ token: s.token });
       const [res, jobsRes, activeRes] = await Promise.all([
         fetch(`${baseUrl}/auto-courier/rental-queue?${u}`, {
@@ -154,15 +155,24 @@ export default function AutoCourierDashboard() {
       setOrders([]);
       setMyDeliveryJobs([]);
       setActiveRentals([]);
-      toast.error('Navbatni yuklashda xatolik');
+      if (!silent) toast.error('Navbatni yuklashda xatolik');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   }, [baseUrl, navigate]);
 
   useEffect(() => {
     if (session?.token) void loadQueue();
   }, [session?.token, loadQueue, visibilityTick]);
+
+  useEffect(() => {
+    if (!session?.token) return;
+    const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void loadQueue({ silent: true });
+    }, 8000);
+    return () => window.clearInterval(id);
+  }, [session?.token, loadQueue]);
 
   const claim = async (orderId: string) => {
     const s = readSession();
@@ -356,8 +366,13 @@ export default function AutoCourierDashboard() {
               borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
             }}
             aria-label="Yangilash"
+            disabled={loading}
           >
-            <RefreshCw className={`w-5 h-5 ${loading ? 'animate-spin' : ''}`} />
+            {loading ? (
+              <Loader2 className="w-5 h-5 animate-spin" style={{ color: accentColor.color }} />
+            ) : (
+              <RefreshCw className="w-5 h-5" />
+            )}
           </button>
           <button
             type="button"
@@ -443,7 +458,7 @@ export default function AutoCourierDashboard() {
             </p>
             {loading && orders.length === 0 ? (
               <div className="flex justify-center py-10">
-                <RefreshCw className="w-9 h-9 animate-spin opacity-35 text-amber-600" />
+                <Loader2 className="w-9 h-9 animate-spin opacity-80 text-amber-600" />
               </div>
             ) : orders.length === 0 ? (
               <div
@@ -516,10 +531,17 @@ export default function AutoCourierDashboard() {
                       type="button"
                       disabled={claiming === o.id}
                       onClick={() => void claim(o.id)}
-                      className="w-full py-3 rounded-2xl font-semibold transition-opacity disabled:opacity-50"
+                      className="w-full py-3 rounded-2xl font-semibold transition-opacity disabled:opacity-50 inline-flex items-center justify-center gap-2"
                       style={{ background: accentColor.color, color: '#fff' }}
                     >
-                      {claiming === o.id ? 'Biriktirilmoqda…' : 'O‘zimga olish'}
+                      {claiming === o.id ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                          Biriktirilmoqda…
+                        </>
+                      ) : (
+                        'O‘zimga olish'
+                      )}
                     </button>
                   </div>
                 ))}
@@ -690,9 +712,12 @@ export default function AutoCourierDashboard() {
                       type="button"
                       disabled={pickupBusyId === ro.id}
                       onClick={() => void confirmPickupFromCustomer(ro)}
-                      className="w-full py-3 rounded-2xl font-semibold text-white disabled:opacity-50"
+                      className="w-full py-3 rounded-2xl font-semibold text-white disabled:opacity-50 inline-flex items-center justify-center gap-2 disabled:cursor-not-allowed"
                       style={{ background: ro.pickupAlert === 'overdue' ? '#dc2626' : '#0d9488' }}
                     >
+                      {pickupBusyId === ro.id ? (
+                        <Loader2 className="w-5 h-5 shrink-0 animate-spin" />
+                      ) : null}
                       {pickupBusyId === ro.id ? 'Yuborilmoqda…' : 'Qaytarildim (mijozdan oldim)'}
                     </button>
                   </div>

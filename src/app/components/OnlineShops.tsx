@@ -1,7 +1,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
-import { Store, MapPin, Clock, Phone, Package, Truck, ShoppingCart, Star, Heart, X, ChevronRight, Filter, Trash2 } from 'lucide-react';
+import { Store, MapPin, Clock, Phone, Package, Truck, ShoppingCart, Star, Heart, X, ChevronRight, Filter, Trash2, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { buildAdminHeaders, getStoredAdminSessionToken } from '../utils/requestAuth';
 import { toast } from 'sonner';
@@ -92,21 +92,14 @@ export default function OnlineShops({
   const [deleteShop, setDeleteShop] = useState<any>(null);
   const [showDeleteShopModal, setShowDeleteShopModal] = useState(false);
   const [pressingShopId, setPressingShopId] = useState<string | null>(null);
+  const [deleteProductBusy, setDeleteProductBusy] = useState(false);
+  const [deleteShopBusy, setDeleteShopBusy] = useState(false);
 
   // Convert region ID to name for banners
   const selectedRegionData = regions.find(r => r.id === selectedRegion);
   const selectedRegionName = selectedRegionData?.name || '';
   const selectedDistrictData = selectedRegionData?.districts.find(d => d.id === selectedDistrict);
   const selectedDistrictName = selectedDistrictData?.name || '';
-
-  // Debug logging for banner
-  console.log('🏪 OnlineShops Banner Debug:', {
-    selectedRegionId: selectedRegion,
-    selectedDistrictId: selectedDistrict,
-    selectedRegionName,
-    selectedDistrictName,
-    willShowBanner: !!(selectedRegionName && selectedDistrictName)
-  });
 
   useEffect(() => {
     loadShops();
@@ -121,28 +114,19 @@ export default function OnlineShops({
 
   // Reset to initialTab when initialTab prop changes
   useEffect(() => {
-    console.log('🟢 OnlineShops: initialTab prop changed to:', initialTab);
     setActiveTab(initialTab);
   }, [initialTab]);
-
-  // Debug activeTab changes
-  useEffect(() => {
-    console.log('🔵 OnlineShops: activeTab state changed to:', activeTab);
-  }, [activeTab]);
 
   const loadShops = async () => {
     setIsLoading(true);
     try {
-      console.log('🔄 Loading shops...', { region: selectedRegion, district: selectedDistrict });
-      
       // Build query parameters
       const params = new URLSearchParams();
       if (selectedRegion) params.append('region', selectedRegion);
       if (selectedDistrict) params.append('district', selectedDistrict);
       
       const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops${params.toString() ? `?${params.toString()}` : ''}`;
-      console.log('📍 Request URL:', url);
-      
+
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`,
@@ -151,10 +135,8 @@ export default function OnlineShops({
 
       if (response.ok) {
         const data = await response.json();
-        console.log('📦 Shops loaded:', data);
-        
+
         setShops(data.shops || []);
-        console.log('✅ Shops set:', data.shops?.length || 0, 'ta');
       } else {
         console.error('❌ Shops response not OK:', response.status);
       }
@@ -169,16 +151,13 @@ export default function OnlineShops({
   const loadAllProducts = async () => {
     setIsLoadingProducts(true);
     try {
-      console.log('🔄 Loading all products...', { region: selectedRegion, district: selectedDistrict });
-      
       // Build query parameters
       const params = new URLSearchParams();
       if (selectedRegion) params.append('region', selectedRegion);
       if (selectedDistrict) params.append('district', selectedDistrict);
       
       const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/products${params.toString() ? `?${params.toString()}` : ''}`;
-      console.log('📍 Request URL:', url);
-      
+
       const response = await fetch(url, {
         headers: {
           'Authorization': `Bearer ${publicAnonKey}`,
@@ -187,19 +166,7 @@ export default function OnlineShops({
 
       if (response.ok) {
         const data = await response.json();
-        console.log('📦 All products loaded:', data);
-        
-        // Debug: Log first product's variants
-        if (data.products && data.products.length > 0) {
-          console.log('🔍 First product sample:', {
-            id: data.products[0].id,
-            name: data.products[0].name,
-            variants: data.products[0].variants,
-            hasVariants: !!data.products[0].variants,
-            variantsLength: data.products[0].variants?.length
-          });
-        }
-        
+
         const raw = data.products || [];
         setAllProducts(
           raw.map((p: any) => ({
@@ -207,7 +174,6 @@ export default function OnlineShops({
             stockQuantity: getEffectiveProductStockQuantity(p),
           })),
         );
-        console.log('✅ All products set:', raw.length, 'ta');
       } else {
         console.error('❌ Products response not OK:', response.status);
       }
@@ -318,23 +284,13 @@ export default function OnlineShops({
 
   // Handle variant menu open - fetch full product with variants
   const handleOpenVariantMenu = async (product: any) => {
-    console.log('🛒 Opening variant menu for:', product.name);
-    console.log('📦 Product data:', {
-      id: product.id,
-      hasVariants: !!product.variants,
-      variantsLength: product.variants?.length,
-      variants: product.variants
-    });
-    
     // If product already has variants, use it directly
     if (product.variants && product.variants.length > 0) {
-      console.log('✅ Product already has variants:', product.variants.length);
       setVariantMenuProduct(product);
       return;
     }
-    
+
     // If no variants, create a default variant from the main product data
-    console.log('⚠️ No variants found, creating default variant');
     const productWithDefaultVariant = {
       ...product,
       variants: [{
@@ -376,6 +332,7 @@ export default function OnlineShops({
       return;
     }
 
+    setDeleteProductBusy(true);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/products/${deleteProduct.id}`,
@@ -396,6 +353,8 @@ export default function OnlineShops({
     } catch (error) {
       console.error('Delete error:', error);
       toast.error('Xatolik yuz berdi');
+    } finally {
+      setDeleteProductBusy(false);
     }
   };
 
@@ -425,6 +384,7 @@ export default function OnlineShops({
       return;
     }
 
+    setDeleteShopBusy(true);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops/${deleteShop.id}`,
@@ -445,6 +405,8 @@ export default function OnlineShops({
     } catch (error) {
       console.error('Delete shop error:', error);
       toast.error('Xatolik yuz berdi');
+    } finally {
+      setDeleteShopBusy(false);
     }
   };
 
@@ -915,6 +877,7 @@ export default function OnlineShops({
         <ShopDetailModal
           shop={selectedShop}
           onClose={() => setSelectedShop(null)}
+          onAddToCart={onAddToCart}
         />
       )}
 
@@ -924,7 +887,6 @@ export default function OnlineShops({
           product={selectedProduct}
           onClose={() => setSelectedProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
-            console.log('🛒 Do\'kon mahsulot savatga:', { product: product.name, quantity, variantId, variantName });
             onAddToCart?.(product, quantity, variantId, variantName);
             setSelectedProduct(null);
           }}
@@ -938,7 +900,6 @@ export default function OnlineShops({
           product={variantMenuProduct}
           onClose={() => setVariantMenuProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
-            console.log('🛒 Do\'kon variant savatga:', { product: product.name, quantity, variantId, variantName });
             onAddToCart?.(product, quantity, variantId, variantName);
             setVariantMenuProduct(null);
           }}
@@ -991,7 +952,8 @@ export default function OnlineShops({
                   setShowDeleteModal(false);
                   setDeleteProduct(null);
                 }}
-                className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95"
+                disabled={deleteProductBusy}
+                className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95 disabled:opacity-50"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                   color: isDark ? '#ffffff' : '#000000',
@@ -1000,14 +962,19 @@ export default function OnlineShops({
                 Bekor qilish
               </button>
               <button
-                onClick={handleDeleteProduct}
-                className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95 flex items-center justify-center gap-2"
+                onClick={() => void handleDeleteProduct()}
+                disabled={deleteProductBusy}
+                className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
                 style={{
                   background: '#ef4444',
                   color: '#ffffff',
                 }}
               >
-                <Trash2 className="w-5 h-5" />
+                {deleteProductBusy ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Trash2 className="w-5 h-5" />
+                )}
                 O'chirish
               </button>
             </div>
@@ -1060,7 +1027,8 @@ export default function OnlineShops({
                   setShowDeleteShopModal(false);
                   setDeleteShop(null);
                 }}
-                className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95"
+                disabled={deleteShopBusy}
+                className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95 disabled:opacity-50"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                   color: isDark ? '#ffffff' : '#000000',
@@ -1069,14 +1037,19 @@ export default function OnlineShops({
                 Bekor qilish
               </button>
               <button
-                onClick={handleDeleteShop}
-                className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95 flex items-center justify-center gap-2"
+                onClick={() => void handleDeleteShop()}
+                disabled={deleteShopBusy}
+                className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
                 style={{
                   background: '#ef4444',
                   color: '#ffffff',
                 }}
               >
-                <Store className="w-5 h-5" />
+                {deleteShopBusy ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Store className="w-5 h-5" />
+                )}
                 O'chirish
               </button>
             </div>
@@ -1088,7 +1061,15 @@ export default function OnlineShops({
 }
 
 // Shop Detail Modal
-function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) {
+function ShopDetailModal({
+  shop,
+  onClose,
+  onAddToCart,
+}: {
+  shop: any;
+  onClose: () => void;
+  onAddToCart?: (product: any, quantity: number, variantId?: string, variantName?: string) => void;
+}) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const [products, setProducts] = useState<any[]>([]);
@@ -1149,6 +1130,27 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
     }
     
     return region.name;
+  };
+
+  const handleOpenVariantMenu = async (product: any) => {
+    if (product.variants && product.variants.length > 0) {
+      setVariantMenuProduct(product);
+      return;
+    }
+    const productWithDefaultVariant = {
+      ...product,
+      variants: [
+        {
+          id: 'default',
+          name: 'Standart',
+          price: product.price,
+          oldPrice: product.oldPrice,
+          images: product.image ? [product.image] : [],
+          stock: product.stockQuantity || 0,
+        },
+      ],
+    };
+    setVariantMenuProduct(productWithDefaultVariant);
   };
 
   return (
@@ -1286,11 +1288,17 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
               <h3 className="text-xl sm:text-2xl font-bold mb-4 md:mb-6">Mahsulotlar</h3>
               
               {isLoading ? (
-                <ProductGridSkeleton
-                  isDark={isDark}
-                  count={8}
-                  gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6"
-                />
+                <div className="space-y-3">
+                  <div className="flex items-center justify-center gap-2 py-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+                    <Loader2 className="w-5 h-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
+                    Mahsulotlar yuklanmoqda…
+                  </div>
+                  <ProductGridSkeleton
+                    isDark={isDark}
+                    count={8}
+                    gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6"
+                  />
+                </div>
               ) : products.length === 0 ? (
                 <div 
                   className="p-8 md:p-12 rounded-2xl text-center"
@@ -1323,10 +1331,8 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
                             alt={product.name}
                             className="w-full h-32 sm:h-40 md:h-48 object-cover"
                             onError={(e) => {
-                              console.error(`❌ Rasm yuklanmadi: ${product.image}`);
                               e.currentTarget.style.display = 'none';
                             }}
-                            onLoad={() => console.log(`✅ Rasm yuklandi: ${product.name}`)}
                           />
                         ) : (
                           <div 
@@ -1810,7 +1816,6 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
           product={selectedProduct}
           onClose={() => setSelectedProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
-            console.log('🛒 Do\'kon mahsulot savatga:', { product: product.name, quantity, variantId, variantName });
             onAddToCart?.(product, quantity, variantId, variantName);
             setSelectedProduct(null);
           }}
@@ -1824,7 +1829,6 @@ function ShopDetailModal({ shop, onClose }: { shop: any; onClose: () => void }) 
           product={variantMenuProduct}
           onClose={() => setVariantMenuProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
-            console.log('🛒 Do\'kon variant savatga (ShopDetail):', { product: product.name, quantity, variantId, variantName });
             onAddToCart?.(product, quantity, variantId, variantName);
             setVariantMenuProduct(null);
           }}

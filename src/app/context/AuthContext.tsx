@@ -45,75 +45,47 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     // Try to restore session from localStorage
     try {
-      console.log('💾 localStorage check:', {
-        sms_user: localStorage.getItem('sms_user') ? 'EXISTS' : null,
-        sms_session: localStorage.getItem('sms_session') ? 'EXISTS' : null,
-      });
-      
       const storedUser = localStorage.getItem('sms_user');
       const storedSession = localStorage.getItem('sms_session');
-      
-      console.log('🔍 ===== RESTORING SESSION FROM LOCALSTORAGE =====');
-      console.log('📦 storedUser:', storedUser ? 'EXISTS' : 'NULL');
-      console.log('📦 storedSession:', storedSession ? 'EXISTS' : 'NULL');
-      
+
       if (storedUser && storedSession) {
         const parsedUser = JSON.parse(storedUser);
         const parsedSession = JSON.parse(storedSession);
-        
-        console.log('✅ Parsed user:', parsedUser);
-        console.log('✅ Parsed session:', parsedSession);
-        console.log('🔑 access_token from session:', parsedSession.access_token || 'MISSING');
-        
+
         // CRITICAL: Validate token format
         if (!parsedSession.access_token) {
-          console.log('❌ access_token is missing from session! Clearing...');
           localStorage.removeItem('sms_user');
           localStorage.removeItem('sms_session');
           setIsLoading(false);
           return;
         }
-        
+
         // Check if it's a JWT (has 3 parts separated by dots)
         const isJWT = parsedSession.access_token.split('.').length === 3;
-        
+
         // Check if it's a custom token (has dashes)
         const tokenParts = parsedSession.access_token.split('-');
         const isCustomToken = tokenParts.length >= 7;
-        
-        console.log('🔍 Token validation:');
-        console.log('  - Token preview:', parsedSession.access_token.substring(0, 50) + '...');
-        console.log('  - Is JWT:', isJWT);
-        console.log('  - Is Custom Token:', isCustomToken);
-        
+
         if (!isJWT && !isCustomToken) {
-          console.log('❌ Invalid token format! Must be either JWT or custom token');
           localStorage.removeItem('sms_user');
           localStorage.removeItem('sms_session');
           setIsLoading(false);
           return;
         }
-        
+
         // Check if session is expired
         if (parsedSession.expires_at && Date.now() > parsedSession.expires_at) {
-          console.log('⚠️ Stored session expired, clearing...');
           localStorage.removeItem('sms_user');
           localStorage.removeItem('sms_session');
           setIsLoading(false);
           return;
         }
-        
-        console.log('✅ Restored session from localStorage:', parsedUser);
-        console.log('✅ Token format:', isJWT ? 'JWT' : 'Custom');
+
         setUser(parsedUser);
         setSession(parsedSession);
-      } else {
-        console.log('ℹ️ No stored session found');
       }
-      console.log('🔍 ===== SESSION RESTORATION COMPLETE =====\n');
-    } catch (error) {
-      console.error('❌ Error restoring session:', error);
-      // Clear corrupted data
+    } catch {
       localStorage.removeItem('sms_user');
       localStorage.removeItem('sms_session');
     }
@@ -164,12 +136,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       try {
         localStorage.setItem('sms_user', JSON.stringify(loggedInUser));
         localStorage.setItem('sms_session', JSON.stringify(sessionData));
-        console.log('✅ Email/Password Sign-in successful (session saved to localStorage)');
-      } catch (error) {
-        console.error('❌ Error saving session to localStorage:', error);
+      } catch {
+        /* ignore */
       }
     } catch (error) {
-      console.error('Signin error:', error);
       throw error;
     }
   };
@@ -180,7 +150,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       // After signup, automatically sign in
       await signin(email, password);
     } catch (error) {
-      console.error('Signup error:', error);
       throw error;
     }
   };
@@ -192,40 +161,17 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     
     // Persist to localStorage
     try {
-      console.log('💾 ===== SAVING SESSION TO LOCALSTORAGE =====');
-      console.log('👤 User data:', userData);
-      console.log('🎫 Session data:', sessionData);
-      console.log('🔑 Access token FULL:', sessionData.access_token || 'MISSING');
-      console.log('🔑 Token type:', typeof sessionData.access_token);
-      console.log('🔑 Token length:', sessionData.access_token?.length || 0);
-      
       // Validate token format (JWT or custom token)
       const isJWT = sessionData.access_token && sessionData.access_token.split('.').length === 3;
       const isCustomToken = sessionData.access_token && sessionData.access_token.split('-').length >= 7;
-      
+
       if (!isJWT && !isCustomToken) {
-        console.error('❌ ERROR: Invalid token format');
-        console.error('❌ Expected format: JWT (xxx.yyy.zzz) or custom token (userId-timestamp-random)');
-        console.error('❌ Received:', sessionData.access_token);
         throw new Error('Invalid token format received from server');
       }
-      
+
       localStorage.setItem('sms_user', JSON.stringify(userData));
       localStorage.setItem('sms_session', JSON.stringify(sessionData));
-      console.log('✅ SMS Sign-in successful (session saved to localStorage)');
-      console.log('🔑 Token format:', isJWT ? 'JWT' : 'Custom');
-      console.log('🔑 Access token preview:', sessionData.access_token ? `${sessionData.access_token.substring(0, 30)}... (length: ${sessionData.access_token.length})` : 'MISSING')
-      
-      // Verify it was saved correctly
-      const saved = localStorage.getItem('sms_session');
-      if (saved) {
-        const parsed = JSON.parse(saved);
-        console.log('✅ Verification: Token saved correctly:', parsed.access_token ? 'YES' : 'NO');
-        console.log('✅ Saved token preview:', parsed.access_token ? `${parsed.access_token.substring(0, 30)}...` : 'MISSING');
-      }
-      console.log('💾 ===== SESSION SAVED SUCCESSFULLY =====');
     } catch (error) {
-      console.error('❌ Error saving session to localStorage:', error);
       throw error;
     }
   };
@@ -238,8 +184,6 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Clear localStorage
     localStorage.removeItem('sms_user');
     localStorage.removeItem('sms_session');
-    
-    console.log('✅ Signed out successfully');
   };
 
   return (

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { X, Upload, Image as ImageIcon, Send, Store, Phone, Clock, MapPin, DollarSign, Truck, FileText, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -16,26 +16,42 @@ const RESTAURANT_TYPES = [
 
 interface AddRestaurantModalProps {
   branchId?: string;
+  /** Filial «Taomlar» — mavjud restoranni tahrirlash */
+  editingRestaurant?: Record<string, unknown> | null;
   onClose: () => void;
   onSuccess: () => void;
 }
 
-export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaurantModalProps) {
-  const { theme, accentColor } = useTheme();
-  const isDark = theme === 'dark';
-  
-  const [formData, setFormData] = useState({
+type RestaurantFormState = {
+  name: string;
+  logo: string;
+  banner: string;
+  paymentQrImage: string;
+  type: string;
+  workTime: string;
+  contact: { address: string; phone: string; workHours: string };
+  minOrderPrice: number;
+  deliveryTime: string;
+  description: string;
+  region: string;
+  district: string;
+  telegramChatId: string;
+  login: string;
+  password: string;
+};
+
+function emptyRestaurantForm(): RestaurantFormState {
+  return {
     name: '',
     logo: '',
     banner: '',
-    // Restoran uchun to'lov QR rasm (kassa tasdiqlashda ishlatiladi)
     paymentQrImage: '',
     type: RESTAURANT_TYPES[0],
     workTime: '09:00 - 22:00',
     contact: {
       address: '',
       phone: '',
-      workHours: '09:00 - 22:00'
+      workHours: '09:00 - 22:00',
     },
     minOrderPrice: 0,
     deliveryTime: '30-40 daqiqa',
@@ -44,8 +60,59 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
     district: regions[0].districts[0].name,
     telegramChatId: '',
     login: '',
-    password: ''
-  });
+    password: '',
+  };
+}
+
+function restaurantRecordToForm(r: Record<string, unknown> | null | undefined): RestaurantFormState {
+  if (!r || !r.id) return emptyRestaurantForm();
+  const c = (r.contact as Record<string, unknown>) || {};
+  const workTime = String(r.workTime ?? c.workHours ?? '09:00 - 22:00');
+  const regionName = String(r.region ?? regions[0].name);
+  const regionObj = regions.find((x) => x.name === regionName) || regions[0];
+  const distName = String(r.district ?? regionObj.districts[0]?.name ?? '');
+  const typeRaw = String(r.type ?? RESTAURANT_TYPES[0]);
+  const typeVal = RESTAURANT_TYPES.includes(typeRaw) ? typeRaw : RESTAURANT_TYPES[0];
+  return {
+    name: String(r.name ?? ''),
+    logo: String(r.logo ?? ''),
+    banner: String(r.banner ?? ''),
+    paymentQrImage: String(r.paymentQrImage ?? r.payment_qr_image ?? ''),
+    type: typeVal,
+    workTime,
+    contact: {
+      address: String(c.address ?? ''),
+      phone: String(c.phone ?? ''),
+      workHours: workTime,
+    },
+    minOrderPrice: Number(r.minOrderPrice ?? 0),
+    deliveryTime: String(r.deliveryTime ?? '30-40 daqiqa'),
+    description: String(r.description ?? ''),
+    region: regionName,
+    district: distName || String(regionObj.districts[0]?.name ?? ''),
+    telegramChatId: String(r.telegramChatId ?? ''),
+    login: String(r.login ?? ''),
+    password: '',
+  };
+}
+
+export function AddRestaurantModal({
+  branchId,
+  editingRestaurant = null,
+  onClose,
+  onSuccess,
+}: AddRestaurantModalProps) {
+  const { theme, accentColor } = useTheme();
+  const isDark = theme === 'dark';
+  const isEdit = useMemo(() => Boolean(editingRestaurant && editingRestaurant.id), [editingRestaurant]);
+
+  const [formData, setFormData] = useState<RestaurantFormState>(() =>
+    restaurantRecordToForm(editingRestaurant ?? null),
+  );
+
+  useEffect(() => {
+    setFormData(restaurantRecordToForm(editingRestaurant ?? null));
+  }, [editingRestaurant]);
   
   const [uploadingField, setUploadingField] = useState<null | 'logo' | 'banner' | 'paymentQrImage'>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
@@ -98,34 +165,95 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
-    
-    if (!formData.name || !formData.contact.phone || !formData.login || !formData.password) {
-      toast.error('Barcha majburiy maydonlarni to\'ldiring!');
+
+    if (!formData.name || !formData.contact.phone || !formData.login) {
+      toast.error('Nom, telefon va login majburiy.');
+      return;
+    }
+    if (!isEdit && !formData.password.trim()) {
+      toast.error('Yangi restoran uchun parol kiriting.');
       return;
     }
 
+    const contact = {
+      ...formData.contact,
+      workHours: formData.workTime || formData.contact.workHours,
+    };
+
+    const branchPayload =
+      branchId != null && String(branchId).trim() !== ''
+        ? String(branchId).trim()
+        : editingRestaurant && String((editingRestaurant as { branchId?: string }).branchId || '').trim() !== ''
+          ? String((editingRestaurant as { branchId?: string }).branchId).trim()
+          : undefined;
+
+    const basePayload: Record<string, unknown> = {
+      name: formData.name,
+      logo: formData.logo,
+      banner: formData.banner,
+      paymentQrImage: formData.paymentQrImage,
+      type: formData.type,
+      workTime: formData.workTime,
+      contact,
+      minOrderPrice: formData.minOrderPrice,
+      deliveryTime: formData.deliveryTime,
+      description: formData.description,
+      region: formData.region,
+      district: formData.district,
+      telegramChatId: formData.telegramChatId,
+      login: formData.login,
+    };
+    if (branchPayload) basePayload.branchId = branchPayload;
+
     try {
       setIsSubmitting(true);
-      
+
+      if (isEdit && editingRestaurant?.id) {
+        const rid = String(editingRestaurant.id);
+        if (formData.password.trim()) {
+          basePayload.password = formData.password.trim();
+        }
+        const response = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(rid)}`,
+          {
+            method: 'PUT',
+            headers: {
+              'Content-Type': 'application/json',
+              Authorization: `Bearer ${publicAnonKey}`,
+            },
+            body: JSON.stringify(basePayload),
+          },
+        );
+        const result = await response.json();
+        if (result.success) {
+          toast.success('Restoran yangilandi');
+          onSuccess();
+          onClose();
+        } else {
+          toast.error(result.error || 'Xatolik yuz berdi!');
+        }
+        return;
+      }
+
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants`,
         {
           method: 'POST',
           headers: {
             'Content-Type': 'application/json',
-            'Authorization': `Bearer ${publicAnonKey}`
+            Authorization: `Bearer ${publicAnonKey}`,
           },
           body: JSON.stringify({
-            ...formData,
-            branchId: branchId // Add branchId to request
-          })
-        }
+            ...basePayload,
+            password: formData.password,
+          }),
+        },
       );
 
       const result = await response.json();
-      
+
       if (result.success) {
-        toast.success('Restoran muvaffaqiyatli qo\'shildi! 🎉');
+        toast.success("Restoran muvaffaqiyatli qo'shildi! 🎉");
         onSuccess();
         onClose();
       } else {
@@ -208,9 +336,9 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
               <Store className="w-6 h-6" style={{ color: accentColor.color }} />
             </div>
             <div>
-              <h2 className="text-2xl font-bold">Restoran qo'shish</h2>
+              <h2 className="text-2xl font-bold">{isEdit ? 'Restoran tahrirlash' : "Restoran qo'shish"}</h2>
               <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                Yangi restoran ro'yxatdan o'tkazish
+                {isEdit ? "Ma'lumotlarni yangilang va saqlang" : "Yangi restoran ro'yxatdan o'tkazish"}
               </p>
             </div>
           </div>
@@ -645,7 +773,7 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
                 border: `1px solid ${isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)'}`
               }}
             >
-              <h3 className="font-bold">Kirish ma'lumotlari *</h3>
+              <h3 className="font-bold">Kirish ma&apos;lumotlari *</h3>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 <input
                   type="text"
@@ -668,8 +796,9 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
                     background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.8)',
                     border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
                   }}
-                  placeholder="Parol"
-                  required
+                  placeholder={isEdit ? "Yangi parol (bo'sh = o'zgarmaydi)" : 'Parol'}
+                  required={!isEdit}
+                  autoComplete="new-password"
                 />
               </div>
             </div>
@@ -681,7 +810,7 @@ export function AddRestaurantModal({ branchId, onClose, onSuccess }: AddRestaura
               className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
               style={{ background: accentColor.color, color: '#ffffff' }}
             >
-              {isSubmitting ? 'Saqlanmoqda...' : 'Restoran qo\'shish'}
+              {isSubmitting ? 'Saqlanmoqda...' : isEdit ? 'O‘zgarishlarni saqlash' : "Restoran qo'shish"}
             </button>
           </div>
         </form>

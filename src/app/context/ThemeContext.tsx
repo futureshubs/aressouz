@@ -59,8 +59,8 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
         const parsed = JSON.parse(authData);
         return getUserId(parsed.user?.id);
       }
-    } catch (error) {
-      console.log('Could not get user from storage:', error);
+    } catch {
+      /* ignore */
     }
     return 'anonymous';
   };
@@ -143,9 +143,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
           if (response.ok) {
             const data = await response.json();
             const settings = data.settings;
-            
-            console.log('✅ Settings loaded from Supabase:', settings);
-            
+
             // Update state with Supabase data
             if (settings.theme) setTheme(settings.theme);
             if (settings.language) setLanguageState(settings.language);
@@ -167,13 +165,11 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
               localStorage.setItem('accentColor', settings.accentColor);
             }
           } else {
-            console.log('⚠️ Failed to load settings, using defaults');
+            /* defaults */
           }
-        } else {
-          console.log('ℹ️ Anonymous user, skipping settings load');
         }
-      } catch (error) {
-        console.error('Error loading settings:', error);
+      } catch {
+        /* defaults */
       }
     };
 

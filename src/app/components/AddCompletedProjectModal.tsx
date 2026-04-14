@@ -1,4 +1,4 @@
-import { X, Upload, Trash2 } from 'lucide-react';
+import { X, Upload, Trash2, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
@@ -145,7 +145,9 @@ export function AddCompletedProjectModal({
         background: 'rgba(0, 0, 0, 0.7)',
         backdropFilter: 'blur(8px)',
       }}
-      onClick={onClose}
+      onClick={() => {
+        if (!loading && !uploading) onClose();
+      }}
     >
       <div
         className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-2xl p-6"
@@ -163,8 +165,10 @@ export function AddCompletedProjectModal({
             Yakunlangan ish qo'shish
           </h2>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-full transition-all active:scale-95"
+            disabled={loading || uploading}
+            className="p-2 rounded-full transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
             }}
@@ -184,8 +188,9 @@ export function AddCompletedProjectModal({
               type="text"
               value={title}
               onChange={(e) => setTitle(e.target.value)}
+              disabled={loading || uploading}
               placeholder="Masalan: Uy ta'miri"
-              className="w-full px-4 py-3 rounded-xl outline-none transition-all"
+              className="w-full px-4 py-3 rounded-xl outline-none transition-all disabled:opacity-60"
               style={{
                 background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
                 border: `1px solid ${borderColor}`,
@@ -202,9 +207,10 @@ export function AddCompletedProjectModal({
             <textarea
               value={description}
               onChange={(e) => setDescription(e.target.value)}
+              disabled={loading || uploading}
               placeholder="Loyiha haqida qisqacha ma'lumot..."
               rows={4}
-              className="w-full px-4 py-3 rounded-xl outline-none transition-all resize-none"
+              className="w-full px-4 py-3 rounded-xl outline-none transition-all resize-none disabled:opacity-60"
               style={{
                 background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
                 border: `1px solid ${borderColor}`,
@@ -221,13 +227,17 @@ export function AddCompletedProjectModal({
 
             {/* Upload Button */}
             <label
-              className="flex flex-col items-center justify-center gap-2 p-8 rounded-xl border-2 border-dashed cursor-pointer transition-all hover:scale-[1.02]"
+              className={`flex flex-col items-center justify-center gap-2 p-8 rounded-xl border-2 border-dashed transition-all ${uploading || loading ? 'opacity-60 cursor-not-allowed' : 'cursor-pointer hover:scale-[1.02]'}`}
               style={{
                 borderColor: isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.2)',
                 background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.03)',
               }}
             >
-              <Upload className="size-8" style={{ color: accentColor.color }} />
+              {uploading ? (
+                <Loader2 className="size-8 animate-spin shrink-0" style={{ color: accentColor.color }} />
+              ) : (
+                <Upload className="size-8" style={{ color: accentColor.color }} />
+              )}
               <span className="text-sm font-medium" style={{ color: textSecondary }}>
                 {uploading ? 'Yuklanmoqda...' : 'Rasmlarni yuklash uchun bosing'}
               </span>
@@ -254,7 +264,8 @@ export function AddCompletedProjectModal({
                     <button
                       type="button"
                       onClick={() => removeImage(index)}
-                      className="absolute top-2 right-2 p-1.5 rounded-full bg-red-500 text-white transition-all active:scale-90"
+                      disabled={loading || uploading}
+                      className="absolute top-2 right-2 p-1.5 rounded-full bg-red-500 text-white transition-all active:scale-90 disabled:opacity-50"
                     >
                       <Trash2 className="size-4" />
                     </button>
@@ -267,14 +278,15 @@ export function AddCompletedProjectModal({
           {/* Submit Button */}
           <button
             type="submit"
-            disabled={loading || images.length === 0}
-            className="w-full py-4 rounded-xl font-semibold transition-all disabled:opacity-50 active:scale-[0.98]"
+            disabled={loading || uploading || images.length === 0}
+            className="w-full py-4 rounded-xl font-semibold transition-all disabled:opacity-50 active:scale-[0.98] flex items-center justify-center gap-2"
             style={{
               background: accentColor.color,
               color: '#fff',
               boxShadow: `0 4px 12px ${accentColor.color}40`,
             }}
           >
+            {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
             {loading ? 'Yuklanmoqda...' : 'Loyiha qo\'shish'}
           </button>
         </form>

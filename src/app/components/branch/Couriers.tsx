@@ -27,7 +27,8 @@ import {
   Navigation,
   Activity,
   Award,
-  Target
+  Target,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
@@ -102,6 +103,8 @@ export function Couriers({ branchId, branchInfo }: CouriersProps) {
   const [statusFilter, setStatusFilter] = useState('all');
   const [showDetails, setShowDetails] = useState<string | null>(null);
   const [deliveryZones, setDeliveryZones] = useState<DeliveryZoneOption[]>([]);
+  const [courierMutationBusy, setCourierMutationBusy] = useState(false);
+  const [courierDeleteBusyId, setCourierDeleteBusyId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -203,12 +206,14 @@ export function Couriers({ branchId, branchInfo }: CouriersProps) {
   }, [branchId, statusFilter, searchTerm, visibilityRefetchTick]);
 
   const handleAddCourier = async () => {
+    if (!formData.serviceZoneIds.length) {
+      toast.error('Kamida bitta yetkazib berish zonasini tanlang');
+      return;
+    }
+
+    setCourierMutationBusy(true);
     try {
       console.log('➕ Adding new courier...');
-      if (!formData.serviceZoneIds.length) {
-        toast.error('Kamida bitta yetkazib berish zonasini tanlang');
-        return;
-      }
 
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/couriers`,
@@ -255,18 +260,21 @@ export function Couriers({ branchId, branchInfo }: CouriersProps) {
     } catch (error) {
       console.error('❌ Error adding courier:', error);
       toast.error('Kuryerni qo\'shishda xatolik');
+    } finally {
+      setCourierMutationBusy(false);
     }
   };
 
   const handleUpdateCourier = async () => {
-    try {
-      if (!editingCourier) return;
+    if (!editingCourier) return;
+    if (!formData.serviceZoneIds.length) {
+      toast.error('Kamida bitta yetkazib berish zonasini tanlang');
+      return;
+    }
 
+    setCourierMutationBusy(true);
+    try {
       console.log('✏️ Updating courier...');
-      if (!formData.serviceZoneIds.length) {
-        toast.error('Kamida bitta yetkazib berish zonasini tanlang');
-        return;
-      }
 
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/couriers/${editingCourier.id}`,
@@ -310,15 +318,15 @@ export function Couriers({ branchId, branchInfo }: CouriersProps) {
     } catch (error) {
       console.error('❌ Error updating courier:', error);
       toast.error('Kuryerni yangilashda xatolik');
+    } finally {
+      setCourierMutationBusy(false);
     }
   };
 
   const handleDeleteCourier = async (id: string) => {
     if (!confirm('Rostdan ham bu kuryerni o\'chirmoqchimisiz?')) return;
 
-    const prevCouriers = couriers;
-    setCouriers((prev) => prev.filter((c) => c.id !== id));
-
+    setCourierDeleteBusyId(id);
     try {
       console.log('🗑️ Deleting courier:', id);
 
@@ -335,12 +343,14 @@ export function Couriers({ branchId, branchInfo }: CouriersProps) {
       if (!response.ok) {
         throw new Error('Kuryerni o\'chirishda xatolik');
       }
-      
+
+      setCouriers((prev) => prev.filter((c) => c.id !== id));
       toast.success('Kuryer muvaffaqiyatli o\'chirildi');
     } catch (error) {
       console.error('❌ Error deleting courier:', error);
-      setCouriers(prevCouriers);
       toast.error('Kuryerni o\'chirishda xatolik');
+    } finally {
+      setCourierDeleteBusyId(null);
     }
   };
 
@@ -601,17 +611,23 @@ export function Couriers({ branchId, branchInfo }: CouriersProps) {
                   Tahrirlash
                 </button>
                 <button
+                  type="button"
                   onClick={(e) => {
                     e.stopPropagation();
-                    handleDeleteCourier(courier.id);
+                    void handleDeleteCourier(courier.id);
                   }}
-                  className="p-2 rounded-lg border text-red-500 transition-all hover:shadow-lg"
+                  disabled={courierDeleteBusyId === courier.id}
+                  className="p-2 rounded-lg border text-red-500 transition-all hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[40px]"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.8)',
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
                   }}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  {courierDeleteBusyId === courier.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>
@@ -837,16 +853,23 @@ export function Couriers({ branchId, branchInfo }: CouriersProps) {
 
             <div className="flex items-center gap-3 mt-6">
               <button
-                onClick={editingCourier ? handleUpdateCourier : handleAddCourier}
-                className="flex-1 py-2 rounded-xl font-medium transition-all"
+                type="button"
+                onClick={() => {
+                  void (editingCourier ? handleUpdateCourier() : handleAddCourier());
+                }}
+                disabled={courierMutationBusy}
+                className="flex-1 py-2 rounded-xl font-medium transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
                   background: accentColor.gradient,
                   color: '#ffffff'
                 }}
               >
+                {courierMutationBusy && <Loader2 className="w-4 h-4 animate-spin shrink-0" />}
                 {editingCourier ? 'Yangilash' : 'Qo\'shish'}
               </button>
               <button
+                type="button"
+                disabled={courierMutationBusy}
                 onClick={() => {
                   setIsAddingCourier(false);
                   setEditingCourier(null);
@@ -870,7 +893,7 @@ export function Couriers({ branchId, branchInfo }: CouriersProps) {
                     }
                   });
                 }}
-                className="flex-1 py-2 rounded-xl border font-medium transition-all"
+                className="flex-1 py-2 rounded-xl border font-medium transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
                   borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',

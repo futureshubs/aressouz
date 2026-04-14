@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { BarChart3, TrendingUp, DollarSign, Users, Gavel, Award } from 'lucide-react';
+import { BarChart3, TrendingUp, DollarSign, Users, Gavel, Award, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
@@ -49,34 +49,11 @@ export function AuctionAnalytics({ branchId }: AuctionAnalyticsProps) {
 
   if (loading) {
     return (
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-        {[1, 2, 3, 4, 5, 6].map((i) => (
-          <div
-            key={i}
-            className="p-6 rounded-3xl border animate-pulse"
-            style={{
-              background: isDark
-                ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
-                : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-            }}
-          >
-            <div
-              className="h-6 rounded-lg mb-3"
-              style={{
-                background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                width: '60%',
-              }}
-            />
-            <div
-              className="h-10 rounded-lg"
-              style={{
-                background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                width: '80%',
-              }}
-            />
-          </div>
-        ))}
+      <div className="flex flex-col items-center justify-center py-16 gap-3">
+        <Loader2 className="w-10 h-10 animate-spin" style={{ color: accentColor.color }} />
+        <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+          Analitika yuklanmoqda…
+        </p>
       </div>
     );
   }

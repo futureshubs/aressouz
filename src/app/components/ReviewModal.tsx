@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { X, Star, Send } from 'lucide-react';
+import { X, Star, Send, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
@@ -97,7 +97,9 @@ export function ReviewModal({ isOpen, onClose, placeId, placeName, onSuccess }: 
         background: 'rgba(0, 0, 0, 0.8)',
         backdropFilter: 'blur(12px)',
       }}
-      onClick={onClose}
+      onClick={() => {
+        if (!isSubmitting) onClose();
+      }}
     >
       <div
         className="relative w-full max-w-md overflow-hidden"
@@ -117,8 +119,10 @@ export function ReviewModal({ isOpen, onClose, placeId, placeName, onSuccess }: 
         {/* Header */}
         <div className="relative p-6 pb-4">
           <button
+            type="button"
             onClick={onClose}
-            className="absolute top-6 right-6 p-2 rounded-xl transition-all active:scale-90"
+            disabled={isSubmitting}
+            className="absolute top-6 right-6 p-2 rounded-xl transition-all active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
             }}
@@ -156,10 +160,12 @@ export function ReviewModal({ isOpen, onClose, placeId, placeName, onSuccess }: 
               {[1, 2, 3, 4, 5].map((star) => (
                 <button
                   key={star}
+                  type="button"
                   onClick={() => setRating(star)}
                   onMouseEnter={() => setHoveredRating(star)}
                   onMouseLeave={() => setHoveredRating(0)}
-                  className="transition-transform active:scale-90"
+                  disabled={isSubmitting}
+                  className="transition-transform active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     transform: (hoveredRating >= star || rating >= star) ? 'scale(1.1)' : 'scale(1)',
                   }}
@@ -194,9 +200,10 @@ export function ReviewModal({ isOpen, onClose, placeId, placeName, onSuccess }: 
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value)}
+              disabled={isSubmitting}
               placeholder="Tajribangiz haqida yozing..."
               rows={4}
-              className="w-full px-4 py-3 rounded-2xl resize-none text-sm"
+              className="w-full px-4 py-3 rounded-2xl resize-none text-sm disabled:opacity-60"
               style={{
                 background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
                 border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
@@ -237,6 +244,7 @@ export function ReviewModal({ isOpen, onClose, placeId, placeName, onSuccess }: 
 
           {/* Submit Button */}
           <button
+            type="button"
             onClick={handleSubmit}
             disabled={isSubmitting || rating === 0 || !comment.trim()}
             className="w-full flex items-center justify-center gap-2 px-6 py-4 rounded-2xl font-bold text-white transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
@@ -247,9 +255,7 @@ export function ReviewModal({ isOpen, onClose, placeId, placeName, onSuccess }: 
           >
             {isSubmitting ? (
               <>
-                <div 
-                  className="animate-spin rounded-full h-5 w-5 border-2 border-white border-t-transparent"
-                />
+                <Loader2 className="h-5 w-5 animate-spin shrink-0" />
                 Yuborilmoqda...
               </>
             ) : (

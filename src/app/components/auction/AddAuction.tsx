@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
-import { Upload, X, Plus, MapPin } from 'lucide-react';
+import { Upload, X, Plus, MapPin, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { regionsList, getDistricts } from '../../data/regions';
 
@@ -505,12 +505,13 @@ export function AddAuction({ branchId, onSuccess }: AddAuctionProps) {
         <button
           type="submit"
           disabled={submitting}
-          className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+          className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
           style={{
             background: accentColor.gradient,
             color: '#ffffff',
           }}
         >
+          {submitting && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
           {submitting ? 'Yuklanmoqda...' : 'Auksion yaratish'}
         </button>
       </form>

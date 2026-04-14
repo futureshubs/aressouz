@@ -6,7 +6,7 @@ import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { 
   X, Plus, Edit2, Trash2, User, Phone, MapPin, Clock, 
-  DollarSign, Key, Lock, ChevronRight, Image as ImageIcon 
+  DollarSign, Key, Lock, ChevronRight, Image as ImageIcon, Loader2,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
@@ -62,6 +62,8 @@ export default function PrepareManager() {
   const [isLoading, setIsLoading] = useState(true);
   const [showForm, setShowForm] = useState(false);
   const [editingId, setEditingId] = useState<string | null>(null);
+  const [formSubmitting, setFormSubmitting] = useState(false);
+  const [deletingPreparerId, setDeletingPreparerId] = useState<string | null>(null);
 
   // Form data
   const [formData, setFormData] = useState({
@@ -168,6 +170,7 @@ export default function PrepareManager() {
       return;
     }
 
+    setFormSubmitting(true);
     try {
       const url = editingId
         ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/preparers/${editingId}`
@@ -195,6 +198,8 @@ export default function PrepareManager() {
     } catch (error) {
       console.error('Submit error:', error);
       toast.error('Xatolik yuz berdi');
+    } finally {
+      setFormSubmitting(false);
     }
   };
 
@@ -219,6 +224,7 @@ export default function PrepareManager() {
   const handleDelete = async (id: string) => {
     if (!confirm('Tayyorlovchini o\'chirmoqchimisiz?')) return;
 
+    setDeletingPreparerId(id);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/preparers/${id}`,
@@ -241,6 +247,8 @@ export default function PrepareManager() {
     } catch (error) {
       console.error('Delete error:', error);
       toast.error('Xatolik yuz berdi');
+    } finally {
+      setDeletingPreparerId(null);
     }
   };
 
@@ -548,8 +556,10 @@ export default function PrepareManager() {
                     </div>
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleDelete(preparer.id)}
-                    className="px-4 py-3 rounded-xl font-bold transition-all duration-200 active:scale-95 hover:shadow-lg"
+                    disabled={deletingPreparerId === preparer.id}
+                    className="px-4 py-3 rounded-xl font-bold transition-all duration-200 active:scale-95 hover:shadow-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[52px]"
                     style={{
                       background: isDark 
                         ? 'linear-gradient(135deg, rgba(239, 68, 68, 0.25), rgba(239, 68, 68, 0.15))' 
@@ -559,7 +569,11 @@ export default function PrepareManager() {
                       boxShadow: '0 4px 16px rgba(239, 68, 68, 0.2)',
                     }}
                   >
-                    <Trash2 className="w-5 h-5" />
+                    {deletingPreparerId === preparer.id ? (
+                      <Loader2 className="w-5 h-5 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-5 h-5" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -791,28 +805,31 @@ export default function PrepareManager() {
 
                 {/* Submit */}
                 <div className="flex gap-3 pt-4">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setShowForm(false);
-                      setEditingId(null);
-                      resetForm();
-                    }}
-                    className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95"
-                    style={{
-                      background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                    }}
-                  >
-                    Bekor qilish
-                  </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowForm(false);
+                    setEditingId(null);
+                    resetForm();
+                  }}
+                  disabled={formSubmitting}
+                  className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                  }}
+                >
+                  Bekor qilish
+                </button>
                   <button
                     type="submit"
-                    className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95"
+                    disabled={formSubmitting}
+                    className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{
                       background: accentColor.gradient,
                       color: '#ffffff',
                     }}
                   >
+                    {formSubmitting && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                     {editingId ? 'Saqlash' : 'Qo\'shish'}
                   </button>
                 </div>

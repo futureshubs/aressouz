@@ -90,7 +90,8 @@ export default defineConfig(({ mode }) => {
 
   return {
   optimizeDeps: {
-    include: ['react', 'react-dom', 'react/jsx-runtime'],
+    /** `react-router` ni bu yerga qo‘shmaslik kerak: alias/prebundle bilan ikki nusxa bo‘lib useLocation "Router tashqarida" xatosi chiqadi */
+    include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime'],
   },
   plugins: [
     // The React and Tailwind plugins are both required for Make, even if
@@ -100,6 +101,14 @@ export default defineConfig(({ mode }) => {
     appVersionPlugin(),
     precacheDistAssetsPlugin(),
   ],
+  /**
+   * `drop` ni faqat production build da: dev da global esbuild sozlamasi optimizeDeps orqali
+   * `react` pre-bundle ga tegsa, Invalid hook call / useEffect null kabi xatolar chiqishi mumkin.
+   */
+  ...(mode === 'production'
+    ? { esbuild: { drop: ['console', 'debugger'] as const } }
+    : {}),
+
   resolve: {
     dedupe: ['react', 'react-dom'],
     alias: {

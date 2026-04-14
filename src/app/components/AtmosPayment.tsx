@@ -4,7 +4,7 @@ import { useTheme } from '../context/ThemeContext';
 import { API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { openExternalUrl } from '../utils/openExternalUrl';
 import { toast } from 'sonner';
-import { ExternalLink, Check, X, Loader, CreditCard } from 'lucide-react';
+import { ExternalLink, Check, X, Loader2, CreditCard } from 'lucide-react';
 import { PaymentMethodLogoFrame } from './payment/PaymentMethodLogoFrame';
 
 const ATMOS_BRAND = '#007AFF';
@@ -274,8 +274,9 @@ export default function AtmosPayment({
     
     // Then check every 5 seconds
     pollingInterval.current = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       checkPaymentStatus();
-      
+
       // Stop after 10 minutes (120 attempts)
       if (checkCount.current >= 120) {
         stopPolling();
@@ -325,7 +326,7 @@ export default function AtmosPayment({
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
           }}
         >
-          <Loader className="w-5 h-5 animate-spin" style={{ color: '#007AFF' }} />
+          <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#007AFF' }} />
           <span>Tranzaksiya yaratilmoqda...</span>
         </div>
       )}
@@ -351,7 +352,7 @@ export default function AtmosPayment({
             borderColor: '#3b82f6',
           }}
         >
-          <Loader className="w-5 h-5 animate-spin" style={{ color: '#3b82f6' }} />
+          <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#3b82f6' }} />
           <span>To'lov tekshirilmoqda... ({checkCount.current})</span>
         </div>
       )}

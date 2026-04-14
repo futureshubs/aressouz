@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Utensils, Lock, User } from 'lucide-react';
+import { Utensils, Lock, User, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
@@ -164,9 +164,10 @@ export default function RestaurantLogin() {
           <button
             type="submit"
             disabled={isLoading}
-            className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
+            className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
             style={{ background: accentColor.color, color: '#ffffff' }}
           >
+            {isLoading && <Loader2 className="w-6 h-6 animate-spin shrink-0" />}
             {isLoading ? 'Yuklanmoqda...' : 'Kirish'}
           </button>
 

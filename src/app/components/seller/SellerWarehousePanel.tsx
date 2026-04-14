@@ -2,6 +2,7 @@ import { useMemo, useState, useCallback } from 'react';
 import {
   Warehouse,
   RefreshCw,
+  Loader2,
   Search,
   Save,
   Minus,
@@ -181,7 +182,7 @@ export default function SellerWarehousePanel({
             background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)',
           }}
         >
-          <RefreshCw className={`w-4 h-4 ${loading ? 'animate-spin' : ''}`} />
+          {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
           Yangilash
         </button>
       </div>
@@ -369,7 +370,7 @@ export default function SellerWarehousePanel({
                           style={{ background: accentColor.gradient }}
                         >
                           {savingKey === k ? (
-                            <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
                           ) : (
                             <Save className="w-3.5 h-3.5" />
                           )}

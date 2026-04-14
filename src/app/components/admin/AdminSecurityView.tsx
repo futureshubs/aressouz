@@ -3,7 +3,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { buildAdminHeaders } from '../../utils/requestAuth';
 import { projectId } from '../../../../utils/supabase/info';
-import { Shield, RefreshCw, KeyRound, Copy } from 'lucide-react';
+import { Shield, RefreshCw, KeyRound, Copy, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
 const baseUrl = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
@@ -143,7 +143,8 @@ export default function AdminSecurityView() {
       </p>
 
       {loading ? (
-        <p className="text-sm" style={{ opacity: 0.6 }}>
+        <p className="text-sm inline-flex items-center gap-2" style={{ opacity: 0.6 }}>
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: accentColor.color }} />
           Yuklanmoqda…
         </p>
       ) : null}
@@ -212,9 +213,10 @@ export default function AdminSecurityView() {
           <button
             type="submit"
             disabled={saving || !status?.twoFaEnabled}
-            className="px-6 py-3 rounded-2xl font-semibold text-white disabled:opacity-50"
+            className="px-6 py-3 rounded-2xl font-semibold text-white disabled:opacity-50 inline-flex items-center justify-center gap-2"
             style={{ background: accentColor.gradient }}
           >
+            {saving ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : null}
             Saqlash
           </button>
           {!status?.twoFaEnabled ? (
@@ -252,9 +254,10 @@ export default function AdminSecurityView() {
             <button
               type="submit"
               disabled={saving}
-              className="px-6 py-3 rounded-2xl font-semibold text-white disabled:opacity-50"
+              className="px-6 py-3 rounded-2xl font-semibold text-white disabled:opacity-50 inline-flex items-center justify-center gap-2"
               style={{ background: accentColor.gradient }}
             >
+              {saving ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : null}
               Yangi secret olish
             </button>
           </form>
@@ -310,9 +313,10 @@ export default function AdminSecurityView() {
                 <button
                   type="submit"
                   disabled={saving}
-                  className="px-6 py-3 rounded-2xl font-semibold text-white disabled:opacity-50"
+                  className="px-6 py-3 rounded-2xl font-semibold text-white disabled:opacity-50 inline-flex items-center justify-center gap-2"
                   style={{ background: accentColor.gradient }}
                 >
+                  {saving ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : null}
                   2FA ni yoqish
                 </button>
                 <button

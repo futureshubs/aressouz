@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Shield, Lock, ChevronRight, Copy, User } from 'lucide-react';
+import { Shield, Lock, ChevronRight, Copy, User, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId } from '../../../utils/supabase/info';
 import { buildAdminLoginHeaders } from '../utils/requestAuth';
@@ -329,15 +329,16 @@ export default function AdminLogin() {
               <button
                 type="submit"
                 disabled={loading}
-                className="w-full py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-all active:scale-95"
+                className="w-full py-3.5 rounded-2xl font-semibold flex items-center justify-center gap-2 transition-all active:scale-95 disabled:opacity-50"
                 style={{
                   background: accentColor.gradient,
                   color: '#ffffff',
                   boxShadow: `0 8px 24px ${accentColor.color}40`,
                 }}
               >
+                {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                 {loading ? 'Tekshirilmoqda...' : 'Davom etish'}
-                {!loading && <ChevronRight className="w-5 h-5" />}
+                {!loading && <ChevronRight className="w-5 h-5 shrink-0" />}
               </button>
             </form>
           ) : step === 'setup' ? (
@@ -439,8 +440,9 @@ export default function AdminLogin() {
                     boxShadow: `0 8px 24px ${accentColor.color}40`,
                   }}
                 >
+                  {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                   {loading ? 'Yuklanmoqda...' : '2FA yoqish'}
-                  {!loading && <ChevronRight className="w-5 h-5" />}
+                  {!loading && <ChevronRight className="w-5 h-5 shrink-0" />}
                 </button>
               </div>
             </form>
@@ -510,8 +512,9 @@ export default function AdminLogin() {
                     boxShadow: `0 8px 24px ${accentColor.color}40`,
                   }}
                 >
+                  {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                   {loading ? 'Tekshirilmoqda...' : 'Kirish'}
-                  {!loading && <ChevronRight className="w-5 h-5" />}
+                  {!loading && <ChevronRight className="w-5 h-5 shrink-0" />}
                 </button>
               </div>
             </form>

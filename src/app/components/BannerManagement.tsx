@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { Plus, Trash2, Power, PowerOff, Edit2, Image as ImageIcon } from 'lucide-react';
+import { Plus, Trash2, Power, PowerOff, Edit2, Image as ImageIcon, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { AddBannerModal } from './AddBannerModal';
@@ -45,6 +45,7 @@ export function BannerManagement({ branchId }: BannerManagementProps) {
   const [banners, setBanners] = useState<Banner[]>([]);
   const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
+  const [rowActionBusyId, setRowActionBusyId] = useState<string | null>(null);
   const visibilityRefetchTick = useVisibilityTick();
 
   useEffect(() => {
@@ -93,6 +94,7 @@ export function BannerManagement({ branchId }: BannerManagementProps) {
   };
 
   const toggleBannerStatus = async (bannerId: string) => {
+    setRowActionBusyId(bannerId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/banners/${bannerId}/toggle`,
@@ -113,12 +115,15 @@ export function BannerManagement({ branchId }: BannerManagementProps) {
     } catch (error) {
       console.error('Toggle banner error:', error);
       toast.error('Xatolik yuz berdi!');
+    } finally {
+      setRowActionBusyId(null);
     }
   };
 
   const deleteBanner = async (bannerId: string) => {
     if (!confirm('Bannerni o\'chirishni tasdiqlaysizmi?')) return;
 
+    setRowActionBusyId(bannerId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/banners/${bannerId}`,
@@ -139,6 +144,8 @@ export function BannerManagement({ branchId }: BannerManagementProps) {
     } catch (error) {
       console.error('Delete banner error:', error);
       toast.error('Xatolik yuz berdi!');
+    } finally {
+      setRowActionBusyId(null);
     }
   };
 
@@ -154,8 +161,10 @@ export function BannerManagement({ branchId }: BannerManagementProps) {
         {BANNER_CATEGORIES.map((cat) => (
           <button
             key={cat.value}
+            type="button"
             onClick={() => setSelectedCategory(cat.value)}
-            className="px-5 py-3 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap transition-all"
+            disabled={loading || rowActionBusyId !== null}
+            className="px-5 py-3 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap transition-all disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: selectedCategory === cat.value 
                 ? accentColor.color 
@@ -186,8 +195,10 @@ export function BannerManagement({ branchId }: BannerManagementProps) {
           {selectedCategory === 'all' ? 'Barcha bannerlar' : BANNER_CATEGORIES.find(c => c.value === selectedCategory)?.label}
         </h2>
         <button
+          type="button"
           onClick={() => setShowAddModal(true)}
-          className="px-5 py-3 rounded-xl font-bold flex items-center gap-2 transition-all active:scale-95"
+          disabled={loading || rowActionBusyId !== null}
+          className="px-5 py-3 rounded-xl font-bold flex items-center gap-2 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ background: accentColor.color, color: '#ffffff' }}
         >
           <Plus className="w-5 h-5" />
@@ -197,14 +208,8 @@ export function BannerManagement({ branchId }: BannerManagementProps) {
 
       {/* Banners List */}
       {loading ? (
-        <div className="text-center py-12">
-          <div 
-            className="inline-block w-12 h-12 border-4 border-t-transparent rounded-full animate-spin" 
-            style={{ 
-              borderColor: `${accentColor.color}40`, 
-              borderTopColor: accentColor.color 
-            }} 
-          />
+        <div className="flex justify-center py-12">
+          <Loader2 className="w-12 h-12 animate-spin shrink-0" style={{ color: accentColor.color }} />
         </div>
       ) : banners.length === 0 ? (
         <div 
@@ -296,8 +301,10 @@ export function BannerManagement({ branchId }: BannerManagementProps) {
                 {/* Actions */}
                 <div className="flex gap-2 pt-2">
                   <button
-                    onClick={() => toggleBannerStatus(banner.id)}
-                    className="flex-1 px-3 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-1 transition-all active:scale-95"
+                    type="button"
+                    onClick={() => void toggleBannerStatus(banner.id)}
+                    disabled={loading || rowActionBusyId !== null}
+                    className="flex-1 px-3 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-1 transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ 
                       background: banner.isActive 
                         ? 'rgba(239, 68, 68, 0.2)' 
@@ -305,16 +312,28 @@ export function BannerManagement({ branchId }: BannerManagementProps) {
                       color: banner.isActive ? '#ef4444' : '#10b981'
                     }}
                   >
-                    {banner.isActive ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+                    {rowActionBusyId === banner.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    ) : banner.isActive ? (
+                      <PowerOff className="w-4 h-4 shrink-0" />
+                    ) : (
+                      <Power className="w-4 h-4 shrink-0" />
+                    )}
                     {banner.isActive ? 'To\'xtatish' : 'Faollashtirish'}
                   </button>
                   
                   <button
-                    onClick={() => deleteBanner(banner.id)}
-                    className="px-3 py-2 rounded-lg transition-all active:scale-95"
+                    type="button"
+                    onClick={() => void deleteBanner(banner.id)}
+                    disabled={loading || rowActionBusyId !== null}
+                    className="px-3 py-2 rounded-lg transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                     style={{ background: 'rgba(239, 68, 68, 0.2)' }}
                   >
-                    <Trash2 className="w-4 h-4 text-red-500" />
+                    {rowActionBusyId === banner.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                    ) : (
+                      <Trash2 className="w-4 h-4 text-red-500" />
+                    )}
                   </button>
                 </div>
               </div>

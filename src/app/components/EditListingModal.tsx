@@ -1,5 +1,5 @@
 import { useMemo, useRef, useEffect, useState } from 'react';
-import { X, Upload, Plus, Trash2, Home, Car, ChevronRight } from 'lucide-react';
+import { X, Upload, Plus, Trash2, Home, Car, ChevronRight, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { houseCategories } from '../data/houses';
 import { carCategories } from '../data/cars';
@@ -306,7 +306,9 @@ export function EditListingModal({ isOpen, onClose, listing, accessToken, onSucc
     <div 
       className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       style={{ background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(8px)' }}
-      onClick={onClose}
+      onClick={() => {
+        if (!isSubmitting) onClose();
+      }}
     >
       <div
         className="w-full sm:max-w-2xl max-h-[90vh] rounded-t-3xl sm:rounded-3xl overflow-hidden"
@@ -331,8 +333,10 @@ export function EditListingModal({ isOpen, onClose, listing, accessToken, onSucc
             E'lonni tahrirlash
           </h2>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-xl transition-all active:scale-90"
+            disabled={isSubmitting}
+            className="p-2 rounded-xl transition-all active:scale-90 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
             }}
@@ -726,8 +730,10 @@ export function EditListingModal({ isOpen, onClose, listing, accessToken, onSucc
           style={{ borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)' }}
         >
           <button
+            type="button"
             onClick={onClose}
-            className="flex-1 py-3 px-4 rounded-xl font-semibold transition-all active:scale-98"
+            disabled={isSubmitting}
+            className="flex-1 py-3 px-4 rounded-xl font-semibold transition-all active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
               color: isDark ? '#ffffff' : '#374151',
@@ -736,9 +742,10 @@ export function EditListingModal({ isOpen, onClose, listing, accessToken, onSucc
             Bekor qilish
           </button>
           <button
+            type="button"
             onClick={handleSubmit}
-            disabled={isSubmitting}
-            className="flex-1 py-3 px-4 rounded-xl font-semibold transition-all active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed"
+            disabled={isSubmitting || isUploadingImages}
+            className="flex-1 py-3 px-4 rounded-xl font-semibold transition-all active:scale-98 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             style={{
               backgroundImage: accentColor.gradient,
               color: '#ffffff',
@@ -747,6 +754,7 @@ export function EditListingModal({ isOpen, onClose, listing, accessToken, onSucc
                 : `0 3px 12px ${accentColor.color}4d`,
             }}
           >
+            {isSubmitting && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
             {isSubmitting ? 'Saqlanmoqda...' : 'Saqlash'}
           </button>
         </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { FileText, CheckCircle, XCircle, Clock, Phone, Mail, MapPin } from 'lucide-react';
+import { FileText, CheckCircle, XCircle, Clock, Phone, Mail, MapPin, Loader2 } from 'lucide-react';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
@@ -14,6 +14,7 @@ export function RentalApplicationsView({ branchId }: { branchId: string }) {
   const [loading, setLoading] = useState(true);
   const [filter, setFilter] = useState<'all' | 'pending' | 'approved' | 'rejected'>('all');
   const [visibilityTick, setVisibilityTick] = useState(0);
+  const [updatingApplicationId, setUpdatingApplicationId] = useState<string | null>(null);
   useVisibilityRefetch(() => setVisibilityTick((t) => t + 1));
 
   useEffect(() => {
@@ -48,6 +49,10 @@ export function RentalApplicationsView({ branchId }: { branchId: string }) {
         ? prompt('Rad etish sababini kiriting:') 
         : undefined;
 
+      if (status === 'rejected' && notes === null) return;
+
+      setUpdatingApplicationId(applicationId);
+
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/applications/${applicationId}`,
         {
@@ -72,6 +77,8 @@ export function RentalApplicationsView({ branchId }: { branchId: string }) {
     } catch (error) {
       console.error('Error updating application:', error);
       toast.error('Holatni yangilashda xatolik');
+    } finally {
+      setUpdatingApplicationId(null);
     }
   };
 
@@ -287,25 +294,37 @@ export function RentalApplicationsView({ branchId }: { branchId: string }) {
               {application.status === 'pending' && (
                 <div className="flex gap-2">
                   <button
+                    type="button"
                     onClick={() => updateApplicationStatus(application.id, 'approved')}
-                    className="flex-1 px-4 py-2 rounded-xl font-medium transition-all"
+                    disabled={updatingApplicationId !== null}
+                    className="flex-1 px-4 py-2 rounded-xl font-medium transition-all inline-flex items-center justify-center gap-2 disabled:opacity-50"
                     style={{ 
                       background: 'rgba(16,185,129,0.1)',
                       color: '#10b981'
                     }}
                   >
-                    <CheckCircle className="w-4 h-4 inline mr-2" />
+                    {updatingApplicationId === application.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    ) : (
+                      <CheckCircle className="w-4 h-4 shrink-0" />
+                    )}
                     Tasdiqlash
                   </button>
                   <button
+                    type="button"
                     onClick={() => updateApplicationStatus(application.id, 'rejected')}
-                    className="flex-1 px-4 py-2 rounded-xl font-medium transition-all"
+                    disabled={updatingApplicationId !== null}
+                    className="flex-1 px-4 py-2 rounded-xl font-medium transition-all inline-flex items-center justify-center gap-2 disabled:opacity-50"
                     style={{ 
                       background: 'rgba(239,68,68,0.1)',
                       color: '#ef4444'
                     }}
                   >
-                    <XCircle className="w-4 h-4 inline mr-2" />
+                    {updatingApplicationId === application.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    ) : (
+                      <XCircle className="w-4 h-4 shrink-0" />
+                    )}
                     Rad etish
                   </button>
                 </div>

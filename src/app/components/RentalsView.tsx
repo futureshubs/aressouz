@@ -6,7 +6,7 @@ import { Platform } from '../utils/platform';
 import { rentalCatalogs, rentalCategories, rentalBanners, RentalItem } from '../data/rentals';
 import { RentalCategoryCard } from './RentalCategoryCard';
 import { RentalItemDetailModal } from './RentalItemDetailModal';
-import { LayoutGrid, Package, ArrowLeft, ChevronRight } from 'lucide-react';
+import { LayoutGrid, Package, ArrowLeft, ChevronRight, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { regions as allRegions } from '../data/regions';
@@ -307,8 +307,15 @@ export function RentalsView({ platform }: RentalsViewProps) {
               Barcha mahsulotlar
             </h2>
             
-            <div className="text-sm font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-              {searchFilteredBackendProducts.length} ta mahsulot
+            <div className="text-sm font-medium inline-flex items-center gap-1.5" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
+              {loading ? (
+                <>
+                  <Loader2 className="size-4 shrink-0 animate-spin" style={{ color: accentColor.color }} />
+                  Yuklanmoqda…
+                </>
+              ) : (
+                <>{searchFilteredBackendProducts.length} ta mahsulot</>
+              )}
             </div>
           </div>
           
@@ -686,12 +693,18 @@ export function RentalsView({ platform }: RentalsViewProps) {
           </h2>
           
           {loading ? (
-            <ProductGridSkeleton
-              isDark={isDark}
-              count={12}
-              gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4"
-              imageClassName="aspect-square"
-            />
+            <div className="space-y-3">
+              <div className="flex items-center justify-center gap-2 py-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
+                <Loader2 className="size-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
+                Yuklanmoqda…
+              </div>
+              <ProductGridSkeleton
+                isDark={isDark}
+                count={12}
+                gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4"
+                imageClassName="aspect-square"
+              />
+            </div>
           ) : searchFinalCatalogProducts.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4">
               {searchFinalCatalogProducts.map((product) => (

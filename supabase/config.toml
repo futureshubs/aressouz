@@ -1,9 +1,21 @@
 # Supabase CLI: https://supabase.com/docs/guides/cli/config
 #
-# Click PREPARE/COMPLETE tashqi serverdan POST qiladi — ularda Supabase JWT bo‘lmaydi.
-# Shuning uchun JWT tekshiruvi o‘chirilgan bo‘lishi kerak; himoya Hono ichidagi route auth da.
+# Click / Payme / Atmos tashqi serverlar JWT yubormaydi — ular uchun marshrutlar Hono ichida ochiq.
+# `verify_jwt = true` qo‘yilsa, ushbu webhooklar Supabase darvozasida 401 oladi (ISH BO‘LMAYDI).
+# Himoya: CORS, auth-gate, marshrutdagi validateAccessToken, ixtiyoriy EDGE_* rate limit, Postgres RLS.
+# Kelajak: webhooklarni alohida Edge funksiyaga (`verify_jwt = false`, faqat to‘lov yo‘llari) ko‘chirib,
+# asosiy funksiyada `verify_jwt = true` (Bearer = haqiqiy Supabase JWT) ni ko‘rib chiqish mumkin.
+# Production secrets (Supabase Dashboard → Edge Functions → Secrets):
+#   ALLOWED_ORIGINS, ALLOWED_ORIGINS_REQUIRED=1 yoki EDGE_PRODUCTION_CORS=1 (hosted), DEBUG_HTTP/VERBOSE odatda o‘chiq.
+#   Ixtiyoriy: EDGE_GLOBAL_RATE_LIMIT=1, EDGE_SENSITIVE_RATE_LIMIT=1, EDGE_SECURITY_LOG=1
 [functions.make-server-27d0d16c]
 verify_jwt = false
 # Loyihada `index.tsx` ham bor; Edge faqat bitta kirish nuqtasini ishlatadi — avto-kuryer marshrutlari `index.ts` da.
 # `supabase/` papkasiga nisbatan; `index.ts` yolg‘iz qoldirilsa CLI `supabase/index.ts` qidiradi.
 entrypoint = "./functions/make-server-27d0d16c/index.ts"
+
+# Click + Atmos (qisqa yo‘l): JWT tekshiruvsiz. Click kabineti → .../payment-webhooks/click/...
+# Atmos klient → .../payment-webhooks/atmos/create-transaction (asosiy serverdagi URL ham ishlaydi).
+[functions.payment-webhooks]
+verify_jwt = false
+entrypoint = "./functions/payment-webhooks/index.ts"

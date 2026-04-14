@@ -18,6 +18,7 @@ import {
   Share2,
   Medal,
   Link2,
+  Loader2,
 } from 'lucide-react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import {
@@ -582,7 +583,8 @@ export default function Bonus({ onClose }: BonusProps) {
 
       <div className="min-h-0 flex-1 overflow-y-auto overscroll-contain">
         {loading && (
-          <div className="mx-auto flex max-w-lg flex-col gap-3 p-4" role="status">
+          <div className="mx-auto flex max-w-lg flex-col items-center gap-3 p-4" role="status">
+            <Loader2 className="h-8 w-8 shrink-0 animate-spin" style={{ color: accentColor.color }} aria-hidden />
             <SkeletonBox isDark={isDark} className="h-20 w-full rounded-2xl" />
             <SkeletonBox isDark={isDark} className="h-48 w-full rounded-3xl" />
             <SkeletonBox isDark={isDark} className="h-24 w-full rounded-2xl" />
@@ -803,6 +805,9 @@ export default function Bonus({ onClose }: BonusProps) {
 
             {leaderboardLoading && (
               <div className="relative space-y-2">
+                <div className="flex justify-center py-2">
+                  <Loader2 className="h-7 w-7 shrink-0 animate-spin" style={{ color: accentColor.color }} aria-hidden />
+                </div>
                 {[1, 2, 3, 4, 5].map((i) => (
                   <SkeletonBox key={i} isDark={isDark} className="h-[4.5rem] w-full rounded-2xl" />
                 ))}
@@ -1100,8 +1105,9 @@ export default function Bonus({ onClose }: BonusProps) {
                 <input
                   value={applyCodeInput}
                   onChange={(e) => setApplyCodeInput(e.target.value.toUpperCase())}
+                  disabled={applyLoading}
                   placeholder="8 belgili kod"
-                  className="w-full rounded-xl border px-4 py-3 font-mono text-lg font-bold outline-none"
+                  className="w-full rounded-xl border px-4 py-3 font-mono text-lg font-bold outline-none disabled:opacity-60"
                   style={{
                     background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
                     borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
@@ -1111,10 +1117,11 @@ export default function Bonus({ onClose }: BonusProps) {
                 <button
                   type="submit"
                   disabled={applyLoading}
-                  className="w-full rounded-xl py-3 font-bold text-white disabled:opacity-50"
+                  className="w-full rounded-xl py-3 font-bold text-white disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   style={{ background: accentColor.gradient }}
                 >
-                  {applyLoading ? '...' : 'Kodni ulash'}
+                  {applyLoading && <Loader2 className="h-5 w-5 shrink-0 animate-spin" />}
+                  {applyLoading ? 'Ulanmoqda…' : 'Kodni ulash'}
                 </button>
               </form>
             )}
@@ -1225,6 +1232,9 @@ export default function Bonus({ onClose }: BonusProps) {
 
             {historyLoading && (
               <div className="space-y-2">
+                <div className="flex justify-center py-2">
+                  <Loader2 className="h-7 w-7 shrink-0 animate-spin" style={{ color: accentColor.color }} aria-hidden />
+                </div>
                 {[1, 2, 3].map((i) => (
                   <SkeletonBox key={i} isDark={isDark} className="h-14 w-full rounded-xl" />
                 ))}

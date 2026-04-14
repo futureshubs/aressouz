@@ -29,7 +29,8 @@ import {
   SlidersHorizontal,
   Package,
   ShoppingBag,
-  X
+  X,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { buildUserHeaders } from '../utils/requestAuth';
@@ -163,6 +164,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
   const [participationSubmittingAuctionId, setParticipationSubmittingAuctionId] = useState<string | null>(
     null,
   );
+  const [requestSubmitting, setRequestSubmitting] = useState(false);
 
   // Request form state
   const [requestData, setRequestData] = useState({
@@ -406,6 +408,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
       return;
     }
 
+    setRequestSubmitting(true);
     try {
       const response = await fetch(`${AUCTION_API}/auction-requests`, {
         method: 'POST',
@@ -435,6 +438,8 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
     } catch (error) {
       console.error('Error submitting request:', error);
       toast.error('Ariza yuborishda xatolik');
+    } finally {
+      setRequestSubmitting(false);
     }
   };
 
@@ -1031,7 +1036,8 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
                 <button
                   type="button"
                   onClick={() => setShowRequestForm(false)}
-                  className="flex-1 py-3 rounded-xl font-bold border transition-all active:scale-95"
+                  disabled={requestSubmitting}
+                  className="flex-1 py-3 rounded-xl font-bold border transition-all active:scale-95 disabled:opacity-50"
                   style={{
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
                   }}
@@ -1040,12 +1046,14 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95"
+                  disabled={requestSubmitting}
+                  className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95 inline-flex items-center justify-center gap-2 disabled:opacity-50"
                   style={{
                     background: accentColor.gradient,
                     color: '#ffffff',
                   }}
                 >
+                  {requestSubmitting ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : null}
                   Yuborish
                 </button>
               </div>

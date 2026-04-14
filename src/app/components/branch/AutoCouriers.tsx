@@ -10,6 +10,7 @@ import {
   Phone,
   KeyRound,
   MessageCircle,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
@@ -57,6 +58,8 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
   const [loading, setLoading] = useState(true);
   const [modal, setModal] = useState(false);
   const [editing, setEditing] = useState<AutoCourierRow | null>(null);
+  const [submitBusy, setSubmitBusy] = useState(false);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
   const visibilityTick = useVisibilityTick();
 
   const [form, setForm] = useState({
@@ -152,6 +155,7 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
       return;
     }
 
+    setSubmitBusy(true);
     try {
       const body: Record<string, unknown> = {
         branchId,
@@ -193,11 +197,14 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
       void load();
     } catch {
       toast.error('So‘rov yuborilmadi');
+    } finally {
+      setSubmitBusy(false);
     }
   };
 
   const remove = async (id: string) => {
     if (!confirm('Avto-kuryerni o‘chirishni tasdiqlaysizmi?')) return;
+    setDeleteBusyId(id);
     try {
       const u = new URLSearchParams({ branchId });
       const res = await fetch(`${baseUrl}/auto-couriers/${id}?${u}`, {
@@ -215,6 +222,8 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
       void load();
     } catch {
       toast.error('So‘rov yuborilmadi');
+    } finally {
+      setDeleteBusyId(null);
     }
   };
 
@@ -239,18 +248,20 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
           <button
             type="button"
             onClick={() => void load()}
-            className="px-4 py-2.5 rounded-2xl flex items-center gap-2 border"
+            disabled={loading}
+            className="px-4 py-2.5 rounded-2xl flex items-center gap-2 border disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
             }}
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 shrink-0 ${loading ? 'animate-spin' : ''}`} />
             Yangilash
           </button>
           <button
             type="button"
             onClick={openNew}
-            className="px-5 py-2.5 rounded-2xl font-medium flex items-center gap-2"
+            disabled={loading || deleteBusyId !== null}
+            className="px-5 py-2.5 rounded-2xl font-medium flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ background: accentColor.color, color: '#fff' }}
           >
             <Plus className="w-5 h-5" />
@@ -331,7 +342,8 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
                 <button
                   type="button"
                   onClick={() => openEdit(c)}
-                  className="flex-1 py-2 rounded-xl flex items-center justify-center gap-2 text-sm"
+                  disabled={deleteBusyId !== null}
+                  className="flex-1 py-2 rounded-xl flex items-center justify-center gap-2 text-sm disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
                     color: accentColor.color,
@@ -343,10 +355,15 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
                 <button
                   type="button"
                   onClick={() => void remove(c.id)}
-                  className="py-2 px-3 rounded-xl"
+                  disabled={deleteBusyId !== null}
+                  className="py-2 px-3 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[44px]"
                   style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}
                 >
-                  <Trash2 className="w-4 h-4" />
+                  {deleteBusyId === c.id ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Trash2 className="w-4 h-4" />
+                  )}
                 </button>
               </div>
             </div>
@@ -358,7 +375,9 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
         <div
           className="fixed inset-0 z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.55)' }}
-          onClick={() => setModal(false)}
+          onClick={() => {
+            if (!submitBusy) setModal(false);
+          }}
         >
           <div
             className="w-full max-w-lg max-h-[90vh] overflow-y-auto rounded-3xl p-6 border"
@@ -376,7 +395,8 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
               <button
                 type="button"
                 onClick={() => setModal(false)}
-                className="p-2 rounded-xl"
+                disabled={submitBusy}
+                className="p-2 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}
               >
                 <X className="w-5 h-5" />
@@ -404,7 +424,8 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
                     onChange={(e) =>
                       setForm((prev) => ({ ...prev, [key]: e.target.value }))
                     }
-                    className="w-full px-3 py-2.5 rounded-xl outline-none text-sm"
+                    disabled={submitBusy}
+                    className="w-full px-3 py-2.5 rounded-xl outline-none text-sm disabled:opacity-60 disabled:cursor-not-allowed"
                     style={{
                       background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
                       border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)'}`,
@@ -416,17 +437,20 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
                 <button
                   type="button"
                   onClick={() => setModal(false)}
-                  className="flex-1 py-3 rounded-2xl"
+                  disabled={submitBusy}
+                  className="flex-1 py-3 rounded-2xl disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}
                 >
                   Bekor
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 py-3 rounded-2xl font-medium"
+                  disabled={submitBusy}
+                  className="flex-1 py-3 rounded-2xl font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ background: accentColor.color, color: '#fff' }}
                 >
-                  Saqlash
+                  {submitBusy && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
+                  {submitBusy ? 'Saqlanmoqda...' : 'Saqlash'}
                 </button>
               </div>
             </form>

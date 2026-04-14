@@ -11,6 +11,7 @@ import {
   Package,
   Clock,
   RefreshCw,
+  Loader2,
   ArrowUp,
   ArrowDown,
   Minus,
@@ -352,7 +353,7 @@ export function Statistics({ branchId, branchInfo, orderType = 'all' }: Statisti
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <RefreshCw className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
+          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
             Statistika ma\'lumotlari yuklanmoqda...
           </p>

@@ -1,5 +1,5 @@
 import { useState, useEffect, memo, useRef, useCallback, useMemo } from 'react';
-import { MapPin, Map as MapIcon, Grid3x3, Plus } from 'lucide-react';
+import { MapPin, Map as MapIcon, Grid3x3, Plus, Loader2 } from 'lucide-react';
 import { placeCategories, Place, PlaceCategory } from '../data/places';
 import { PlaceCard } from './PlaceCard';
 import { CategoryCard } from './CategoryCard';
@@ -316,7 +316,11 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                         className="text-[10px] sm:text-xs md:text-sm"
                         style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
                       >
-                        {loading ? '...' : `${searchFilteredPlaces.length} ta`}
+                        {loading ? (
+                          <Loader2 className="size-3.5 sm:size-4 animate-spin shrink-0" style={{ color: accentColor.color }} />
+                        ) : (
+                          `${searchFilteredPlaces.length} ta`
+                        )}
                       </span>
                     </div>
                   </div>
@@ -329,20 +333,27 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                       Atrofdagi joylar
                     </h2>
                     <span 
-                      className="text-[10px] sm:text-xs md:text-sm"
+                      className="text-[10px] sm:text-xs md:text-sm inline-flex items-center gap-1"
                       style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
                     >
-                      {loading ? '...' : `${searchFilteredPlaces.length} ta`}
+                      {loading ? (
+                        <Loader2 className="size-3.5 sm:size-4 animate-spin shrink-0" style={{ color: accentColor.color }} />
+                      ) : (
+                        `${searchFilteredPlaces.length} ta`
+                      )}
                     </span>
                   </div>
                 )}
 
                 {loading ? (
-                  <ProductGridSkeleton
-                    isDark={isDark}
-                    count={10}
-                    gridClassName="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4"
-                  />
+                  <div className="flex flex-col items-center gap-3 py-10">
+                    <Loader2 className="size-10 animate-spin" style={{ color: accentColor.color }} />
+                    <ProductGridSkeleton
+                      isDark={isDark}
+                      count={10}
+                      gridClassName="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4"
+                    />
+                  </div>
                 ) : searchFilteredPlaces.length === 0 ? (
                   <div className="text-center py-12 sm:py-20">
                     <MapPin className="size-12 sm:size-16 mx-auto mb-3 sm:mb-4 opacity-30" />

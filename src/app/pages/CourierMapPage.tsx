@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, RefreshCw } from 'lucide-react';
+import { ArrowLeft, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
 import { getStoredCourierToken } from '../utils/requestAuth';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { useTabVisible } from '../hooks/useTabVisible';
 import CourierLiveMap, { type CourierMapRoutePreview } from '../components/courier/CourierLiveMap';
 import { COURIER_MAP_ROUTE_STORAGE_KEY } from '../utils/courierMapRouteSession';
 
@@ -197,11 +198,16 @@ export default function CourierMapPage() {
     void loadData(true);
   });
 
+  const mapTabVisible = useTabVisible();
+
   useEffect(() => {
     const rawSession = localStorage.getItem('courierSession');
     if (!rawSession) {
       navigate('/kuryer');
       return;
+    }
+    if (!mapTabVisible) {
+      return undefined;
     }
     loadRouteFromStorage();
     void loadData(false);
@@ -213,7 +219,7 @@ export default function CourierMapPage() {
       window.clearInterval(t1);
       window.clearInterval(t2);
     };
-  }, [loadData, loadRouteFromStorage, navigate, pushLocation]);
+  }, [mapTabVisible, loadData, loadRouteFromStorage, navigate, pushLocation]);
 
   return (
     <div
@@ -251,14 +257,15 @@ export default function CourierMapPage() {
             pushLocation();
             void loadData(true);
           }}
-          className="flex shrink-0 items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold"
+          disabled={loading}
+          className="flex shrink-0 items-center gap-2 rounded-2xl border px-4 py-2 text-sm font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
           style={{
             borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
             background: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff',
             color: accentColor.color,
           }}
         >
-          <RefreshCw className={`h-4 w-4 ${loading ? 'animate-spin' : ''}`} />
+          {loading ? <Loader2 className="h-4 w-4 shrink-0 animate-spin" /> : <RefreshCw className="h-4 w-4 shrink-0" />}
           Yangilash
         </button>
       </header>

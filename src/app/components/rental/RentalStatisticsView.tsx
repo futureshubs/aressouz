@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { TrendingUp, Package, Clock, DollarSign, CheckCircle, XCircle, Percent, Wallet } from 'lucide-react';
+import { TrendingUp, Package, Clock, DollarSign, CheckCircle, XCircle, Percent, Wallet, Loader2 } from 'lucide-react';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
@@ -45,12 +45,7 @@ export function RentalStatisticsView({ branchId }: { branchId: string }) {
     return (
       <div className="flex items-center justify-center min-h-[400px]">
         <div className="text-center">
-          <div className="w-12 h-12 border-4 rounded-full animate-spin mx-auto mb-4" 
-               style={{ 
-                 borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                 borderTopColor: accentColor.color 
-               }}
-          />
+          <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4" style={{ color: accentColor.color }} />
           <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
             Yuklanmoqda...
           </p>

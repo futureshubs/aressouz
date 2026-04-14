@@ -1,70 +1,89 @@
-# Dependencies
+# --- Bog‘liqliklar ---
 node_modules/
-**/node_modules/
 
-# Build
+# --- Build chiqimlari ---
 dist/
 dist-ssr/
 build/
-*.local
+out/
 
-# Vite
+# --- Vite / bundler cache ---
+.vite/
 vite.config.ts.timestamp-*
 
-# Environment / secrets (namuna fayllarni commit qiling: .env.example)
+# --- Muhit va maxfiy ma’lumotlar ---
+# Namuna: `.env.example` — commit qilinadi
 .env
 .env.*
 !.env.example
 !.env*.example
+.envrc
+*.pem
+*.p12
+*.key
 
-# Logs
+# Mahalliy sozlamalar (Vite va boshqalar)
+*.local
+
+# --- Loglar ---
 logs/
 *.log
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
+lerna-debug.log*
 
-# OS
+# --- Testlar ---
+coverage/
+.nyc_output/
+playwright-report/
+test-results/
+blob-report/
+
+# --- Lint / TypeScript ---
+.eslintcache
+*.tsbuildinfo
+
+# --- Supabase CLI (mahalliy) ---
+.supabase/
+
+# --- Deploy ---
+.vercel/
+
+# --- Deno ---
+.deno/
+
+# --- OS ---
 .DS_Store
 Thumbs.db
+ehthumbs.db
 Desktop.ini
+$RECYCLE.BIN/
 
-# IDE / editor
+# --- IDE / muharrir ---
 .idea/
 *.swp
 *.swo
 *~
 
-# Cursor / VS Code (sozlamalarni jamoa bilan ulashsangiz, .vscode dan ayrim qatorlarni olib tashlang)
+# VS Code: jamoa bilan ulashiladigan fayllarni istisno qiling
 .vscode/*
 !.vscode/extensions.json
 !.vscode/settings.json.example
 
-# Supabase CLI (mahalliy)
-.supabase/
-
-# Test / coverage
-coverage/
-.nyc_output/
-
-# TypeScript
-*.tsbuildinfo
-
-# Deno (keraksiz cache — lock faylni odatda saqlash mumkin)
-.deno/
-
-# Vaqtinchalik
+# --- Vaqtinchalik ---
 tmp/
 temp/
 *.tmp
 *.temp
 *.backup
+*.orig
 
-# Local History (kengaytma)
+# --- Local History (kengaytma) ---
 .history/
 
-# Expo / React Native (mobil loyiha ichida)
+# --- Expo / React Native (mobil papka bo‘lsa) ---
 mobile-android/.expo/
 mobile-android/dist/
 mobile-android/web-build/
@@ -78,6 +97,5 @@ mobile-android/*.keystore
 mobile-android/.env
 mobile-android/.env.*
 
-# Mobil loyiha butunlay repodan tashqarida bo‘lsa, quyidagi qatorni yoqing:
+# Mobil loyiha shu repoda bo‘lmasa yoki commit qilinmasin desangiz — yoqing:
 /mobile-android
-.vercel

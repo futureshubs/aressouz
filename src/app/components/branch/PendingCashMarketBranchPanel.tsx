@@ -409,13 +409,31 @@ export function PendingCashMarketBranchPanel({
         return;
       }
       const ot = String(orderType || '').toLowerCase();
-      toast.success(
-        ot === 'shop'
-          ? 'Buyurtma do‘kon paneliga yuborildi'
-          : ot === 'food' || ot === 'restaurant'
+      if (ot === 'shop') {
+        const stRes = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders/update-status`,
+          {
+            method: 'POST',
+            headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ orderId, status: 'preparing' }),
+          },
+        );
+        const stData = await stRes.json().catch(() => ({}));
+        if (!stRes.ok || !stData.success) {
+          toast.error(
+            stData.error ||
+              'Filial qabuli saqlandi, lekin «tayyorlanmoqda» holatini qo‘yib bo‘lmadi — qayta urinib ko‘ring.',
+          );
+        } else {
+          toast.success('Buyurtma tayyorlovchi oqimiga o‘tdi (tayyorlanmoqda); sotuvchi panelida ham ko‘rinadi');
+        }
+      } else {
+        toast.success(
+          ot === 'food' || ot === 'restaurant'
             ? 'Buyurtma restoran paneliga yuborildi'
             : 'Buyurtma tayyorlovchiga yuborildi',
-      );
+        );
+      }
       await loadPendingCashMarketOrders();
       await onOrdersChanged?.();
     } catch (e) {
@@ -518,8 +536,8 @@ export function PendingCashMarketBranchPanel({
             ) : null}
           </div>
           <p className="text-xs sm:text-sm mt-1 leading-relaxed" style={{ color: muted }}>
-            Naqd buyurtmani qabul qiling yoki bekor qiling. Market — tayyorlovchi; do‘kon — sotuvchi; taom — restoran
-            paneliga chiqadi.
+            Naqd buyurtmani qabul qiling yoki bekor qiling. Market va do‘kon — filial qabulidan keyin tayyorlovchi
+            oqimi (`tayyorlanmoqda`); do‘kon buyurtmasi sotuvchi panelida ham ko‘rinadi. Taom — restoran paneliga.
           </p>
           <details className="mt-2 group">
             <summary
@@ -771,7 +789,7 @@ export function PendingCashMarketBranchPanel({
                             <>
                               <CheckCircle2 className="w-5 h-5 shrink-0" />
                               {String(ord.orderType || '').toLowerCase() === 'shop'
-                                ? 'Qabul — do‘kon'
+                                ? 'Qabul — tayyorlovchi'
                                 : String(ord.orderType || '').toLowerCase() === 'food' ||
                                     String(ord.orderType || '').toLowerCase() === 'restaurant'
                                   ? 'Qabul — restoran'

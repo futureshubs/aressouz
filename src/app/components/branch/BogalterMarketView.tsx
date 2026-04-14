@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
@@ -71,6 +72,7 @@ export function BogalterMarketView() {
   const [inventoryPeriod, setInventoryPeriod] = useState<InventoryPeriod>('hourly');
   const [inventoryFilter, setInventoryFilter] = useState<InventoryFilter>('all');
   const [visibilityTick, setVisibilityTick] = useState(0);
+  const [historyLoading, setHistoryLoading] = useState(true);
   useVisibilityRefetch(() => setVisibilityTick((t) => t + 1));
 
   const periodMap = useMemo(() => {
@@ -268,75 +270,108 @@ export function BogalterMarketView() {
       .slice(0, 5);
   }, [filteredInventory]);
 
+  const reloadBogalterHistory = useCallback(
+    async (silent: boolean) => {
+      if (!accountantToken) {
+        if (!silent) {
+          toast.error('Bogalter sessiyasi topilmadi. Qayta kiring.');
+          setHistoryLoading(false);
+        }
+        return;
+      }
+
+      const edgeFnHeaders: Record<string, string> = {
+        apikey: publicAnonKey,
+        Authorization: `Bearer ${publicAnonKey}`,
+        'X-Accountant-Token': accountantToken,
+        'Content-Type': 'application/json',
+      };
+
+      const loadSales = async () => {
+        try {
+          const res = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/accountant/sales-history`,
+            { headers: edgeFnHeaders },
+          );
+          if (!res.ok) throw new Error('sales-history fetch failed');
+          const data = await res.json();
+          setSales(data.sales || []);
+        } catch (err) {
+          console.error(err);
+          if (!silent) toast.error('Sotuv tarixini yuklashda xatolik');
+          setSales([]);
+        }
+      };
+
+      const loadInventory = async () => {
+        try {
+          const res = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/accountant/inventory-history`,
+            { headers: edgeFnHeaders },
+          );
+          if (!res.ok) throw new Error('inventory-history fetch failed');
+          const data = await res.json();
+
+          const normalizeOpType = (raw: any): InventoryFilter => {
+            const t = String(raw || '').toLowerCase().trim();
+            if (t === 'sale') return 'remove';
+            if (t === 'adjust') return 'correction';
+            if (t === 'correction') return 'correction';
+            if (t === 'add' || t === 'remove' || t === 'damage' || t === 'expired' || t === 'return')
+              return t as InventoryFilter;
+            return 'all';
+          };
+
+          const normalized: InventoryHistoryItem[] = (data.history || []).map((h: any) => ({
+            ...h,
+            operationType: normalizeOpType(h.operationType ?? h.type),
+          }));
+
+          setInventoryOperations(normalized);
+        } catch (err) {
+          console.error(err);
+          if (!silent) toast.error('Ombor tarixini yuklashda xatolik');
+          setInventoryOperations([]);
+        }
+      };
+
+      if (!silent) setHistoryLoading(true);
+      try {
+        await Promise.all([loadSales(), loadInventory()]);
+      } finally {
+        if (!silent) setHistoryLoading(false);
+      }
+    },
+    [accountantToken],
+  );
+
   useEffect(() => {
-    if (!accountantToken) {
-      toast.error('Bogalter sessiyasi topilmadi. Qayta kiring.');
-      return;
-    }
+    void reloadBogalterHistory(false);
+  }, [accountantToken, visibilityTick, reloadBogalterHistory]);
 
-    const edgeFnHeaders: Record<string, string> = {
-      apikey: publicAnonKey,
-      Authorization: `Bearer ${publicAnonKey}`,
-      'X-Accountant-Token': accountantToken,
-      'Content-Type': 'application/json',
-    };
-
-    const loadSales = async () => {
-      try {
-        const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/accountant/sales-history`,
-          { headers: edgeFnHeaders }
-        );
-        if (!res.ok) throw new Error('sales-history fetch failed');
-        const data = await res.json();
-        setSales(data.sales || []);
-      } catch (err) {
-        console.error(err);
-        toast.error('Sotuv tarixini yuklashda xatolik');
-        setSales([]);
-      }
-    };
-
-    const loadInventory = async () => {
-      try {
-        const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/accountant/inventory-history`,
-          { headers: edgeFnHeaders }
-        );
-        if (!res.ok) throw new Error('inventory-history fetch failed');
-        const data = await res.json();
-
-        const normalizeOpType = (raw: any): InventoryFilter => {
-          const t = String(raw || '').toLowerCase().trim();
-          // Backend history `type` quyidagicha bo'lishi mumkin: add | remove | sale | return | adjust | ...
-          // UI filtr esa: add | remove | damage | expired | return | correction
-          if (t === 'sale') return 'remove'; // Sotuv omborni kamaytiradi
-          if (t === 'adjust') return 'correction';
-          if (t === 'correction') return 'correction';
-          if (t === 'add' || t === 'remove' || t === 'damage' || t === 'expired' || t === 'return') return t as InventoryFilter;
-          return 'all';
-        };
-
-        const normalized: InventoryHistoryItem[] = (data.history || []).map((h: any) => ({
-          ...h,
-          // Back-end ba'zan `type`, ba'zan `operationType` saqlashi mumkin.
-          operationType: normalizeOpType(h.operationType ?? h.type),
-        }));
-
-        setInventoryOperations(normalized);
-      } catch (err) {
-        console.error(err);
-        toast.error('Ombor tarixini yuklashda xatolik');
-        setInventoryOperations([]);
-      }
-    };
-
-    loadSales();
-    loadInventory();
-  }, [accountantToken, visibilityTick]);
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void reloadBogalterHistory(true);
+    }, 12_000);
+    return () => window.clearInterval(id);
+  }, [reloadBogalterHistory]);
 
   return (
     <div className="space-y-6">
+      {historyLoading ? (
+        <div
+          className="flex items-center gap-2 rounded-2xl border px-4 py-3 text-sm"
+          style={{
+            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+            background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+            color: isDark ? 'rgba(255,255,255,0.85)' : 'rgba(17,24,39,0.85)',
+          }}
+        >
+          <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: accentColor.color }} />
+          Sotuv va ombor tarixi yuklanmoqda…
+        </div>
+      ) : null}
       {/* Sections */}
       <div className="flex flex-wrap items-center gap-3">
         {[
@@ -346,8 +381,10 @@ export function BogalterMarketView() {
         ].map((s) => (
           <button
             key={s.id}
+            type="button"
             onClick={() => setActiveSection(s.id)}
-            className="px-6 py-3 rounded-2xl font-semibold transition-all"
+            disabled={historyLoading}
+            className="px-6 py-3 rounded-2xl font-semibold transition-all disabled:opacity-50"
             style={{
               background:
                 activeSection === s.id ? accentColor.gradient : isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',

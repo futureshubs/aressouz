@@ -2,6 +2,7 @@
 // Tayyorlovchi wrapper - Login va Panel birlashtirilgan
 
 import { useState, useEffect } from 'react';
+import { Loader2 } from 'lucide-react';
 import PrepareLogin from '../components/PrepareLogin';
 import PreparePanel from '../components/PreparePanel';
 import { useTheme } from '../context/ThemeContext';
@@ -84,7 +85,7 @@ export default function PrepareWrapper() {
           color: isDark ? '#ffffff' : '#111827',
         }}
       >
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-blue-500" />
+        <Loader2 className="h-12 w-12 animate-spin shrink-0 text-blue-500" aria-label="Yuklanmoqda" />
       </div>
     );
   }

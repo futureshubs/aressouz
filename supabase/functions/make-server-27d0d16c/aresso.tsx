@@ -12,12 +12,24 @@ const CONSUMER_SECRET = process.env.ARESSO_CONSUMER_SECRET || "";
 // DEMO MODE - Set to false for production
 const DEMO_MODE = false; // ❌ DISABLED - Use real ARESSO API
 
-console.log('🔧 ARESSO Configuration:');
-console.log('  Store ID:', STORE_ID);
-console.log('  Consumer Key:', CONSUMER_KEY ? `${CONSUMER_KEY.substring(0, 10)}...` : '❌ NOT SET');
-console.log('  Consumer Secret:', CONSUMER_SECRET ? '✅ SET' : '❌ NOT SET');
-console.log('  Base URL:', ARESSO_BASE_URL);
-console.log('  Demo Mode:', DEMO_MODE ? '⚠️ ENABLED (Mock payments)' : '✅ DISABLED (Real API)');
+const __aressoStartupVerbose = () => {
+  try {
+    const v = Deno.env.get("VERBOSE_SERVER_LOG")?.trim().toLowerCase();
+    const d = Deno.env.get("DEBUG_HTTP")?.trim().toLowerCase();
+    return v === "1" || v === "true" || d === "1" || d === "true";
+  } catch {
+    return false;
+  }
+};
+
+if (__aressoStartupVerbose()) {
+  console.log("🔧 ARESSO Configuration:");
+  console.log("  Store ID:", STORE_ID);
+  console.log("  Consumer Key:", CONSUMER_KEY ? `${CONSUMER_KEY.substring(0, 10)}...` : "❌ NOT SET");
+  console.log("  Consumer Secret:", CONSUMER_SECRET ? "✅ SET" : "❌ NOT SET");
+  console.log("  Base URL:", ARESSO_BASE_URL);
+  console.log("  Demo Mode:", DEMO_MODE ? "⚠️ ENABLED (Mock payments)" : "✅ DISABLED (Real API)");
+}
 
 // Check if ARESSO is configured
 export function isAressoConfigured(): boolean {

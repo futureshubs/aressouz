@@ -1,5 +1,9 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
 import { Package, Sparkles } from 'lucide-react';
+import { Autoplay, Pagination } from 'swiper/modules';
+import { Swiper, SwiperSlide } from 'swiper/react';
+import 'swiper/css';
+import 'swiper/css/pagination';
 import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
@@ -7,12 +11,7 @@ import {
   fetchMarketOrdersForPreview,
   formatOrderTimeAgoUz,
 } from '../utils/fetchMarketOrdersPreview';
-import {
-  Carousel,
-  CarouselContent,
-  CarouselItem,
-  type CarouselApi,
-} from './ui/carousel';
+import { customerOrderStatusFromOrder } from '../utils/customerOrderStatusUz';
 
 type Props = {
   onViewAll: () => void;
@@ -96,6 +95,22 @@ function statusStyle(order: any): { bg: string; text: string } {
   if (order.orderStatus === 'cancelled') {
     return { bg: 'rgba(239, 68, 68, 0.15)', text: '#dc2626' };
   }
+  const k = String(order.customerStatusKey || '').toLowerCase();
+  if (k === 'delivered' || k === 'completed') {
+    return { bg: 'rgba(16, 185, 129, 0.18)', text: '#059669' };
+  }
+  if (k === 'cancelled' || k === 'canceled' || k === 'rejected') {
+    return { bg: 'rgba(239, 68, 68, 0.15)', text: '#dc2626' };
+  }
+  if (k === 'preparing' || k === 'ready') {
+    return { bg: 'rgba(139, 92, 246, 0.18)', text: '#7c3aed' };
+  }
+  if (k === 'delivering' || k === 'with_courier') {
+    return { bg: 'rgba(6, 182, 212, 0.18)', text: '#0891b2' };
+  }
+  if (k === 'processing') {
+    return { bg: 'rgba(59, 130, 246, 0.15)', text: '#2563eb' };
+  }
   return { bg: 'rgba(59, 130, 246, 0.15)', text: '#2563eb' };
 }
 
@@ -118,7 +133,7 @@ function OrderPreviewCard({
   const total = orderTotalAmount(order);
   const thumbs = thumbUrls(order);
   const st = statusStyle(order);
-  const label = String(order.status || 'Jarayonda');
+  const label = customerOrderStatusFromOrder(order);
 
   return (
     <button
@@ -179,16 +194,6 @@ function OrderPreviewCard({
           </div>
         ))}
       </div>
-      <div className="flex justify-center gap-1 mb-2">
-        <span className="size-1.5 rounded-full" style={{ background: accentHex }} />
-        <span
-          className="size-1.5 rounded-full"
-          style={{
-            background: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)',
-          }}
-        />
-      </div>
-
       <div
         className="pt-2 border-t flex items-center justify-between gap-2"
         style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
@@ -214,11 +219,14 @@ export function MarketOrdersPreview({ onViewAll }: Props) {
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
   const tick = useVisibilityTick();
-  const [mobileCarouselApi, setMobileCarouselApi] = useState<CarouselApi | null>(null);
-  const [mobileSlide, setMobileSlide] = useState(0);
 
   const token = accessToken || session?.access_token || null;
   const accentHex = accentColor.color;
+
+  const swiperKey = useMemo(
+    () => orders.map((o) => String(o?.id ?? o?.orderNumber ?? '')).join('|'),
+    [orders],
+  );
 
   const load = useCallback(async () => {
     if (!isAuthenticated || !token) {
@@ -239,36 +247,6 @@ export function MarketOrdersPreview({ onViewAll }: Props) {
   useEffect(() => {
     void load();
   }, [load, tick]);
-
-  useEffect(() => {
-    if (!mobileCarouselApi) return;
-    const sync = () => setMobileSlide(mobileCarouselApi.selectedScrollSnap());
-    sync();
-    mobileCarouselApi.on('select', sync);
-    mobileCarouselApi.on('reInit', sync);
-    return () => {
-      mobileCarouselApi.off('select', sync);
-      mobileCarouselApi.off('reInit', sync);
-    };
-  }, [mobileCarouselApi]);
-
-  useEffect(() => {
-    mobileCarouselApi?.reInit();
-  }, [orders, mobileCarouselApi]);
-
-  useEffect(() => {
-    if (!mobileCarouselApi || orders.length <= 1) return;
-    const advance = () => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
-      if (mobileCarouselApi.canScrollNext()) {
-        mobileCarouselApi.scrollNext();
-      } else {
-        mobileCarouselApi.scrollTo(0);
-      }
-    };
-    const id = window.setInterval(advance, 5000);
-    return () => window.clearInterval(id);
-  }, [mobileCarouselApi, orders.length]);
 
   if (!isAuthenticated) return null;
   if (!loading && orders.length === 0) return null;
@@ -298,78 +276,61 @@ export function MarketOrdersPreview({ onViewAll }: Props) {
           style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}
         />
       ) : (
-        <>
-          {/* Mobil (tor ekran): bitta katta kartochka + swiper. sm+ (≥640px) — gorizontal kartalar. */}
-          <div className="sm:hidden">
-            <Carousel
-              setApi={setMobileCarouselApi}
-              opts={{
-                align: 'start',
-                loop: false,
-                dragFree: false,
-                containScroll: 'trimSnaps',
-              }}
-              className="w-full"
-            >
-              <CarouselContent className="-ml-0">
-                {orders.map((order, idx) => (
-                  <CarouselItem
-                    key={String(order.id || idx)}
-                    className="pl-0 basis-full min-w-0 shrink-0 grow-0"
-                  >
-                    <OrderPreviewCard
-                      order={order}
-                      isDark={isDark}
-                      accentHex={accentHex}
-                      onOpen={onViewAll}
-                    />
-                  </CarouselItem>
-                ))}
-              </CarouselContent>
-            </Carousel>
-            {orders.length > 1 ? (
-              <div className="flex justify-center items-center gap-1.5 mt-3" role="tablist" aria-label="Buyurtmalar">
-                {orders.map((_, i) => (
-                  <button
-                    key={i}
-                    type="button"
-                    role="tab"
-                    aria-selected={mobileSlide === i}
-                    aria-label={`${i + 1}-buyurtma`}
-                    onClick={() => mobileCarouselApi?.scrollTo(i)}
-                    className="h-1.5 rounded-full transition-all duration-200"
-                    style={{
-                      width: mobileSlide === i ? 22 : 7,
-                      background:
-                        mobileSlide === i
-                          ? accentHex
-                          : isDark
-                            ? 'rgba(255,255,255,0.2)'
-                            : 'rgba(0,0,0,0.12)',
-                    }}
-                  />
-                ))}
-              </div>
-            ) : null}
-          </div>
-
-          {/* Planshet va desktop: bir nechta ixcham kartochka (to‘liq kenglik emas) */}
-          <div
-            className="hidden sm:flex gap-3 overflow-x-auto pb-1 snap-x snap-mandatory scrollbar-thin"
-            style={{ scrollbarColor: `${accentHex}44 transparent` }}
+        <div
+          className="w-full min-w-0 rounded-2xl pb-8 pt-0.5"
+          style={
+            {
+              ['--swiper-pagination-color' as string]: accentHex,
+              ['--swiper-pagination-bullet-size' as string]: '8px',
+              ['--swiper-pagination-bullet-horizontal-gap' as string]: '5px',
+              ['--swiper-pagination-bullet-inactive-color' as string]: isDark
+                ? 'rgba(255,255,255,0.35)'
+                : 'rgba(0,0,0,0.25)',
+              ['--swiper-pagination-bullet-inactive-opacity' as string]: '1',
+            } as CSSProperties
+          }
+        >
+          <Swiper
+            key={swiperKey}
+            modules={[Pagination, Autoplay]}
+            slidesPerView={1}
+            spaceBetween={14}
+            pagination={{
+              dynamicBullets: true,
+              clickable: true,
+              dynamicMainBullets: 3,
+            }}
+            autoplay={
+              orders.length > 1
+                ? {
+                    delay: 4500,
+                    disableOnInteraction: true,
+                    pauseOnMouseEnter: true,
+                  }
+                : false
+            }
+            watchOverflow
+            className="market-orders-preview-swiper !pb-9"
+            onSwiper={(s) => {
+              try {
+                s.update();
+              } catch {
+                /* ignore */
+              }
+            }}
           >
-            {orders.map((order, idx) => (
-              <OrderPreviewCard
-                key={String(order.id || idx)}
-                order={order}
-                isDark={isDark}
-                accentHex={accentHex}
-                onOpen={onViewAll}
-                className="snap-start shrink-0 w-[min(100%,280px)] max-w-[calc(100vw-3rem)]"
-              />
+            {orders.map((order, i) => (
+              <SwiperSlide key={String(order?.id ?? order?.orderNumber ?? i)} className="!h-auto">
+                <OrderPreviewCard
+                  order={order}
+                  isDark={isDark}
+                  accentHex={accentHex}
+                  onOpen={onViewAll}
+                />
+              </SwiperSlide>
             ))}
-          </div>
-        </>
+          </Swiper>
+        </div>
       )}
     </section>
   );

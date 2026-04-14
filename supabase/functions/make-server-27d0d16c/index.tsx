@@ -31,6 +31,13 @@ import preparersRoutes from "./preparers.tsx";
 import twoFactorRoutes from "./twoFactor.tsx";
 import { coerceKvTestMode, normalizeKvTestModeForSave } from "./payment-kv-utils.ts";
 
+/** Loyiha prod’da `index.ts` kirish nuqtasini ishlatadi (`supabase/config.toml`). Bu fayl — faqat mahalliy / eski oqim. */
+function __legacyVerbose(): boolean {
+  const v = Deno.env.get("VERBOSE_SERVER_LOG")?.trim().toLowerCase();
+  const d = Deno.env.get("DEBUG_HTTP")?.trim().toLowerCase();
+  return v === "1" || v === "true" || d === "1" || d === "true";
+}
+
 async function paycomCallOptsForReceiptId(receiptId: string) {
   const meta = (await kv.get(`paycom_receipt:${receiptId}`)) as { useTest?: boolean } | null;
   return typeof meta?.useTest === "boolean" ? { useTest: meta.useTest } : undefined;
@@ -49,25 +56,26 @@ async function paycomCallOptsForReceiptIdWithKv(receiptId: string) {
 
 const app = new Hono();
 
-// Log environment variables on startup
-console.log('\n🚀 ===== SERVER STARTING v2.1 =====');
-console.log('⏰ Server Start Time:', new Date().toISOString());
-console.log('🔧 Environment Variables:');
-console.log('  SUPABASE_URL:', Deno.env.get('SUPABASE_URL'));
-console.log('  SUPABASE_SERVICE_ROLE_KEY exists:', !!Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
-console.log('  SUPABASE_ANON_KEY exists:', !!Deno.env.get('SUPABASE_ANON_KEY'));
-console.log('📦 R2 Configuration:');
-console.log('  R2_ACCOUNT_ID:', Deno.env.get('R2_ACCOUNT_ID') ? '✅ SET' : '❌ MISSING');
-console.log('  R2_ACCESS_KEY_ID:', Deno.env.get('R2_ACCESS_KEY_ID') ? '✅ SET' : '❌ MISSING');
-console.log('  R2_SECRET_ACCESS_KEY:', Deno.env.get('R2_SECRET_ACCESS_KEY') ? '✅ SET' : '❌ MISSING');
-console.log('  R2_BUCKET_NAME:', Deno.env.get('R2_BUCKET_NAME') || 'online-shop-images');
-console.log('📢 Features:');
-console.log('  ✅ Banner System');
-console.log('  ✅ Restaurant System');
-console.log('  ✅ Rentals System');
-console.log('  ✅ Auction System');
-console.log('  ✅ Bonus System');
-console.log('🚀 ==========================================================\n');
+if (__legacyVerbose()) {
+  console.log("\n🚀 ===== SERVER STARTING v2.1 (legacy index.tsx) =====");
+  console.log("⏰ Server Start Time:", new Date().toISOString());
+  console.log("🔧 Environment Variables:");
+  console.log("  SUPABASE_URL:", Deno.env.get("SUPABASE_URL"));
+  console.log("  SUPABASE_SERVICE_ROLE_KEY exists:", !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"));
+  console.log("  SUPABASE_ANON_KEY exists:", !!Deno.env.get("SUPABASE_ANON_KEY"));
+  console.log("📦 R2 Configuration:");
+  console.log("  R2_ACCOUNT_ID:", Deno.env.get("R2_ACCOUNT_ID") ? "✅ SET" : "❌ MISSING");
+  console.log("  R2_ACCESS_KEY_ID:", Deno.env.get("R2_ACCESS_KEY_ID") ? "✅ SET" : "❌ MISSING");
+  console.log("  R2_SECRET_ACCESS_KEY:", Deno.env.get("R2_SECRET_ACCESS_KEY") ? "✅ SET" : "❌ MISSING");
+  console.log("  R2_BUCKET_NAME:", Deno.env.get("R2_BUCKET_NAME") || "online-shop-images");
+  console.log("📢 Features:");
+  console.log("  ✅ Banner System");
+  console.log("  ✅ Restaurant System");
+  console.log("  ✅ Rentals System");
+  console.log("  ✅ Auction System");
+  console.log("  ✅ Bonus System");
+  console.log("🚀 ==========================================================\n");
+}
 
 // Supabase client
 const supabase = createClient(
@@ -107,30 +115,35 @@ app.use(
   }),
 );
 
-// Log all incoming requests for debugging
-app.use('*', async (c, next) => {
-  console.log('\n🔥 ==== NEW REQUEST ====');
-  console.log('📍 Method:', c.req.method);
-  console.log('📍 Path:', c.req.path);
-  console.log('📍 URL:', c.req.url);
-  
-  // Log headers for OPTIONS and POST requests
-  if (c.req.method === 'OPTIONS' || c.req.method === 'POST') {
-    const allHeaders: Record<string, string> = {};
-    c.req.raw.headers.forEach((value: string, key: string) => {
-      allHeaders[key] = value;
-    });
-    console.log('📋 Request Headers:', JSON.stringify(allHeaders, null, 2));
+// Log all incoming requests for debugging (faqat VERBOSE/DEBUG; maxfiy sarlavhalar chiqarilmaydi)
+app.use("*", async (c, next) => {
+  if (__legacyVerbose()) {
+    console.log("\n🔥 ==== NEW REQUEST ====");
+    console.log("📍 Method:", c.req.method);
+    console.log("📍 Path:", c.req.path);
+    console.log("📍 URL:", c.req.url);
+    if (c.req.method === "OPTIONS" || c.req.method === "POST") {
+      const allHeaders: Record<string, string> = {};
+      c.req.raw.headers.forEach((value: string, key: string) => {
+        const lk = key.toLowerCase();
+        const secret =
+          lk === "authorization" ||
+          lk === "cookie" ||
+          lk === "apikey" ||
+          lk.includes("token");
+        allHeaders[key] = secret ? "[redacted]" : value;
+      });
+      console.log("📋 Request Headers:", JSON.stringify(allHeaders, null, 2));
+    }
+    console.log("🔥 ====================\n");
   }
-  
-  console.log('🔥 ====================\n');
   await next();
 });
 
 // Handle OPTIONS requests (CORS preflight)
-app.options('*', (c) => {
-  console.log('✅ OPTIONS request handled');
-  return c.text('OK', 200, {
+app.options("*", (c) => {
+  if (__legacyVerbose()) console.log("✅ OPTIONS request handled");
+  return c.text("OK", 200, {
     'Access-Control-Allow-Origin': '*',
     'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
     'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Access-Token, x-access-token, X-Seller-Token, x-seller-token, X-Courier-Token, x-courier-token, X-Admin-Code, x-admin-code, X-Branch-Token, x-branch-token, X-Accountant-Token, x-accountant-token, apikey',
@@ -142,17 +155,23 @@ app.options('*', (c) => {
 
 // Extract and validate access token from custom header or Authorization header
 async function validateAccessToken(c: any, formData?: FormData) {
-  console.log('🔐 ===== validateAccessToken START =====');
-  console.log('📍 Request URL:', c.req.url);
-  console.log('📍 Request Method:', c.req.method);
-  
-  // Get all headers for debugging
-  const allHeaders: Record<string, string> = {};
-  c.req.raw.headers.forEach((value: string, key: string) => {
-    allHeaders[key] = value;
-  });
-  console.log('📋 All Request Headers:', JSON.stringify(allHeaders, null, 2));
-  
+  if (__legacyVerbose()) {
+    console.log("🔐 ===== validateAccessToken START =====");
+    console.log("📍 Request URL:", c.req.url);
+    console.log("📍 Request Method:", c.req.method);
+    const allHeaders: Record<string, string> = {};
+    c.req.raw.headers.forEach((value: string, key: string) => {
+      const lk = key.toLowerCase();
+      const secret =
+        lk === "authorization" ||
+        lk === "cookie" ||
+        lk === "apikey" ||
+        lk.includes("token");
+      allHeaders[key] = secret ? "[redacted]" : value;
+    });
+    console.log("📋 All Request Headers:", JSON.stringify(allHeaders, null, 2));
+  }
+
   // Try multiple ways to get the token - Hono headers are case-insensitive but let's be extra safe
   let customToken = c.req.header('X-Access-Token') || 
                     c.req.header('x-access-token') ||
@@ -181,26 +200,34 @@ async function validateAccessToken(c: any, formData?: FormData) {
   let formToken = null;
   if (formData) {
     formToken = formData.get('accessToken');
-    if (formToken && typeof formToken === 'string') {
-      console.log('🔑 Found token in FormData:', formToken.substring(0, 20) + '...');
+    if (formToken && typeof formToken === "string" && __legacyVerbose()) {
+      console.log("🔑 Found token in FormData:", formToken.substring(0, 20) + "…");
     }
   }
   
   const accessToken = customToken || authToken || formToken;
   
-  console.log('🔑 Custom Token (X-Access-Token):', customToken ? `${customToken.substring(0, 20)}...` : 'MISSING');
-  console.log('🔑 Auth Header:', authHeader ? `${authHeader.substring(0, 30)}...` : 'MISSING');
-  console.log('���� Extracted Access Token:', accessToken ? `${accessToken.substring(0, 20)}...` : 'MISSING');
-  
-  if (!accessToken) {
-    console.log('❌ No access token found');
-    console.log('🔐 ===== validateAccessToken END (FAILED) =====\n');
-    return { success: false, error: 'Avtorizatsiya kerak. Iltimos, tizimga kiring.', userId: null };
+  if (__legacyVerbose()) {
+    console.log(
+      "🔑 Custom Token (X-Access-Token):",
+      customToken ? `${customToken.substring(0, 20)}…` : "MISSING",
+    );
+    console.log("🔑 Auth Header:", authHeader ? `${authHeader.substring(0, 30)}…` : "MISSING");
+    console.log("🔑 Extracted Access Token:", accessToken ? `${accessToken.substring(0, 20)}…` : "MISSING");
   }
 
-  // First, try to validate with custom access token in KV
-  console.log('🔍 Checking KV store for custom token...');
-  console.log('🔑 KV key will be:', `access_token:${accessToken}`);
+  if (!accessToken) {
+    if (__legacyVerbose()) {
+      console.log("❌ No access token found");
+      console.log("🔐 ===== validateAccessToken END (FAILED) =====\n");
+    }
+    return { success: false, error: "Avtorizatsiya kerak. Iltimos, tizimga kiring.", userId: null };
+  }
+
+  if (__legacyVerbose()) {
+    console.log("🔍 Checking KV store for custom token…");
+    console.log("🔑 KV key will be:", `access_token:${accessToken}`);
+  }
   
   const supabaseClient = createClient(
     Deno.env.get('SUPABASE_URL') ?? '',
@@ -210,33 +237,39 @@ async function validateAccessToken(c: any, formData?: FormData) {
   const customTokenData = await kv.get(`access_token:${accessToken}`);
   
   if (!customTokenData) {
-    console.log('⚠️ Token not found in KV store');
-    // Debug: Query database directly to list all access tokens
+    if (__legacyVerbose()) {
+      console.log("⚠️ Token not found in KV store");
+    }
+    // Debug: Query database directly to list all access tokens (faqat legacy verbose)
     try {
       const { data: allTokensData, error: queryError } = await supabaseClient
         .from('kv_store_27d0d16c')
         .select('key, value')
         .like('key', 'access_token:%')
         .limit(10);
-      
-      console.log('📋 Sample access tokens in database:', allTokensData?.length || 0);
-      if (queryError) {
-        console.error('❌ Error querying tokens:', queryError);
+
+      if (__legacyVerbose()) {
+        console.log("📋 Sample access tokens in database:", allTokensData?.length || 0);
+      }
+      if (queryError && __legacyVerbose()) {
+        console.error("❌ Error querying tokens:", queryError);
       }
       if (allTokensData && allTokensData.length > 0) {
-        allTokensData.forEach((item: any, index: number) => {
-          const tokenFromKey = item.key.replace('access_token:', '');
-          console.log(`  Token ${index + 1}:`, {
-            keyPreview: item.key.substring(0, 30) + '...',
-            tokenPreview: tokenFromKey.substring(0, 30) + '...',
-            fullTokenLength: tokenFromKey.length,
-            providedTokenLength: accessToken.length,
-            tokensMatch: tokenFromKey === accessToken ? '✅ MATCH!' : '❌ NO MATCH',
-            userId: item.value?.userId,
-            phone: item.value?.phone,
-            expiresAt: item.value?.expiresAt ? new Date(item.value.expiresAt).toISOString() : 'N/A'
+        if (__legacyVerbose()) {
+          allTokensData.forEach((item: any, index: number) => {
+            const tokenFromKey = item.key.replace("access_token:", "");
+            console.log(`  Token ${index + 1}:`, {
+              keyPreview: item.key.substring(0, 30) + "...",
+              tokenPreview: tokenFromKey.substring(0, 30) + "...",
+              fullTokenLength: tokenFromKey.length,
+              providedTokenLength: accessToken.length,
+              tokensMatch: tokenFromKey === accessToken ? "✅ MATCH!" : "❌ NO MATCH",
+              userId: item.value?.userId,
+              phone: item.value?.phone,
+              expiresAt: item.value?.expiresAt ? new Date(item.value.expiresAt).toISOString() : "N/A",
+            });
           });
-        });
+        }
         
         // Try to find exact match
         const exactMatch = allTokensData.find((item: any) => {
@@ -245,46 +278,64 @@ async function validateAccessToken(c: any, formData?: FormData) {
         });
         
         if (exactMatch) {
-          console.log('✅ FOUND EXACT MATCH IN DATABASE BUT KV.GET FAILED');
-          console.log('✅ Using token from database directly');
-          
+          if (__legacyVerbose()) {
+            console.log("✅ FOUND EXACT MATCH IN DATABASE BUT KV.GET FAILED");
+            console.log("✅ Using token from database directly");
+          }
+
           // Use the token data from database
           if (Date.now() > exactMatch.value?.expiresAt) {
-            console.log('❌ Token expired');
-            console.log('🔐 ===== validateAccessToken END (EXPIRED) =====\n');
-            return { success: false, error: 'Token muddati tugagan', userId: null };
+            if (__legacyVerbose()) {
+              console.log("❌ Token expired");
+              console.log("🔐 ===== validateAccessToken END (EXPIRED) =====\n");
+            }
+            return { success: false, error: "Token muddati tugagan", userId: null };
           }
-          
-          console.log('✅ Token valid, userId:', exactMatch.value?.userId);
-          console.log('🔐 ===== validateAccessToken END (SUCCESS) =====\n');
+
+          if (__legacyVerbose()) {
+            console.log("✅ Token valid, userId:", exactMatch.value?.userId);
+            console.log("🔐 ===== validateAccessToken END (SUCCESS) =====\n");
+          }
           return { success: true, userId: exactMatch.value?.userId, error: null };
         }
       } else {
-        console.log('  No tokens found in database!');
+        if (__legacyVerbose()) console.log("  No tokens found in database!");
       }
     } catch (err) {
-      console.error('Error listing tokens:', err);
+      if (__legacyVerbose()) console.error("Error listing tokens:", err);
     }
   }
-  
+
   if (customTokenData) {
-    console.log('✅ Custom token found in KV store:', customTokenData);
+    if (__legacyVerbose()) {
+      console.log("✅ Custom token found in KV store:", customTokenData);
+    }
     // Custom token found - check expiry
     if (Date.now() > customTokenData.expiresAt) {
-      console.log('❌ Custom token expired at:', new Date(customTokenData.expiresAt).toISOString());
-      console.log('🔐 ===== validateAccessToken END (EXPIRED) =====\n');
-      return { success: false, error: 'Token muddati tugagan', userId: null };
+      if (__legacyVerbose()) {
+        console.log("❌ Custom token expired at:", new Date(customTokenData.expiresAt).toISOString());
+        console.log("🔐 ===== validateAccessToken END (EXPIRED) =====\n");
+      }
+      return { success: false, error: "Token muddati tugagan", userId: null };
     }
-    
-    console.log('✅ Custom token valid, userId:', customTokenData.userId);
-    console.log('🔐 ===== validateAccessToken END (SUCCESS) =====\n');
+
+    if (__legacyVerbose()) {
+      console.log("✅ Custom token valid, userId:", customTokenData.userId);
+      console.log("🔐 ===== validateAccessToken END (SUCCESS) =====\n");
+    }
     return { success: true, userId: customTokenData.userId, error: null };
   }
 
   // Token not found in KV store - this is an error
-  console.log('❌ Custom token not found in KV store');
-  console.log('🔐 ===== validateAccessToken END (TOKEN NOT FOUND) =====\n');
-  return { success: false, error: 'Token noto\'g\'ri yoki muddati tugagan. Qaytadan kiring.', userId: null };
+  if (__legacyVerbose()) {
+    console.log("❌ Custom token not found in KV store");
+    console.log("🔐 ===== validateAccessToken END (TOKEN NOT FOUND) =====\n");
+  }
+  return {
+    success: false,
+    error: "Token noto'g'ri yoki muddati tugagan. Qaytadan kiring.",
+    userId: null,
+  };
 }
 
 // ==================== BRANCH STAFF (Xodim) AUTH + REGISTRATION ====================
@@ -10444,7 +10495,7 @@ app.get('/profile', async (c) => {
 });
 
 // Start server
-const port = parseInt(Deno.env.get('PORT') || '8001');
-console.log(`🚀 Server starting on port ${port}`);
+const port = parseInt(Deno.env.get("PORT") || "8001");
+if (__legacyVerbose()) console.log(`🚀 Server starting on port ${port}`);
 
 Deno.serve({ port }, app.fetch);

@@ -3,7 +3,7 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
-import { ExternalLink, Check, X, Loader } from 'lucide-react';
+import { ExternalLink, Check, X, Loader2 } from 'lucide-react';
 import { openExternalUrl } from '../utils/openExternalUrl';
 import { PaymentMethodLogoFrame } from './payment/PaymentMethodLogoFrame';
 
@@ -245,6 +245,7 @@ export default function PaymePayment({
   const startPolling = () => {
     void checkPaymentStatus();
     pollingInterval.current = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       void checkPaymentStatusRef.current();
       if (checkCount.current >= 100) {
         stopPolling();
@@ -302,7 +303,7 @@ export default function PaymePayment({
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
           }}
         >
-          <Loader className="w-5 h-5 animate-spin" style={{ color: '#00AACB' }} />
+          <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#00AACB' }} />
           <span>Chek yaratilmoqda...</span>
         </div>
       )}
@@ -354,7 +355,7 @@ export default function PaymePayment({
             borderColor: '#3b82f6',
           }}
         >
-          <Loader className="w-5 h-5 animate-spin" style={{ color: '#3b82f6' }} />
+          <Loader2 className="w-5 h-5 animate-spin" style={{ color: '#3b82f6' }} />
           <span>To'lov tekshirilmoqda... ({checkCount.current})</span>
         </div>
       )}

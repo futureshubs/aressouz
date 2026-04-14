@@ -14,7 +14,8 @@ import {
   Download,
   RefreshCw,
   AlertTriangle,
-  CheckCircle2
+  CheckCircle2,
+  Loader2,
 } from 'lucide-react';
 import QRCodeLib from 'qrcode';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
@@ -301,10 +302,7 @@ export default function TwoFactorAuth({ branchId, branchName, isDark, accentColo
   if (isLoading && !showSetup) {
     return (
       <div className="flex items-center justify-center py-16">
-        <div 
-          className="w-12 h-12 border-4 border-t-transparent rounded-full animate-spin"
-          style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
-        />
+        <Loader2 className="w-12 h-12 animate-spin shrink-0" style={{ color: accentColor.color }} />
       </div>
     );
   }
@@ -360,14 +358,16 @@ export default function TwoFactorAuth({ branchId, branchName, isDark, accentColo
 
           {!is2FAEnabled && !showSetup && (
             <button
-              onClick={handleEnable2FA}
+              type="button"
+              onClick={() => void handleEnable2FA()}
               disabled={isLoading}
-              className="px-6 py-3 rounded-xl font-bold transition-all active:scale-95"
+              className="px-6 py-3 rounded-xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
               style={{
                 background: accentColor.gradient,
                 color: '#ffffff',
               }}
             >
+              {isLoading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
               2FA ni yoqish
             </button>
           )}
@@ -481,8 +481,9 @@ export default function TwoFactorAuth({ branchId, branchName, isDark, accentColo
                   type="text"
                   value={verificationCode}
                   onChange={(e) => setVerificationCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                  disabled={isLoading}
                   placeholder="000000"
-                  className="w-full px-4 py-3 rounded-xl border outline-none text-center text-2xl font-mono tracking-widest"
+                  className="w-full px-4 py-3 rounded-xl border outline-none text-center text-2xl font-mono tracking-widest disabled:opacity-60"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -502,7 +503,8 @@ export default function TwoFactorAuth({ branchId, branchName, isDark, accentColo
                     setShowSetup(false);
                     setVerificationCode('');
                   }}
-                  className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95"
+                  disabled={isLoading}
+                  className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                   }}
@@ -512,12 +514,13 @@ export default function TwoFactorAuth({ branchId, branchName, isDark, accentColo
                 <button
                   type="submit"
                   disabled={isLoading || verificationCode.length !== 6}
-                  className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95 disabled:opacity-50"
+                  className="flex-1 py-3 rounded-xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                   style={{
                     background: accentColor.gradient,
                     color: '#ffffff',
                   }}
                 >
+                  {isLoading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                   {isLoading ? 'Tekshirilmoqda...' : 'Tasdiqlash'}
                 </button>
               </div>
@@ -630,8 +633,9 @@ export default function TwoFactorAuth({ branchId, branchName, isDark, accentColo
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
                 placeholder="Parolingizni kiriting"
-                className="w-full px-4 py-3 rounded-xl border outline-none"
+                className="w-full px-4 py-3 rounded-xl border outline-none disabled:opacity-60"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
                   borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -644,27 +648,34 @@ export default function TwoFactorAuth({ branchId, branchName, isDark, accentColo
 
             <div className="flex gap-3">
               <button
-                onClick={handleRegenerateBackupCodes}
+                type="button"
+                onClick={() => void handleRegenerateBackupCodes()}
                 disabled={isLoading || !password}
-                className="flex-1 py-3 rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
+                className="flex-1 py-3 rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 style={{
                   background: `${accentColor.color}20`,
                   color: accentColor.color,
                 }}
               >
-                <RefreshCw className="w-5 h-5" />
+                {isLoading ? (
+                  <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                ) : (
+                  <RefreshCw className="w-5 h-5 shrink-0" />
+                )}
                 <span>Backup kodlarni yangilash</span>
               </button>
 
               <button
-                onClick={handleDisable2FA}
+                type="button"
+                onClick={() => void handleDisable2FA()}
                 disabled={isLoading || !password}
-                className="px-6 py-3 rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-50"
+                className="px-6 py-3 rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 style={{
                   background: 'rgba(239, 68, 68, 0.1)',
                   color: '#ef4444',
                 }}
               >
+                {isLoading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                 2FA ni o'chirish
               </button>
             </div>

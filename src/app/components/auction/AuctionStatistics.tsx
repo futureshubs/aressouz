@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
-import { Gavel, TrendingUp, Users, DollarSign, Trophy, Package } from 'lucide-react';
+import { Gavel, TrendingUp, Users, DollarSign, Trophy, Package, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 
@@ -115,32 +115,16 @@ export function AuctionStatistics({ branchId }: AuctionStatisticsProps) {
 
       {/* Stats Grid */}
       {loading ? (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3, 4, 5, 6].map((i) => (
-            <div
-              key={i}
-              className="rounded-3xl border p-6 animate-pulse"
-              style={{
-                background: isDark
-                  ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
-                  : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <div
-                className="w-12 h-12 rounded-2xl mb-4"
-                style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-              />
-              <div
-                className="h-4 rounded-lg mb-2"
-                style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-              />
-              <div
-                className="h-8 rounded-lg w-2/3"
-                style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-              />
-            </div>
-          ))}
+        <div className="flex flex-col items-center justify-center py-16 gap-3 rounded-3xl border" style={{
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          background: isDark
+            ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
+            : 'linear-gradient(145deg, #ffffff, #f9fafb)',
+        }}>
+          <Loader2 className="w-10 h-10 animate-spin" style={{ color: accentColor.color }} />
+          <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+            Statistika yuklanmoqda…
+          </p>
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

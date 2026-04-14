@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
-import { Star, Clock, MapPin, ChevronRight, Utensils, TrendingUp, Leaf, X, Plus, Minus, Phone, Heart, Share2, PackageCheck, Timer } from 'lucide-react';
+import { Star, Clock, MapPin, ChevronRight, Utensils, TrendingUp, Leaf, X, Plus, Minus, Phone, Heart, Share2, PackageCheck, Timer, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { notifyCartAdded } from '../utils/appToast';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
@@ -334,6 +334,10 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
 
       {loading ? (
         <div className="px-4 pb-8">
+          <div className="flex items-center justify-center gap-2 py-3 mb-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
+            <Loader2 className="size-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
+            Yuklanmoqda…
+          </div>
           {activeTab === 'dishes' ? (
             <ProductGridSkeleton
               isDark={isDark}

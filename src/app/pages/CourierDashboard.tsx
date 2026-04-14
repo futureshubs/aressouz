@@ -768,8 +768,6 @@ export default function CourierDashboard() {
         const hasActiveOrders = activeOrdersList.length > 0;
         
         // FORCE UPDATE: Always update status based on active orders
-        console.log('🔧 Status update:', { hasActiveOrders, currentStatus: profile?.status });
-        
         setProfile(prev => prev ? {
           ...prev,
           status: hasActiveOrders ? 'busy' : 'active'
@@ -815,6 +813,9 @@ export default function CourierDashboard() {
   useEffect(() => {
     if (courierRentalOrders.length === 0) return;
     const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
       void loadDashboard(true);
     }, 20_000);
     return () => window.clearInterval(id);
@@ -1034,17 +1035,23 @@ export default function CourierDashboard() {
     pushLocation();
 
     const refreshInterval = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
       if (actionLoadingRef.current) {
         return;
       }
-      loadDashboard(true);
-    }, 12000);
+      void loadDashboard(true);
+    }, 5000);
 
     const locationInterval = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
       if (actionLoadingRef.current) {
         return;
       }
-      pushLocation();
+      void pushLocation();
     }, 15000);
 
     return () => {

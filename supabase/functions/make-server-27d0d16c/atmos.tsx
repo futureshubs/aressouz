@@ -13,6 +13,9 @@
  *   ATMOS_FETCH_TIMEOUT_MS — tranzaksiya/check (default 45000)
  *
  * KV config: storeId, consumerKey, consumerSecret, apiBaseUrl, terminalId (ixtiyoriy)
+ *
+ * URL (asosiy Edge): `.../functions/v1/make-server-27d0d16c/atmos/create-transaction`
+ * URL (ixtiyoriy `payment-webhooks`): `.../functions/v1/payment-webhooks/atmos/create-transaction`
  */
 
 import { coerceKvTestMode } from './payment-kv-utils.ts';

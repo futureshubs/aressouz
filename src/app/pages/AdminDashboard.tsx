@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback } from 'react';
+import { useTabVisible } from '../hooks/useTabVisible';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { 
@@ -152,6 +153,26 @@ export default function AdminDashboard() {
   useVisibilityRefetch(() => {
     void loadStats({ soft: true });
   });
+
+  const adminTabVisible = useTabVisible();
+
+  useEffect(() => {
+    if (!adminTabVisible) {
+      return undefined;
+    }
+    const id = window.setInterval(() => {
+      const session = localStorage.getItem('adminSession');
+      if (!session) return;
+      try {
+        const s = JSON.parse(session) as { sessionToken?: string; role?: string };
+        if (s?.role !== 'admin' || !s?.sessionToken) return;
+      } catch {
+        return;
+      }
+      void loadStats({ soft: true });
+    }, 10_000);
+    return () => window.clearInterval(id);
+  }, [adminTabVisible, loadStats]);
 
   useBodyScrollLock(sidebarOpen);
 

@@ -21,9 +21,7 @@ export function BannerCarousel({
 }: BannerCarouselProps) {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
-  
-  console.log('📢 BannerCarousel render:', { category, region, district });
-  
+
   // Load banners using hook
   const { banners, isLoading, error } = useBanners(category, region, district);
   

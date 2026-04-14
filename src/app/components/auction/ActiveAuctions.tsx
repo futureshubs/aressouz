@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
-import { Clock, Users, TrendingUp, Eye, Trash2, MapPin } from 'lucide-react';
+import { Clock, Users, TrendingUp, Eye, Trash2, MapPin, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { AuctionDetail } from './AuctionDetail';
 import { regionsList, getDistricts } from '../../data/regions';
@@ -22,6 +22,7 @@ export function ActiveAuctions({ branchId }: ActiveAuctionsProps) {
   const [filter, setFilter] = useState<'all' | 'active' | 'ended'>('all');
   const [selectedRegion, setSelectedRegion] = useState('');
   const [selectedDistrict, setSelectedDistrict] = useState('');
+  const [deletingAuctionId, setDeletingAuctionId] = useState<string | null>(null);
   const visibilityRefetchTick = useVisibilityTick();
 
   useEffect(() => {
@@ -123,6 +124,7 @@ export function ActiveAuctions({ branchId }: ActiveAuctionsProps) {
   const deleteAuction = async (auctionId: string) => {
     if (!confirm('Auksionni o\'chirmoqchimisiz?')) return;
 
+    setDeletingAuctionId(auctionId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/auctions/${auctionId}`,
@@ -144,6 +146,8 @@ export function ActiveAuctions({ branchId }: ActiveAuctionsProps) {
     } catch (error) {
       console.error('Error deleting auction:', error);
       toast.error('Auksionni o\'chirishda xatolik');
+    } finally {
+      setDeletingAuctionId(null);
     }
   };
 
@@ -265,34 +269,16 @@ export function ActiveAuctions({ branchId }: ActiveAuctionsProps) {
 
       {/* Auctions Grid */}
       {loading ? (
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-          {[1, 2, 3].map((i) => (
-            <div
-              key={i}
-              className="rounded-3xl border overflow-hidden animate-pulse"
-              style={{
-                background: isDark
-                  ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
-                  : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <div
-                className="h-48"
-                style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-              />
-              <div className="p-4 space-y-3">
-                <div
-                  className="h-6 rounded-lg"
-                  style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-                />
-                <div
-                  className="h-4 rounded-lg w-2/3"
-                  style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-                />
-              </div>
-            </div>
-          ))}
+        <div className="flex flex-col items-center justify-center py-20 rounded-3xl border gap-3" style={{
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          background: isDark
+            ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
+            : 'linear-gradient(145deg, #ffffff, #f9fafb)',
+        }}>
+          <Loader2 className="w-10 h-10 animate-spin" style={{ color: accentColor.color }} />
+          <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
+            Auksionlar yuklanmoqda…
+          </p>
         </div>
       ) : filteredAuctions.length === 0 ? (
         <div
@@ -356,8 +342,10 @@ export function ActiveAuctions({ branchId }: ActiveAuctionsProps) {
                   {/* Actions */}
                   <div className="absolute top-3 left-3 flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
                     <button
+                      type="button"
                       onClick={() => setSelectedAuction(auction)}
-                      className="p-2 rounded-xl backdrop-blur-sm"
+                      disabled={deletingAuctionId !== null}
+                      className="p-2 rounded-xl backdrop-blur-sm disabled:opacity-50"
                       style={{
                         background: 'rgba(20, 184, 166, 0.9)',
                         color: '#ffffff',
@@ -366,14 +354,20 @@ export function ActiveAuctions({ branchId }: ActiveAuctionsProps) {
                       <Eye className="w-4 h-4" />
                     </button>
                     <button
+                      type="button"
                       onClick={() => deleteAuction(auction.id)}
-                      className="p-2 rounded-xl backdrop-blur-sm"
+                      disabled={deletingAuctionId !== null}
+                      className="p-2 rounded-xl backdrop-blur-sm disabled:opacity-50 inline-flex items-center justify-center min-w-[36px] min-h-[36px]"
                       style={{
                         background: 'rgba(239, 68, 68, 0.9)',
                         color: '#ffffff',
                       }}
                     >
-                      <Trash2 className="w-4 h-4" />
+                      {deletingAuctionId === auction.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <Trash2 className="w-4 h-4" />
+                      )}
                     </button>
                   </div>
                 </div>

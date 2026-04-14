@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, type ReactNode } from 'react';
 import { Search, Clock, TrendingUp, Tag, MapPin, Star, ChevronRight, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -115,6 +115,47 @@ const mockHistory: SearchHistory[] = [
   }
 ];
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+/** Matnni React orqali ajratadi — `dangerouslySetInnerHTML` XSS yo‘lini yopadi */
+function renderHighlightedText(text: string, query: string): ReactNode {
+  const q = query.trim();
+  if (!q) return text;
+  let re: RegExp;
+  try {
+    re = new RegExp(`(${escapeRegex(q)})`, 'gi');
+  } catch {
+    return text;
+  }
+  const out: ReactNode[] = [];
+  let last = 0;
+  let match: RegExpExecArray | null;
+  let key = 0;
+  while ((match = re.exec(text)) !== null) {
+    const offset = match.index;
+    const m = match[0];
+    if (offset > last) {
+      out.push(<span key={`t${key++}`}>{text.slice(last, offset)}</span>);
+    }
+    out.push(
+      <mark
+        key={`m${key++}`}
+        className="rounded bg-yellow-200 px-0.5 text-inherit dark:bg-yellow-700/40"
+      >
+        {m}
+      </mark>,
+    );
+    last = offset + m.length;
+    if (m.length === 0) re.lastIndex++;
+  }
+  if (last < text.length) {
+    out.push(<span key={`t${key++}`}>{text.slice(last)}</span>);
+  }
+  return out.length > 0 ? <>{out}</> : text;
+}
+
 const mockPopularSearches: PopularSearch[] = [
   { query: 'Samsung Galaxy', count: 2340, trend: 'up', lastWeekCount: 1890, category: 'Elektronika' },
   { query: 'iPhone', count: 1980, trend: 'up', lastWeekCount: 1750, category: 'Elektronika' },
@@ -168,12 +209,6 @@ export function useAutoComplete() {
       setIsLoading(false);
     }
   }, []);
-
-  // Highlight matching text
-  const highlightText = (text: string, query: string): string => {
-    const regex = new RegExp(`(${query})`, 'gi');
-    return text.replace(regex, '<mark>$1</mark>');
-  };
 
   // Add to history
   const addToHistory = useCallback((query: string, resultsCount: number, sessionId: string, userId?: string) => {
@@ -370,13 +405,9 @@ export default function AutoComplete({
     }
   };
 
-  // Format suggestion text
-  const formatSuggestionText = (suggestion: Suggestion) => {
-    if (suggestion.highlightedText) {
-      return <span dangerouslySetInnerHTML={{ __html: suggestion.highlightedText }} />;
-    }
-    return suggestion.text;
-  };
+  // Format suggestion text (query XSS uchun HTML emas, faqat React tugunlari)
+  const formatSuggestionText = (suggestion: Suggestion) =>
+    renderHighlightedText(suggestion.text, value);
 
   // Render suggestion item
   const renderSuggestion = (suggestion: Suggestion, index: number) => {
@@ -542,9 +573,9 @@ export default function AutoComplete({
               {/* Regular Suggestions */}
               {value && (
                 <div>
-                  {allSuggestions.slice(0, maxSuggestions).map((suggestion, index) => 
-                    renderSuggestion(suggestion, index)
-                  ))}
+                  {allSuggestions.slice(0, maxSuggestions).map((suggestion, index) =>
+                    renderSuggestion(suggestion, index),
+                  )}
                 </div>
               )}
 

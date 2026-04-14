@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
-import { Users, Phone, DollarSign, Calendar } from 'lucide-react';
+import { Users, Phone, DollarSign, Calendar, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 
@@ -15,6 +15,7 @@ export function AuctionParticipants({ branchId }: AuctionParticipantsProps) {
 
   const [participants, setParticipants] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
+  const [auctionsLoading, setAuctionsLoading] = useState(true);
   const [selectedAuction, setSelectedAuction] = useState<string>('all');
   const [auctions, setAuctions] = useState<any[]>([]);
   const visibilityRefetchTick = useVisibilityTick();
@@ -31,6 +32,7 @@ export function AuctionParticipants({ branchId }: AuctionParticipantsProps) {
 
   const loadAuctions = async () => {
     try {
+      setAuctionsLoading(true);
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/auctions?branchId=${branchId}`,
         {
@@ -46,6 +48,8 @@ export function AuctionParticipants({ branchId }: AuctionParticipantsProps) {
       }
     } catch (error) {
       console.error('Error loading auctions:', error);
+    } finally {
+      setAuctionsLoading(false);
     }
   };
 
@@ -149,7 +153,8 @@ export function AuctionParticipants({ branchId }: AuctionParticipantsProps) {
         <select
           value={selectedAuction}
           onChange={(e) => setSelectedAuction(e.target.value)}
-          className="w-full sm:w-auto px-4 py-3 rounded-xl border outline-none"
+          disabled={auctionsLoading || loading}
+          className="w-full sm:w-auto px-4 py-3 rounded-xl border outline-none disabled:opacity-50"
           style={{
             background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -166,37 +171,17 @@ export function AuctionParticipants({ branchId }: AuctionParticipantsProps) {
       </div>
 
       {/* Participants List */}
-      {loading ? (
-        <div className="space-y-3">
-          {[1, 2, 3, 4].map((i) => (
-            <div
-              key={i}
-              className="rounded-3xl border p-4 animate-pulse"
-              style={{
-                background: isDark
-                  ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
-                  : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <div className="flex gap-4">
-                <div
-                  className="w-12 h-12 rounded-full"
-                  style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-                />
-                <div className="flex-1 space-y-2">
-                  <div
-                    className="h-4 rounded-lg w-1/3"
-                    style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-                  />
-                  <div
-                    className="h-3 rounded-lg w-1/2"
-                    style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-                  />
-                </div>
-              </div>
-            </div>
-          ))}
+      {loading || auctionsLoading ? (
+        <div className="flex flex-col items-center justify-center py-16 gap-3 rounded-3xl border" style={{
+          borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          background: isDark
+            ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
+            : 'linear-gradient(145deg, #ffffff, #f9fafb)',
+        }}>
+          <Loader2 className="w-10 h-10 animate-spin" style={{ color: accentColor.color }} />
+          <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+            Ishtirokchilar yuklanmoqda…
+          </p>
         </div>
       ) : participants.length === 0 ? (
         <div

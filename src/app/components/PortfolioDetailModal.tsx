@@ -1,4 +1,4 @@
-import { X, MapPin, Briefcase, Phone, Star, MessageSquare, Check, Award, Clock, Globe, Calendar, Edit, Trash2, Plus } from 'lucide-react';
+import { X, MapPin, Briefcase, Phone, Star, MessageSquare, Check, Award, Clock, Globe, Calendar, Edit, Trash2, Plus, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useState, useEffect } from 'react';
@@ -46,10 +46,19 @@ interface PortfolioDetailModalProps {
   isOpen: boolean;
   onClose: () => void;
   onEdit?: (portfolio: Portfolio) => void;
-  onDelete?: (portfolioId: string) => void;
+  onDelete?: (portfolioId: string) => void | Promise<void>;
+  /** Ota komponentda o‘chirish fetch davomida */
+  portfolioDeletePending?: boolean;
 }
 
-export function PortfolioDetailModal({ portfolio, isOpen, onClose, onEdit, onDelete }: PortfolioDetailModalProps) {
+export function PortfolioDetailModal({
+  portfolio,
+  isOpen,
+  onClose,
+  onEdit,
+  onDelete,
+  portfolioDeletePending = false,
+}: PortfolioDetailModalProps) {
   const { theme, accentColor } = useTheme();
   const { user, session } = useAuth();
   const isDark = theme === 'dark';
@@ -212,10 +221,14 @@ export function PortfolioDetailModal({ portfolio, isOpen, onClose, onEdit, onDel
   // Check if current user owns this portfolio
   const isOwner = user?.id === portfolio.userId;
 
-  const handleDelete = () => {
-    if (onDelete && portfolio.id) {
-      onDelete(portfolio.id);
+  const handleDelete = async () => {
+    if (!onDelete || !portfolio.id) return;
+    try {
+      await onDelete(portfolio.id);
+      setShowDeleteConfirm(false);
       onClose();
+    } catch {
+      /* xato xabari ota komponentda */
     }
   };
 
@@ -724,10 +737,7 @@ export function PortfolioDetailModal({ portfolio, isOpen, onClose, onEdit, onDel
                 {/* Projects Grid */}
                 {loadingProjects ? (
                   <div className="flex justify-center py-12">
-                    <div
-                      className="w-12 h-12 border-4 border-t-transparent rounded-full animate-spin"
-                      style={{ borderColor: `${accentColor.color} transparent transparent transparent` }}
-                    />
+                    <Loader2 className="w-12 h-12 animate-spin shrink-0" style={{ color: accentColor.color }} />
                   </div>
                 ) : projects.length > 0 ? (
                   <>
@@ -936,13 +946,14 @@ export function PortfolioDetailModal({ portfolio, isOpen, onClose, onEdit, onDel
                       <button
                         type="submit"
                         disabled={submittingReview || !newReview.comment.trim()}
-                        className="w-full py-3 rounded-xl font-semibold transition-all active:scale-98 disabled:opacity-50"
+                        className="w-full py-3 rounded-xl font-semibold transition-all active:scale-98 disabled:opacity-50 flex items-center justify-center gap-2"
                         style={{
                           background: accentColor.color,
                           color: '#fff',
                           boxShadow: `0 4px 12px ${accentColor.color}40`,
                         }}
                       >
+                        {submittingReview && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                         {submittingReview ? 'Yuklanmoqda...' : 'Sharh yuborish'}
                       </button>
                     </div>
@@ -952,10 +963,7 @@ export function PortfolioDetailModal({ portfolio, isOpen, onClose, onEdit, onDel
                 {/* Reviews List */}
                 {loadingReviews ? (
                   <div className="flex justify-center py-12">
-                    <div
-                      className="w-12 h-12 border-4 border-t-transparent rounded-full animate-spin"
-                      style={{ borderColor: `${accentColor.color} transparent transparent transparent` }}
-                    />
+                    <Loader2 className="w-12 h-12 animate-spin shrink-0" style={{ color: accentColor.color }} />
                   </div>
                 ) : reviews.length > 0 ? (
                   <div className="space-y-3">
@@ -1095,7 +1103,8 @@ export function PortfolioDetailModal({ portfolio, isOpen, onClose, onEdit, onDel
               <div className="grid grid-cols-2 gap-3">
                 <button
                   onClick={() => setShowDeleteConfirm(false)}
-                  className="py-3 px-4 rounded-2xl font-bold transition-all active:scale-95"
+                  disabled={portfolioDeletePending}
+                  className="py-3 px-4 rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                     color: textPrimary,
@@ -1106,13 +1115,15 @@ export function PortfolioDetailModal({ portfolio, isOpen, onClose, onEdit, onDel
                 </button>
 
                 <button
-                  onClick={handleDelete}
-                  className="py-3 px-4 rounded-2xl font-bold text-white transition-all active:scale-95"
+                  onClick={() => void handleDelete()}
+                  disabled={portfolioDeletePending}
+                  className="py-3 px-4 rounded-2xl font-bold text-white transition-all active:scale-95 inline-flex items-center justify-center gap-2 disabled:opacity-50"
                   style={{
                     background: '#ef4444',
                     boxShadow: '0 4px 12px rgba(239, 68, 68, 0.4)',
                   }}
                 >
+                  {portfolioDeletePending ? <Loader2 className="size-5 animate-spin shrink-0" /> : null}
                   O'chirish
                 </button>
               </div>

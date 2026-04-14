@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { Clock, CheckCircle, XCircle, ArrowRight, Loader2, Sparkles } from 'lucide-react';
 import {
@@ -70,34 +70,38 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
     };
   }, [branchId, visibilityTick, apiBaseUrl]);
 
-  const loadOrders = async () => {
-    try {
-      setLoading(true);
-      console.log('🏠 Loading rental orders for branch:', branchId);
-      const response = await fetch(
-        `${apiBaseUrl}/rentals/orders/${encodeURIComponent(branchId)}`,
-        {
-          headers: buildRentalPanelHeaders(),
-        },
-      );
+  const loadOrders = useCallback(
+    async (opts?: { silent?: boolean }) => {
+      const silent = opts?.silent === true;
+      try {
+        if (!silent) setLoading(true);
+        console.log('🏠 Loading rental orders for branch:', branchId);
+        const response = await fetch(
+          `${apiBaseUrl}/rentals/orders/${encodeURIComponent(branchId)}`,
+          {
+            headers: buildRentalPanelHeaders(),
+          },
+        );
 
-      const data = await response.json().catch(() => ({}));
-      console.log('📊 Branch rental orders response:', { status: response.status, data });
-      if (response.ok && data.success && Array.isArray(data.orders)) {
-        setOrders(data.orders);
-      } else {
-        console.warn('❌ Branch rental orders:', data?.error || data);
-        setOrders([]);
+        const data = await response.json().catch(() => ({}));
+        console.log('📊 Branch rental orders response:', { status: response.status, data });
+        if (response.ok && data.success && Array.isArray(data.orders)) {
+          setOrders(data.orders);
+        } else {
+          console.warn('❌ Branch rental orders:', data?.error || data);
+          setOrders([]);
+        }
+      } catch (error) {
+        console.error('Error loading orders:', error);
+        if (!silent) toast.error('Buyurtmalarni yuklashda xatolik');
+      } finally {
+        if (!silent) setLoading(false);
       }
-    } catch (error) {
-      console.error('Error loading orders:', error);
-      toast.error('Buyurtmalarni yuklashda xatolik');
-    } finally {
-      setLoading(false);
-    }
-  };
+    },
+    [apiBaseUrl, branchId],
+  );
 
-  const loadProducts = async () => {
+  const loadProducts = useCallback(async () => {
     try {
       const response = await fetch(
         `${apiBaseUrl}/rentals/products/${encodeURIComponent(branchId)}`,
@@ -113,7 +117,16 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
     } catch (error) {
       console.error('Error loading products:', error);
     }
-  };
+  }, [apiBaseUrl, branchId]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void loadOrders({ silent: true });
+      void loadProducts();
+    }, 8000);
+    return () => window.clearInterval(id);
+  }, [loadOrders, loadProducts]);
 
   const getProductName = (productId: string) => {
     const product = products.find(p => p.id === productId);
@@ -544,7 +557,7 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
                           key={`${u}-${i}`}
                           href={u}
                           target="_blank"
-                          rel="noreferrer"
+                          rel="noopener noreferrer"
                           className="block w-16 h-16 rounded-lg overflow-hidden border shrink-0"
                           style={{
                             borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Package2, Plus, RefreshCw, Save, X, Pencil, ShieldAlert } from 'lucide-react';
+import { Package2, Plus, RefreshCw, Save, X, Pencil, ShieldAlert, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../../context/ThemeContext';
 import { buildAdminHeaders } from '../../utils/requestAuth';
@@ -258,14 +258,16 @@ export default function CourierBagsView() {
           </select>
 
           <button
-            onClick={() => loadBags(selectedBranchId)}
-            className="px-4 py-3 rounded-2xl border flex items-center gap-2"
+            type="button"
+            onClick={() => void loadBags(selectedBranchId)}
+            disabled={isLoading}
+            className="px-4 py-3 rounded-2xl border flex items-center gap-2 disabled:opacity-50"
             style={{
               background: isDark ? 'rgba(255,255,255,0.05)' : '#ffffff',
               borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
             }}
           >
-            <RefreshCw className="w-4 h-4" />
+            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <RefreshCw className="w-4 h-4" />}
             Yangilash
           </button>
 
@@ -323,7 +325,8 @@ export default function CourierBagsView() {
         }}
       >
         {isLoading ? (
-          <div className="py-12 text-center" style={{ color: mutedTextColor }}>
+          <div className="py-12 text-center flex flex-col items-center gap-2" style={{ color: mutedTextColor }}>
+            <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} />
             So‘mkalar yuklanmoqda...
           </div>
         ) : bags.length === 0 ? (
@@ -598,7 +601,7 @@ export default function CourierBagsView() {
                     opacity: isSaving ? 0.7 : 1,
                   }}
                 >
-                  {isSaving ? <RefreshCw className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                  {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                   {editingBag ? 'Saqlash' : 'Qo‘shish'}
                 </button>
               </div>

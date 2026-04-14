@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { X, Upload, Plus, Trash2, Camera, Video } from 'lucide-react';
+import { X, Upload, Plus, Trash2, Camera, Video, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
@@ -429,7 +429,9 @@ export function CreatePortfolioModal({
         background: 'rgba(0, 0, 0, 0.7)',
         backdropFilter: 'blur(8px)',
       }}
-      onClick={onClose}
+      onClick={() => {
+        if (!loading && !uploadingMedia) onClose();
+      }}
     >
       {/* Content Container - Full screen on mobile, centered on desktop */}
       <div className="w-full h-full flex items-start sm:items-center justify-center">
@@ -453,8 +455,10 @@ export function CreatePortfolioModal({
               {portfolioToEdit ? 'Portfolio tahrirlash' : 'Portfolio yaratish'}
             </h2>
             <button
+              type="button"
               onClick={onClose}
-              className="p-2.5 sm:p-3 rounded-full transition-all active:scale-95"
+              disabled={loading || uploadingMedia}
+              className="p-2.5 sm:p-3 rounded-full transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
               style={{
                 background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
               }}
@@ -935,13 +939,7 @@ export function CreatePortfolioModal({
                     disabled={uploadingMedia}
                   />
                   {uploadingMedia ? (
-                    <div 
-                      className="animate-spin rounded-full h-10 w-10 border-2 border-transparent"
-                      style={{
-                        borderTopColor: accentColor.color,
-                        borderRightColor: accentColor.color,
-                      }}
-                    />
+                    <Loader2 className="h-10 w-10 animate-spin shrink-0" style={{ color: accentColor.color }} />
                   ) : (
                     <>
                       <Upload className="w-8 h-8 sm:w-10 sm:h-10 mb-2" style={{ color: accentColor.color, opacity: 0.7 }} />
@@ -964,14 +962,15 @@ export function CreatePortfolioModal({
             >
               <button
                 type="submit"
-                disabled={loading}
-                className="w-full py-4 sm:py-5 rounded-2xl font-bold transition-all disabled:opacity-50 active:scale-[0.98] text-base sm:text-lg"
+                disabled={loading || uploadingMedia}
+                className="w-full py-4 sm:py-5 rounded-2xl font-bold transition-all disabled:opacity-50 active:scale-[0.98] text-base sm:text-lg flex items-center justify-center gap-2"
                 style={{
                   background: accentColor.color,
                   color: '#fff',
                   boxShadow: `0 8px 24px ${accentColor.color}40`,
                 }}
               >
+                {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                 {loading ? 'Yuklanmoqda...' : portfolioToEdit ? 'Portfolio yangilash' : 'Portfolio yaratish'}
               </button>
             </div>

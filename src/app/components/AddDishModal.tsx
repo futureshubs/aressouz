@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { X, Upload, Utensils, Plus, Trash2, Star, Leaf } from 'lucide-react';
+import { X, Upload, Utensils, Plus, Trash2, Star, Leaf, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '/utils/supabase/info';
 import { platformCommissionHintUz, validateVariantCommissionsClient } from '../utils/platformCommission';
@@ -638,9 +638,10 @@ export function AddDishModal({
             <button
               type="submit"
               disabled={isSubmitting || uploading}
-              className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
+              className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
               style={{ background: accentColor.color, color: '#ffffff' }}
             >
+              {isSubmitting && <Loader2 className="w-6 h-6 animate-spin shrink-0" />}
               {isSubmitting ? 'Saqlanmoqda...' : dish ? 'Yangilash' : 'Taom qo\'shish'}
             </button>
           </div>

@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Store, Lock, User, ArrowLeft, Building2, ChevronRight } from 'lucide-react';
+import { Store, Lock, User, ArrowLeft, Building2, ChevronRight, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
@@ -177,13 +177,14 @@ export default function BogalterLogin() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-4 rounded-2xl font-bold transition-all active:scale-98 disabled:opacity-50"
+              className="w-full py-4 rounded-2xl font-bold transition-all active:scale-98 disabled:opacity-50 flex items-center justify-center gap-2"
               style={{
                 background: accentColor.gradient,
                 color: '#ffffff',
                 boxShadow: `0 10px 30px ${accentColor.color}40`,
               }}
             >
+              {isLoading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
               {isLoading ? 'Kutilmoqda...' : 'Kirish'}
             </button>
             </form>
@@ -220,15 +221,16 @@ export default function BogalterLogin() {
               <button
                 type="submit"
                 disabled={isLoading}
-                className="w-full py-4 rounded-2xl font-bold transition-all active:scale-98 disabled:opacity-50"
+                className="w-full py-4 rounded-2xl font-bold transition-all active:scale-98 disabled:opacity-50 flex items-center justify-center gap-2"
                 style={{
                   background: accentColor.gradient,
                   color: '#ffffff',
                   boxShadow: `0 10px 30px ${accentColor.color}40`,
                 }}
               >
+                {isLoading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                 {isLoading ? 'Kutilmoqda...' : 'Davom etish'}
-                {!isLoading && <ChevronRight className="w-4 h-4" />}
+                {!isLoading && <ChevronRight className="w-4 h-4 shrink-0" />}
               </button>
             </form>
           )}

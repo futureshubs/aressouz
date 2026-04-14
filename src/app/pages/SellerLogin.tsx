@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Store, Lock, User, ArrowLeft } from 'lucide-react';
+import { Store, Lock, User, ArrowLeft, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { readValidSellerSession } from '../utils/sellerSession';
@@ -226,13 +226,14 @@ export default function SellerLogin() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-4 rounded-2xl font-bold transition-all active:scale-98"
+              className="w-full py-4 rounded-2xl font-bold transition-all active:scale-98 disabled:opacity-50 flex items-center justify-center gap-2"
               style={{
                 background: accentColor.gradient,
                 color: '#ffffff',
                 boxShadow: `0 10px 30px ${accentColor.color}40`,
               }}
             >
+              {isLoading && <Loader2 className="w-6 h-6 animate-spin shrink-0" />}
               {isLoading ? 'Yuklanmoqda...' : 'Kirish'}
             </button>
           </form>

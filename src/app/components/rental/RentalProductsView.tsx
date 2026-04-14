@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { Plus, Package, Edit, Trash2, ImageIcon, X, LayoutGrid, Send } from 'lucide-react';
+import { Plus, Package, Edit, Trash2, ImageIcon, X, LayoutGrid, Send, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
@@ -64,6 +64,8 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
   const [newFeature, setNewFeature] = useState('');
   const [visibilityTick, setVisibilityTick] = useState(0);
   const [telegramTestLoading, setTelegramTestLoading] = useState(false);
+  const [savingProduct, setSavingProduct] = useState(false);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   useVisibilityRefetch(() => setVisibilityTick((t) => t + 1));
 
   useEffect(() => {
@@ -191,6 +193,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
       }
     }
 
+    setSavingProduct(true);
     try {
       const url = editingProduct
         ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${editingProduct.id}`
@@ -236,12 +239,15 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
     } catch (error) {
       console.error('❌ Error saving product:', error);
       toast.error('Mahsulotni saqlashda xatolik');
+    } finally {
+      setSavingProduct(false);
     }
   };
 
   const handleDelete = async (productId: string) => {
     if (!confirm('Mahsulotni o\'chirishni tasdiqlaysizmi?')) return;
 
+    setDeletingProductId(productId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${branchId}/${productId}`,
@@ -262,6 +268,8 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
     } catch (error) {
       console.error('Error deleting product:', error);
       toast.error('Mahsulotni o\'chirishda xatolik');
+    } finally {
+      setDeletingProductId(null);
     }
   };
 
@@ -439,11 +447,13 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
           </p>
         </div>
         <button
+          type="button"
           onClick={() => {
             resetForm();
             setShowModal(true);
           }}
-          className="px-6 py-3 rounded-2xl font-medium flex items-center gap-2 transition-all hover:scale-105"
+          disabled={deletingProductId !== null}
+          className="px-6 py-3 rounded-2xl font-medium flex items-center gap-2 transition-all hover:scale-105 disabled:opacity-50"
           style={{ 
             background: accentColor.color,
             color: '#ffffff'
@@ -614,8 +624,10 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                 {/* Actions */}
                 <div className="flex gap-2 pt-2">
                   <button
+                    type="button"
                     onClick={() => openEditModal(product)}
-                    className="flex-1 px-4 py-2 rounded-xl flex items-center justify-center gap-2 transition-all"
+                    disabled={deletingProductId !== null || savingProduct}
+                    className="flex-1 px-4 py-2 rounded-xl flex items-center justify-center gap-2 transition-all disabled:opacity-50"
                     style={{ 
                       background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
                       color: accentColor.color
@@ -625,14 +637,20 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                     Tahrirlash
                   </button>
                   <button
+                    type="button"
                     onClick={() => handleDelete(product.id)}
-                    className="px-4 py-2 rounded-xl transition-all"
+                    disabled={deletingProductId !== null || savingProduct}
+                    className="px-4 py-2 rounded-xl transition-all inline-flex items-center justify-center disabled:opacity-50 min-w-[44px]"
                     style={{ 
                       background: isDark ? 'rgba(239,68,68,0.1)' : 'rgba(239,68,68,0.1)',
                       color: '#ef4444'
                     }}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    {deletingProductId === product.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Trash2 className="w-4 h-4" />
+                    )}
                   </button>
                 </div>
               </div>
@@ -918,12 +936,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                       >
                         {uploading ? (
                           <div className="text-center">
-                            <div className="w-8 h-8 border-4 rounded-full animate-spin mx-auto mb-2" 
-                                 style={{ 
-                                   borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                                   borderTopColor: accentColor.color 
-                                 }}
-                            />
+                            <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" style={{ color: accentColor.color }} />
                             <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
                               Yuklanmoqda...
                             </p>
@@ -1287,7 +1300,12 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                   <button
                     type="button"
                     onClick={() => void sendTelegramPrepTest()}
-                    disabled={telegramTestLoading || !String(formData.telegramChatId || '').trim()}
+                    disabled={
+                      telegramTestLoading ||
+                      savingProduct ||
+                      uploading ||
+                      !String(formData.telegramChatId || '').trim()
+                    }
                     className="mt-3 inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium transition-opacity disabled:opacity-40"
                     style={{
                       background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
@@ -1295,7 +1313,11 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                       color: accentColor.color,
                     }}
                   >
-                    <Send className="w-4 h-4 shrink-0" />
+                    {telegramTestLoading ? (
+                      <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+                    ) : (
+                      <Send className="w-4 h-4 shrink-0" />
+                    )}
                     {telegramTestLoading ? 'Yuborilmoqda…' : 'Sinov xabari yuborish'}
                   </button>
                 </div>
@@ -1364,7 +1386,8 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                 <button
                   type="button"
                   onClick={() => setShowModal(false)}
-                  className="flex-1 px-6 py-3 rounded-2xl font-medium"
+                  disabled={savingProduct || uploading}
+                  className="flex-1 px-6 py-3 rounded-2xl font-medium disabled:opacity-50"
                   style={{
                     background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)'
                   }}
@@ -1373,12 +1396,14 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-6 py-3 rounded-2xl font-medium"
+                  disabled={savingProduct || uploading}
+                  className="flex-1 px-6 py-3 rounded-2xl font-medium inline-flex items-center justify-center gap-2 disabled:opacity-50"
                   style={{ 
                     background: accentColor.color,
                     color: '#ffffff'
                   }}
                 >
+                  {savingProduct ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : null}
                   {editingProduct ? 'Saqlash' : 'Qo\'shish'}
                 </button>
               </div>

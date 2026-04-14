@@ -1,4 +1,4 @@
-// Tayyorlovchilar boshqaruvi Market va Ijara buyurtmalari uchun
+// Tayyorlovchilar boshqaruvi: Market, Ijara va Do‘kon (filial naqd qabulidan keyin) buyurtmalari
 
 import { Hono } from 'npm:hono';
 import { createClient } from 'npm:@supabase/supabase-js@2';
@@ -39,7 +39,7 @@ async function retryOperation<T>(
   throw lastError;
 }
 
-const PREPARER_ALLOWED_ORDER_TYPES = new Set(['market', 'rental']);
+const PREPARER_ALLOWED_ORDER_TYPES = new Set(['market', 'rental', 'shop']);
 
 const isFoodLikeOrder = (order: any) => {
   const items = Array.isArray(order?.items) ? order.items : [];
@@ -67,7 +67,7 @@ const isCashLikePayment = (raw: unknown) => {
 };
 
 /**
- * Market + naqd: filial qabul qilmaguncha tayyorlovchida ko‘rinmasin.
+ * Market yoki do‘kon + naqd: filial `release-to-preparer` qilmaguncha tayyorlovchida ko‘rinmasin.
  * - `order:market:` kalitidan kelgan yozuvlarda `orderType` bo‘lmasa ham market hisoblanadi.
  * - `payment_method` / "Naqd pul" kabi qiymatlar qo‘llab-quvvatlanadi.
  */
@@ -78,9 +78,10 @@ const isMarketCashPendingBranchRelease = (
   const id = String(order?.id || '');
   const fromKey = ctx?.kvKey ? String(ctx.kvKey).startsWith('order:market:') : false;
   const fromSet = ctx?.marketIdSet ? ctx.marketIdSet.has(id) : false;
-  const fromField =
-    String(order?.orderType || order?.type || '').toLowerCase() === 'market';
-  if (!fromKey && !fromSet && !fromField) return false;
+  const t = String(order?.orderType || order?.type || '').toLowerCase();
+  const fromFieldMarket = t === 'market';
+  const fromFieldShop = t === 'shop';
+  if (!fromKey && !fromSet && !fromFieldMarket && !fromFieldShop) return false;
 
   const pm = order?.paymentMethod ?? order?.payment_method;
   if (!isCashLikePayment(pm)) return false;
@@ -91,6 +92,7 @@ const isMarketCashPendingBranchRelease = (
 const isPreparerMarketOrRental = (order: any, marketIdSet: Set<string>) => {
   const id = String(order?.id || '');
   const t = String(order.orderType || order.type || '').toLowerCase();
+  if (t === 'shop') return true;
   if (t === 'rental' || t === 'property' || t === 'place') return true;
   if (t === 'market') return true;
   if (marketIdSet.has(id)) return true;
@@ -484,7 +486,7 @@ preparers.get('/:id/orders', async (c) => {
     console.log('✅ Preparer found:', preparer.name);
     console.log('📍 Preparer zones:', preparer.zones);
 
-    // Get market + rental orders (preparer works only for these sections)
+    // Market + ijara + do‘kon (filial naqd qabulidan keyin) buyurtmalari
     const [marketOrders, generalOrders] = await Promise.all([
       retryOperation(
         () => kv.getByPrefix('order:market:'),
@@ -574,7 +576,7 @@ preparers.get('/:id/orders/:orderId/pickup-racks', async (c) => {
       return c.json({ error: 'Buyurtma topilmadi' }, 404);
     }
     if (!orderIsMarketOrRentalForAuth(order, orderRecord.key)) {
-      return c.json({ error: 'Faqat Market va Ijara buyurtmalari uchun ruxsat bor' }, 403);
+      return c.json({ error: 'Faqat Market, Ijara va Do‘kon buyurtmalari uchun ruxsat bor' }, 403);
     }
     if (isMarketCashPendingBranchRelease(order, { kvKey: orderRecord.key })) {
       return c.json(
@@ -665,7 +667,7 @@ preparers.post('/:id/orders/:orderId/status', async (c) => {
       return c.json({ error: 'Buyurtma topilmadi' }, 404);
     }
     if (!orderIsMarketOrRentalForAuth(order, orderRecord.key)) {
-      return c.json({ error: 'Faqat Market va Ijara buyurtmalari uchun ruxsat bor' }, 403);
+      return c.json({ error: 'Faqat Market, Ijara va Do‘kon buyurtmalari uchun ruxsat bor' }, 403);
     }
     if (isMarketCashPendingBranchRelease(order, { kvKey: orderRecord.key })) {
       return c.json(

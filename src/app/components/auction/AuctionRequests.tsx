@@ -10,7 +10,8 @@ import {
   Phone,
   DollarSign,
   MessageSquare,
-  Image as ImageIcon
+  Image as ImageIcon,
+  Loader2,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
@@ -424,9 +425,10 @@ export function AuctionRequests({ branchId }: AuctionRequestsProps) {
                 <textarea
                   value={adminNote}
                   onChange={(e) => setAdminNote(e.target.value)}
+                  disabled={updating}
                   placeholder="Izoh qoldiring..."
                   rows={3}
-                  className="w-full px-4 py-3 rounded-xl border outline-none"
+                  className="w-full px-4 py-3 rounded-xl border outline-none disabled:opacity-60"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -438,29 +440,29 @@ export function AuctionRequests({ branchId }: AuctionRequestsProps) {
 
             <div className="flex gap-3">
               <button
-                onClick={() => updateRequestStatus(selectedRequest.id, 'approved')}
+                type="button"
+                onClick={() => void updateRequestStatus(selectedRequest.id, 'approved')}
                 disabled={updating}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all active:scale-95"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
                   background: '#10b981',
                   color: '#ffffff',
-                  opacity: updating ? 0.5 : 1,
                 }}
               >
-                <Check className="w-5 h-5" />
+                {updating ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <Check className="w-5 h-5 shrink-0" />}
                 <span className="font-medium">Tasdiqlash</span>
               </button>
               <button
-                onClick={() => updateRequestStatus(selectedRequest.id, 'rejected')}
+                type="button"
+                onClick={() => void updateRequestStatus(selectedRequest.id, 'rejected')}
                 disabled={updating}
-                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all active:scale-95"
+                className="flex-1 flex items-center justify-center gap-2 px-4 py-3 rounded-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
                   background: '#ef4444',
                   color: '#ffffff',
-                  opacity: updating ? 0.5 : 1,
                 }}
               >
-                <X className="w-5 h-5" />
+                {updating ? <Loader2 className="w-5 h-5 animate-spin shrink-0" /> : <X className="w-5 h-5 shrink-0" />}
                 <span className="font-medium">Rad etish</span>
               </button>
             </div>

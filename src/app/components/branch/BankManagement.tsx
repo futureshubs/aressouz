@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { Plus, Building, Percent, Calendar, Phone, Mail, Edit2, Trash2, Upload, X, Check, MapPin, MessageCircle } from 'lucide-react';
+import { Plus, Building, Percent, Calendar, Phone, Mail, Edit2, Trash2, Upload, X, Check, MapPin, MessageCircle, Loader2 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
@@ -52,7 +52,9 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
   const [showModal, setShowModal] = useState(false);
   const [editingBank, setEditingBank] = useState<Bank | null>(null);
   const [logoPreview, setLogoPreview] = useState('');
-  
+  const [saving, setSaving] = useState(false);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
+
   const [formData, setFormData] = useState({
     name: '',
     logo: '',
@@ -148,12 +150,13 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
   };
 
   const handleSubmit = async () => {
-    try {
-      if (!formData.name || !formData.mortgagePercent) {
-        alert('Iltimos, bank nomi va ipoteka foizini kiriting!');
-        return;
-      }
+    if (!formData.name || !formData.mortgagePercent) {
+      alert('Iltimos, bank nomi va ipoteka foizini kiriting!');
+      return;
+    }
 
+    setSaving(true);
+    try {
       const url = editingBank
         ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/banks/${editingBank.id}`
         : `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/banks`;
@@ -189,12 +192,15 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
     } catch (error) {
       console.error('Save bank error:', error);
       alert('Xatolik yuz berdi!');
+    } finally {
+      setSaving(false);
     }
   };
 
   const handleDelete = async (bankId: string) => {
     if (!confirm('Rostdan ham bu bankni o\'chirmoqchimisiz?')) return;
 
+    setDeleteBusyId(bankId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/banks/${bankId}`,
@@ -210,6 +216,8 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
     } catch (error) {
       console.error('Delete bank error:', error);
       alert('Xatolik yuz berdi!');
+    } finally {
+      setDeleteBusyId(null);
     }
   };
 
@@ -355,8 +363,10 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
               {/* Actions */}
               <div className="flex gap-2">
                 <button
+                  type="button"
                   onClick={() => openEditModal(bank)}
-                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl font-bold transition-all"
+                  disabled={deleteBusyId !== null || saving}
+                  className="flex-1 flex items-center justify-center gap-2 px-3 py-2 rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: `${accentColor.color}20`,
                     color: accentColor.color,
@@ -367,14 +377,20 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
                 </button>
                 
                 <button
-                  onClick={() => handleDelete(bank.id)}
-                  className="px-3 py-2 rounded-xl font-bold transition-all"
+                  type="button"
+                  onClick={() => void handleDelete(bank.id)}
+                  disabled={deleteBusyId !== null}
+                  className="px-3 py-2 rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[44px]"
                   style={{
                     background: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)',
                     color: '#ef4444',
                   }}
                 >
-                  <Trash2 className="size-4" strokeWidth={2.5} />
+                  {deleteBusyId === bank.id ? (
+                    <Loader2 className="size-4 animate-spin" strokeWidth={2.5} />
+                  ) : (
+                    <Trash2 className="size-4" strokeWidth={2.5} />
+                  )}
                 </button>
               </div>
             </div>
@@ -390,7 +406,9 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
             background: 'rgba(0, 0, 0, 0.8)',
             backdropFilter: 'blur(8px)',
           }}
-          onClick={() => setShowModal(false)}
+          onClick={() => {
+            if (!saving) setShowModal(false);
+          }}
         >
           <div
             className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6"
@@ -407,8 +425,10 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
                 {editingBank ? 'Bankni tahrirlash' : 'Yangi bank qo\'shish'}
               </h2>
               <button
+                type="button"
                 onClick={() => setShowModal(false)}
-                className="p-2 rounded-xl transition-all"
+                disabled={saving}
+                className="p-2 rounded-xl transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
                 }}
@@ -653,20 +673,28 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
               {/* Actions */}
               <div className="flex gap-3 pt-4">
                 <button
-                  onClick={handleSubmit}
-                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-white transition-all hover:scale-105"
+                  type="button"
+                  onClick={() => void handleSubmit()}
+                  disabled={saving}
+                  className="flex-1 flex items-center justify-center gap-2 px-6 py-3 rounded-xl font-bold text-white transition-all hover:scale-105 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: accentColor.color,
                     boxShadow: `0 8px 24px ${accentColor.color}40`,
                   }}
                 >
-                  <Check className="size-5" strokeWidth={2.5} />
-                  <span>{editingBank ? 'Saqlash' : 'Qo\'shish'}</span>
+                  {saving ? (
+                    <Loader2 className="size-5 animate-spin shrink-0" strokeWidth={2.5} />
+                  ) : (
+                    <Check className="size-5 shrink-0" strokeWidth={2.5} />
+                  )}
+                  <span>{saving ? 'Saqlanmoqda...' : editingBank ? 'Saqlash' : 'Qo\'shish'}</span>
                 </button>
 
                 <button
+                  type="button"
                   onClick={() => setShowModal(false)}
-                  className="px-6 py-3 rounded-xl font-bold transition-all"
+                  disabled={saving}
+                  className="px-6 py-3 rounded-xl font-bold transition-all disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
                     color: isDark ? '#ffffff' : '#111827',

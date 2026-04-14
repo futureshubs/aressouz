@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from 'react';
-import { X, MapPin, Phone, Clock, FileText, Tag, Image as ImageIcon, Instagram, Youtube, Send, Key, Navigation } from 'lucide-react';
+import { X, MapPin, Phone, Clock, FileText, Tag, Image as ImageIcon, Instagram, Youtube, Send, Key, Navigation, Loader2 } from 'lucide-react';
 import { Place, placeCategories } from '../data/places';
 import { useTheme } from '../context/ThemeContext';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
@@ -192,7 +192,9 @@ export function EditPlaceModal({ isOpen, onClose, place, onSuccess }: EditPlaceM
         background: 'rgba(0, 0, 0, 0.8)',
         backdropFilter: 'blur(12px)',
       }}
-      onClick={onClose}
+      onClick={() => {
+        if (!isSubmitting) onClose();
+      }}
     >
       <div
         className="relative w-full sm:max-w-2xl overflow-hidden flex flex-col"
@@ -216,8 +218,10 @@ export function EditPlaceModal({ isOpen, onClose, place, onSuccess }: EditPlaceM
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
         }}>
           <button
+            type="button"
             onClick={onClose}
-            className="absolute top-4 sm:top-6 right-4 sm:right-6 p-2 rounded-xl transition-all active:scale-90 z-10"
+            disabled={isSubmitting}
+            className="absolute top-4 sm:top-6 right-4 sm:right-6 p-2 rounded-xl transition-all active:scale-90 z-10 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
             }}
@@ -661,14 +665,8 @@ export function EditPlaceModal({ isOpen, onClose, place, onSuccess }: EditPlaceM
                 boxShadow: `0 8px 24px ${accentColor.color}44`,
               }}
             >
-              {isSubmitting ? (
-                <>
-                  <div className="animate-spin rounded-full h-4 w-4 sm:h-5 sm:w-5 border-2 border-white border-t-transparent" />
-                  <span className="text-sm sm:text-base">Saqlanmoqda...</span>
-                </>
-              ) : (
-                <span className="text-sm sm:text-base">Saqlash</span>
-              )}
+              {isSubmitting && <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 animate-spin shrink-0 text-white" />}
+              <span className="text-sm sm:text-base">{isSubmitting ? 'Saqlanmoqda...' : 'Saqlash'}</span>
             </button>
           </div>
         </form>

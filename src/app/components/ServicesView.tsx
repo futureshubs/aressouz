@@ -11,7 +11,7 @@ import { CreatePortfolioModal } from './CreatePortfolioModal';
 import { PortfolioCard } from './PortfolioCard';
 import { ServicePortfolioCard } from './ServicePortfolioCard';
 import { PortfolioDetailModal } from './PortfolioDetailModal';
-import { LayoutGrid, Users, ArrowLeft, Briefcase, Plus } from 'lucide-react';
+import { LayoutGrid, Users, ArrowLeft, Briefcase, Plus, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { BannerCarousel } from './BannerCarousel';
 import { regions as allRegions } from '../data/regions';
@@ -175,6 +175,7 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
   const [loadingPortfolios, setLoadingPortfolios] = useState(false);
   const [selectedProfession, setSelectedProfession] = useState<string | null>(null);
   const [portfolioToEdit, setPortfolioToEdit] = useState<any>(null);
+  const [deletingPortfolioId, setDeletingPortfolioId] = useState<string | null>(null);
   const [visibilityTick, setVisibilityTick] = useState(0);
 
   // Convert region ID to name for banners
@@ -320,6 +321,7 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
 
   // Handle portfolio deletion
   const handleDeletePortfolio = async (portfolioId: string) => {
+    setDeletingPortfolioId(portfolioId);
     try {
       console.log('🗑️ Deleting portfolio:', portfolioId);
       console.log('🔑 Session:', session);
@@ -362,6 +364,9 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
     } catch (error: any) {
       console.error('❌ Delete portfolio error:', error);
       alert(error.message || 'Portfolio o\'chirishda xatolik yuz berdi');
+      throw error;
+    } finally {
+      setDeletingPortfolioId(null);
     }
   };
 
@@ -465,7 +470,8 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
           </h2>
           <div className="grid grid-cols-2 gap-3 sm:gap-4 md:gap-5">
             {loadingPortfolios ? (
-              <div className="col-span-full text-center py-8">
+              <div className="col-span-full flex flex-col items-center justify-center gap-2 py-8">
+                <Loader2 className="size-6 animate-spin shrink-0" style={{ color: accentColor.color }} />
                 <p className="text-sm font-medium" style={{ color: isDark ? '#ffffff' : '#111827' }}>Ustalar yuklanmoqda...</p>
               </div>
             ) : portfolios.length > 0 ? (
@@ -847,6 +853,7 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
           }}
           onEdit={handleEditPortfolio}
           onDelete={handleDeletePortfolio}
+          portfolioDeletePending={deletingPortfolioId === selectedPortfolio.id}
         />
       )}
       {console.log('selectedPortfolio:', selectedPortfolio)}

@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { KeyRound, LogOut } from 'lucide-react';
+import { KeyRound, LogOut, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { RentalDashboard } from '../components/rental/RentalDashboard';
@@ -19,6 +19,7 @@ export default function RentalProviderDashboard() {
     displayName?: string;
     login?: string;
   } | null>(null);
+  const [logoutBusy, setLogoutBusy] = useState(false);
 
   useEffect(() => {
     const raw = localStorage.getItem('rentalProviderSession');
@@ -40,31 +41,37 @@ export default function RentalProviderDashboard() {
   }, [navigate]);
 
   const logout = async () => {
-    const tok = session?.token;
-    if (tok) {
-      try {
-        await fetch(
-          `${apiBaseUrl}/rentals/provider/logout`,
-          {
-            method: 'POST',
-            headers: {
-              Authorization: `Bearer ${publicAnonKey}`,
-              'X-Rental-Provider-Token': tok,
+    setLogoutBusy(true);
+    try {
+      const tok = session?.token;
+      if (tok) {
+        try {
+          await fetch(
+            `${apiBaseUrl}/rentals/provider/logout`,
+            {
+              method: 'POST',
+              headers: {
+                Authorization: `Bearer ${publicAnonKey}`,
+                'X-Rental-Provider-Token': tok,
+              },
             },
-          },
-        );
-      } catch {
-        /* ignore */
+          );
+        } catch {
+          /* ignore */
+        }
       }
+      localStorage.removeItem('rentalProviderSession');
+      toast.success('Chiqildi');
+    } finally {
+      setLogoutBusy(false);
     }
-    localStorage.removeItem('rentalProviderSession');
-    toast.success('Chiqildi');
     navigate('/ijara-panel');
   };
 
   if (!session) {
     return (
-      <div className="min-h-screen flex items-center justify-center app-safe-pt" style={{ background: isDark ? '#000' : '#f9fafb' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-3 app-safe-pt" style={{ background: isDark ? '#000' : '#f9fafb' }}>
+        <Loader2 className="w-10 h-10 animate-spin shrink-0" style={{ color: accentColor.color }} aria-label="Yuklanmoqda" />
         <p className="text-sm opacity-60">Yuklanmoqda…</p>
       </div>
     );
@@ -98,13 +105,14 @@ export default function RentalProviderDashboard() {
           <button
             type="button"
             onClick={() => void logout()}
-            className="w-full flex items-center gap-2 px-4 py-3 rounded-xl text-sm font-medium"
+            disabled={logoutBusy}
+            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-xl text-sm font-medium disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.08)',
               color: '#ef4444',
             }}
           >
-            <LogOut className="w-4 h-4" />
+            {logoutBusy ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <LogOut className="w-4 h-4 shrink-0" />}
             Chiqish
           </button>
         </div>
@@ -121,11 +129,16 @@ export default function RentalProviderDashboard() {
         <button
           type="button"
           onClick={() => void logout()}
-          className="p-2 rounded-xl"
+          disabled={logoutBusy}
+          className="p-2 rounded-xl disabled:opacity-50 disabled:cursor-not-allowed"
           style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}
           aria-label="Chiqish"
         >
-          <LogOut className="w-5 h-5" style={{ color: '#ef4444' }} />
+          {logoutBusy ? (
+            <Loader2 className="w-5 h-5 animate-spin shrink-0" style={{ color: '#ef4444' }} />
+          ) : (
+            <LogOut className="w-5 h-5" style={{ color: '#ef4444' }} />
+          )}
         </button>
       </header>
 

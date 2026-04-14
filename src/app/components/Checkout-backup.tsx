@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
-import { X, ChevronRight, MapPin, Navigation, CreditCard, Wallet, User, Phone, Check, Tag, Gift } from 'lucide-react';
+import { X, ChevronRight, MapPin, Navigation, CreditCard, Wallet, User, Phone, Check, Tag, Gift, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import ClickPayment from './ClickPayment';
 import PaymePayment from './PaymePayment';
@@ -1725,8 +1725,10 @@ export default function Checkout({
                 ) : (
                   <div className="flex gap-3">
                     <button
+                      type="button"
                       onClick={() => setStep(2)}
-                      className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95"
+                      disabled={isProcessing}
+                      className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                       style={{
                         background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                       }}
@@ -1734,14 +1736,16 @@ export default function Checkout({
                       Orqaga
                     </button>
                     <button
+                      type="button"
                       onClick={handleSubmitOrder}
                       disabled={isProcessing}
-                      className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50"
+                      className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                       style={{
                         background: accentColor.gradient,
                         color: '#ffffff',
                       }}
                     >
+                      {isProcessing && <Loader2 className="w-5 h-5 shrink-0 animate-spin" />}
                       {isProcessing ? 'Yuborilmoqda...' : 'Tasdiqlash'}
                     </button>
                   </div>

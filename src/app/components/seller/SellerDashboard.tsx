@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
-import { Store, Package, Plus, Edit2, Trash2, X, Eye, EyeOff } from 'lucide-react';
+import { Store, Package, Plus, Edit2, Trash2, X, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
@@ -49,6 +49,8 @@ export default function SellerDashboard() {
   const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'shop' | 'products'>('shop');
   const [showAddProduct, setShowAddProduct] = useState(false);
+  const [togglingProductId, setTogglingProductId] = useState<string | null>(null);
+  const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const visibilityRefetchTick = useVisibilityTick();
 
   useEffect(() => {
@@ -103,6 +105,7 @@ export default function SellerDashboard() {
   };
 
   const toggleProductStatus = async (productId: string, currentStatus: boolean) => {
+    setTogglingProductId(productId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/products/${productId}/toggle`,
@@ -126,12 +129,15 @@ export default function SellerDashboard() {
       }
     } catch (error) {
       toast.error('Xatolik yuz berdi');
+    } finally {
+      setTogglingProductId(null);
     }
   };
 
   const deleteProduct = async (productId: string) => {
     if (!confirm('Mahsulotni o\'chirmoqchimisiz?')) return;
 
+    setDeletingProductId(productId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/products/${productId}`,
@@ -151,15 +157,15 @@ export default function SellerDashboard() {
       }
     } catch (error) {
       toast.error('Xatolik yuz berdi');
+    } finally {
+      setDeletingProductId(null);
     }
   };
 
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-screen">
-        <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" 
-          style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
-        />
+        <Loader2 className="h-12 w-12 animate-spin" style={{ color: accentColor.color }} />
       </div>
     );
   }
@@ -355,21 +361,35 @@ export default function SellerDashboard() {
                           </div>
                           <div className="flex gap-2">
                             <button
+                              type="button"
                               onClick={() => toggleProductStatus(product.id, product.isActive)}
-                              className="p-2 rounded-xl transition-all active:scale-90"
+                              disabled={togglingProductId !== null || deletingProductId !== null}
+                              className="p-2 rounded-xl transition-all active:scale-90 disabled:opacity-50 inline-flex items-center justify-center min-w-[40px] min-h-[40px]"
                               style={{ 
                                 background: product.isActive ? `${accentColor.color}20` : 'rgba(255, 0, 0, 0.1)',
                                 color: product.isActive ? accentColor.color : '#ef4444'
                               }}
                             >
-                              {product.isActive ? <Eye className="w-5 h-5" /> : <EyeOff className="w-5 h-5" />}
+                              {togglingProductId === product.id ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : product.isActive ? (
+                                <Eye className="w-5 h-5" />
+                              ) : (
+                                <EyeOff className="w-5 h-5" />
+                              )}
                             </button>
                             <button
+                              type="button"
                               onClick={() => deleteProduct(product.id)}
-                              className="p-2 rounded-xl transition-all active:scale-90"
+                              disabled={togglingProductId !== null || deletingProductId !== null}
+                              className="p-2 rounded-xl transition-all active:scale-90 disabled:opacity-50 inline-flex items-center justify-center min-w-[40px] min-h-[40px]"
                               style={{ background: 'rgba(255, 0, 0, 0.1)', color: '#ef4444' }}
                             >
-                              <Trash2 className="w-5 h-5" />
+                              {deletingProductId === product.id ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <Trash2 className="w-5 h-5" />
+                              )}
                             </button>
                           </div>
                         </div>

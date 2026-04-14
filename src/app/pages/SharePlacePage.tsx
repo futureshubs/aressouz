@@ -1,4 +1,5 @@
 import { useEffect, useState } from 'react';
+import { Loader2 } from 'lucide-react';
 import { useParams, useNavigate } from 'react-router';
 import { PlaceDetailModal } from '../components/PlaceDetailModal';
 import { Place } from '../data/places';
@@ -62,7 +63,12 @@ export function SharePlacePage() {
   };
 
   if (loading) {
-    return <PlaceDetailPageSkeleton isDark={isDark} />;
+    return (
+      <div className={`flex min-h-screen flex-col items-center justify-center gap-4 app-safe-pad ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}>
+        <Loader2 className="h-10 w-10 shrink-0 animate-spin text-[#14b8a6]" aria-label="Yuklanmoqda" />
+        <PlaceDetailPageSkeleton isDark={isDark} />
+      </div>
+    );
   }
 
   if (error || !place) {

@@ -13,9 +13,7 @@ export function MenuModal({ isOpen, onClose, platform, onMenuSelect }: MenuModal
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const isIOS = platform === 'ios';
-  
-  console.log('🔴 MenuModal: isOpen prop =', isOpen);
-  
+
   const menuItems = [
     { id: 'xizmatlar', label: 'Xizmatlar', icon: Wrench },
     { id: 'atrof', label: 'Atrof', icon: MapPin },
@@ -30,12 +28,9 @@ export function MenuModal({ isOpen, onClose, platform, onMenuSelect }: MenuModal
   };
 
   if (!isOpen) {
-    console.log('🔴 MenuModal: Returning null because isOpen is false');
     return null;
   }
-  
-  console.log('🔴 MenuModal: Rendering modal...');
-  
+
   // Quick menu row - rendered directly above the bottom nav
   return (
     <>

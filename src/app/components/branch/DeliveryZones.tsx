@@ -15,6 +15,7 @@ import {
   Bike,
   Package,
   Activity,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey, API_BASE_URL, DEV_API_BASE_URL } from '../../../../utils/supabase/info';
@@ -124,6 +125,8 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
   const [analytics, setAnalytics] = useState<DeliveryZonesAnalyticsPayload | null>(null);
   const [analyticsLoading, setAnalyticsLoading] = useState(false);
   const [analyticsError, setAnalyticsError] = useState<string | null>(null);
+  const [zoneSaving, setZoneSaving] = useState(false);
+  const [zoneDeletingId, setZoneDeletingId] = useState<string | null>(null);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -290,6 +293,7 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
   };
 
   const closeModal = () => {
+    if (zoneSaving) return;
     setShowModal(false);
     setEditingZone(null);
   };
@@ -337,6 +341,7 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
       return;
     }
 
+    setZoneSaving(true);
     try {
       const zoneData = {
         branchId: branchInfo.id,
@@ -377,12 +382,15 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
     } catch (error) {
       console.error('Error saving zone:', error);
       toast.error('Zona saqlashda xatolik');
+    } finally {
+      setZoneSaving(false);
     }
   };
 
   const handleDelete = async (zoneId: string) => {
     if (!confirm('Zonani o\'chirmoqchimisiz?')) return;
 
+    setZoneDeletingId(zoneId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/delivery-zones/${zoneId}`,
@@ -404,6 +412,8 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
     } catch (error) {
       console.error('Error deleting zone:', error);
       toast.error('Zona o\'chirishda xatolik');
+    } finally {
+      setZoneDeletingId(null);
     }
   };
 
@@ -532,8 +542,10 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
                     </div>
                     <div className="flex gap-2">
                       <button
+                        type="button"
                         onClick={() => openModal(zone)}
-                        className="p-2 rounded-xl transition-all active:scale-95"
+                        disabled={zoneDeletingId !== null}
+                        className="p-2 rounded-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{
                           background: isDark ? 'rgba(59, 130, 246, 0.2)' : 'rgba(59, 130, 246, 0.1)',
                           color: '#3b82f6',
@@ -542,14 +554,20 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
                         <Edit2 className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => handleDelete(zone.id)}
-                        className="p-2 rounded-xl transition-all active:scale-95"
+                        type="button"
+                        onClick={() => void handleDelete(zone.id)}
+                        disabled={zoneDeletingId !== null}
+                        className="p-2 rounded-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center min-w-[40px]"
                         style={{
                           background: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)',
                           color: '#ef4444',
                         }}
                       >
-                        <Trash2 className="w-4 h-4" />
+                        {zoneDeletingId === zone.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Trash2 className="w-4 h-4" />
+                        )}
                       </button>
                     </div>
                   </div>
@@ -1122,8 +1140,10 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
                 {editingZone ? 'Zonani tahrirlash' : 'Yangi zona qo\'shish'}
               </h2>
               <button
+                type="button"
                 onClick={closeModal}
-                className="p-2 rounded-xl transition-all active:scale-95"
+                disabled={zoneSaving}
+                className="p-2 rounded-xl transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                 }}
@@ -1133,6 +1153,10 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
             </div>
 
             <form onSubmit={handleSubmit} className="space-y-6">
+              <fieldset
+                disabled={zoneSaving}
+                className="space-y-6 min-w-0 border-0 p-0 m-0 disabled:opacity-60"
+              >
               {/* Basic Info */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div>
@@ -1296,7 +1320,8 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
                   <button
                     type="button"
                     onClick={() => setShowMapPicker(true)}
-                    className="px-4 py-3 rounded-xl font-semibold transition-all active:scale-95"
+                    disabled={zoneSaving}
+                    className="px-4 py-3 rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{
                       background: accentColor.gradient,
                       color: '#ffffff',
@@ -1311,7 +1336,8 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
                   <button
                     type="button"
                     onClick={handleAddPolygonPoint}
-                    className="px-4 py-3 rounded-xl font-medium transition-all active:scale-95"
+                    disabled={zoneSaving}
+                    className="px-4 py-3 rounded-xl font-medium transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{
                       background: `${accentColor.color}20`,
                       color: accentColor.color,
@@ -1370,13 +1396,15 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
                   </p>
                 )}
               </div>
+              </fieldset>
 
               {/* Submit */}
               <div className="flex gap-3 pt-4">
                 <button
                   type="button"
                   onClick={closeModal}
-                  className="flex-1 px-6 py-3 rounded-xl font-semibold transition-all active:scale-95"
+                  disabled={zoneSaving}
+                  className="flex-1 px-6 py-3 rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
                   }}
@@ -1385,15 +1413,20 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
                 </button>
                 <button
                   type="submit"
-                  className="flex-1 px-6 py-3 rounded-xl font-semibold transition-all active:scale-95"
+                  disabled={zoneSaving}
+                  className="flex-1 px-6 py-3 rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
                     background: accentColor.gradient,
                     color: '#ffffff',
                   }}
                 >
                   <div className="flex items-center justify-center gap-2">
-                    <Save className="w-5 h-5" />
-                    <span>{editingZone ? 'Saqlash' : 'Qo\'shish'}</span>
+                    {zoneSaving ? (
+                      <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                    ) : (
+                      <Save className="w-5 h-5 shrink-0" />
+                    )}
+                    <span>{zoneSaving ? 'Saqlanmoqda...' : editingZone ? 'Saqlash' : 'Qo\'shish'}</span>
                   </div>
                 </button>
               </div>

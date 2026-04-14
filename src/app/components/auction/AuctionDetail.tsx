@@ -1,7 +1,7 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
-import { ArrowLeft, Clock, Users, TrendingUp, Gavel, MapPin } from 'lucide-react';
+import { ArrowLeft, Clock, Users, TrendingUp, Gavel, MapPin, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 
@@ -191,16 +191,11 @@ export function AuctionDetail({ auction, onClose }: AuctionDetailProps) {
             <h3 className="text-lg font-bold mb-4">Takliflar tarixi</h3>
             
             {loading ? (
-              <div className="space-y-2">
-                {[1, 2, 3].map((i) => (
-                  <div
-                    key={i}
-                    className="h-16 rounded-xl animate-pulse"
-                    style={{
-                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                    }}
-                  />
-                ))}
+              <div className="flex flex-col items-center justify-center py-10 gap-2">
+                <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} />
+                <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
+                  Takliflar yuklanmoqda…
+                </p>
               </div>
             ) : bids.length === 0 ? (
               <p

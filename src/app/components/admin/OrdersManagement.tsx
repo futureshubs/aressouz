@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { 
   Package, 
@@ -34,6 +34,7 @@ import {
   Play,
   Pause,
   QrCode,
+  Loader2,
 } from 'lucide-react';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildAdminHeaders, buildBranchHeaders } from '../../utils/requestAuth';
@@ -394,20 +395,32 @@ export default function OrdersManagement({
   const [statusFilter, setStatusFilter] = useState<string>('all');
   const [selectedOrder, setSelectedOrder] = useState<Order | null>(null);
   const [showOrderModal, setShowOrderModal] = useState(false);
+  const showOrderModalRef = useRef(false);
+  useEffect(() => {
+    showOrderModalRef.current = showOrderModal;
+  }, [showOrderModal]);
+
+  const prevShowOrderModalRef = useRef(showOrderModal);
+  useEffect(() => {
+    const prev = prevShowOrderModalRef.current;
+    prevShowOrderModalRef.current = showOrderModal;
+    if (prev && !showOrderModal) {
+      void loadOrders(true);
+    }
+  }, [showOrderModal]);
   const [actionLoading, setActionLoading] = useState(false);
   const [autoRefresh, setAutoRefresh] = useState(true);
   const [newOrdersCount, setNewOrdersCount] = useState(0);
   const [lastOrderCount, setLastOrderCount] = useState(0);
 
-  // Auto-refresh every 10 seconds
+  // Auto-refresh every 10 seconds (buyurtma modali ochiq bo‘lsa to‘xtatiladi — modal "sekinlashmasin")
   useEffect(() => {
-    if (autoRefresh) {
-      const interval = setInterval(() => {
-        loadOrders(true); // Silent reload
-      }, 10000);
-      return () => clearInterval(interval);
-    }
-  }, [autoRefresh, effectiveBranchFilter, authMode]);
+    if (!autoRefresh || showOrderModal) return;
+    const interval = setInterval(() => {
+      loadOrders(true);
+    }, 10000);
+    return () => clearInterval(interval);
+  }, [autoRefresh, effectiveBranchFilter, authMode, showOrderModal]);
 
   useEffect(() => {
     if (authMode !== 'admin') {
@@ -626,6 +639,7 @@ export default function OrdersManagement({
   };
 
   useVisibilityRefetch(() => {
+    if (showOrderModalRef.current) return;
     void loadOrders(true);
   });
 
@@ -642,15 +656,46 @@ export default function OrdersManagement({
         toast.error(data.error || "Yuborishda xatolik");
         return;
       }
-      toast.success('Buyurtma tayyorlovchiga yuborildi');
-      if (data.order) {
-        const mapped = mapRawToOrder(data.order);
+      let orderPayload = data.order as any;
+      const releasedOt = String(orderPayload?.orderType || '').toLowerCase();
+      let shopPreparingFailed = false;
+      if (releasedOt === 'shop' && orderPayload) {
+        const stRes = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders/update-status`,
+          {
+            method: 'POST',
+            headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+            body: JSON.stringify({ orderId, status: 'preparing' }),
+          },
+        );
+        const stData = await stRes.json().catch(() => ({}));
+        if (!stRes.ok || !stData.success) {
+          shopPreparingFailed = true;
+          toast.error(
+            stData.error ||
+              'Filial qabuli saqlandi, lekin «tayyorlanmoqda» holatini qo‘yib bo‘lmadi — qayta urinib ko‘ring.',
+          );
+        } else if (stData.order) {
+          orderPayload = stData.order;
+        }
+      }
+      if (!shopPreparingFailed) {
+        toast.success(
+          releasedOt === 'shop' && orderPayload
+            ? 'Buyurtma tayyorlovchi oqimiga o‘tdi (tayyorlanmoqda)'
+            : 'Buyurtma tayyorlovchiga yuborildi',
+        );
+      }
+      if (orderPayload) {
+        const mapped = mapRawToOrder(orderPayload);
         setSelectedOrder(mapped);
         setOrders((prev) =>
           prev.map((x) => (String(x.id) === String(orderId) ? mapped : x)),
         );
       }
-      await loadOrders(true);
+      if (!showOrderModalRef.current) {
+        await loadOrders(true);
+      }
     } catch (e) {
       console.error(e);
       toast.error("Yuborishda xatolik");
@@ -676,9 +721,16 @@ export default function OrdersManagement({
       
       if (data.success) {
         toast.success('Buyurtma holati yangilandi');
-        loadOrders();
-        if (selectedOrder?.id === orderId) {
-          setSelectedOrder({ ...selectedOrder, status: newStatus as any });
+        setOrders((prev) =>
+          prev.map((x) =>
+            String(x.id) === String(orderId) ? { ...x, status: newStatus as any } : x,
+          ),
+        );
+        setSelectedOrder((cur) =>
+          cur && String(cur.id) === String(orderId) ? { ...cur, status: newStatus as any } : cur,
+        );
+        if (!showOrderModalRef.current) {
+          void loadOrders(true);
         }
 
         if (newStatus === 'confirmed' && paymentMethod === 'qr') {
@@ -714,7 +766,7 @@ export default function OrdersManagement({
       
       if (data.success) {
         toast.success('Buyurtma bekor qilindi');
-        loadOrders();
+        void loadOrders(true);
         setShowOrderModal(false);
       } else {
         toast.error(data.error || 'Xatolik yuz berdi');
@@ -1163,12 +1215,9 @@ export default function OrdersManagement({
     );
   };
 
-  const OrderDetailsModal = () => {
-    if (!selectedOrder) return null;
-
-    const TypeIcon = getOrderTypeIcon(selectedOrder.type);
-
-    return (
+  /** Ichki `const Modal = () => …` ishlatilmasin — har renderda yangi tip bo‘lib React modalniUnmount/remount qiladi (tugma bosilganda «yopilib ochiladi»). */
+  const orderDetailsModalContent =
+    showOrderModal && selectedOrder ? (
       <div
         className="p-3 sm:p-5"
         style={{
@@ -1674,26 +1723,33 @@ export default function OrdersManagement({
                       boxShadow: `0 10px 30px ${accentColor.color}40`,
                     }}
                   >
-                    <CheckCircle className="w-6 h-6" />
-                    {selectedOrder.type === 'shop'
-                      ? 'Qabul qilish (do‘kon paneliga)'
-                      : selectedOrder.type === 'restaurant'
-                        ? 'Qabul qilish (restoran paneliga)'
-                        : 'Qabul qilish (tayyorlovchiga)'}
+                    {actionLoading ? (
+                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                    ) : (
+                      <CheckCircle className="w-6 h-6 shrink-0" />
+                    )}
+                    {actionLoading
+                      ? 'Yuborilmoqda…'
+                      : selectedOrder.type === 'shop'
+                        ? 'Qabul qilish (tayyorlovchi oqimiga)'
+                        : selectedOrder.type === 'restaurant'
+                          ? 'Qabul qilish (restoran paneliga)'
+                          : 'Qabul qilish (tayyorlovchiga)'}
                   </button>
                 )}
-                {/* Status Update Buttons */}
-                {selectedOrder.status === 'pending' &&
+                {/* Status Update Buttons — market: `new` yoki `pending` (naqd release allaqachon bo‘lgan) */}
+                {(selectedOrder.status === 'pending' ||
+                  (selectedOrder.type === 'market' && selectedOrder.status === 'new')) &&
                   !needsMarketCashBranchRelease(selectedOrder) && (
                   <button
                     onClick={() =>
                       updateOrderStatus(
                         selectedOrder.id,
-                        'confirmed',
-                        // Do‘kon: kassa QR tekshiruv oqimi. Taom: mijoz onlayn to‘lagan — paymentMethod ni «qr» ga almashtirmaymiz.
-                        selectedOrder.type === 'shop' || selectedOrder.type === 'restaurant'
-                          ? 'qr'
-                          : undefined,
+                        // Market va do‘kon: filial «Qabul qilish» bilan darhol tayyorlovchi oqimiga (`preparing`). Taom: `confirmed` + QR tekshiruv.
+                        selectedOrder.type === 'market' || selectedOrder.type === 'shop'
+                          ? 'preparing'
+                          : 'confirmed',
+                        selectedOrder.type === 'restaurant' ? 'qr' : undefined,
                       )
                     }
                     disabled={actionLoading}
@@ -1713,16 +1769,21 @@ export default function OrdersManagement({
                       boxShadow: '0 10px 30px rgba(16, 185, 129, 0.3)',
                     }}
                   >
-                    <CheckCircle className="w-6 h-6" />
-                    Qabul qilish
+                    {actionLoading ? (
+                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                    ) : (
+                      <CheckCircle className="w-6 h-6 shrink-0" />
+                    )}
+                    {actionLoading ? 'Yuborilmoqda…' : 'Qabul qilish'}
                   </button>
                 )}
                 
-                {selectedOrder.status === 'confirmed' && (
+                {selectedOrder.status === 'confirmed' &&
+                  !(authMode === 'branch' && selectedOrder.type === 'shop') && (
                   <button
                     onClick={() => updateOrderStatus(selectedOrder.id, 'preparing')}
                     disabled={actionLoading}
-                    className="transition-all active:scale-95"
+                    className="transition-all active:scale-95 disabled:opacity-50"
                     style={{
                       width: '100%',
                       padding: '18px',
@@ -1731,18 +1792,26 @@ export default function OrdersManagement({
                       color: '#ffffff',
                       fontWeight: '700',
                       fontSize: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '10px',
                       boxShadow: '0 10px 30px rgba(139, 92, 246, 0.3)',
                     }}
                   >
-                    Tayyorlashni boshlash
+                    {actionLoading ? (
+                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                    ) : null}
+                    {actionLoading ? 'Yuborilmoqda…' : 'Tayyorlashni boshlash'}
                   </button>
                 )}
                 
-                {selectedOrder.status === 'preparing' && (
+                {selectedOrder.status === 'preparing' &&
+                  !(authMode === 'branch' && selectedOrder.type === 'shop') && (
                   <button
                     onClick={() => updateOrderStatus(selectedOrder.id, 'ready')}
                     disabled={actionLoading}
-                    className="transition-all active:scale-95"
+                    className="transition-all active:scale-95 disabled:opacity-50"
                     style={{
                       width: '100%',
                       padding: '18px',
@@ -1751,18 +1820,26 @@ export default function OrdersManagement({
                       color: '#ffffff',
                       fontWeight: '700',
                       fontSize: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '10px',
                       boxShadow: '0 10px 30px rgba(16, 185, 129, 0.3)',
                     }}
                   >
-                    Tayyor deb belgilash
+                    {actionLoading ? (
+                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                    ) : null}
+                    {actionLoading ? 'Yuborilmoqda…' : 'Tayyor deb belgilash'}
                   </button>
                 )}
                 
-                {selectedOrder.status === 'ready' && (
+                {selectedOrder.status === 'ready' &&
+                  !(authMode === 'branch' && selectedOrder.type === 'shop') && (
                   <button
                     onClick={() => updateOrderStatus(selectedOrder.id, 'delivering')}
                     disabled={actionLoading}
-                    className="transition-all active:scale-95"
+                    className="transition-all active:scale-95 disabled:opacity-50"
                     style={{
                       width: '100%',
                       padding: '18px',
@@ -1778,16 +1855,21 @@ export default function OrdersManagement({
                       boxShadow: '0 10px 30px rgba(6, 182, 212, 0.3)',
                     }}
                   >
-                    <Truck className="w-6 h-6" />
-                    Yetkazishni boshlash
+                    {actionLoading ? (
+                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                    ) : (
+                      <Truck className="w-6 h-6 shrink-0" />
+                    )}
+                    {actionLoading ? 'Yuborilmoqda…' : 'Yetkazishni boshlash'}
                   </button>
                 )}
                 
-                {selectedOrder.status === 'delivering' && (
+                {selectedOrder.status === 'delivering' &&
+                  !(authMode === 'branch' && selectedOrder.type === 'shop') && (
                   <button
                     onClick={() => updateOrderStatus(selectedOrder.id, 'delivered')}
                     disabled={actionLoading || String(selectedOrder.paymentMethod || '').toLowerCase().trim() === 'cash'}
-                    className="transition-all active:scale-95"
+                    className="transition-all active:scale-95 disabled:opacity-50"
                     title={
                       String(selectedOrder.paymentMethod || '').toLowerCase().trim() === 'cash'
                         ? 'Naqd to‘lov: to‘lov faqat kuryer yetkazgandan keyin “To‘landi”ga o‘tadi'
@@ -1801,10 +1883,21 @@ export default function OrdersManagement({
                       color: '#ffffff',
                       fontWeight: '700',
                       fontSize: '16px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'center',
+                      gap: '10px',
                       boxShadow: '0 10px 30px rgba(34, 197, 94, 0.3)',
                     }}
                   >
-                    {String(selectedOrder.paymentMethod || '').toLowerCase().trim() === 'cash' ? 'Kuryer tasdiqlaydi' : '✓ Yetkazildi'}
+                    {actionLoading ? (
+                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                    ) : null}
+                    {actionLoading
+                      ? 'Yuborilmoqda…'
+                      : String(selectedOrder.paymentMethod || '').toLowerCase().trim() === 'cash'
+                        ? 'Kuryer tasdiqlaydi'
+                        : '✓ Yetkazildi'}
                   </button>
                 )}
 
@@ -1812,7 +1905,7 @@ export default function OrdersManagement({
                 <button
                   onClick={() => cancelOrder(selectedOrder.id)}
                   disabled={actionLoading}
-                  className="transition-all active:scale-95"
+                  className="transition-all active:scale-95 disabled:opacity-50"
                   style={{
                     width: '100%',
                     padding: '16px',
@@ -1827,16 +1920,19 @@ export default function OrdersManagement({
                     border: '1px solid rgba(239, 68, 68, 0.3)',
                   }}
                 >
-                  <XCircle className="w-5 h-5" />
-                  Bekor qilish
+                  {actionLoading ? (
+                    <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                  ) : (
+                    <XCircle className="w-5 h-5 shrink-0" />
+                  )}
+                  {actionLoading ? 'Yuborilmoqda…' : 'Bekor qilish'}
                 </button>
               </div>
             )}
           </div>
         </div>
       </div>
-    );
-  };
+    ) : null;
 
   if (loading) {
     return (
@@ -2249,7 +2345,7 @@ export default function OrdersManagement({
       )}
 
       {/* Order Details Modal */}
-      {showOrderModal && <OrderDetailsModal />}
+      {orderDetailsModalContent}
 
       {/* CSS Animations */}
       <style>{`

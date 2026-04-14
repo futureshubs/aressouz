@@ -13,6 +13,9 @@
 // Supabase Edge Function uchun to‘liq URL (o‘z project ref ingiz):
 //   PREPARE:  https://<PROJECT>.supabase.co/functions/v1/make-server-27d0d16c/click/prepare
 //   COMPLETE: https://<PROJECT>.supabase.co/functions/v1/make-server-27d0d16c/click/complete
+//   (Ixtiyoriy, alohida funksiya — `verify_jwt` asosiy serverda yoqilganda): payment-webhooks
+//   PREPARE:  https://<PROJECT>.supabase.co/functions/v1/payment-webhooks/click/prepare
+//   COMPLETE: https://<PROJECT>.supabase.co/functions/v1/payment-webhooks/click/complete
 //
 // Supabase Dashboard → Edge Functions → make-server-27d0d16c → Secrets (nomlar aynan shunday):
 //   CLICK_SERVICE_ID, CLICK_MERCHANT_ID, CLICK_MERCHANT_USER_ID, CLICK_SECRET_KEY
@@ -89,34 +92,38 @@ async function resolveClickPayBaseUrl(): Promise<string> {
   return 'https://my.click.uz/services/pay';
 }
 
-// Log configuration on startup (without exposing full secret key)
-console.log('🔧 CLICK Configuration loaded:');
-console.log('   Service ID:', CLICK_SERVICE_ID || '❌');
-console.log('   Merchant ID:', CLICK_MERCHANT_ID || '❌');
-console.log('   Merchant User ID:', CLICK_MERCHANT_USER_ID || '❌');
-console.log('   Secret Key:', CLICK_SECRET_KEY ? `${CLICK_SECRET_KEY.substring(0, 5)}***` : '❌ Missing');
-console.log('');
+const __clickStartupVerbose = () => {
+  const v = Deno.env.get('VERBOSE_SERVER_LOG')?.trim().toLowerCase();
+  const d = Deno.env.get('DEBUG_HTTP')?.trim().toLowerCase();
+  return v === '1' || v === 'true' || d === '1' || d === 'true';
+};
 
-if (clickInvoiceEnvError()) {
-  console.error('⚠️ CLICK:', clickInvoiceEnvError());
-} else {
-  console.log('✅ CLICK env to‘liq (invoice yaratish va imzo tekshiruvi ishlaydi)');
-}
-
-(() => {
+if (__clickStartupVerbose()) {
+  // Modul yuklanganda `index.ts` dagi `console.*` noop bo‘lishi mumkin — faqat debug rejimida.
+  console.log('🔧 CLICK Configuration loaded:');
+  console.log('   Service ID:', CLICK_SERVICE_ID || '❌');
+  console.log('   Merchant ID:', CLICK_MERCHANT_ID || '❌');
+  console.log('   Merchant User ID:', CLICK_MERCHANT_USER_ID || '❌');
+  console.log('   Secret Key:', CLICK_SECRET_KEY ? `${CLICK_SECRET_KEY.substring(0, 5)}***` : '❌ Missing');
+  console.log('');
+  if (clickInvoiceEnvError()) {
+    console.error('⚠️ CLICK:', clickInvoiceEnvError());
+  } else {
+    console.log('✅ CLICK env to‘liq (invoice yaratish va imzo tekshiruvi ishlaydi)');
+  }
   const base = (Deno.env.get('SUPABASE_URL') || '').replace(/\/$/, '');
   if (!base) {
     console.log('📎 CLICK kabinet: PREPARE URL — SUPABASE_URL dan yig‘ib qo‘ling (.../click/prepare)');
-    return;
+  } else {
+    const slug = 'make-server-27d0d16c';
+    console.log('📎 CLICK kabinetga aynan shu manzillar (copy):');
+    console.log('   PREPARE: ', `${base}/functions/v1/${slug}/click/prepare`);
+    console.log('   COMPLETE:', `${base}/functions/v1/${slug}/click/complete`);
+    console.log(
+      '   Eslatma: «env to‘liq» faqat secretlar borligini anglatadi; -1907 Click sizning PREPARE ga muvaffaqiyatli ulanayotganini emas. Invocations’da POST /click/prepare qidiring.',
+    );
   }
-  const slug = 'make-server-27d0d16c';
-  console.log('📎 CLICK kabinetga aynan shu manzillar (copy):');
-  console.log('   PREPARE: ', `${base}/functions/v1/${slug}/click/prepare`);
-  console.log('   COMPLETE:', `${base}/functions/v1/${slug}/click/complete`);
-  console.log(
-    '   Eslatma: «env to‘liq» faqat secretlar borligini anglatadi; -1907 Click sizning PREPARE ga muvaffaqiyatli ulanayotganini emas. Invocations’da POST /click/prepare qidiring.',
-  );
-})();
+}
 
 /** Click server odatda form-urlencoded yuboradi; JSON / multipart ham bo‘lishi mumkin */
 async function parseClickPostBody(c: {

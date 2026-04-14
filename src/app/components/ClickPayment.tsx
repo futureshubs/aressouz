@@ -138,6 +138,7 @@ export default function ClickPayment({
     
     // Check every 5 seconds for payment completion
     const interval = setInterval(async () => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       try {
         const response = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/click/status/${orderId}`,

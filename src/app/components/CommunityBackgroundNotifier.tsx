@@ -1,4 +1,5 @@
 import { useEffect } from 'react';
+import { useTabVisible } from '../hooks/useTabVisible';
 import { useAuth } from '../context/AuthContext';
 import { API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { notifyCommunityBackgroundMessage } from '../utils/appToast';
@@ -28,9 +29,12 @@ type Props = { activeTab: string };
 export function CommunityBackgroundNotifier({ activeTab }: Props) {
   const { user, accessToken, isAuthenticated } = useAuth();
 
+  const tabVisible = useTabVisible();
+
   useEffect(() => {
     if (!isAuthenticated || !accessToken || !user?.id) return;
     if (activeTab === 'community') return;
+    if (!tabVisible) return;
 
     const poll = async () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
@@ -106,7 +110,7 @@ export function CommunityBackgroundNotifier({ activeTab }: Props) {
     const id = window.setInterval(poll, 11_000);
     void poll();
     return () => window.clearInterval(id);
-  }, [activeTab, accessToken, isAuthenticated, user?.id]);
+  }, [activeTab, accessToken, isAuthenticated, user?.id, tabVisible]);
 
   return null;
 }

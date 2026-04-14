@@ -36,7 +36,8 @@ import {
   FolderOpen,
   FileSpreadsheet,
   FileImage,
-  FileCheck
+  FileCheck,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../../utils/supabase/info';
@@ -101,6 +102,7 @@ export function Reports({ branchId, branchInfo }: ReportsProps) {
   const [templates, setTemplates] = useState<ReportTemplate[]>([]);
   const [isLoading, setIsLoading] = useState(true);
   const [isGenerating, setIsGenerating] = useState(false);
+  const [templatesLoading, setTemplatesLoading] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [categoryFilter, setCategoryFilter] = useState('all');
   const [statusFilter, setStatusFilter] = useState('all');
@@ -153,6 +155,7 @@ export function Reports({ branchId, branchInfo }: ReportsProps) {
 
   const loadTemplates = async () => {
     try {
+      setTemplatesLoading(true);
       const tplParams = new URLSearchParams();
       const branchTokenTpl = getStoredBranchToken();
       if (branchTokenTpl) {
@@ -182,6 +185,8 @@ export function Reports({ branchId, branchInfo }: ReportsProps) {
     } catch (error) {
       console.error('❌ Error loading templates:', error);
       toast.error('Shablonlarni yuklashda xatolik');
+    } finally {
+      setTemplatesLoading(false);
     }
   };
 
@@ -359,7 +364,7 @@ export function Reports({ branchId, branchInfo }: ReportsProps) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <RefreshCw className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
+          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
             Hisobotlar yuklanmoqda...
           </p>
@@ -380,14 +385,16 @@ export function Reports({ branchId, branchInfo }: ReportsProps) {
         </div>
         <div className="flex items-center gap-3">
           <button
+            type="button"
             onClick={() => setShowGenerateModal(true)}
-            className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all"
+            disabled={templatesLoading}
+            className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all disabled:opacity-50"
             style={{
               background: accentColor.gradient,
               color: '#ffffff'
             }}
           >
-            <Plus className="w-4 h-4" />
+            {templatesLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
             Yangi hisobot
           </button>
         </div>
@@ -748,14 +755,16 @@ export function Reports({ branchId, branchInfo }: ReportsProps) {
                     Orqaga
                   </button>
                   <button
-                    onClick={handleGenerateReport}
-                    disabled={isGenerating}
-                    className="flex-1 py-2 rounded-xl font-medium transition-all"
+                    type="button"
+                    onClick={() => void handleGenerateReport()}
+                    disabled={isGenerating || templatesLoading}
+                    className="flex-1 py-2 rounded-xl font-medium transition-all inline-flex items-center justify-center gap-2"
                     style={{
                       background: isGenerating ? '#6b7280' : accentColor.gradient,
                       color: '#ffffff'
                     }}
                   >
+                    {isGenerating ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : null}
                     {isGenerating ? 'Generatsiya qilinmoqda...' : 'Generatsiya qilish'}
                   </button>
                 </div>

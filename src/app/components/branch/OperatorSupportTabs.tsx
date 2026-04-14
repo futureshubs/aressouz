@@ -15,6 +15,7 @@ import {
   UtensilsCrossed,
   MessageSquareText,
   Receipt,
+  Loader2,
 } from 'lucide-react';
 import './operatorSupprtTabs.css';
 type OperatorSupportTabsProps = {
@@ -53,11 +54,13 @@ export function OperatorSupportTabs({ branchId, branchInfo, role = 'operator' }:
     chat: 0,
     payments: 0,
   });
+  const [countsLoading, setCountsLoading] = useState(true);
 
   useEffect(() => {
     let cancelled = false;
     const loadCounts = async () => {
       try {
+        setCountsLoading(true);
         const endpoint = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/v2/branch/orders?branchId=${encodeURIComponent(
           branchId
         )}&type=all`;
@@ -136,6 +139,8 @@ export function OperatorSupportTabs({ branchId, branchInfo, role = 'operator' }:
         } catch (fallbackErr) {
           toast.error('Hisoblarni yuklashda xatolik');
         }
+      } finally {
+        if (!cancelled) setCountsLoading(false);
       }
     };
 
@@ -208,19 +213,21 @@ export function OperatorSupportTabs({ branchId, branchInfo, role = 'operator' }:
           return (
             <button
               key={tab.id}
+              type="button"
               onClick={() => setActiveTab(tab.id)}
-              className="transition-all active:scale-95"
+              disabled={countsLoading}
+              className="transition-all active:scale-95 disabled:opacity-60"
               style={accentBtnStyle(isActive)}
             >
               <Icon className="w-5 h-5" />
               <span>{tab.label}</span>
               <span
-                className="px-2 py-0.5 rounded-full text-xs font-bold"
+                className="px-2 py-0.5 rounded-full text-xs font-bold inline-flex items-center justify-center min-w-[1.5rem]"
                 style={{
                   background: isActive ? 'rgba(255, 255, 255, 0.2)' : `${accentColor.color}20`,
                 }}
               >
-                {count}
+                {countsLoading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : count}
               </span>
             </button>
           );

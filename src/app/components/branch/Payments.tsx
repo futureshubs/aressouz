@@ -34,6 +34,7 @@ import {
   Star,
   X,
   Send,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../../utils/supabase/info';
@@ -397,7 +398,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
         <div className="text-center">
-          <RefreshCw className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
+          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
             To\'lovlar yuklanmoqda...
           </p>
@@ -483,7 +484,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
               borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
             }}
           >
-            <RefreshCw className={`h-4 w-4 ${isLoading ? 'animate-spin' : ''}`} />
+            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
             Yangilash
           </button>
         </div>
@@ -701,7 +702,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
                     className="flex w-full items-center justify-center gap-2 rounded-xl py-3.5 text-base font-bold text-white disabled:opacity-45"
                     style={{ background: accentColor.gradient }}
                   >
-                    <Send className="h-5 w-5" />
+                    {confirmingReceipt ? <Loader2 className="h-5 w-5 animate-spin shrink-0" /> : <Send className="h-5 w-5 shrink-0" />}
                     Yuborish — to‘lov qabul qilindi
                   </button>
                 </div>
@@ -1715,7 +1716,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
                     <a
                       href={showDetails.receiptUrl}
                       target="_blank"
-                      rel="noreferrer"
+                      rel="noopener noreferrer"
                       className="text-sm underline mt-1 inline-block"
                       style={{ color: accentColor.color }}
                     >

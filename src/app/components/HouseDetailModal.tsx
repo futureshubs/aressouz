@@ -1,5 +1,5 @@
 import { useState, useEffect, useMemo } from 'react';
-import { X, ChevronLeft, ChevronRight, MapPin, BedDouble, Bath, Maximize2, Phone, MessageCircle, Building2, Layers, Calendar, Home, Car, Sofa, ArrowUpDown, Wind, Building, DollarSign, User, Send, Check, Image, Box, Download, ZoomIn, ZoomOut } from 'lucide-react';
+import { X, ChevronLeft, ChevronRight, MapPin, BedDouble, Bath, Maximize2, Phone, MessageCircle, Building2, Layers, Calendar, Home, Car, Sofa, ArrowUpDown, Wind, Building, DollarSign, User, Send, Check, Image, Box, Download, ZoomIn, ZoomOut, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { House, formatCurrency, calculatePayment, paymentPlans } from '../data/houses';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
@@ -42,6 +42,8 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
   const [customerName, setCustomerName] = useState('');
   const [customerPhone, setCustomerPhone] = useState('');
   const [isSubmittingApplication, setIsSubmittingApplication] = useState(false);
+  const [banksLoading, setBanksLoading] = useState(false);
+  const [imageDownloadBusy, setImageDownloadBusy] = useState(false);
   const [isFullscreen, setIsFullscreen] = useState(false);
   const [fullscreenImageIndex, setFullscreenImageIndex] = useState(0);
   const [touchStart, setTouchStart] = useState(0);
@@ -170,6 +172,7 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
 
   // Load available banks
   const loadAvailableBanks = async () => {
+    setBanksLoading(true);
     try {
       const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/banks`;
       const response = await fetch(url, {
@@ -191,6 +194,8 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
       }
     } catch (error) {
       console.error('Load banks error:', error);
+    } finally {
+      setBanksLoading(false);
     }
   };
 
@@ -288,6 +293,7 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
   };
 
   const downloadImage = async () => {
+    setImageDownloadBusy(true);
     try {
       const imageUrl = galleryImages[fullscreenImageIndex];
       const response = await fetch(imageUrl);
@@ -302,6 +308,8 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
       window.URL.revokeObjectURL(url);
     } catch (error) {
       console.error('Rasmni yuklab olishda xatolik:', error);
+    } finally {
+      setImageDownloadBusy(false);
     }
   };
 
@@ -1296,6 +1304,13 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
             </div>
 
             <div className="space-y-4">
+              {banksLoading && (
+                <div className="flex items-center justify-center gap-2 py-3 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+                  <Loader2 className="size-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
+                  Banklar yuklanmoqda…
+                </div>
+              )}
+
               {/* Selected Bank Display */}
               {selectedBank && (
                 <div
@@ -1332,7 +1347,8 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
                   value={customerName}
                   onChange={(e) => setCustomerName(e.target.value)}
                   placeholder="Masalan: Alisher Alimov"
-                  className="w-full px-4 py-3 rounded-xl border outline-none transition-all"
+                  disabled={banksLoading}
+                  className="w-full px-4 py-3 rounded-xl border outline-none transition-all disabled:opacity-50"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -1350,7 +1366,8 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
                   value={customerPhone}
                   onChange={(e) => setCustomerPhone(e.target.value)}
                   placeholder="+998 90 123 45 67"
-                  className="w-full px-4 py-3 rounded-xl border outline-none transition-all"
+                  disabled={banksLoading}
+                  className="w-full px-4 py-3 rounded-xl border outline-none transition-all disabled:opacity-50"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
                     borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -1410,7 +1427,7 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
               {/* Submit Button */}
               <button
                 onClick={handleSubmitApplication}
-                disabled={isSubmittingApplication || !selectedBank || !customerName || !customerPhone}
+                disabled={isSubmittingApplication || banksLoading || !selectedBank || !customerName || !customerPhone}
                 className="w-full flex items-center justify-center gap-2 px-6 py-4 rounded-2xl font-bold text-white transition-all disabled:opacity-50"
                 style={{
                   background: accentColor.color,
@@ -1419,7 +1436,7 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
               >
                 {isSubmittingApplication ? (
                   <>
-                    <div className="size-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                    <Loader2 className="size-5 animate-spin" />
                     <span>Yuborilmoqda...</span>
                   </>
                 ) : (
@@ -1471,13 +1488,19 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
               e.stopPropagation();
               void downloadImage();
             }}
-            className="absolute top-4 right-20 p-3 rounded-full backdrop-blur-xl transition-all active:scale-90 z-50"
+            disabled={imageDownloadBusy}
+            className="absolute top-4 right-20 p-3 rounded-full backdrop-blur-xl transition-all active:scale-90 z-50 disabled:opacity-50"
             style={{
               background: 'rgba(255, 255, 255, 0.1)',
               border: '1px solid rgba(255, 255, 255, 0.2)',
             }}
+            aria-label="Rasmni yuklab olish"
           >
-            <Download className="size-6 text-white" strokeWidth={2.5} />
+            {imageDownloadBusy ? (
+              <Loader2 className="size-6 text-white animate-spin" strokeWidth={2.5} />
+            ) : (
+              <Download className="size-6 text-white" strokeWidth={2.5} />
+            )}
           </button>
 
           {/* Zoom Controls */}

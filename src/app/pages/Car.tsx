@@ -1,8 +1,8 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
-import { X, Car, Heart, MapPin, Gauge, Fuel, Calendar, Users, Palette, Settings, Check, Phone, MessageCircle, Share2, Eye, Zap, Grid3x3, Shield, Award, TrendingUp, Clock, Plus, DollarSign, CreditCard, Home } from 'lucide-react';
+import { X, Car, Heart, MapPin, Gauge, Fuel, Calendar, Users, Palette, Settings, Check, Phone, MessageCircle, Share2, Eye, Zap, Grid3x3, Shield, Award, TrendingUp, Clock, Plus, DollarSign, CreditCard, Home, Loader2 } from 'lucide-react';
 import { AddListingModal } from '../components/AddListingModal';
 import { LoginNotification } from '../components/LoginNotification';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
@@ -67,6 +67,7 @@ export default function CarPage({ onClose }: CarProps) {
   const [showAddModal, setShowAddModal] = useState(false);
   const [showLoginNotification, setShowLoginNotification] = useState(false);
   const [userData, setUserData] = useState<any>(null);
+  const [loadingCars, setLoadingCars] = useState(true);
   const visibilityRefetchTick = useVisibilityTick();
 
   // Banner slides
@@ -103,39 +104,39 @@ export default function CarPage({ onClose }: CarProps) {
     },
   ];
 
-  // Load data from backend
-  useEffect(() => {
-    const fetchCars = async () => {
-      try {
-        const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/cars`, {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-        });
-        
-        if (!response.ok) {
-          throw new Error(`HTTP error! status: ${response.status}`);
-        }
-        
-        const data = await response.json();
-        
-        if (data.success && data.cars) {
-          console.log('🚗 Cars loaded from backend:', data.cars);
-          console.log('🚗 First car paymentTypes:', data.cars[0]?.paymentTypes);
-          setCars(data.cars);
-        } else {
-          // No fallback - just show empty state
-          setCars([]);
-        }
-      } catch (error) {
-        console.error('Error fetching cars:', error);
-        // No fallback - just show empty state
+  const loadCars = useCallback(async () => {
+    setLoadingCars(true);
+    try {
+      const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/cars`, {
+        headers: {
+          'Authorization': `Bearer ${publicAnonKey}`,
+        },
+      });
+
+      if (!response.ok) {
+        throw new Error(`HTTP error! status: ${response.status}`);
+      }
+
+      const data = await response.json();
+
+      if (data.success && data.cars) {
+        console.log('🚗 Cars loaded from backend:', data.cars);
+        console.log('🚗 First car paymentTypes:', data.cars[0]?.paymentTypes);
+        setCars(data.cars);
+      } else {
         setCars([]);
       }
-    };
-    
-    fetchCars();
-  }, []);
+    } catch (error) {
+      console.error('Error fetching cars:', error);
+      setCars([]);
+    } finally {
+      setLoadingCars(false);
+    }
+  }, [visibilityRefetchTick]);
+
+  useEffect(() => {
+    void loadCars();
+  }, [loadCars]);
 
   // Auto-rotate banner
   useEffect(() => {
@@ -477,7 +478,14 @@ export default function CarPage({ onClose }: CarProps) {
         {/* Cars View */}
         {activeTab === 'cars' && (
           <>
-            {filteredCars.length === 0 ? (
+            {loadingCars ? (
+              <div className="flex flex-col items-center justify-center gap-3 py-24 sm:py-32">
+                <Loader2 className="h-10 w-10 shrink-0 animate-spin" style={{ color: accentColor.color }} aria-label="Yuklanmoqda" />
+                <p className="text-sm font-semibold opacity-60" style={{ color: isDark ? '#ffffff' : '#000000' }}>
+                  Avtomobillar yuklanmoqda…
+                </p>
+              </div>
+            ) : filteredCars.length === 0 ? (
               // Empty state
               <div className="flex flex-col items-center justify-center py-16 sm:py-24">
                 <div 
@@ -1322,23 +1330,7 @@ export default function CarPage({ onClose }: CarProps) {
           defaultType="car"
           onSuccess={async () => {
             setShowAddModal(false);
-            // Refresh cars data from backend
-            try {
-              const response = await fetch(`https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/cars`, {
-                headers: {
-                  'Authorization': `Bearer ${publicAnonKey}`,
-                },
-              });
-              
-              if (response.ok) {
-                const data = await response.json();
-                if (data.success && data.cars) {
-                  setCars(data.cars);
-                }
-              }
-            } catch (error) {
-              console.error('Error refreshing cars:', error);
-            }
+            await loadCars();
           }}
         />
       )}

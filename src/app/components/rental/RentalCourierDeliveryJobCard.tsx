@@ -1,4 +1,4 @@
-import { MapPin, Camera } from 'lucide-react';
+import { MapPin, Camera, Loader2 } from 'lucide-react';
 
 type RentalJob = Record<string, unknown>;
 
@@ -45,7 +45,7 @@ export function RentalCourierDepositBlock({
               key={`${u}-${i}`}
               href={u}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="block w-14 h-14 rounded-lg overflow-hidden border shrink-0"
               style={{ borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)' }}
             >
@@ -55,14 +55,18 @@ export function RentalCourierDepositBlock({
         </div>
       ) : null}
       <label
-        className="flex items-center justify-center gap-2 w-full py-2 rounded-xl text-xs font-semibold cursor-pointer border transition-opacity disabled:opacity-50"
+        className={`flex items-center justify-center gap-2 w-full py-2 rounded-xl text-xs font-semibold border transition-opacity disabled:opacity-50 ${depositBusyId === id ? 'cursor-wait' : 'cursor-pointer'}`}
         style={{
           borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)',
           background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.03)',
           color: mutedTextColor,
         }}
       >
-        <Camera className="w-4 h-4" />
+        {depositBusyId === id ? (
+          <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+        ) : (
+          <Camera className="w-4 h-4 shrink-0" />
+        )}
         {depositBusyId === id ? 'Yuklanmoqda…' : 'Garov rasmini qo‘shish'}
         <input
           type="file"
@@ -157,9 +161,12 @@ export function RentalCourierDeliveryJobCard({
         type="button"
         disabled={deliverBusyId === id}
         onClick={() => onDelivered(job)}
-        className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50"
+        className="w-full py-2.5 rounded-xl text-sm font-semibold text-white disabled:opacity-50 inline-flex items-center justify-center gap-2 disabled:cursor-not-allowed"
         style={{ background: '#d97706' }}
       >
+        {deliverBusyId === id ? (
+          <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+        ) : null}
         {deliverBusyId === id ? 'Yuborilmoqda...' : 'Mijozga yetkazildi'}
       </button>
     </div>

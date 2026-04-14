@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Plus, RefreshCw, Save, Trash2 } from 'lucide-react';
+import { Plus, RefreshCw, Save, Trash2, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../../context/ThemeContext';
 import { buildBranchHeaders } from '../../utils/requestAuth';
@@ -128,7 +128,7 @@ export function PickupRacksPanel({ branchId }: Props) {
         <div className="grid md:grid-cols-[1fr_1fr_auto_auto] gap-2">
           <input value={form.name} onChange={(e) => setForm((p) => ({ ...p, name: e.target.value }))} placeholder="Rasta nomi" className="px-4 py-3 rounded-2xl border outline-none" style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }} />
           <input value={form.number} onChange={(e) => setForm((p) => ({ ...p, number: e.target.value }))} placeholder="Rasta raqami" className="px-4 py-3 rounded-2xl border outline-none" style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }} />
-          <button onClick={addRack} disabled={isSaving} className="px-4 py-3 rounded-2xl font-semibold text-white inline-flex items-center gap-2 disabled:opacity-60" style={{ background: accentColor.gradient }}><Plus className="w-4 h-4" /><Save className="w-4 h-4" />Qo‘shish</button>
+          <button type="button" onClick={() => void addRack()} disabled={isSaving} className="px-4 py-3 rounded-2xl font-semibold text-white inline-flex items-center gap-2 disabled:opacity-60" style={{ background: accentColor.gradient }}>{isSaving ? <Loader2 className="w-4 h-4 animate-spin shrink-0" /> : <><Plus className="w-4 h-4 shrink-0" /><Save className="w-4 h-4 shrink-0" /></>}{isSaving ? 'Qo‘shilmoqda...' : 'Qo‘shish'}</button>
           <button onClick={loadRacks} className="px-4 py-3 rounded-2xl border inline-flex items-center gap-2" style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}><RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />Yangilash</button>
         </div>
       </div>
@@ -148,12 +148,16 @@ export function PickupRacksPanel({ branchId }: Props) {
                 <div className="mt-3">
                   <button
                     type="button"
-                    onClick={() => deleteRack(rack)}
+                    onClick={() => void deleteRack(rack)}
                     disabled={deletingRackId === rack.id}
                     className="px-3 py-2 rounded-xl border text-sm font-semibold inline-flex items-center gap-2 disabled:opacity-60"
                     style={{ borderColor: 'rgba(239,68,68,0.35)', color: '#ef4444' }}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    {deletingRackId === rack.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    ) : (
+                      <Trash2 className="w-4 h-4 shrink-0" />
+                    )}
                     {deletingRackId === rack.id ? 'O‘chirilmoqda...' : 'O‘chirish'}
                   </button>
                 </div>

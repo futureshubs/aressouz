@@ -19,11 +19,12 @@ import {
   ShoppingBag,
   AlertTriangle,
   XCircle,
+  Loader2,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { regions } from '../../data/regions';
-import { buildAdminHeaders, buildBranchHeaders } from '../../utils/requestAuth';
+import { buildBranchHeaders } from '../../utils/requestAuth';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { getVariantStockQuantity, getEffectiveProductStockQuantity } from '../../utils/cartStock';
 import { branchIdsEqual } from '../../utils/branchIdNormalize';
@@ -107,6 +108,7 @@ export default function ShopView({ branchId }: ShopViewProps) {
   const [isLoading, setIsLoading] = useState(true);
   const [shopModalOpen, setShopModalOpen] = useState(false);
   const [editingShop, setEditingShop] = useState<any | null>(null);
+  const [deletingShopId, setDeletingShopId] = useState<string | null>(null);
   const [deliveryTimeOptions, setDeliveryTimeOptions] = useState<any[]>([]);
   const [isLoadingDeliveryOptions, setIsLoadingDeliveryOptions] = useState(true);
   const [inventorySearch, setInventorySearch] = useState('');
@@ -414,12 +416,13 @@ export default function ShopView({ branchId }: ShopViewProps) {
   const handleDeleteShop = async (shopId: string) => {
     if (!confirm('Bu do\'konni o\'chirishni tasdiqlaysizmi?')) return;
 
+    setDeletingShopId(shopId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops/${shopId}`,
         {
           method: 'DELETE',
-          headers: buildAdminHeaders(),
+          headers: buildBranchHeaders(),
         }
       );
 
@@ -433,6 +436,8 @@ export default function ShopView({ branchId }: ShopViewProps) {
     } catch (error) {
       console.error('Error deleting shop:', error);
       toast.error('Do\'konni o\'chirishda xatolik');
+    } finally {
+      setDeletingShopId(null);
     }
   };
 
@@ -750,10 +755,15 @@ export default function ShopView({ branchId }: ShopViewProps) {
                           <button
                             type="button"
                             onClick={() => handleDeleteShop(shop.id)}
-                            className="flex-1 px-3 py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-2"
+                            disabled={deletingShopId === shop.id}
+                            className="flex-1 px-3 py-2 rounded-xl text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             style={{ background: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}
                           >
-                            <Trash2 className="w-4 h-4" />
+                            {deletingShopId === shop.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                            ) : (
+                              <Trash2 className="w-4 h-4 shrink-0" />
+                            )}
                             O'chirish
                           </button>
                         </div>
@@ -1216,7 +1226,8 @@ function AddShopModal({
   const isDark = theme === 'dark';
   const isEdit = Boolean(editingShop?.id);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  
+  const [telegramTestBusy, setTelegramTestBusy] = useState(false);
+
   const [formData, setFormData] = useState({
     name: '',
     description: '',
@@ -1373,6 +1384,39 @@ function AddShopModal({
     }));
   };
 
+  const handleTestTelegram = async () => {
+    if (!formData.telegramChatId) {
+      toast.error('Chat ID kiriting!');
+      return;
+    }
+    setTelegramTestBusy(true);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/test-telegram`,
+        {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ chatId: formData.telegramChatId }),
+        },
+      );
+
+      if (response.ok) {
+        toast.success('Test xabari yuborildi! Telegramni tekshiring.');
+      } else {
+        const error = await response.json();
+        toast.error(error.error || 'Xatolik yuz berdi');
+      }
+    } catch (error) {
+      console.error('Test error:', error);
+      toast.error('Test xatosi');
+    } finally {
+      setTelegramTestBusy(false);
+    }
+  };
+
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
 
@@ -1415,7 +1459,7 @@ function AddShopModal({
           `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops/${encodeURIComponent(editingShop.id)}`,
           {
             method: 'PUT',
-            headers: buildAdminHeaders({
+            headers: buildBranchHeaders({
               'Content-Type': 'application/json',
             }),
             body: JSON.stringify(updateBody),
@@ -1434,7 +1478,7 @@ function AddShopModal({
           `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops`,
           {
             method: 'POST',
-            headers: buildAdminHeaders({
+            headers: buildBranchHeaders({
               'Content-Type': 'application/json',
             }),
             body: JSON.stringify({
@@ -1542,40 +1586,16 @@ function AddShopModal({
               />
               <button
                 type="button"
-                onClick={async () => {
-                  if (!formData.telegramChatId) {
-                    toast.error('Chat ID kiriting!');
-                    return;
-                  }
-                  
-                  try {
-                    const response = await fetch(
-                      `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/test-telegram`,
-                      {
-                        method: 'POST',
-                        headers: {
-                          'Authorization': `Bearer ${publicAnonKey}`,
-                          'Content-Type': 'application/json',
-                        },
-                        body: JSON.stringify({ chatId: formData.telegramChatId }),
-                      }
-                    );
-
-                    if (response.ok) {
-                      toast.success('Test xabari yuborildi! Telegramni tekshiring.');
-                    } else {
-                      const error = await response.json();
-                      toast.error(error.error || 'Xatolik yuz berdi');
-                    }
-                  } catch (error) {
-                    console.error('Test error:', error);
-                    toast.error('Test xatosi');
-                  }
-                }}
-                className="px-4 py-3 rounded-xl font-medium flex items-center gap-2 whitespace-nowrap"
+                onClick={() => void handleTestTelegram()}
+                disabled={telegramTestBusy}
+                className="px-4 py-3 rounded-xl font-medium flex items-center gap-2 whitespace-nowrap disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{ background: `${accentColor.color}20`, color: accentColor.color }}
               >
-                <Send className="w-4 h-4" />
+                {telegramTestBusy ? (
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                ) : (
+                  <Send className="w-4 h-4 shrink-0" />
+                )}
                 Test
               </button>
             </div>

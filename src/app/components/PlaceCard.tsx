@@ -1,5 +1,5 @@
 import { memo, useState, useRef, useEffect } from 'react';
-import { MapPin, Star, Phone, Clock } from 'lucide-react';
+import { MapPin, Star, Phone, Clock, Loader2 } from 'lucide-react';
 import { Place } from '../data/places';
 import { Platform } from '../utils/platform';
 import { useTheme } from '../context/ThemeContext';
@@ -251,13 +251,7 @@ export const PlaceCard = memo(function PlaceCard({ place, onPlaceClick, platform
           border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
         }}
       >
-        <div 
-          className="animate-spin rounded-full h-8 w-8 border-4 border-t-transparent mx-auto"
-          style={{ 
-            borderColor: `${accentColor.color}44`, 
-            borderTopColor: 'transparent' 
-          }}
-        />
+        <Loader2 className="h-8 w-8 animate-spin mx-auto" style={{ color: accentColor.color }} />
         <p 
           className="text-sm mt-3 font-semibold"
           style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}

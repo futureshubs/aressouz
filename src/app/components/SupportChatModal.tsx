@@ -119,7 +119,7 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
             <a
               href={telegramUrl}
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="w-full flex items-center justify-between rounded-2xl px-4 py-4 active:scale-[0.99] transition"
               style={{
                 background: accentColor.gradient,

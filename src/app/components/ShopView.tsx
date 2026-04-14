@@ -1,6 +1,6 @@
 import { useState, memo, useEffect } from 'react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
-import { ShoppingBag, Store as StoreIcon } from 'lucide-react';
+import { ShoppingBag, Store as StoreIcon, Loader2 } from 'lucide-react';
 import { stores, Store } from '../data/stores';
 import { StoreCard } from './StoreCard';
 import { StoreDetailModal } from './StoreDetailModal';
@@ -291,11 +291,18 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
                   >
                     Do'kon mahsulotlari
                   </h2>
-                  <span 
-                    className="text-xs sm:text-sm"
+                  <span
+                    className="text-xs sm:text-sm inline-flex items-center gap-1.5"
                     style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
                   >
-                    {isLoadingProducts ? 'Yuklanmoqda...' : onlineShopProducts.length} ta
+                    {isLoadingProducts ? (
+                      <>
+                        <Loader2 className="size-3.5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
+                        Yuklanmoqda…
+                      </>
+                    ) : (
+                      <>{onlineShopProducts.length} ta</>
+                    )}
                   </span>
                 </div>
 

@@ -1,4 +1,4 @@
-import { X, Plus, Minus, Star, ShoppingCart, Clock, Truck, Shield, Heart, Share2, Calendar, Check, Package, CreditCard, Store, MessageCircle, Gift, RotateCcw, Box, ThumbsUp, ThumbsDown, Send, Image as ImageIcon, User, Wallet, Banknote } from 'lucide-react';
+import { X, Plus, Minus, Star, ShoppingCart, Clock, Truck, Shield, Heart, Share2, Calendar, Check, Package, CreditCard, Store, MessageCircle, Gift, RotateCcw, Box, ThumbsUp, ThumbsDown, Send, Image as ImageIcon, User, Wallet, Banknote, Loader2 } from 'lucide-react';
 import { useState, memo, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useFavorites } from '../context/FavoritesContext';
@@ -115,6 +115,8 @@ export const ProductDetailModal = memo(function ProductDetailModal({
   const [newReviewRating, setNewReviewRating] = useState(5);
   const [reviews, setReviews] = useState<ProductReview[]>([]);
   const [reviewsLoading, setReviewsLoading] = useState(false);
+  const [reviewSubmitting, setReviewSubmitting] = useState(false);
+  const [moderatingReviewId, setModeratingReviewId] = useState<number | null>(null);
   const averageRating =
     reviews.length > 0
       ? Number((reviews.reduce((sum, review) => sum + Number(review.rating || 0), 0) / reviews.length).toFixed(1))
@@ -176,6 +178,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
   // Review handlers
   const handleSubmitReview = async () => {
     if (!newReviewText.trim()) return;
+    setReviewSubmitting(true);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/products/${encodeURIComponent(String(product.id))}/reviews`,
@@ -201,6 +204,8 @@ export const ProductDetailModal = memo(function ProductDetailModal({
     } catch (error) {
       console.error('Submit review error:', error);
       toast.error('Sharh yuborishda xatolik');
+    } finally {
+      setReviewSubmitting(false);
     }
   };
 
@@ -242,6 +247,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
       if (!ok) return;
     }
 
+    setModeratingReviewId(reviewId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/products/${encodeURIComponent(
@@ -279,6 +285,8 @@ export const ProductDetailModal = memo(function ProductDetailModal({
     } catch (error) {
       console.error('Moderate review error:', error);
       toast.error('Moderatsiya xatolik yuz berdi');
+    } finally {
+      setModeratingReviewId(null);
     }
   };
 
@@ -1162,22 +1170,27 @@ export const ProductDetailModal = memo(function ProductDetailModal({
 
                   {/* Submit Button */}
                   <button
-                    onClick={handleSubmitReview}
-                    disabled={!newReviewText.trim()}
+                    onClick={() => void handleSubmitReview()}
+                    disabled={!newReviewText.trim() || reviewSubmitting}
                     className="mt-3 w-full py-2.5 sm:py-3 rounded-lg sm:rounded-xl font-bold text-white transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                     style={{
                       background: !newReviewText.trim() ? (isDark ? '#666666' : '#9ca3af') : accentColor.color,
                       boxShadow: !newReviewText.trim() ? 'none' : `0 8px 24px ${accentColor.color}40`,
                     }}
                   >
-                    <Send className="size-4 sm:size-5" strokeWidth={2} />
-                    <span className="text-sm sm:text-base">Yuborish</span>
+                    {reviewSubmitting ? (
+                      <Loader2 className="size-4 sm:size-5 animate-spin" strokeWidth={2} />
+                    ) : (
+                      <Send className="size-4 sm:size-5" strokeWidth={2} />
+                    )}
+                    <span className="text-sm sm:text-base">{reviewSubmitting ? 'Yuborilmoqda…' : 'Yuborish'}</span>
                   </button>
                 </div>
 
                 {/* Reviews List */}
                 {reviewsLoading ? (
-                  <div className="text-center py-6 sm:py-8">
+                  <div className="flex flex-col items-center justify-center gap-2 py-6 sm:py-8">
+                    <Loader2 className="size-6 animate-spin shrink-0" style={{ color: accentColor.color }} />
                     <p 
                       className="text-xs sm:text-sm"
                       style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}
@@ -1307,26 +1320,38 @@ export const ProductDetailModal = memo(function ProductDetailModal({
                           <div className="flex items-center gap-2 mt-3">
                             {review.hidden ? (
                               <button
-                                onClick={() => handleModerateReview(review.id, 'restore')}
-                                className="px-3 py-1 rounded-lg font-bold text-xs sm:text-sm"
+                                onClick={() => void handleModerateReview(review.id, 'restore')}
+                                disabled={moderatingReviewId !== null}
+                                className="inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-lg font-bold text-xs sm:text-sm disabled:opacity-50"
                                 style={{ background: 'rgba(16, 185, 129, 0.2)', color: '#10b981' }}
                               >
+                                {moderatingReviewId === review.id ? (
+                                  <Loader2 className="size-3.5 animate-spin shrink-0" />
+                                ) : null}
                                 Qayta ko‘rsatish
                               </button>
                             ) : (
                               <button
-                                onClick={() => handleModerateReview(review.id, 'hide')}
-                                className="px-3 py-1 rounded-lg font-bold text-xs sm:text-sm"
+                                onClick={() => void handleModerateReview(review.id, 'hide')}
+                                disabled={moderatingReviewId !== null}
+                                className="inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-lg font-bold text-xs sm:text-sm disabled:opacity-50"
                                 style={{ background: 'rgba(245, 158, 11, 0.2)', color: '#f59e0b' }}
                               >
+                                {moderatingReviewId === review.id ? (
+                                  <Loader2 className="size-3.5 animate-spin shrink-0" />
+                                ) : null}
                                 Yashirish
                               </button>
                             )}
                             <button
-                              onClick={() => handleModerateReview(review.id, 'delete')}
-                              className="px-3 py-1 rounded-lg font-bold text-xs sm:text-sm"
+                              onClick={() => void handleModerateReview(review.id, 'delete')}
+                              disabled={moderatingReviewId !== null}
+                              className="inline-flex items-center justify-center gap-1.5 px-3 py-1 rounded-lg font-bold text-xs sm:text-sm disabled:opacity-50"
                               style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
                             >
+                              {moderatingReviewId === review.id ? (
+                                <Loader2 className="size-3.5 animate-spin shrink-0" />
+                              ) : null}
                               O‘chirish
                             </button>
                           </div>

@@ -346,7 +346,7 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
           <a
             href="https://developer.help.paycom.uz/metody-subscribe-api/"
             target="_blank"
-            rel="noreferrer"
+            rel="noopener noreferrer"
             className="underline"
             style={{ color: accentColor.color }}
           >

@@ -1189,7 +1189,11 @@ export default function AppContent() {
                   )}
 
                   {marketProductsLoading && (
-                    <ProductGridSkeleton isDark={isDark} count={10} />
+                    <ProductGridSkeleton
+                      isDark={isDark}
+                      count={10}
+                      gridClassName="grid w-full grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6"
+                    />
                   )}
 
                   {/* Products Grid - Only show if there are products */}

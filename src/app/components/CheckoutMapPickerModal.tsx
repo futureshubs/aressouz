@@ -2,7 +2,7 @@ import { useCallback, useEffect, useRef, useState } from 'react';
 import L from 'leaflet';
 import 'leaflet/dist/leaflet.css';
 import { toast } from 'sonner';
-import { ArrowLeft, Home, Navigation, Search } from 'lucide-react';
+import { ArrowLeft, Home, Navigation, Search, Loader2 } from 'lucide-react';
 import { reverseGeocodeDisplayLine } from '../utils/geolocationDetect';
 
 const DEFAULT_CENTER: [number, number] = [41.2995, 69.2401];
@@ -250,7 +250,8 @@ export function CheckoutMapPickerModal({
               }}
             >
               {searchBusy && searchHits.length === 0 ? (
-                <div className="px-4 py-3 text-sm" style={{ color: muted }}>
+                <div className="flex items-center gap-2 px-4 py-3 text-sm" style={{ color: muted }}>
+                  <Loader2 className="size-4 shrink-0 animate-spin" style={{ color: accentColor.color }} />
                   Qidirilmoqda…
                 </div>
               ) : null}

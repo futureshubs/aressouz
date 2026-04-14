@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { Send, Save } from 'lucide-react';
+import { Send, Save, Loader2 } from 'lucide-react';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
@@ -163,7 +163,11 @@ export function RentalBranchTelegramSettings({ branchId }: { branchId: string })
           className="inline-flex items-center gap-2 px-4 py-2.5 rounded-xl text-sm font-medium text-white disabled:opacity-40"
           style={{ background: accentColor.color }}
         >
-          <Save className="w-4 h-4 shrink-0" />
+          {saving ? (
+            <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+          ) : (
+            <Save className="w-4 h-4 shrink-0" />
+          )}
           {saving ? 'Saqlanmoqda…' : 'Saqlash'}
         </button>
         <button
@@ -177,7 +181,11 @@ export function RentalBranchTelegramSettings({ branchId }: { branchId: string })
             color: accentColor.color,
           }}
         >
-          <Send className="w-4 h-4 shrink-0" />
+          {testLoading ? (
+            <Loader2 className="w-4 h-4 shrink-0 animate-spin" />
+          ) : (
+            <Send className="w-4 h-4 shrink-0" />
+          )}
           {testLoading ? 'Yuborilmoqda…' : 'Sinov xabari'}
         </button>
       </div>

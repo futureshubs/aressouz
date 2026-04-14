@@ -1,11 +1,33 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { 
-  ShoppingCart, Package, BarChart3, TrendingUp, DollarSign, Power, LogOut, 
-  Bell, Plus, X, Upload, Trash2, Clock, Flame, Star, CheckCircle, XCircle,
-  ChefHat, Users, TrendingDown, Calendar, Edit2,   QrCode,
+import {
+  ShoppingCart,
+  Package,
+  BarChart3,
+  TrendingUp,
+  DollarSign,
+  Power,
+  LogOut,
+  Bell,
+  Plus,
+  X,
+  Upload,
+  Trash2,
+  Clock,
+  Flame,
+  Star,
+  CheckCircle,
+  XCircle,
+  ChefHat,
+  Users,
+  TrendingDown,
+  Calendar,
+  Edit2,
+  QrCode,
   RotateCcw,
+  Loader2,
+  Menu,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
@@ -56,6 +78,24 @@ export default function RestaurantPanel() {
   });
   const [uploadingImages, setUploadingImages] = useState(false);
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
+  const [orderStatusBusyOrderId, setOrderStatusBusyOrderId] = useState<string | null>(null);
+  const [dishToggleBusyId, setDishToggleBusyId] = useState<string | null>(null);
+  const [saveDishSubmitting, setSaveDishSubmitting] = useState(false);
+  const [paymentRequestBusy, setPaymentRequestBusy] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+
+  const restaurantMenuTabs: Array<{
+    id: 'dashboard' | 'orders' | 'dishes' | 'stats' | 'analytics' | 'payment';
+    label: string;
+    icon: typeof Package;
+  }> = [
+    { id: 'dashboard', label: 'Dashboard', icon: Package },
+    { id: 'orders', label: 'Buyurtmalar', icon: ShoppingCart },
+    { id: 'dishes', label: 'Taomlar', icon: ChefHat },
+    { id: 'stats', label: 'Statistika', icon: BarChart3 },
+    { id: 'analytics', label: 'Data Analitika', icon: TrendingUp },
+    { id: 'payment', label: "To'lov qabul qilish", icon: DollarSign },
+  ];
 
   // Determine login path based on current URL
   const loginPath = location.pathname.includes('/taom') ? '/taom' : '/restaurant';
@@ -72,9 +112,10 @@ export default function RestaurantPanel() {
     loadData(restaurantData.id);
   }, [navigate, loginPath]);
 
-  const loadData = async (restaurantId: string) => {
+  const loadData = async (restaurantId: string, opts?: { silent?: boolean }) => {
+    const silent = opts?.silent === true;
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       
       const rid = encodeURIComponent(restaurantId);
 
@@ -105,20 +146,33 @@ export default function RestaurantPanel() {
 
     } catch (error) {
       console.error('Load data error:', error);
-      toast.error('Ma\'lumotlarni yuklashda xatolik!');
+      if (!silent) toast.error('Ma\'lumotlarni yuklashda xatolik!');
     } finally {
-      setLoading(false);
+      if (!silent) setLoading(false);
     }
   };
 
+  const loadDataRef = useRef(loadData);
+  loadDataRef.current = loadData;
+
+  useEffect(() => {
+    if (!restaurant?.id) return;
+    const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void loadDataRef.current(restaurant.id, { silent: true });
+    }, 8000);
+    return () => window.clearInterval(id);
+  }, [restaurant?.id]);
+
   useVisibilityRefetch(() => {
-    if (restaurant?.id) void loadData(restaurant.id);
+    if (restaurant?.id) void loadData(restaurant.id, { silent: true });
   });
 
-  useBodyScrollLock(showAddDish || Boolean(editingDishId));
+  useBodyScrollLock(showAddDish || Boolean(editingDishId) || sidebarOpen);
 
   const updateOrderStatus = async (orderId: string, status: string) => {
     if (!restaurant?.id) return;
+    setOrderStatusBusyOrderId(orderId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(restaurant.id)}/orders/${encodeURIComponent(orderId)}/status`,
@@ -143,6 +197,8 @@ export default function RestaurantPanel() {
     } catch (error) {
       console.error('Update status error:', error);
       toast.error('Xatolik yuz berdi!');
+    } finally {
+      setOrderStatusBusyOrderId(null);
     }
   };
 
@@ -221,6 +277,8 @@ export default function RestaurantPanel() {
   };
 
   const toggleDishStatus = async (dishId: string, currentStatus: boolean) => {
+    if (!restaurant?.id) return;
+    setDishToggleBusyId(dishId);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dishes/${encodeURIComponent(dishId)}/status`,
@@ -243,6 +301,8 @@ export default function RestaurantPanel() {
     } catch (error) {
       console.error('Toggle status error:', error);
       toast.error('Xatolik yuz berdi!');
+    } finally {
+      setDishToggleBusyId(null);
     }
   };
 
@@ -354,6 +414,7 @@ export default function RestaurantPanel() {
       ? `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dishes/${encodeURIComponent(editingDishId!)}`
       : `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(restaurant.id)}/dishes`;
 
+    setSaveDishSubmitting(true);
     try {
       const response = await fetch(url, {
         method: isEdit ? 'PUT' : 'POST',
@@ -378,6 +439,8 @@ export default function RestaurantPanel() {
     } catch (error) {
       console.error('Save dish error:', error);
       toast.error('Xatolik yuz berdi!');
+    } finally {
+      setSaveDishSubmitting(false);
     }
   };
 
@@ -387,6 +450,7 @@ export default function RestaurantPanel() {
       return;
     }
 
+    setPaymentRequestBusy(true);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(restaurant.id)}/payment-request`,
@@ -411,6 +475,8 @@ export default function RestaurantPanel() {
     } catch (error) {
       console.error('Payment request error:', error);
       toast.error('Xatolik yuz berdi!');
+    } finally {
+      setPaymentRequestBusy(false);
     }
   };
 
@@ -529,66 +595,198 @@ export default function RestaurantPanel() {
       className="app-panel-viewport app-safe-pad"
       style={{ background: isDark ? '#000000' : '#f9fafb', color: isDark ? '#ffffff' : '#111827' }}
     >
-      {/* Header */}
-      <header
-        className="shrink-0 border-b z-40"
+      {/* Chap menyu — desktop */}
+      <aside
+        className="hidden lg:flex lg:flex-col fixed left-0 top-0 z-30 h-[100dvh] max-h-[100dvh] w-64 min-w-[16rem] border-r overflow-hidden app-safe-pl"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          paddingTop: 'var(--app-safe-top)',
         }}
       >
-        <div className="max-w-7xl mx-auto px-4 py-4">
-          <div className="flex items-center justify-between">
-            <div>
-              <h1 className="text-2xl font-bold">{restaurant.name}</h1>
-              <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                {restaurant.type} • {restaurant.region}
-              </p>
+        <div className="app-panel-sidebar-scroll p-6 pb-4">
+          <div className="mb-6 p-4 rounded-2xl" style={{ background: `${accentColor.color}20` }}>
+            <h1 className="text-lg font-bold text-center leading-tight" style={{ color: accentColor.color }}>
+              {restaurant.name}
+            </h1>
+            <p
+              className="text-xs text-center mt-2"
+              style={{ color: isDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.65)' }}
+            >
+              {restaurant.type} • {restaurant.region}
+            </p>
+          </div>
+          <nav className="space-y-1.5">
+            {restaurantMenuTabs.map((tab) => {
+              const Icon = tab.icon;
+              const isActive = activeTab === tab.id;
+              return (
+                <button
+                  key={tab.id}
+                  type="button"
+                  onClick={() => setActiveTab(tab.id)}
+                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all text-sm text-left"
+                  style={{
+                    background: isActive ? accentColor.gradient : 'transparent',
+                    color: isActive ? '#ffffff' : isDark ? 'rgba(255, 255, 255, 0.85)' : '#111827',
+                  }}
+                >
+                  <Icon className="w-4 h-4 shrink-0" />
+                  <span className="font-medium">{tab.label}</span>
+                </button>
+              );
+            })}
+          </nav>
+        </div>
+        <div
+          className="shrink-0 border-t p-4"
+          style={{
+            background: isDark ? '#0a0a0a' : '#ffffff',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          }}
+        >
+          <button
+            type="button"
+            onClick={handleLogout}
+            className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all active:scale-95"
+            style={{
+              background: isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.05)',
+              borderColor: 'rgba(239, 68, 68, 0.3)',
+              color: '#ef4444',
+            }}
+          >
+            <LogOut className="w-5 h-5 shrink-0" />
+            <span className="font-medium">Chiqish</span>
+          </button>
+        </div>
+      </aside>
+
+      {/* Chap menyu — mobil (hamburger) */}
+      {sidebarOpen && (
+        <div
+          className="lg:hidden fixed inset-0 z-50 app-modal-overlay"
+          style={{ background: 'rgba(0, 0, 0, 0.5)' }}
+          onClick={() => setSidebarOpen(false)}
+          role="presentation"
+        >
+          <aside
+            className="absolute left-0 top-0 flex h-[100dvh] max-h-[100dvh] w-[min(100%,16rem)] max-w-[85vw] flex-col overflow-hidden border-r shadow-xl app-safe-pl"
+            style={{
+              background: isDark ? '#0a0a0a' : '#ffffff',
+              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              paddingTop: 'var(--app-safe-top)',
+            }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="app-panel-sidebar-scroll p-5 pb-4">
+              <div className="flex items-center justify-between gap-2 mb-5">
+                <p className="text-sm font-bold truncate min-w-0" style={{ color: accentColor.color }}>
+                  {restaurant.name}
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setSidebarOpen(false)}
+                  className="p-2 rounded-xl shrink-0"
+                  style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
+                  aria-label="Yopish"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <nav className="space-y-1.5">
+                {restaurantMenuTabs.map((tab) => {
+                  const Icon = tab.icon;
+                  const isActive = activeTab === tab.id;
+                  return (
+                    <button
+                      key={tab.id}
+                      type="button"
+                      onClick={() => {
+                        setActiveTab(tab.id);
+                        setSidebarOpen(false);
+                      }}
+                      className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all text-sm text-left"
+                      style={{
+                        background: isActive ? accentColor.gradient : 'transparent',
+                        color: isActive ? '#ffffff' : isDark ? 'rgba(255, 255, 255, 0.85)' : '#111827',
+                      }}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="font-medium">{tab.label}</span>
+                    </button>
+                  );
+                })}
+              </nav>
+            </div>
+            <div
+              className="shrink-0 border-t p-4"
+              style={{
+                background: isDark ? '#0a0a0a' : '#ffffff',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              }}
+            >
+              <button
+                type="button"
+                onClick={handleLogout}
+                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all active:scale-95"
+                style={{
+                  background: isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.05)',
+                  borderColor: 'rgba(239, 68, 68, 0.3)',
+                  color: '#ef4444',
+                }}
+              >
+                <LogOut className="w-5 h-5 shrink-0" />
+                <span className="font-medium">Chiqish</span>
+              </button>
+            </div>
+          </aside>
+        </div>
+      )}
+
+      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:ml-64">
+        <header
+          className="shrink-0 border-b z-40"
+          style={{
+            background: isDark ? '#0a0a0a' : '#ffffff',
+            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+          }}
+        >
+          <div className="max-w-7xl mx-auto w-full px-4 py-3 lg:py-4 flex items-center justify-between gap-3">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
+              <button
+                type="button"
+                onClick={() => setSidebarOpen(true)}
+                className="lg:hidden p-2 rounded-xl shrink-0"
+                style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
+                aria-label="Menyu"
+              >
+                <Menu className="w-6 h-6" />
+              </button>
+              <div className="min-w-0">
+                <h1 className="text-lg lg:text-2xl font-bold truncate">
+                  {restaurantMenuTabs.find((t) => t.id === activeTab)?.label ?? 'Dashboard'}
+                </h1>
+                <p
+                  className="text-xs lg:text-sm truncate"
+                  style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}
+                >
+                  {restaurant.name}
+                </p>
+              </div>
             </div>
             <button
+              type="button"
               onClick={handleLogout}
-              className="px-4 py-2 rounded-xl font-bold flex items-center gap-2"
+              className="hidden lg:flex items-center gap-2 px-4 py-2 rounded-xl font-bold shrink-0"
               style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
             >
               <LogOut className="w-4 h-4" />
               Chiqish
             </button>
           </div>
-        </div>
-      </header>
+        </header>
 
-      {/* Tabs */}
-      <div className="shrink-0 max-w-7xl mx-auto w-full px-4 pt-4">
-        <div className="flex items-center gap-2 overflow-x-auto pb-2 [-webkit-overflow-scrolling:touch] overscroll-x-contain touch-pan-x">
-          {[
-            { id: 'dashboard', label: 'Dashboard', icon: Package },
-            { id: 'orders', label: 'Buyurtmalar', icon: ShoppingCart },
-            { id: 'dishes', label: 'Taomlar', icon: ChefHat },
-            { id: 'stats', label: 'Statistika', icon: BarChart3 },
-            { id: 'analytics', label: 'Data Analitika', icon: TrendingUp },
-            { id: 'payment', label: 'To\'lov qabul qilish', icon: DollarSign },
-          ].map(tab => {
-            const Icon = tab.icon;
-            return (
-              <button
-                key={tab.id}
-                onClick={() => setActiveTab(tab.id as any)}
-                className="px-4 py-2.5 rounded-xl font-bold flex items-center gap-2 whitespace-nowrap"
-                style={{
-                  background: activeTab === tab.id ? accentColor.color : (isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'),
-                  color: activeTab === tab.id ? '#ffffff' : 'inherit'
-                }}
-              >
-                <Icon className="w-4 h-4" />
-                {tab.label}
-              </button>
-            );
-          })}
-        </div>
-      </div>
-
-      {/* Content */}
-      <div className="app-panel-main-scroll max-w-7xl mx-auto w-full px-4 py-6 min-h-0">
+        <div className="app-panel-main-scroll max-w-7xl mx-auto w-full px-4 py-6 min-h-0 flex-1">
         {/* DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
@@ -873,19 +1071,31 @@ export default function RestaurantPanel() {
                       {order.status === 'pending' && (
                         <div className="flex items-center gap-2">
                           <button
+                            type="button"
                             onClick={() => updateOrderStatus(order.id, 'rejected')}
-                            className="px-4 py-2 rounded-xl font-bold flex items-center gap-2"
+                            disabled={orderStatusBusyOrderId === order.id}
+                            className="px-4 py-2 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
                           >
-                            <XCircle className="w-4 h-4" />
+                            {orderStatusBusyOrderId === order.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <XCircle className="w-4 h-4" />
+                            )}
                             Bekor qilish
                           </button>
                           <button
+                            type="button"
                             onClick={() => updateOrderStatus(order.id, 'accepted')}
-                            className="px-4 py-2 rounded-xl font-bold flex items-center gap-2"
+                            disabled={orderStatusBusyOrderId === order.id}
+                            className="px-4 py-2 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                             style={{ background: accentColor.color, color: '#ffffff' }}
                           >
-                            <CheckCircle className="w-4 h-4" />
+                            {orderStatusBusyOrderId === order.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                            ) : (
+                              <CheckCircle className="w-4 h-4" />
+                            )}
                             Qabul qilish
                           </button>
                         </div>
@@ -985,13 +1195,18 @@ export default function RestaurantPanel() {
                       <button
                         type="button"
                         onClick={() => toggleDishStatus(dish.id, dish.isActive)}
-                        className="w-full px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2"
+                        disabled={dishToggleBusyId === dish.id}
+                        className="w-full px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{
                           background: dish.isActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
                           color: dish.isActive ? '#ef4444' : '#10b981'
                         }}
                       >
-                        <Power className="w-4 h-4" />
+                        {dishToggleBusyId === dish.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin" />
+                        ) : (
+                          <Power className="w-4 h-4" />
+                        )}
                         {dish.isActive ? 'Stop' : 'Faol'}
                       </button>
                     </div>
@@ -1196,11 +1411,17 @@ export default function RestaurantPanel() {
               </p>
               <div className="flex items-center gap-4">
                 <button
+                  type="button"
                   onClick={requestPayment}
-                  disabled={!stats?.pendingBalance || stats.pendingBalance <= 0}
-                  className="px-6 py-3 rounded-xl font-bold disabled:opacity-50 disabled:cursor-not-allowed"
+                  disabled={
+                    paymentRequestBusy ||
+                    !stats?.pendingBalance ||
+                    stats.pendingBalance <= 0
+                  }
+                  className="px-6 py-3 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ background: accentColor.color, color: '#ffffff' }}
                 >
+                  {paymentRequestBusy && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                   Pul talab qilish ({(stats?.pendingBalance || 0).toLocaleString()} so'm)
                 </button>
                 {stats?.lastPaymentRequest && (
@@ -1245,6 +1466,7 @@ export default function RestaurantPanel() {
           </div>
         )}
       </div>
+      </main>
 
       {/* Add Dish Modal */}
       {showAddDish && (
@@ -1667,9 +1889,11 @@ export default function RestaurantPanel() {
                 <button
                   type="button"
                   onClick={saveDish}
-                  className="flex-1 px-4 py-3 rounded-xl font-bold"
+                  disabled={saveDishSubmitting || uploadingImages}
+                  className="flex-1 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{ background: accentColor.color, color: '#ffffff' }}
                 >
+                  {saveDishSubmitting && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
                   Saqlash
                 </button>
               </div>

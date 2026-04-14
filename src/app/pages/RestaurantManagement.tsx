@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { Store, Utensils, BarChart3, TrendingUp, Plus, Edit2, Trash2, Power, PowerOff } from 'lucide-react';
+import { Store, Utensils, BarChart3, TrendingUp, Plus, Edit2, Trash2, Power, PowerOff, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '/utils/supabase/info';
 import { AddRestaurantModal } from '../components/AddRestaurantModal';
@@ -51,10 +51,14 @@ export function RestaurantManagement({
   const [dishes, setDishes] = useState<any[]>([]);
   const [selectedRestaurant, setSelectedRestaurant] = useState<string | null>(null);
   const [showAddRestaurantModal, setShowAddRestaurantModal] = useState(false);
+  const [editingRestaurant, setEditingRestaurant] = useState<any>(null);
   const [showAddDishModal, setShowAddDishModal] = useState(false);
   const [editingDish, setEditingDish] = useState<any>(null);
   const [loading, setLoading] = useState(true);
   const [visibilityTick, setVisibilityTick] = useState(0);
+  const [dishToggleBusyId, setDishToggleBusyId] = useState<string | null>(null);
+  const [dishDeleteBusyId, setDishDeleteBusyId] = useState<string | null>(null);
+  const [restaurantDeleteBusyId, setRestaurantDeleteBusyId] = useState<string | null>(null);
   useVisibilityRefetch(() => setVisibilityTick((t) => t + 1));
 
   useEffect(() => {
@@ -145,6 +149,7 @@ export function RestaurantManagement({
   };
 
   const toggleDishStatus = async (dishId: string, currentStatus: boolean) => {
+    setDishToggleBusyId(dishId);
     try {
       const response = await fetch(
         `${apiBaseUrl}/dishes/${encodeURIComponent(dishId)}/status`,
@@ -169,12 +174,15 @@ export function RestaurantManagement({
     } catch (error) {
       console.error('Toggle status error:', error);
       toast.error('Xatolik yuz berdi!');
+    } finally {
+      setDishToggleBusyId(null);
     }
   };
 
   const deleteDish = async (dishId: string) => {
     if (!confirm('Taomni o\'chirishni tasdiqlaysizmi?')) return;
 
+    setDishDeleteBusyId(dishId);
     try {
       const response = await fetch(
         `${apiBaseUrl}/dishes/${encodeURIComponent(dishId)}`,
@@ -197,12 +205,15 @@ export function RestaurantManagement({
     } catch (error) {
       console.error('Delete error:', error);
       toast.error('Xatolik yuz berdi!');
+    } finally {
+      setDishDeleteBusyId(null);
     }
   };
 
   const deleteRestaurant = async (restaurantId: string) => {
     if (!confirm('Restorani o\'chirishni tasdiqlaysizmi? Barcha taomlar ham o\'chiriladi!')) return;
 
+    setRestaurantDeleteBusyId(restaurantId);
     try {
       const response = await fetch(
         `${apiBaseUrl}/restaurants/${encodeURIComponent(restaurantId)}`,
@@ -227,6 +238,8 @@ export function RestaurantManagement({
     } catch (error) {
       console.error('Delete error:', error);
       toast.error('Xatolik yuz berdi!');
+    } finally {
+      setRestaurantDeleteBusyId(null);
     }
   };
 
@@ -286,7 +299,10 @@ export function RestaurantManagement({
           <div className="flex items-center justify-between mb-4">
             <h2 className="text-2xl font-bold">Restoranlar</h2>
             <button
-              onClick={() => setShowAddRestaurantModal(true)}
+              onClick={() => {
+                setEditingRestaurant(null);
+                setShowAddRestaurantModal(true);
+              }}
               className="px-5 py-3 rounded-xl font-bold flex items-center gap-2"
               style={{ background: accentColor.color, color: '#ffffff' }}
             >
@@ -360,18 +376,40 @@ export function RestaurantManagement({
                         </span>
                       </div>
                     </div>
-                    <div className="flex gap-2">
+                    <div className="flex flex-wrap gap-2">
                       <button
+                        type="button"
+                        onClick={() => {
+                          setEditingRestaurant(restaurant);
+                          setShowAddRestaurantModal(true);
+                        }}
+                        className="flex-1 min-w-[100px] px-3 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-1"
+                        style={{
+                          background: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                          border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                        }}
+                      >
+                        <Edit2 className="w-4 h-4 shrink-0" />
+                        Tahrirlash
+                      </button>
+                      <button
+                        type="button"
                         onClick={() => deleteRestaurant(restaurant.id)}
-                        className="flex-1 px-3 py-2 rounded-lg font-bold text-sm"
+                        disabled={restaurantDeleteBusyId === restaurant.id}
+                        className="flex-1 min-w-[100px] px-3 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
                       >
-                        <Trash2 className="w-4 h-4 inline mr-1" />
+                        {restaurantDeleteBusyId === restaurant.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                        ) : (
+                          <Trash2 className="w-4 h-4 shrink-0" />
+                        )}
                         O'chirish
                       </button>
                       <button
+                        type="button"
                         onClick={() => setSelectedRestaurant(restaurant.id)}
-                        className="flex-1 px-3 py-2 rounded-lg font-bold text-sm"
+                        className="flex-1 min-w-[100px] px-3 py-2 rounded-lg font-bold text-sm"
                         style={{ background: accentColor.color, color: '#ffffff' }}
                       >
                         Tanlash
@@ -464,22 +502,36 @@ export function RestaurantManagement({
                         </p>
                         <div className="flex gap-2">
                           <button
+                            type="button"
                             onClick={() => toggleDishStatus(dish.id, dish.isActive)}
-                            className="flex-1 px-3 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-1"
+                            disabled={dishToggleBusyId === dish.id}
+                            className="flex-1 px-3 py-2 rounded-lg font-bold text-sm flex items-center justify-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                             style={{ 
                               background: dish.isActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
                               color: dish.isActive ? '#ef4444' : '#10b981'
                             }}
                           >
-                            {dish.isActive ? <PowerOff className="w-4 h-4" /> : <Power className="w-4 h-4" />}
+                            {dishToggleBusyId === dish.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                            ) : dish.isActive ? (
+                              <PowerOff className="w-4 h-4 shrink-0" />
+                            ) : (
+                              <Power className="w-4 h-4 shrink-0" />
+                            )}
                             {dish.isActive ? 'Stop' : 'Faol'}
                           </button>
                           <button
+                            type="button"
                             onClick={() => deleteDish(dish.id)}
-                            className="px-3 py-2 rounded-lg"
+                            disabled={dishDeleteBusyId === dish.id}
+                            className="px-3 py-2 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center"
                             style={{ background: 'rgba(239, 68, 68, 0.2)' }}
                           >
-                            <Trash2 className="w-4 h-4 text-red-500" />
+                            {dishDeleteBusyId === dish.id ? (
+                              <Loader2 className="w-4 h-4 animate-spin text-red-500" />
+                            ) : (
+                              <Trash2 className="w-4 h-4 text-red-500" />
+                            )}
                           </button>
                         </div>
                       </div>
@@ -540,11 +592,17 @@ export function RestaurantManagement({
       {/* Modals */}
       {showAddRestaurantModal && (
         <AddRestaurantModal
+          key={editingRestaurant?.id ?? 'new-restaurant'}
           branchId={branchId}
-          onClose={() => setShowAddRestaurantModal(false)}
+          editingRestaurant={editingRestaurant}
+          onClose={() => {
+            setShowAddRestaurantModal(false);
+            setEditingRestaurant(null);
+          }}
           onSuccess={() => {
             loadRestaurants();
             setShowAddRestaurantModal(false);
+            setEditingRestaurant(null);
           }}
         />
       )}

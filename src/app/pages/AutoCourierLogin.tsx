@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Car, KeyRound, User } from 'lucide-react';
+import { ArrowLeft, Car, KeyRound, User, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -161,9 +161,10 @@ export default function AutoCourierLogin() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3.5 rounded-2xl font-semibold transition-opacity disabled:opacity-50"
+              className="w-full py-3.5 rounded-2xl font-semibold transition-opacity disabled:opacity-50 flex items-center justify-center gap-2"
               style={{ background: accentColor.color, color: '#fff' }}
             >
+              {isLoading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
               {isLoading ? 'Kutilmoqda…' : 'Kirish'}
             </button>
           </form>

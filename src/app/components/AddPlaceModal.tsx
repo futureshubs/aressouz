@@ -1,5 +1,5 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
-import { X, Upload, MapPin, Phone, FileText, Key, Instagram, Youtube, Send } from 'lucide-react';
+import { X, Upload, MapPin, Phone, FileText, Key, Instagram, Youtube, Send, Loader2 } from 'lucide-react';
 import { Platform } from '../utils/platform';
 import { useTheme } from '../context/ThemeContext';
 import { placeCategories } from '../data/places';
@@ -964,13 +964,13 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-4 rounded-2xl font-semibold text-white transition-all"
+            className="w-full py-4 rounded-2xl font-semibold text-white transition-all flex items-center justify-center gap-2 disabled:opacity-60 disabled:cursor-not-allowed"
             style={{
               backgroundImage: accentColor.gradient,
-              opacity: loading ? 0.6 : 1,
               boxShadow: `0 8px 20px ${accentColor.color}44`,
             }}
           >
+            {loading && <Loader2 className="w-6 h-6 animate-spin shrink-0" />}
             {loading ? 'Yuklanmoqda...' : 'Qo\'shish'}
           </button>
         </form>

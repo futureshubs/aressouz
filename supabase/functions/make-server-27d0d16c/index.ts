@@ -1,4 +1,4 @@
-import { Hono, type Context } from "npm:hono";
+import { Hono } from "npm:hono";
 // import { cors } from "npm:hono/cors"; // replaced with manual headers to avoid runtime boot errors
 import { logger } from "npm:hono/logger";
 import { createClient } from "npm:@supabase/supabase-js@2";
@@ -22,67 +22,21 @@ import bonusRoutes, { deductBonusForOrderPurchase, getUserBonusData } from "./bo
 import bannerRoutes from "./banners.tsx";
 import * as aresso from "./aresso.tsx";
 import * as businessHours from "./businessHours.ts";
-import clickRoutes from "./click.tsx";
 import {
-  buildPaycomCheckoutLink,
-  cancelReceipt as paymeCancelReceipt,
   checkReceipt as paymeCheckReceipt,
   createReceipt as paymeCreateReceipt,
-  getReceipt as paymeGetReceipt,
-  isPaymeConfigured,
   isPaymeConfiguredForMode,
-  parsePaycomHttpsBackUrl,
-  paycomDefaultUseTest,
   resolvePaycomUseTestForPayme,
-  sendReceipt as paymeSendReceipt,
-  sumItemsTiyinForPaycom,
-  type PaymeReceiptItem,
 } from "./payme.tsx";
-import {
-  clearPaycomOrderPending,
-  resolvePaycomCreateIdempotency,
-  savePaycomOrderPending,
-} from "./paycom-idempotency.ts";
 import {
   coerceKvTestMode,
   normalizeKvTestModeForSave,
   resolveClickIsTestForInvoice,
 } from "./payment-kv-utils.ts";
+import { paycomCallOptsForReceiptIdWithKv } from "./lib/paycom-receipt-helpers.ts";
+import { getOrderRecord } from "./services/order-kv-lookup.ts";
+import { registerPaymeReceiptRoutes } from "./routes/payme-receipt-routes.ts";
 
-async function paycomCallOptsForReceiptId(receiptId: string) {
-  try {
-    const meta = (await kv.get(`paycom_receipt:${receiptId}`)) as { useTest?: boolean } | null;
-    return typeof meta?.useTest === "boolean" ? { useTest: meta.useTest } : undefined;
-  } catch (e) {
-    console.error("[paycom] paycom_receipt KV o‘qilmadi, PAYCOM_USE_TEST ishlatiladi:", e);
-    return undefined;
-  }
-}
-
-async function paycomCallOptsForReceiptIdWithKv(receiptId: string) {
-  const fromReceipt = await paycomCallOptsForReceiptId(receiptId);
-  const useTest =
-    typeof fromReceipt?.useTest === "boolean"
-      ? fromReceipt.useTest
-      : paycomDefaultUseTest();
-  return { useTest };
-}
-
-const paymeCheckoutOrderKvKey = (orderId: string) =>
-  `payme_checkout_order:${String(orderId).trim()}`;
-
-function logPaymeHttp(tag: string, raw: Record<string, unknown>) {
-  console.log(`[payme/http] ${tag}`, {
-    orderId: raw.orderId,
-    amount: raw.amount,
-    itemsCount: Array.isArray(raw.items) ? raw.items.length : 0,
-    phone: raw.phone ? "[set]" : undefined,
-    returnUrlPreview:
-      typeof raw.returnUrl === "string" ? String(raw.returnUrl).slice(0, 80) : undefined,
-  });
-}
-
-import * as atmos from "./atmos.tsx";
 import preparersRoutes from "./preparers.tsx";
 import twoFactorRoutes from "./twoFactor.tsx";
 import {
@@ -120,69 +74,75 @@ import {
   isPlatformCommissionRequired,
   validateVariantCommissionsForSave,
 } from "./platform-commission.ts";
+import { registerPathNormalizeMiddleware } from "./middlewares/path-normalize.ts";
+import { registerRequestIdMiddleware } from "./middlewares/request-id.ts";
+import { registerAuthGateMiddleware } from "./middlewares/auth-gate.ts";
+import {
+  redactHeaderValue,
+  registerCorsAndSecurityHeaders,
+  registerHttpRedactedLogging,
+  registerOptionsHandler,
+} from "./middlewares/cors-security.ts";
+import { registerOptionalAuthRateLimit } from "./middlewares/rate-limit-auth.ts";
+import {
+  registerOptionalGlobalEdgeRateLimit,
+  registerOptionalSensitiveRouteRateLimit,
+} from "./middlewares/edge-rate-limits.ts";
+import { registerHealthRoutes } from "./routes/health.ts";
+import { registerPublicReadRoutes } from "./routes/public-read.ts";
+import { registerClickPaymentRoutes } from "./routes/payment-mounts.ts";
+import { registerAtmosPaymentRoutes } from "./routes/atmos-public-routes.ts";
+
+const DEBUG_HTTP =
+  Deno.env.get("DEBUG_HTTP") === "1" || Deno.env.get("DEBUG_HTTP") === "true";
+const VERBOSE_SERVER_LOG =
+  Deno.env.get("VERBOSE_SERVER_LOG") === "1" ||
+  Deno.env.get("VERBOSE_SERVER_LOG") === "true";
+
+/** DEBUG_HTTP yoki VERBOSE_SERVER_LOG bo‘lmasa — `console.*` chiqmaydi (Supabase function loglari). */
+if (!DEBUG_HTTP && !VERBOSE_SERVER_LOG) {
+  const noop = () => {};
+  globalThis.console.log = noop as typeof console.log;
+  globalThis.console.info = noop as typeof console.info;
+  globalThis.console.debug = noop as typeof console.debug;
+  globalThis.console.warn = noop as typeof console.warn;
+  globalThis.console.error = noop as typeof console.error;
+}
 
 const app = new Hono();
 
-// Supabase invokes this function with the path AFTER /functions/v1/{slug}/ (e.g. /courier-bags).
-// Ba'zan to'liq yo'l keladi: /functions/v1/make-server-27d0d16c/community/... — noto'g'ri qo'shish 404 beradi.
-// Barcha route'lar /make-server-27d0d16c/... ostida.
-app.use("*", async (c, next) => {
-  const p = c.req.path;
-  // For CORS preflight OPTIONS, don't rewrite/forward the request.
-  // Some Supabase routing edge-cases can make `c.req.path` differ, which may lead to recursion/boot failures.
-  if (c.req.method === "OPTIONS") {
-    await next();
-    return;
-  }
-  const marker = "/make-server-27d0d16c";
-  let normalized = p;
-  if (p.startsWith(marker)) {
-    normalized = p;
-  } else {
-    const idx = p.indexOf(marker);
-    if (idx !== -1) {
-      normalized = p.slice(idx);
-    } else {
-      normalized = p === "/" ? marker : `${marker}${p}`;
-    }
-  }
-  if (normalized !== p) {
-    const u = new URL(c.req.url);
-    u.pathname = normalized;
-    return app.fetch(new Request(u.toString(), c.req.raw));
-  }
-  try {
-    await next();
-  } catch (error: any) {
-    console.error("Auth gate next() error:", error);
-    return c.json(
-      { success: false, code: "NEXT_ERROR", error: error?.message || String(error) },
-      500,
-    );
-  }
-});
+registerPathNormalizeMiddleware(app);
+registerRequestIdMiddleware(app);
+registerOptionalSensitiveRouteRateLimit(app);
+registerOptionalGlobalEdgeRateLimit(app);
 
-// (preflight OPTIONS is handled earlier via CORS middleware + explicit options handler below)
-
-// Log environment variables on startup
-console.log('\n🚀 ===== SERVER STARTING v2.1 =====');
-console.log('⏰ Server Start Time:', new Date().toISOString());
-console.log('🔧 Environment Variables:');
-console.log('  SUPABASE_URL:', Deno.env.get('SUPABASE_URL'));
-console.log('  SUPABASE_SERVICE_ROLE_KEY exists:', !!Deno.env.get('SUPABASE_SERVICE_ROLE_KEY'));
-console.log('  SUPABASE_ANON_KEY exists:', !!Deno.env.get('SUPABASE_ANON_KEY'));
-console.log('📦 R2 Configuration:');
-console.log('  R2_ACCOUNT_ID:', Deno.env.get('R2_ACCOUNT_ID') ? '✅ SET' : '❌ MISSING');
-console.log('  R2_ACCESS_KEY_ID:', Deno.env.get('R2_ACCESS_KEY_ID') ? '✅ SET' : '❌ MISSING');
-console.log('  R2_SECRET_ACCESS_KEY:', Deno.env.get('R2_SECRET_ACCESS_KEY') ? '✅ SET' : '❌ MISSING');
-console.log('  R2_BUCKET_NAME:', Deno.env.get('R2_BUCKET_NAME') || 'online-shop-images');
-console.log('📢 Features:');
-console.log('  ✅ Banner System');
-console.log('  ✅ Restaurant System');
-console.log('  ✅ Rentals System');
-console.log('  ✅ Auction System');
-console.log('  ✅ Bonus System');
-console.log('🚀 ==========================================================\n');
+// Startup: faqat VERBOSE_SERVER_LOG=1 bo‘lsa (boshqa holatda konsol jim)
+if (VERBOSE_SERVER_LOG) {
+  console.log("\n🚀 ===== SERVER STARTING v2.1 =====");
+  console.log("⏰ Server Start Time:", new Date().toISOString());
+  console.log("🔧 Environment Variables:");
+  console.log("  SUPABASE_URL:", Deno.env.get("SUPABASE_URL"));
+  console.log(
+    "  SUPABASE_SERVICE_ROLE_KEY exists:",
+    !!Deno.env.get("SUPABASE_SERVICE_ROLE_KEY"),
+  );
+  console.log("  SUPABASE_ANON_KEY exists:", !!Deno.env.get("SUPABASE_ANON_KEY"));
+  console.log("📦 R2 Configuration:");
+  console.log("  R2_ACCOUNT_ID:", Deno.env.get("R2_ACCOUNT_ID") ? "✅ SET" : "❌ MISSING");
+  console.log("  R2_ACCESS_KEY_ID:", Deno.env.get("R2_ACCESS_KEY_ID") ? "✅ SET" : "❌ MISSING");
+  console.log(
+    "  R2_SECRET_ACCESS_KEY:",
+    Deno.env.get("R2_SECRET_ACCESS_KEY") ? "✅ SET" : "❌ MISSING",
+  );
+  console.log("  R2_BUCKET_NAME:", Deno.env.get("R2_BUCKET_NAME") || "online-shop-images");
+  console.log("📢 Features:");
+  console.log("  ✅ Banner System");
+  console.log("  ✅ Restaurant System");
+  console.log("  ✅ Rentals System");
+  console.log("  ✅ Auction System");
+  console.log("  ✅ Bonus System");
+  console.log("🚀 ==========================================================\n");
+}
 
 // Supabase client
 const supabase = createClient(
@@ -192,313 +152,106 @@ const supabase = createClient(
 
 const courierBagDb = createCourierBagStore(supabase);
 
+registerOptionalAuthRateLimit(app);
+
 // Enable logger
-app.use('*', logger(console.log));
+app.use("*", logger(console.log));
 
-// Authentication gate (SaaS-grade): require some auth on protected endpoints.
-// NOTE: Detailed authorization is still enforced per-route (admin/user/branch/courier tokens).
-app.use("*", async (c, next) => {
-  const path = c.req.path;
-  const method = c.req.method;
-
-  // Always allow CORS preflight
-  if (method === "OPTIONS") {
-    await next();
-    return;
-  }
-
-  // Public endpoints (no auth required)
-  const publicPrefixes = [
-    "/make-server-27d0d16c/health",
-    "/make-server-27d0d16c/test-deployment",
-    "/make-server-27d0d16c/public/",
-    "/make-server-27d0d16c/payment-methods",
-    "/make-server-27d0d16c/auth/",
-    "/make-server-27d0d16c/branch/session",
-    "/make-server-27d0d16c/courier/login",
-    "/make-server-27d0d16c/click",
-    "/make-server-27d0d16c/payme",
-    "/make-server-27d0d16c/atmos",
-  ];
-
-  const isPublic = publicPrefixes.some((p) => path === p || path.startsWith(p));
-  if (isPublic) {
-    await next();
-    return;
-  }
-
-  const hasAnyAuthHeader = Boolean(
-    c.req.header("Authorization") ||
-      c.req.header("authorization") ||
-      c.req.header("X-Access-Token") ||
-      c.req.header("x-access-token") ||
-      c.req.header("X-Branch-Token") ||
-      c.req.header("x-branch-token") ||
-      c.req.header("X-Admin-Code") ||
-      c.req.header("x-admin-code") ||
-      c.req.header("X-Courier-Token") ||
-      c.req.header("x-courier-token") ||
-      c.req.header("X-Auto-Courier-Token") ||
-      c.req.header("x-auto-courier-token") ||
-      c.req.header("X-Seller-Token") ||
-      c.req.header("x-seller-token") ||
-      c.req.header("X-Accountant-Token") ||
-      c.req.header("x-accountant-token") ||
-      c.req.header("X-Rental-Provider-Token") ||
-      c.req.header("x-rental-provider-token"),
-  );
-
-  if (!hasAnyAuthHeader) {
-    // Allow courier endpoints authenticated via `?token=...` query param.
-    // This helps avoid CORS preflight issues for Authorization/custom headers.
-    const isCourierPath = path.includes("/courier/");
-    const isAutoCourierPath = path.includes("/auto-courier/");
-    const queryToken = c.req.query("token");
-    if ((isCourierPath || isAutoCourierPath) && queryToken) {
-      await next();
-      return;
-    }
-
-    return c.json(
-      { success: false, error: "Unauthorized", code: "UNAUTHORIZED" },
-      401,
-    );
-  }
-
-  await next();
-});
-
-// Enable CORS for all routes.
-// Using `hono/cors` here appears to trigger runtime boot errors when Authorization headers are present.
-// Minimal manual CORS headers keep the server stable and still satisfy browser CORS requirements.
-app.use("/*", async (c, next) => {
-  await next();
-  // Always allow from any origin (frontend is not sending credentials).
-  c.res.headers.set("Access-Control-Allow-Origin", "*");
-  c.res.headers.set(
-    "Access-Control-Allow-Methods",
-    "GET, POST, PUT, PATCH, DELETE, OPTIONS",
-  );
-  c.res.headers.set(
-    "Access-Control-Allow-Headers",
-    [
-      "Content-Type",
-      "Authorization",
-      "X-Access-Token",
-      "x-access-token",
-      "X-Seller-Token",
-      "x-seller-token",
-      "X-Courier-Token",
-      "x-courier-token",
-      "X-Auto-Courier-Token",
-      "x-auto-courier-token",
-      "X-Admin-Code",
-      "x-admin-code",
-      "X-Admin-Session",
-      "x-admin-session",
-      "X-Admin-Login-Token",
-      "x-admin-login-token",
-      "X-Admin-Device-Id",
-      "x-admin-device-id",
-      "X-Branch-Token",
-      "x-branch-token",
-      "X-Branch-Supabase-Jwt",
-      "x-branch-supabase-jwt",
-      "X-Accountant-Token",
-      "x-accountant-token",
-      "X-Rental-Provider-Token",
-      "x-rental-provider-token",
-      "X-Request-ID",
-      "x-request-id",
-      "apikey",
-    ].join(", "),
-  );
-  c.res.headers.set(
-    "Access-Control-Expose-Headers",
-    "Content-Length, Content-Type, X-Request-ID",
-  );
-  c.res.headers.set("Access-Control-Max-Age", "600");
-});
-
-// Log all incoming requests for debugging
-app.use('*', async (c, next) => {
-  console.log('\n🔥 ==== NEW REQUEST ====');
-  console.log('📍 Method:', c.req.method);
-  console.log('📍 Path:', c.req.path);
-  console.log('📍 URL:', c.req.url);
-  
-  // Log headers for OPTIONS and POST requests
-  if (c.req.method === 'OPTIONS' || c.req.method === 'POST') {
-    const allHeaders: Record<string, string> = {};
-    c.req.raw.headers.forEach((value: string, key: string) => {
-      allHeaders[key] = value;
-    });
-    console.log('📋 Request Headers:', JSON.stringify(allHeaders, null, 2));
-  }
-  
-  console.log('🔥 ====================\n');
-  await next();
-});
-
-// Handle OPTIONS requests (CORS preflight)
-app.options('*', (c) => {
-  console.log('✅ OPTIONS request handled');
-  return c.text('OK', 200, {
-    'Access-Control-Allow-Origin': '*',
-    'Access-Control-Allow-Methods': 'GET, POST, PUT, PATCH, DELETE, OPTIONS',
-    'Access-Control-Allow-Headers': 'Content-Type, Authorization, X-Access-Token, x-access-token, X-Seller-Token, x-seller-token, X-Courier-Token, x-courier-token, X-Admin-Code, x-admin-code, X-Admin-Session, x-admin-session, X-Admin-Login-Token, x-admin-login-token, X-Admin-Device-Id, x-admin-device-id, X-Request-ID, x-request-id, X-Branch-Token, x-branch-token, X-Branch-Supabase-Jwt, x-branch-supabase-jwt, X-Accountant-Token, x-accountant-token, X-Rental-Provider-Token, x-rental-provider-token, apikey',
-    'Access-Control-Expose-Headers': 'Content-Length, Content-Type, X-Request-ID',
-    'Access-Control-Max-Age': '600',
-  });
-});
+registerAuthGateMiddleware(app);
+registerCorsAndSecurityHeaders(app);
+registerHttpRedactedLogging(app, { DEBUG_HTTP, VERBOSE_SERVER_LOG });
+registerOptionsHandler(app, { DEBUG_HTTP });
+registerHealthRoutes(app);
+registerPublicReadRoutes(app);
 
 // ==================== HELPER FUNCTIONS ====================
 
 // Extract and validate access token from custom header or Authorization header
 async function validateAccessToken(c: any, formData?: FormData) {
-  console.log('🔐 ===== validateAccessToken START =====');
-  console.log('📍 Request URL:', c.req.url);
-  console.log('📍 Request Method:', c.req.method);
-  
-  // Get all headers for debugging
-  const allHeaders: Record<string, string> = {};
-  c.req.raw.headers.forEach((value: string, key: string) => {
-    allHeaders[key] = value;
-  });
-  console.log('📋 All Request Headers:', JSON.stringify(allHeaders, null, 2));
-  
-  // Try multiple ways to get the token - Hono headers are case-insensitive but let's be extra safe
-  let customToken = c.req.header('X-Access-Token') || 
-                    c.req.header('x-access-token') ||
-                    c.req.raw.headers.get('X-Access-Token') ||
-                    c.req.raw.headers.get('x-access-token');
-  
-  let authHeader = c.req.header('Authorization') || 
-                   c.req.header('authorization') ||
-                   c.req.raw.headers.get('Authorization') ||
-                   c.req.raw.headers.get('authorization');
-  
-  // Extract token from Authorization header if present
+  if (DEBUG_HTTP) {
+    console.log("[auth] validateAccessToken", c.req.method, c.req.url);
+    const hdrs: Record<string, string> = {};
+    c.req.raw.headers.forEach((value: string, key: string) => {
+      hdrs[key] = redactHeaderValue(key, value);
+    });
+    console.log("[auth] headers (redacted):", JSON.stringify(hdrs));
+  }
+
+  let customToken = c.req.header("X-Access-Token") ||
+    c.req.header("x-access-token") ||
+    c.req.raw.headers.get("X-Access-Token") ||
+    c.req.raw.headers.get("x-access-token");
+
+  let authHeader = c.req.header("Authorization") ||
+    c.req.header("authorization") ||
+    c.req.raw.headers.get("Authorization") ||
+    c.req.raw.headers.get("authorization");
+
   let authToken = null;
   if (authHeader) {
-    // Handle "Bearer TOKEN" format
-    const parts = authHeader.split(' ');
-    if (parts.length === 2 && parts[0].toLowerCase() === 'bearer') {
+    const parts = authHeader.split(" ");
+    if (parts.length === 2 && parts[0].toLowerCase() === "bearer") {
       authToken = parts[1];
     } else if (parts.length === 1) {
-      // Handle direct token without "Bearer" prefix
       authToken = parts[0];
     }
   }
-  
-  // Try FormData as fallback (for multipart/form-data requests)
+
   let formToken = null;
   if (formData) {
-    formToken = formData.get('accessToken');
-    if (formToken && typeof formToken === 'string') {
-      console.log('🔑 Found token in FormData:', formToken.substring(0, 20) + '...');
+    formToken = formData.get("accessToken");
+    if (formToken && typeof formToken === "string" && DEBUG_HTTP) {
+      console.log("[auth] FormData token prefix:", formToken.substring(0, 8) + "…");
     }
   }
-  
+
   const accessToken = customToken || authToken || formToken;
-  
-  console.log('🔑 Custom Token (X-Access-Token):', customToken ? `${customToken.substring(0, 20)}...` : 'MISSING');
-  console.log('🔑 Auth Header:', authHeader ? `${authHeader.substring(0, 30)}...` : 'MISSING');
-  console.log('���� Extracted Access Token:', accessToken ? `${accessToken.substring(0, 20)}...` : 'MISSING');
-  
+
   if (!accessToken) {
-    console.log('❌ No access token found');
-    console.log('🔐 ===== validateAccessToken END (FAILED) =====\n');
-    return { success: false, error: 'Avtorizatsiya kerak. Iltimos, tizimga kiring.', userId: null };
+    return {
+      success: false,
+      error: "Avtorizatsiya kerak. Iltimos, tizimga kiring.",
+      userId: null,
+    };
   }
 
-  // First, try to validate with custom access token in KV
-  console.log('🔍 Checking KV store for custom token...');
-  console.log('🔑 KV key will be:', `access_token:${accessToken}`);
-  
   const supabaseClient = createClient(
-    Deno.env.get('SUPABASE_URL') ?? '',
-    Deno.env.get('SUPABASE_SERVICE_ROLE_KEY') ?? '',
+    Deno.env.get("SUPABASE_URL") ?? "",
+    Deno.env.get("SUPABASE_SERVICE_ROLE_KEY") ?? "",
   );
-  
+
   const customTokenData = await kv.get(`access_token:${accessToken}`);
-  
+
   if (!customTokenData) {
-    console.log('⚠️ Token not found in KV store');
-    // Debug: Query database directly to list all access tokens
     try {
-      const { data: allTokensData, error: queryError } = await supabaseClient
-        .from('kv_store_27d0d16c')
-        .select('key, value')
-        .like('key', 'access_token:%')
-        .limit(10);
-      
-      console.log('📋 Sample access tokens in database:', allTokensData?.length || 0);
-      if (queryError) {
-        console.error('❌ Error querying tokens:', queryError);
-      }
-      if (allTokensData && allTokensData.length > 0) {
-        allTokensData.forEach((item: any, index: number) => {
-          const tokenFromKey = item.key.replace('access_token:', '');
-          console.log(`  Token ${index + 1}:`, {
-            keyPreview: item.key.substring(0, 30) + '...',
-            tokenPreview: tokenFromKey.substring(0, 30) + '...',
-            fullTokenLength: tokenFromKey.length,
-            providedTokenLength: accessToken.length,
-            tokensMatch: tokenFromKey === accessToken ? '✅ MATCH!' : '❌ NO MATCH',
-            userId: item.value?.userId,
-            phone: item.value?.phone,
-            expiresAt: item.value?.expiresAt ? new Date(item.value.expiresAt).toISOString() : 'N/A'
-          });
-        });
-        
-        // Try to find exact match
-        const exactMatch = allTokensData.find((item: any) => {
-          const tokenFromKey = item.key.replace('access_token:', '');
-          return tokenFromKey === accessToken;
-        });
-        
-        if (exactMatch) {
-          console.log('✅ FOUND EXACT MATCH IN DATABASE BUT KV.GET FAILED');
-          console.log('✅ Using token from database directly');
-          
-          // Use the token data from database
-          if (Date.now() > exactMatch.value?.expiresAt) {
-            console.log('❌ Token expired');
-            console.log('🔐 ===== validateAccessToken END (EXPIRED) =====\n');
-            return { success: false, error: 'Token muddati tugagan', userId: null };
-          }
-          
-          console.log('✅ Token valid, userId:', exactMatch.value?.userId);
-          console.log('🔐 ===== validateAccessToken END (SUCCESS) =====\n');
-          return { success: true, userId: exactMatch.value?.userId, error: null };
+      const { data: row } = await supabaseClient
+        .from("kv_store_27d0d16c")
+        .select("key, value")
+        .eq("key", `access_token:${accessToken}`)
+        .maybeSingle();
+      if (row?.value) {
+        const v = row.value as { expiresAt?: number; userId?: string };
+        if (Date.now() > (v.expiresAt ?? 0)) {
+          return { success: false, error: "Token muddati tugagan", userId: null };
         }
-      } else {
-        console.log('  No tokens found in database!');
+        if (DEBUG_HTTP) console.log("[auth] OK via DB row fallback, userId:", v.userId);
+        return { success: true, userId: v.userId ?? null, error: null };
       }
-    } catch (err) {
-      console.error('Error listing tokens:', err);
+    } catch (e) {
+      if (DEBUG_HTTP) console.error("[auth] DB token fallback error:", e);
     }
-  }
-  
-  if (customTokenData) {
-    console.log('✅ Custom token found in KV store:', customTokenData);
-    // Custom token found - check expiry
-    if (Date.now() > customTokenData.expiresAt) {
-      console.log('❌ Custom token expired at:', new Date(customTokenData.expiresAt).toISOString());
-      console.log('🔐 ===== validateAccessToken END (EXPIRED) =====\n');
-      return { success: false, error: 'Token muddati tugagan', userId: null };
-    }
-    
-    console.log('✅ Custom token valid, userId:', customTokenData.userId);
-    console.log('🔐 ===== validateAccessToken END (SUCCESS) =====\n');
-    return { success: true, userId: customTokenData.userId, error: null };
+    return {
+      success: false,
+      error: "Token noto'g'ri yoki muddati tugagan. Qaytadan kiring.",
+      userId: null,
+    };
   }
 
-  // Token not found in KV store - this is an error
-  console.log('❌ Custom token not found in KV store');
-  console.log('🔐 ===== validateAccessToken END (TOKEN NOT FOUND) =====\n');
-  return { success: false, error: 'Token noto\'g\'ri yoki muddati tugagan. Qaytadan kiring.', userId: null };
+  if (Date.now() > customTokenData.expiresAt) {
+    return { success: false, error: "Token muddati tugagan", userId: null };
+  }
+  if (DEBUG_HTTP) console.log("[auth] OK via KV, userId:", customTokenData.userId);
+  return { success: true, userId: customTokenData.userId, error: null };
 }
 
 const ONLINE_PAYMENT_METHODS = new Set(['online', 'click', 'click_card', 'payme', 'atmos']);
@@ -1296,6 +1049,37 @@ async function validateShopMutationAccess(c: any, options: { branchId?: string |
     return { success: true, mode: 'admin', userId: admin.userId };
   }
 
+  const branchAuth = await validateBranchSession(c);
+  if (branchAuth.success) {
+    const sessionBranchId = String(branchAuth.branchId || '').trim();
+    if (!sessionBranchId) {
+      return { success: false, error: 'Filial sessiyasi to‘liq emas' };
+    }
+    const optBranch = options.branchId != null ? String(options.branchId).trim() : '';
+    const optShop = options.shopId != null ? String(options.shopId).trim() : '';
+    if (optBranch) {
+      if (!kvBranchMatches(optBranch, sessionBranchId)) {
+        return { success: false, error: 'Bu filial uchun amal bajarishga ruxsat yo\'q' };
+      }
+    } else if (optShop) {
+      const shop = await kv.get(`shop:${optShop}`);
+      if (!shop || shop.deleted) {
+        return { success: false, error: 'Do\'kon topilmadi' };
+      }
+      if (!kvBranchMatches(shop.branchId, sessionBranchId)) {
+        return { success: false, error: 'Bu do\'konni boshqarish ruxsati yo\'q' };
+      }
+    } else {
+      return { success: false, error: 'Filial yoki do\'kon identifikatori kerak' };
+    }
+    return {
+      success: true,
+      mode: 'branch',
+      userId: (branchAuth as { userId?: string | null }).userId ?? null,
+      branchId: branchAuth.branchId,
+    };
+  }
+
   const seller = await validateSellerSession(c);
   if (!seller.success) {
     return { success: false, error: seller.error || admin.error || 'Ruxsat yo\'q' };
@@ -1321,97 +1105,12 @@ async function validateShopMutationAccess(c: any, options: { branchId?: string |
 const buildOrderKey = (order: any) =>
   order?.orderType === 'market' ? `order:market:${order.id}` : `order:${order.id}`;
 
-const getOrderKeys = (orderId: string) => {
-  const raw = String(orderId || '').trim();
-  if (!raw) return [];
-
-  // Accept both canonical IDs and full KV keys.
-  // Examples:
-  // - "restaurant:123:456" -> ["order:restaurant:123:456", "order:market:restaurant:123:456"]
-  // - "order:restaurant:123:456" -> ["order:restaurant:123:456", "order:market:restaurant:123:456"]
-  // - "order:market:abc" -> ["order:market:abc", "order:abc"]
-  if (raw.startsWith('order:market:')) {
-    const stripped = raw.slice('order:market:'.length);
-    return [raw, `order:${stripped}`];
-  }
-  if (raw.startsWith('order:')) {
-    const stripped = raw.slice('order:'.length);
-    return [raw, `order:market:${stripped}`];
-  }
-  return [`order:${raw}`, `order:market:${raw}`];
-};
-
 const normalizeZoneIpToken = (value: any) => {
   const raw = String(value || '').trim().toLowerCase();
   if (!raw) return '';
   const ipv4 = raw.match(/\b\d{1,3}(?:\.\d{1,3}){3}\b/)?.[0] || '';
   return ipv4 || raw;
 };
-
-async function getOrderRecord(orderId: string) {
-  for (const key of getOrderKeys(orderId)) {
-    const order = await kv.get(key);
-    if (order) {
-      return { key, order };
-    }
-  }
-
-  return null;
-}
-
-/** Payme check-receipt / Click COMPLETE: asosiy `order:` / `order:market:` yozuvida to‘lovni «paid» qilish va v2 Postgres bilan sinxronlash */
-async function markKvOrderPaidFromGateway(
-  orderId: string,
-  extras: { paymeReceiptId?: string; clickTransId?: string | number },
-): Promise<void> {
-  const record = await getOrderRecord(orderId);
-  if (!record) {
-    console.warn('[gateway-paid] buyurtma KV da topilmadi:', orderId);
-    return;
-  }
-  const o = record.order as Record<string, unknown>;
-  const nowIso = new Date().toISOString();
-  const legacyId = String(o.id ?? orderId);
-  const prevPaid = ['paid', 'completed', 'success'].includes(
-    String(o.paymentStatus || '').toLowerCase().trim(),
-  );
-  const statusHistory = Array.isArray(o.statusHistory) ? [...(o.statusHistory as unknown[])] : [];
-  if (!prevPaid) {
-    statusHistory.push({
-      status: o.status,
-      timestamp: nowIso,
-      note: 'Onlayn to‘lov tasdiqlandi (Payme/Click)',
-    });
-  }
-  const updatedOrder = {
-    ...record.order,
-    paymentStatus: 'paid',
-    paymentCompletedAt: nowIso,
-    paymentRequiresVerification: false,
-    updatedAt: nowIso,
-    ...(extras.paymeReceiptId ? { paymeReceiptId: extras.paymeReceiptId } : {}),
-    ...(extras.clickTransId != null ? { clickTransId: extras.clickTransId } : {}),
-    statusHistory,
-  };
-  await kv.set(record.key, updatedOrder);
-
-  try {
-    const txKey = `transaction:${legacyId}`;
-    const tx = await kv.get(txKey);
-    if (tx && typeof tx === 'object') {
-      await kv.set(txKey, { ...tx, status: 'paid', paidAt: nowIso });
-    }
-  } catch (txErr: unknown) {
-    console.warn('[gateway-paid] transaction KV:', txErr);
-  }
-
-  await syncRelationalOrderFromLegacy({
-    legacyOrderId: legacyId,
-    kvStatus: String(o.status ?? ''),
-    kvPaymentStatus: 'paid',
-    paymentRequiresVerification: false,
-  });
-}
 
 async function validateOrderOwnership(c: any, order: any) {
   const admin = await validateAdminAccess(c);
@@ -9144,154 +8843,6 @@ app.delete("/make-server-27d0d16c/branch-vehicles", async (c) => {
   }
 });
 
-// PUBLIC FAVORITES ENDPOINT - No auth required
-app.get("/make-server-27d0d16c/favorites", async (c) => {
-  try {
-    console.log('📚 PUBLIC: Fetching favorites...');
-    
-    // Mock favorites data
-    const mockFavorites = [
-      {
-        id: 'fav_1',
-        type: 'product',
-        itemId: 'product_1',
-        name: 'Mock Product 1',
-        price: 299000,
-        image: '/mock-images/product1.jpg',
-        createdAt: new Date().toISOString()
-      },
-      {
-        id: 'fav_2',
-        type: 'branch',
-        itemId: 'branch_1',
-        name: 'Test Branch 1',
-        location: 'Tashkent',
-        createdAt: new Date().toISOString()
-      }
-    ];
-
-    console.log(`✅ PUBLIC: Found ${mockFavorites.length} favorites`);
-    return c.json({ 
-      success: true,
-      favorites: mockFavorites,
-      message: 'Favorites loaded (mock)'
-    });
-  } catch (error) {
-    console.log('PUBLIC Get favorites error:', error);
-    return c.json({ error: 'Favorites olishda xatolik' }, 500);
-  }
-});
-
-// Health check endpoint
-app.get("/make-server-27d0d16c/health", (c) => {
-  const r2Config = r2.checkR2Config();
-  
-  return c.json({ 
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    message: "Server ishlamoqda",
-    r2: r2Config,
-    features: {
-      banners: true,
-      restaurants: true,
-      rentals: true,
-      auctions: true,
-      bonus: true
-    }
-  });
-});
-
-// Alias for environments where Supabase strips the function slug from the path.
-// This prevents auth-gate+rewrite mismatches from turning public endpoints into runtime errors.
-app.get("/health", (c) => {
-  const r2Config = r2.checkR2Config();
-  return c.json({
-    status: "ok",
-    timestamp: new Date().toISOString(),
-    message: "Server ishlamoqda",
-    r2: r2Config,
-    features: {
-      banners: true,
-      restaurants: true,
-      rentals: true,
-      auctions: true,
-      bonus: true,
-    },
-  });
-});
-
-// PUBLIC TEST ENDPOINT - No auth required
-app.get("/make-server-27d0d16c/test-deployment", (c) => {
-  console.log('\n🧪 ============ PUBLIC TEST DEPLOYMENT ENDPOINT ============');
-  console.log('✅ This endpoint is PUBLIC - no auth required');
-  console.log('🧪 ========================================================\n');
-  
-  return c.json({
-    success: true,
-    message: '✅ Edge Functions are working!',
-    timestamp: new Date().toISOString(),
-    endpoints: {
-      public: ['/health', '/test-deployment', '/public/branches', '/favorites'],
-      auth: ['/auth/sms/send', '/auth/sms/signup', '/auth/sms/signin'],
-      user: ['/user/profile', '/upload'],
-      products: ['/products', '/foods']
-    }
-  });
-});
-
-app.get("/test-deployment", (c) => {
-  console.log('\n🧪 ============ PUBLIC TEST DEPLOYMENT ENDPOINT (alias) ============');
-  return c.json({
-    success: true,
-    message: '✅ Edge Functions are working!',
-    timestamp: new Date().toISOString(),
-    endpoints: {
-      public: ['/health', '/test-deployment', '/public/branches', '/favorites'],
-      auth: ['/auth/sms/send', '/auth/sms/signup', '/auth/sms/signin'],
-      user: ['/user/profile', '/upload'],
-      products: ['/products', '/foods'],
-    },
-  });
-});
-
-// PUBLIC BRANCHES ENDPOINT - No auth required
-app.get("/make-server-27d0d16c/public/branches", async (c) => {
-  try {
-    console.log('🌐 PUBLIC: Fetching all branches...');
-    const branches = await kv.getByPrefix('branch:');
-    console.log(`✅ PUBLIC: Found ${branches.length} branches`);
-    return c.json({ branches });
-  } catch (error) {
-    console.log('PUBLIC Get branches error:', error);
-    return c.json({ error: 'Filiallarni olishda xatolik' }, 500);
-  }
-});
-
-// PUBLIC BRANCHES LOCATION ENDPOINT - No auth required
-app.get("/make-server-27d0d16c/public/branches/location", async (c) => {
-  try {
-    const regionId = c.req.query('regionId');
-    const districtId = c.req.query('districtId');
-    
-    console.log(`🌐 PUBLIC: Fetching branches for region: ${regionId}, district: ${districtId}`);
-    
-    const branches = await kv.getByPrefix('branch:');
-    
-    const filteredBranches = branches.filter((b: any) => {
-      if (!b) return false;
-      if (regionId && b.regionId !== regionId) return false;
-      if (districtId && b.districtId !== districtId) return false;
-      return true;
-    });
-
-    console.log(`✅ PUBLIC: Found ${filteredBranches.length} branches in location`);
-    return c.json({ branches: filteredBranches });
-  } catch (error) {
-    console.log('PUBLIC Get branches by location error:', error);
-    return c.json({ error: 'Filiallarni olishda xatolik' }, 500);
-  }
-});
-
 // ==================== PAYMENT METHODS ROUTES ====================
 
 function sanitizePaymentMethodsForPublic(methods: any[]) {
@@ -10797,6 +10348,33 @@ const isCourierPaymentOkForReadyMarketRental = (order: any) => {
   if (ps === "pending" || ps === "" || ps === "unpaid") {
     if (needsOnlinePaid) return false;
     return true;
+  }
+  return false;
+};
+
+/**
+ * Do‘kon/taom: filial naqdni `release-to-preparer` bilan qabul qilgach, to‘lov hali `pending` bo‘lsa ham
+ * kuryer «mavjud buyurtmalar»da ko‘rishi (pul zanjiri filial/sotuvchi tomonida).
+ */
+const isCourierPaymentOkForReleasedMerchantCash = (order: any) => {
+  const ot = String(order?.orderType || order?.type || "").toLowerCase().trim();
+  if (ot !== "shop" && ot !== "food" && ot !== "restaurant") return false;
+  if (!order?.releasedToPreparerAt) return false;
+  const s = String(order?.status || "").toLowerCase().trim();
+  if (!["confirmed", "accepted", "preparing", "ready"].includes(s)) return false;
+  const ps = String(order?.paymentStatus || "").toLowerCase().trim();
+  if (isPaidLikeStatus(ps)) return true;
+  const pmRaw = order?.paymentMethod ?? order?.payment_method;
+  const pm = String(pmRaw || "").toLowerCase().trim();
+  const needsOnlinePaid =
+    Boolean(order?.paymentRequiresVerification) ||
+    pm === "qr" ||
+    pm === "qrcode" ||
+    pm.includes("qr") ||
+    ["click", "payme", "uzum", "atmos", "humo", "apple", "google"].some((x) => pm.includes(x));
+  if (needsOnlinePaid) return false;
+  if (ps === "pending" || ps === "" || ps === "unpaid") {
+    return isCashLikePaymentMethodRaw(pmRaw);
   }
   return false;
 };
@@ -12489,6 +12067,21 @@ app.post("/make-server-27d0d16c/courier/location", async (c) => {
   }
 });
 
+/** Taom: `order:id` + `order:restaurant:...:id` bir xil yozuv — prefix skanida ikki marta chiqmasin. */
+function dedupeCourierOrderScanRows(orders: any[]): any[] {
+  const seen = new Set<string>();
+  const out: any[] = [];
+  for (const order of orders) {
+    const oid = String(order?.id ?? "").trim();
+    if (oid) {
+      if (seen.has(oid)) continue;
+      seen.add(oid);
+    }
+    out.push(order);
+  }
+  return out;
+}
+
 app.get("/make-server-27d0d16c/courier/orders/available", async (c) => {
   try {
     const auth = await validateCourierSession(c);
@@ -12528,7 +12121,9 @@ app.get("/make-server-27d0d16c/courier/orders/available", async (c) => {
       return c.json({ success: true, orders: [] });
     }
 
-    const rawOrders = (await kv.getByPrefix('order:')).filter((order: any) => !order.deleted);
+    const rawOrders = dedupeCourierOrderScanRows(
+      (await kv.getByPrefix('order:')).filter((order: any) => !order.deleted),
+    );
     const normalizeBranchId = (raw: unknown) => String(raw || '').trim().replace(/^branch:/, '');
     const branchCache = new Map<string, any>();
     const maxRadius = Number(courier.serviceRadiusKm || 5);
@@ -12571,7 +12166,11 @@ app.get("/make-server-27d0d16c/courier/orders/available", async (c) => {
         pm === 'qrcode' ||
         pm.includes('qr');
       // Do‘kon/taom: asosan to‘langan; market/ijara tayyor bo‘lgach naqd (pending) ham kuryerga chiqadi.
-      if (!isPaidLikeStatus(ps) && !isCourierPaymentOkForReadyMarketRental(order)) {
+      if (
+        !isPaidLikeStatus(ps) &&
+        !isCourierPaymentOkForReadyMarketRental(order) &&
+        !isCourierPaymentOkForReleasedMerchantCash(order)
+      ) {
         if (debugMode) bump('not_paid', { id: order.id, paymentStatus: ps, paymentMethod: pm });
         continue;
       }
@@ -12744,7 +12343,9 @@ app.get("/make-server-27d0d16c/courier/orders/active", async (c) => {
       return c.json({ error: auth.error }, 401);
     }
 
-    const allOrders = (await kv.getByPrefix('order:')).filter((item: any) => !item.deleted);
+    const allOrders = dedupeCourierOrderScanRows(
+      (await kv.getByPrefix('order:')).filter((item: any) => !item.deleted),
+    );
     const activeRows = allOrders.filter((item: any) => {
       if (item.assignedCourierId !== auth.courier.id) return false;
       const s = String(item.status || '').toLowerCase().trim();
@@ -12778,7 +12379,9 @@ app.get("/make-server-27d0d16c/courier/orders/history", async (c) => {
     }
 
     const limit = Math.min(200, Math.max(1, Number(c.req.query('limit') || 100)));
-    const allOrders = (await kv.getByPrefix('order:')).filter((item: any) => !item.deleted);
+    const allOrders = dedupeCourierOrderScanRows(
+      (await kv.getByPrefix('order:')).filter((item: any) => !item.deleted),
+    );
     const delivered = allOrders
       .filter((order: any) => {
         if (order.assignedCourierId !== auth.courier.id) return false;
@@ -12871,7 +12474,11 @@ app.post("/make-server-27d0d16c/courier/orders/:id/accept", async (c) => {
     }
 
     const ps = String(orderRecord.order.paymentStatus || '').toLowerCase().trim();
-    if (!isPaidLikeStatus(ps) && !isCourierPaymentOkForReadyMarketRental(orderRecord.order)) {
+    if (
+      !isPaidLikeStatus(ps) &&
+      !isCourierPaymentOkForReadyMarketRental(orderRecord.order) &&
+      !isCourierPaymentOkForReleasedMerchantCash(orderRecord.order)
+    ) {
       return c.json({ error: 'To\'lov hali tasdiqlanmadi' }, 403);
     }
 
@@ -15832,505 +15439,13 @@ app.route('/make-server-27d0d16c/preparers', preparersRoutes);
 app.route('/make-server-27d0d16c/2fa', twoFactorRoutes);
 
 // ==================== CLICK PAYMENT ROUTES ====================
-app.route('/make-server-27d0d16c/click', clickRoutes);
+registerClickPaymentRoutes(app);
+registerAtmosPaymentRoutes(app);
 
 // ==================== RELATIONAL POSTGRES ROUTES ====================
 app.route('/make-server-27d0d16c', relationalRoutes);
 
-// ==================== PAYME PAYMENT ROUTES ====================
-
-// Create Payme receipt (underscore alias — ba’zi klientlar /payme/create_receipt chaqiradi)
-const paymeCreateReceiptHandler = async (c: Context) => {
-  try {
-    const body = (await c.req.json().catch(() => null)) as Record<string, unknown> | null;
-    if (!body || typeof body !== "object") {
-      return c.json({ error: "JSON body majburiy" }, 400);
-    }
-    logPaymeHttp("POST /payme/create-receipt", body);
-
-    const { amount, orderId, items, phone, returnUrl } = body as {
-      amount?: unknown;
-      orderId?: unknown;
-      items?: unknown;
-      phone?: unknown;
-      returnUrl?: unknown;
-    };
-
-    console.log('💳 Creating Payme receipt:', { amount, orderId, itemsCount: Array.isArray(items) ? items.length : 0, phone });
-
-    if (!amount || !orderId) {
-      return c.json({ error: 'Amount va orderId majburiy' }, 400);
-    }
-
-    if (!items || !Array.isArray(items) || items.length === 0) {
-      return c.json({ error: 'Items (mahsulotlar ro\'yxati) majburiy' }, 400);
-    }
-
-    const itemsTiyin = sumItemsTiyinForPaycom(items as PaymeReceiptItem[]);
-    const clientTiyin = Math.round(Number(amount) * 100);
-    if (!Number.isFinite(clientTiyin) || clientTiyin <= 0) {
-      return c.json({ error: "Noto‘g‘ri amount" }, 400);
-    }
-    if (!Number.isFinite(itemsTiyin) || itemsTiyin <= 0) {
-      return c.json({ error: "Mahsulotlar summasi 0 yoki noto‘g‘ri" }, 400);
-    }
-    if (Math.abs(itemsTiyin - clientTiyin) > 2) {
-      return c.json(
-        {
-          error:
-            "So‘m va savat qatorlari yig‘indisi mos emas. Sahifani yangilab qayta urinib ko‘ring (Paycom checkout «чек не найден» sababi bo‘lishi mumkin).",
-          code: "PAYCOM_AMOUNT_LINES_MISMATCH",
-          clientTiyin,
-          itemsTiyin,
-        },
-        400,
-      );
-    }
-
-    await kv.set(paymeCheckoutOrderKvKey(String(orderId)), {
-      state: "pending_receipt",
-      orderId: String(orderId),
-      amountTiyin: itemsTiyin,
-      updatedAt: new Date().toISOString(),
-    });
-
-    const paymeConfig = await kv.get('payment_method:payme');
-    const resolvedTest = resolvePaycomUseTestForPayme(paymeConfig);
-    const checkoutBackUrl = parsePaycomHttpsBackUrl(returnUrl);
-
-    console.log('💳 Paycom create-receipt:', resolvedTest ? 'TEST (checkout.test.paycom.uz)' : 'PROD (checkout.paycom.uz)');
-
-    if (!isPaymeConfiguredForMode(resolvedTest, null)) {
-      return c.json(
-        {
-          error: resolvedTest
-            ? 'Paycom TEST: Supabase Secrets — PAYCOM_REGISTER_ID va PAYCOM_SECRET_TEST.'
-            : 'Paycom PROD: Supabase Secrets — PAYCOM_REGISTER_ID va PAYCOM_SECRET_PROD.',
-          code: 'PAYCOM_ENV_MISSING',
-        },
-        503,
-      );
-    }
-
-    const paycomCallOpts = {
-      useTest: resolvedTest,
-    };
-    const idem = await resolvePaycomCreateIdempotency(String(orderId), items, paycomCallOpts);
-    if (idem.action === "already_paid") {
-      await kv.set(paymeCheckoutOrderKvKey(String(orderId)), {
-        state: "paid",
-        orderId: String(orderId),
-        receiptId: idem.receiptId,
-        updatedAt: new Date().toISOString(),
-      });
-      return c.json(
-        {
-          error:
-            "Bu buyurtma (orderId) bo‘yicha chek allaqachon to‘langan. Yangi chek ochilmaydi.",
-          code: "PAYCOM_ORDER_ALREADY_PAID",
-          receiptId: idem.receiptId,
-        },
-        409,
-      );
-    }
-    if (idem.action === "reuse") {
-      const r = idem.record;
-      const freshCheckoutUrl = buildPaycomCheckoutLink(r.receiptId, resolvedTest, {
-        useTest: resolvedTest,
-        checkoutBackUrl,
-      });
-      await kv.set(`paycom_receipt:${r.receiptId}`, {
-        orderId: String(orderId),
-        useTest: resolvedTest,
-      });
-      await savePaycomOrderPending({
-        ...r,
-        checkoutUrl: freshCheckoutUrl,
-      });
-      await kv.set(paymeCheckoutOrderKvKey(String(orderId)), {
-        state: "receipt_created",
-        orderId: String(orderId),
-        receiptId: r.receiptId,
-        amountTiyin: itemsTiyin,
-        paycomEnvironment: resolvedTest ? "test" : "prod",
-        idempotentReused: true,
-        updatedAt: new Date().toISOString(),
-      });
-      console.log("[paycom] idempotent reuse", { orderId, receiptId: r.receiptId });
-      return c.json({
-        success: true,
-        receiptId: r.receiptId,
-        checkoutUrl: freshCheckoutUrl,
-        paycomEnvironment: resolvedTest ? "test" : "prod",
-        idempotentReused: true,
-      });
-    }
-
-    const result = await paymeCreateReceipt(amount, orderId, items, phone, undefined, {
-      useTest: resolvedTest,
-      checkoutBackUrl,
-    });
-
-    if (!result.success) {
-      return c.json({ error: result.error || 'Chek yaratishda xatolik' }, 400);
-    }
-
-    if (result.receiptId) {
-      await kv.set(`paycom_receipt:${result.receiptId}`, {
-        orderId: String(orderId),
-        useTest: resolvedTest,
-      });
-      const amountTiyin = sumItemsTiyinForPaycom(items);
-      await savePaycomOrderPending({
-        receiptId: result.receiptId,
-        checkoutUrl: result.checkoutUrl,
-        amountTiyin,
-        useTest: resolvedTest,
-        createdAt: new Date().toISOString(),
-        orderId: String(orderId),
-      });
-      await kv.set(paymeCheckoutOrderKvKey(String(orderId)), {
-        state: "receipt_created",
-        orderId: String(orderId),
-        receiptId: result.receiptId,
-        amountTiyin,
-        paycomEnvironment: resolvedTest ? "test" : "prod",
-        updatedAt: new Date().toISOString(),
-      });
-    }
-
-    const rec = result.receipt as { state?: number } | undefined;
-    console.log("RECEIPT_CREATE:", {
-      receiptId: result.receiptId,
-      accountOrderId: String(orderId),
-      paycomEnvironment: resolvedTest ? "test" : "prod",
-      receiptState: typeof rec?.state === "number" ? rec.state : undefined,
-    });
-    console.log("CHECKOUT_URL:", result.checkoutUrl);
-    return c.json({
-      success: true,
-      receiptId: result.receiptId,
-      checkoutUrl: result.checkoutUrl,
-      /** test = checkout.test.paycom.uz — payme.uz prod bilan aralashmasin */
-      paycomEnvironment: resolvedTest ? 'test' : 'prod',
-      receiptState: typeof rec?.state === 'number' ? rec.state : undefined,
-    });
-  } catch (error: any) {
-    console.error('Create receipt error:', error);
-    return c.json({ error: `Chek yaratishda xatolik: ${error.message}` }, 500);
-  }
-};
-
-app.post('/make-server-27d0d16c/payme/create-receipt', paymeCreateReceiptHandler);
-app.post('/make-server-27d0d16c/payme/create_receipt', paymeCreateReceiptHandler);
-
-// Check Payme receipt status
-app.post('/make-server-27d0d16c/payme/check-receipt', async (c) => {
-  try {
-    let body: { receiptId?: unknown };
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: "So‘rov tanasi JSON emas" }, 400);
-    }
-    const receiptIdRaw = body?.receiptId;
-    const receiptId = receiptIdRaw != null ? String(receiptIdRaw).trim() : "";
-
-    console.log("💳 Checking Payme receipt:", receiptId);
-
-    if (!receiptId) {
-      return c.json({ error: "ReceiptId majburiy" }, 400);
-    }
-
-    const paycomOpts = await paycomCallOptsForReceiptIdWithKv(receiptId);
-    const result = await paymeCheckReceipt(receiptId, paycomOpts);
-
-    if (!result.success) {
-      return c.json({ error: result.error || "Chek tekshirishda xatolik" }, 400);
-    }
-
-    /** KV (Supabase jadval) xatosi Paycom natijasini «500» qilmasin — to‘lov holati baribir qaytadi */
-    const applyPaidOrCancelledKv = async (kind: "paid" | "cancelled") => {
-      try {
-        const meta = (await kv.get(`paycom_receipt:${receiptId}`)) as
-          | { orderId?: string }
-          | null;
-        if (!meta?.orderId) return;
-        const oid = String(meta.orderId);
-        await clearPaycomOrderPending(oid);
-        await kv.set(paymeCheckoutOrderKvKey(oid), {
-          state: kind,
-          orderId: oid,
-          receiptId,
-          updatedAt: new Date().toISOString(),
-        });
-      } catch (kvErr: unknown) {
-        console.error(`[payme/check-receipt] KV (${kind}) yangilanmadi:`, kvErr);
-      }
-    };
-
-    if (result.isPaid) {
-      await applyPaidOrCancelledKv("paid");
-      try {
-        const paidMeta = (await kv.get(`paycom_receipt:${receiptId}`)) as
-          | { orderId?: string }
-          | null;
-        if (paidMeta?.orderId) {
-          await markKvOrderPaidFromGateway(String(paidMeta.orderId), {
-            paymeReceiptId: receiptId,
-          });
-        }
-      } catch (paidKvErr: unknown) {
-        console.error('[payme/check-receipt] buyurtma to‘langan deb yangilanmadi:', paidKvErr);
-      }
-    }
-    if (result.isCancelled) {
-      await applyPaidOrCancelledKv("cancelled");
-    }
-
-    console.log("[payme/http] POST /payme/check-receipt", {
-      receiptIdTail: receiptId.slice(-8),
-      isPaid: result.isPaid,
-      state: result.state,
-    });
-
-    return c.json({
-      success: true,
-      isPaid: result.isPaid,
-      isCancelled: result.isCancelled,
-      state: result.state,
-      receipt: result.receipt,
-    });
-  } catch (error: unknown) {
-    const msg = error instanceof Error ? error.message : String(error);
-    console.error("Check receipt error:", error);
-    return c.json({ error: `Chek tekshirishda xatolik: ${msg}` }, 500);
-  }
-});
-
-// Get Payme receipt
-app.post('/make-server-27d0d16c/payme/get-receipt', async (c) => {
-  try {
-    const { receiptId } = await c.req.json();
-    
-    if (!receiptId) {
-      return c.json({ error: 'ReceiptId majburiy' }, 400);
-    }
-    
-    const paycomOpts = await paycomCallOptsForReceiptIdWithKv(String(receiptId));
-    const result = await paymeGetReceipt(receiptId, paycomOpts);
-
-    if (!result.success) {
-      return c.json({ error: result.error || 'Chek olishda xatolik' }, 400);
-    }
-    
-    return c.json({
-      success: true,
-      receipt: result.receipt,
-    });
-  } catch (error: any) {
-    console.error('Get receipt error:', error);
-    return c.json({ error: `Chek olishda xatolik: ${error.message}` }, 500);
-  }
-});
-
-// Cancel Payme receipt
-app.post('/make-server-27d0d16c/payme/cancel-receipt', async (c) => {
-  try {
-    const { receiptId } = await c.req.json();
-    
-    if (!receiptId) {
-      return c.json({ error: 'ReceiptId majburiy' }, 400);
-    }
-
-    const paycomOpts = await paycomCallOptsForReceiptIdWithKv(String(receiptId));
-    const result = await paymeCancelReceipt(receiptId, paycomOpts);
-    
-    if (!result.success) {
-      return c.json({ error: result.error || 'Chek bekor qilishda xatolik' }, 400);
-    }
-    
-    return c.json({
-      success: true,
-      message: 'Chek bekor qilindi',
-    });
-  } catch (error: any) {
-    console.error('Cancel receipt error:', error);
-    return c.json({ error: `Chek bekor qilishda xatolik: ${error.message}` }, 500);
-  }
-});
-
-// Payme: SMS invoice — receipts.send
-app.post('/make-server-27d0d16c/payme/send-receipt', async (c) => {
-  try {
-    const { receiptId, phone } = await c.req.json();
-
-    if (!receiptId || !phone) {
-      return c.json({ error: 'receiptId va phone majburiy' }, 400);
-    }
-
-    const paycomOpts = await paycomCallOptsForReceiptIdWithKv(String(receiptId));
-    if (!isPaymeConfiguredForMode(paycomOpts.useTest, null)) {
-      return c.json({ error: 'Paycom sozlanmagan (shu chek uchun kerak bo‘lgan muhit kaliti)' }, 503);
-    }
-
-    const result = await paymeSendReceipt(String(receiptId), String(phone), paycomOpts);
-
-    if (!result.success) {
-      return c.json({ error: result.error || 'SMS yuborilmadi' }, 400);
-    }
-
-    return c.json({ success: true, sent: result.sent !== false });
-  } catch (error: any) {
-    console.error('Send receipt error:', error);
-    return c.json({ error: `SMS yuborishda xatolik: ${error.message}` }, 500);
-  }
-});
-
-// ==================== ATMOS PAYMENT ROUTES ====================
-
-// Create Atmos transaction
-app.post('/make-server-27d0d16c/atmos/create-transaction', async (c) => {
-  try {
-    let body: Record<string, unknown>;
-    try {
-      body = await c.req.json();
-    } catch {
-      return c.json({ error: 'JSON body kutilmoqda', code: 'BAD_BODY' }, 400);
-    }
-
-    const amountRaw = body.amount;
-    const orderId = body.orderId;
-    const customerPhone = body.customerPhone;
-    const customerName = body.customerName;
-
-    const amountNum = Number(amountRaw);
-    const oid = String(orderId ?? '').trim();
-    const phone = String(customerPhone ?? '').trim();
-
-    console.log('💳 Creating Atmos transaction:', {
-      amount: amountNum,
-      orderId: oid,
-      customerPhone: phone,
-      customerName,
-    });
-
-    if (!Number.isFinite(amountNum) || amountNum <= 0) {
-      return c.json(
-        { error: `Noto‘g‘ri summa: ${String(amountRaw)}`, code: 'INVALID_AMOUNT' },
-        400,
-      );
-    }
-    if (!oid) {
-      return c.json({ error: 'orderId majburiy', code: 'INVALID_ORDER' }, 400);
-    }
-    if (!phone) {
-      return c.json({ error: 'Telefon (customerPhone) majburiy', code: 'INVALID_PHONE' }, 400);
-    }
-
-    const atmosRow = await kv.get('payment_method:atmos');
-    if (atmosRow && atmosRow.enabled === false) {
-      return c.json({ error: 'Atmos to\'lov usuli faol emas', code: 'ATMOS_DISABLED' }, 400);
-    }
-    
-    if (!atmos.isAtmosConfigured(atmosRow ?? null)) {
-      return c.json(
-        {
-          error:
-            'Atmos sozlanmagan: Supabase Secrets (ATMOS_STORE_ID, ATMOS_CONSUMER_KEY, ATMOS_CONSUMER_SECRET) yoki admin → Atmos maydonlari',
-          code: 'ATMOS_NOT_CONFIGURED',
-        },
-        503,
-      );
-    }
-    
-    const result = await atmos.createTransaction(
-      amountNum,
-      oid,
-      phone,
-      typeof customerName === 'string' ? customerName : undefined,
-      atmosRow ?? null,
-    );
-    
-    if (!result.success) {
-      return c.json(
-        {
-          error: result.error || 'Tranzaksiya yaratishda xatolik',
-          code: 'ATMOS_UPSTREAM',
-        },
-        400,
-      );
-    }
-    
-    return c.json({
-      success: true,
-      transactionId: result.transactionId,
-      redirectUrl: result.redirectUrl,
-      status: result.status,
-    });
-  } catch (error: any) {
-    console.error('Create Atmos transaction error:', error);
-    return c.json({ error: `Tranzaksiya yaratishda xatolik: ${error.message}` }, 500);
-  }
-});
-
-// Check Atmos transaction status
-app.post('/make-server-27d0d16c/atmos/check-transaction', async (c) => {
-  try {
-    const { transactionId } = await c.req.json();
-    
-    console.log('💳 Checking Atmos transaction:', transactionId);
-    
-    if (!transactionId) {
-      return c.json({ error: 'TransactionId majburiy' }, 400);
-    }
-
-    const atmosRow = await kv.get('payment_method:atmos');
-    const result = await atmos.checkTransaction(transactionId, atmosRow ?? null);
-    
-    if (!result.success) {
-      return c.json({ error: result.error || 'Tranzaksiya holatini olishda xatolik' }, 400);
-    }
-    
-    return c.json({
-      success: true,
-      transaction: result.transaction,
-      status: result.status,
-      isPaid: result.isPaid,
-      isApproved: result.isApproved,
-      isRejected: result.isRejected,
-    });
-  } catch (error: any) {
-    console.error('Check Atmos transaction error:', error);
-    return c.json({ error: `Tranzaksiya holatini olishda xatolik: ${error.message}` }, 500);
-  }
-});
-
-// Cancel Atmos transaction
-app.post('/make-server-27d0d16c/atmos/cancel-transaction', async (c) => {
-  try {
-    const { transactionId } = await c.req.json();
-    
-    if (!transactionId) {
-      return c.json({ error: 'TransactionId majburiy' }, 400);
-    }
-
-    const atmosRow = await kv.get('payment_method:atmos');
-    const result = await atmos.cancelTransaction(transactionId, atmosRow ?? null);
-    
-    if (!result.success) {
-      return c.json({ error: result.error || 'Tranzaksiyani bekor qilishda xatolik' }, 400);
-    }
-    
-    return c.json({
-      success: true,
-      message: 'Tranzaksiya bekor qilindi',
-    });
-  } catch (error: any) {
-    console.error('Cancel Atmos transaction error:', error);
-    return c.json({ error: `Tranzaksiyani bekor qilishda xatolik: ${error.message}` }, 500);
-  }
-});
+registerPaymeReceiptRoutes(app);
 
 // ==================== TELEGRAM TEST ROUTE ====================
 app.post('/make-server-27d0d16c/telegram/test', async (c) => {

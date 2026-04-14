@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Bike, KeyRound, User } from 'lucide-react';
+import { ArrowLeft, Bike, KeyRound, User, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
@@ -162,12 +162,13 @@ export default function CourierLogin() {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-4 rounded-2xl font-semibold transition-all active:scale-[0.99] disabled:opacity-60"
+              className="w-full py-4 rounded-2xl font-semibold transition-all active:scale-[0.99] disabled:opacity-60 flex items-center justify-center gap-2"
               style={{
                 background: accentColor.gradient,
                 color: '#ffffff',
               }}
             >
+              {isLoading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
               {isLoading ? 'Kirilmoqda...' : 'Kirish'}
             </button>
           </form>

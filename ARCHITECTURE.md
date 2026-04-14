@@ -86,6 +86,21 @@ supabase/functions/make-server-27d0d16c/
 3. Add deterministic debug instrumentation for mismatch scenarios
 4. Gradually move KV-heavy aggregation to a relational read model
 
+## 5a) Edge engine layout (incremental, non-breaking)
+
+The `make-server-27d0d16c` entrypoint remains `index.ts`. Cross-cutting concerns are extracted **without changing route paths or response bodies**:
+
+- `middlewares/path-normalize.ts` — path rewrite to `/make-server-27d0d16c/...`
+- `middlewares/auth-gate.ts` — global auth header gate + public prefix list
+- `middlewares/cors-security.ts` — CORS allowlist, security headers, redacted HTTP logging, OPTIONS
+- `middlewares/rate-limit-auth.ts` — optional (`EDGE_RATE_LIMIT_AUTH=1`) auth-path rate limit
+- `routes/health.ts` — `/health`, `/make-server-27d0d16c/health`, `/test-deployment` handlers
+- `routes/public-read.ts` — `/favorites`, `/public/branches`, `/public/branches/location` (KV o‘qish)
+
+Further routes should move in small PRs: copy handlers verbatim, `registerXRoutes(app)`, remove duplicate from `index.ts`.
+
+**DB (additive):** `20260413180000_engine_additive_products_branch_vertical.sql` — `products(branch_id, vertical_type, status)` partial index.
+
 ## 5) Quality Gates
 
 - No duplicated business rules across UI/backend

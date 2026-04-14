@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useParams, useNavigate } from 'react-router';
-import { Star } from 'lucide-react';
+import { Star, Loader2 } from 'lucide-react';
 import { API_BASE_URL, publicAnonKey } from '/utils/supabase/info';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
@@ -56,7 +56,12 @@ export function OrderReviewSharePage() {
   }, [token, visibilityRefetchTick]);
 
   if (loading) {
-    return <OrderReviewPageSkeleton isDark={isDark} />;
+    return (
+      <div className={`flex min-h-screen flex-col items-center justify-center gap-4 px-4 app-safe-pt ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}>
+        <Loader2 className="h-10 w-10 shrink-0 animate-spin text-[#14b8a6]" aria-label="Yuklanmoqda" />
+        <OrderReviewPageSkeleton isDark={isDark} />
+      </div>
+    );
   }
 
   if (error || !payload) {

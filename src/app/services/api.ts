@@ -1,3 +1,7 @@
+/**
+ * Legacy API yordamchilari. Yangi kod uchun `src/app/utils/apiFetch.ts` (`edgeFetch`, `edgeApiBaseUrl`)
+ * — timeout, qayta urinish va sarlavha birligi.
+ */
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;

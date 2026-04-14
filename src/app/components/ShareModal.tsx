@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, Copy, Check, Share2 } from 'lucide-react';
+import { X, Copy, Check, Share2, Loader2 } from 'lucide-react';
 import { motion, AnimatePresence } from 'motion/react';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
@@ -99,7 +99,9 @@ export function ShareModal({ isOpen, onClose, placeId, placeName, placeImage }: 
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            onClick={onClose}
+            onClick={() => {
+              if (!loading) onClose();
+            }}
             className={`fixed inset-0 z-50 backdrop-blur-sm ${isDark ? 'bg-black/60' : 'bg-black/40'}`}
           />
 
@@ -112,8 +114,10 @@ export function ShareModal({ isOpen, onClose, placeId, placeName, placeImage }: 
             <div className={`rounded-3xl shadow-2xl overflow-hidden border ${cardBg}`}>
               <div className={`relative p-6 pb-4 border-b ${isDark ? 'border-white/10' : 'border-border'}`}>
                 <button
+                  type="button"
                   onClick={onClose}
-                  className={`absolute top-4 right-4 p-2 rounded-xl transition-colors ${
+                  disabled={loading}
+                  className={`absolute top-4 right-4 p-2 rounded-xl transition-colors disabled:opacity-50 disabled:cursor-not-allowed ${
                     isDark ? 'bg-white/5 hover:bg-white/10' : 'bg-muted hover:bg-muted/80'
                   }`}
                 >
@@ -143,9 +147,9 @@ export function ShareModal({ isOpen, onClose, placeId, placeName, placeImage }: 
                 </div>
 
                 {loading && (
-                  <div className="text-center py-4">
-                    <div className="inline-block w-8 h-8 border-4 border-[#14b8a6]/30 border-t-[#14b8a6] rounded-full animate-spin" />
-                    <p className={`${subtext} mt-2`}>Link yaratilmoqda...</p>
+                  <div className="text-center py-4 flex flex-col items-center gap-2">
+                    <Loader2 className="w-8 h-8 animate-spin text-[#14b8a6]" />
+                    <p className={subtext}>Link yaratilmoqda...</p>
                   </div>
                 )}
 

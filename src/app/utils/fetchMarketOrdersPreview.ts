@@ -1,10 +1,6 @@
-import { publicAnonKey, API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
+import { edgeFetch } from './apiFetch';
 import { tryResolveImageFromBranchCatalog } from './branchCatalogProductImage';
-
-function apiBaseUrl(): string {
-  if (typeof window === 'undefined') return API_BASE_URL;
-  return window.location.hostname === 'localhost' ? DEV_API_BASE_URL : API_BASE_URL;
-}
+import { customerOrderStatusUz } from './customerOrderStatusUz';
 
 function mapRelationalVerticalToCategory(
   v: string,
@@ -26,24 +22,18 @@ function mapRelationalOrderStatus(s: string): 'active' | 'completed' | 'cancelle
 
 function normalizeKvOrderForProfile(o: any) {
   if (!o || o.relational) return o;
-  const s = String(o.status || '').toLowerCase().trim();
+  const original = typeof o.status === 'string' ? o.status.trim() : '';
+  const s = original.toLowerCase();
   let orderStatus: 'active' | 'completed' | 'cancelled' = 'active';
   if (s === 'cancelled' || s === 'canceled' || s === 'rejected') orderStatus = 'cancelled';
   else if (s === 'delivered' || s === 'completed') orderStatus = 'completed';
-  const statusLabel =
-    s === 'awaiting_receipt'
-      ? 'Kuryer topshirdi — tekshiring'
-      : s === 'delivered'
-        ? 'Yetkazildi'
-        : s === 'cancelled' || s === 'canceled' || s === 'rejected'
-          ? 'Bekor qilingan'
-          : typeof o.status === 'string' && o.status.trim()
-            ? o.status
-            : 'Jarayonda';
+  const statusLabel = customerOrderStatusUz(original || 'pending');
   return {
     ...o,
     orderStatus,
     status: statusLabel,
+    /** Badge ranglari uchun asl texnik holat */
+    customerStatusKey: s || undefined,
     awaitingCustomerReceipt: s === 'awaiting_receipt',
   };
 }
@@ -236,14 +226,16 @@ function relationalOrderToUi(row: Record<string, unknown>) {
   const g0 = Array.isArray(groups) && groups[0] ? groups[0] : null;
   const vertical = String(g0?.vertical_type || 'market');
   const uiStatus = mapRelationalOrderStatus(String(row.status || ''));
-  const statusLabel =
-    uiStatus === 'completed' ? 'Yakunlangan' : uiStatus === 'cancelled' ? 'Bekor qilingan' : 'Faol';
+  const customerStatusKey =
+    uiStatus === 'completed' ? 'completed' : uiStatus === 'cancelled' ? 'cancelled' : 'processing';
+  const statusLabel = customerOrderStatusUz(customerStatusKey);
   const previewImageUrls = relationalOrderPreviewImageUrls(row);
   return {
     id: row.id,
     orderNumber: row.order_number,
     orderStatus: uiStatus,
     status: statusLabel,
+    customerStatusKey,
     category: mapRelationalVerticalToCategory(vertical),
     total: row.total_amount,
     createdAt: row.created_at,
@@ -271,15 +263,13 @@ export function isMarketOrderActiveForPreviewStrip(o: any): boolean {
 /** Profil bilan bir xil KV + v2 birlashtirish, faqat market buyurtmalar */
 export async function fetchMarketOrdersForPreview(accessToken: string): Promise<any[]> {
   if (!accessToken) return [];
-  const base = apiBaseUrl();
-  const headers = {
-    Authorization: `Bearer ${publicAnonKey}`,
-    apikey: publicAnonKey,
-    'X-Access-Token': accessToken,
-    'Content-Type': 'application/json',
-  };
 
-  const response = await fetch(`${base}/orders`, { headers });
+  const jsonHeaders = { 'Content-Type': 'application/json' as const };
+  const response = await edgeFetch('/orders', {
+    accessToken,
+    headers: jsonHeaders,
+    retryOnceOnTransientFailure: true,
+  });
   if (!response.ok) return [];
 
   const data = await response.json().catch(() => ({}));
@@ -295,7 +285,11 @@ export async function fetchMarketOrdersForPreview(accessToken: string): Promise<
   let list: any[] = [];
 
   try {
-    const v2res = await fetch(`${base}/v2/orders?limit=50`, { headers });
+    const v2res = await edgeFetch('/v2/orders?limit=50', {
+      accessToken,
+      headers: jsonHeaders,
+      retryOnceOnTransientFailure: true,
+    });
     if (v2res.ok) {
       const v2json = await v2res.json();
       const v2raw = Array.isArray(v2json.items) ? v2json.items : [];

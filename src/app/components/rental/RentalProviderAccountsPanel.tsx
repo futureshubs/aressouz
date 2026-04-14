@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { KeyRound, Plus, Trash2, RefreshCw, ExternalLink } from 'lucide-react';
+import { KeyRound, Plus, Trash2, RefreshCw, ExternalLink, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useNavigate } from 'react-router';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../../utils/supabase/info';
@@ -26,6 +26,8 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
   const [providers, setProviders] = useState<ProviderRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
+  const [deleteBusyId, setDeleteBusyId] = useState<string | null>(null);
+  const [patchBusyId, setPatchBusyId] = useState<string | null>(null);
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [displayName, setDisplayName] = useState('');
@@ -95,6 +97,7 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
 
   const handleDelete = async (id: string) => {
     if (!confirm('Akkauntni o‘chirishni tasdiqlaysizmi?')) return;
+    setDeleteBusyId(id);
     try {
       const res = await fetch(
         `${apiBaseUrl}/branch/rental-providers/${encodeURIComponent(id)}`,
@@ -112,12 +115,15 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
       }
     } catch {
       toast.error('Tarmoq xatolik');
+    } finally {
+      setDeleteBusyId(null);
     }
   };
 
   const handleResetPassword = async (id: string) => {
     const np = prompt('Yangi parol:');
     if (!np?.trim()) return;
+    setPatchBusyId(id);
     try {
       const res = await fetch(
         `${apiBaseUrl}/branch/rental-providers/${encodeURIComponent(id)}`,
@@ -135,6 +141,8 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
       }
     } catch {
       toast.error('Tarmoq xatolik');
+    } finally {
+      setPatchBusyId(null);
     }
   };
 
@@ -158,12 +166,13 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
           <button
             type="button"
             onClick={() => void load()}
-            className="px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 border"
+            disabled={loading || saving || deleteBusyId !== null || patchBusyId !== null}
+            className="px-4 py-2 rounded-xl text-sm font-medium flex items-center gap-2 border disabled:opacity-50 disabled:cursor-not-allowed"
             style={{
               borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)',
             }}
           >
-            <RefreshCw className="w-4 h-4" />
+            <RefreshCw className={`w-4 h-4 shrink-0 ${loading ? 'animate-spin' : ''}`} />
             Yangilash
           </button>
           <button
@@ -195,8 +204,9 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
             type="text"
             value={displayName}
             onChange={(e) => setDisplayName(e.target.value)}
+            disabled={saving}
             placeholder="Ko‘rinadigan ism (ixtiyoriy)"
-            className="px-4 py-3 rounded-xl outline-none"
+            className="px-4 py-3 rounded-xl outline-none disabled:opacity-60"
             style={{
               background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
               border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
@@ -206,10 +216,11 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
             type="text"
             value={login}
             onChange={(e) => setLogin(e.target.value)}
+            disabled={saving}
             placeholder="Login *"
             required
             autoComplete="username"
-            className="px-4 py-3 rounded-xl outline-none"
+            className="px-4 py-3 rounded-xl outline-none disabled:opacity-60"
             style={{
               background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
               border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
@@ -219,10 +230,11 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
             type="password"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
+            disabled={saving}
             placeholder="Parol *"
             required
             autoComplete="new-password"
-            className="px-4 py-3 rounded-xl outline-none"
+            className="px-4 py-3 rounded-xl outline-none disabled:opacity-60"
             style={{
               background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
               border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
@@ -232,9 +244,10 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
         <button
           type="submit"
           disabled={saving}
-          className="px-6 py-3 rounded-xl font-medium disabled:opacity-50"
+          className="px-6 py-3 rounded-xl font-medium disabled:opacity-50 flex items-center justify-center gap-2"
           style={{ background: accentColor.color, color: '#fff' }}
         >
+          {saving && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
           {saving ? 'Saqlanmoqda…' : 'Qo‘shish'}
         </button>
       </form>
@@ -263,20 +276,29 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
                   <button
                     type="button"
                     onClick={() => void handleResetPassword(p.id)}
-                    className="px-3 py-2 rounded-lg text-sm border"
+                    disabled={patchBusyId !== null || deleteBusyId !== null || saving}
+                    className="px-3 py-2 rounded-lg text-sm border disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-1"
                     style={{
                       borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)',
                     }}
                   >
+                    {patchBusyId === p.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    ) : null}
                     Parol
                   </button>
                   <button
                     type="button"
                     onClick={() => void handleDelete(p.id)}
-                    className="px-3 py-2 rounded-lg text-sm flex items-center gap-1"
+                    disabled={deleteBusyId !== null || patchBusyId !== null || saving}
+                    className="px-3 py-2 rounded-lg text-sm flex items-center gap-1 disabled:opacity-50 disabled:cursor-not-allowed"
                     style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}
                   >
-                    <Trash2 className="w-4 h-4" />
+                    {deleteBusyId === p.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    ) : (
+                      <Trash2 className="w-4 h-4 shrink-0" />
+                    )}
                     O‘chirish
                   </button>
                 </div>

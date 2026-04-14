@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { X, MapPin, Phone, Clock, ChevronLeft, ChevronRight, ChevronDown, Navigation, Instagram, Youtube, Send, Heart, MessageSquare, Star } from 'lucide-react';
+import { X, MapPin, Phone, Clock, ChevronLeft, ChevronRight, ChevronDown, Navigation, Instagram, Youtube, Send, Heart, MessageSquare, Star, Loader2 } from 'lucide-react';
 import { Place } from '../data/places';
 import { useTheme } from '../context/ThemeContext';
 import { ReviewModal } from './ReviewModal';
@@ -699,14 +699,20 @@ export function PlaceDetailModal({ place, isOpen, onClose }: PlaceDetailModalPro
             {/* Action Buttons */}
             <div className="grid grid-cols-2 gap-3 pt-4">
               <button
+                type="button"
                 onClick={handleCall}
-                className="flex items-center justify-center gap-2 px-6 py-4 rounded-2xl font-bold text-white transition-all active:scale-95"
+                disabled={isCallingInProgress}
+                className="flex items-center justify-center gap-2 px-6 py-4 rounded-2xl font-bold text-white transition-all active:scale-95 disabled:opacity-60"
                 style={{
                   backgroundImage: accentColor.gradient,
                   boxShadow: `0 8px 24px ${accentColor.color}44`,
                 }}
               >
-                <Phone className="size-5" strokeWidth={2.5} />
+                {isCallingInProgress ? (
+                  <Loader2 className="size-5 animate-spin" />
+                ) : (
+                  <Phone className="size-5" strokeWidth={2.5} />
+                )}
                 Qo'ng'iroq
               </button>
               <button
@@ -786,13 +792,7 @@ export function PlaceDetailModal({ place, isOpen, onClose }: PlaceDetailModalPro
 
                   {loadingReviews ? (
                     <div className="flex justify-center py-8">
-                      <div 
-                        className="animate-spin rounded-full h-8 w-8 border-4 border-t-transparent"
-                        style={{ 
-                          borderColor: `${accentColor.color}44`, 
-                          borderTopColor: 'transparent' 
-                        }}
-                      />
+                      <Loader2 className="h-8 w-8 animate-spin" style={{ color: accentColor.color }} />
                     </div>
                   ) : reviews.length === 0 ? (
                     <div 

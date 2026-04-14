@@ -2,7 +2,7 @@ import { useState, useEffect, useMemo } from 'react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
-import { ShoppingBag, MapPin, Clock, Package, ChevronRight, X, Store } from 'lucide-react';
+import { ShoppingBag, MapPin, Clock, Package, ChevronRight, X, Store, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { regions } from '../data/regions';
@@ -70,6 +70,7 @@ export default function Market() {
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [branchProducts, setBranchProducts] = useState<Product[]>([]);
   const [activeTab, setActiveTab] = useState<'products' | 'branches'>('products');
+  const [loadingBranchId, setLoadingBranchId] = useState<string | null>(null);
 
   useEffect(() => {
     loadBranches();
@@ -208,6 +209,7 @@ export default function Market() {
   };
 
   const loadBranchProducts = async (branch: Branch) => {
+    setLoadingBranchId(branch.id);
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch-products?includeSold=false`,
@@ -258,6 +260,8 @@ export default function Market() {
       }
     } catch (error) {
       console.error('Error loading branch products:', error);
+    } finally {
+      setLoadingBranchId(null);
     }
   };
 
@@ -484,10 +488,13 @@ export default function Market() {
                   <div
                     key={branch.id}
                     onClick={() => {
+                      if (loadingBranchId) return;
                       setSelectedBranch(branch);
-                      loadBranchProducts(branch);
+                      void loadBranchProducts(branch);
                     }}
-                    className="rounded-3xl overflow-hidden cursor-pointer transition-all active:scale-98 p-4"
+                    className={`rounded-3xl overflow-hidden transition-all active:scale-98 p-4 ${
+                      loadingBranchId ? 'cursor-wait opacity-70' : 'cursor-pointer'
+                    }`}
                     style={{
                       background: isDark ? '#1a1a1a' : '#ffffff',
                       border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
@@ -513,7 +520,11 @@ export default function Market() {
                         )}
                       </div>
                       
-                      <ChevronRight className="w-6 h-6 flex-shrink-0" style={{ color: isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)' }} />
+                      {loadingBranchId === branch.id ? (
+                        <Loader2 className="w-6 h-6 flex-shrink-0 animate-spin" style={{ color: accentColor.color }} />
+                      ) : (
+                        <ChevronRight className="w-6 h-6 flex-shrink-0" style={{ color: isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)' }} />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -531,7 +542,11 @@ export default function Market() {
         >
           <div className="h-full overflow-y-auto pb-6">
             <button
-              onClick={() => setSelectedBranch(null)}
+              type="button"
+              onClick={() => {
+                setSelectedBranch(null);
+                setLoadingBranchId(null);
+              }}
               className="fixed top-3 right-3 z-10 w-10 h-10 rounded-full flex items-center justify-center shadow-lg"
               style={{ 
                 background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -553,7 +568,14 @@ export default function Market() {
 
               <h3 className="text-xl font-bold mb-6 mt-8 text-foreground">Mahsulotlar</h3>
               
-              {branchProducts.length === 0 ? (
+              {loadingBranchId === selectedBranch.id ? (
+                <div className="flex flex-col items-center justify-center py-16 gap-3">
+                  <Loader2 className="w-10 h-10 animate-spin" style={{ color: accentColor.color }} />
+                  <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+                    Mahsulotlar yuklanmoqda…
+                  </p>
+                </div>
+              ) : branchProducts.length === 0 ? (
                 <div 
                   className="p-12 rounded-2xl text-center"
                   style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)' }}

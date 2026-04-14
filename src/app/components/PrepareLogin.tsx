@@ -4,7 +4,7 @@
 import { useState } from 'react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
-import { User, Lock, LogIn } from 'lucide-react';
+import { User, Lock, LogIn, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 
 interface PrepareLoginProps {
@@ -109,8 +109,9 @@ export default function PrepareLogin({ onLogin }: PrepareLoginProps) {
                 type="text"
                 value={login}
                 onChange={(e) => setLogin(e.target.value)}
+                disabled={isLoading}
                 placeholder="Loginingizni kiriting"
-                className="w-full pl-12 pr-4 py-4 rounded-2xl border outline-none transition-all"
+                className="w-full pl-12 pr-4 py-4 rounded-2xl border outline-none transition-all disabled:opacity-60"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
                   borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -133,8 +134,9 @@ export default function PrepareLogin({ onLogin }: PrepareLoginProps) {
                 type="password"
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
+                disabled={isLoading}
                 placeholder="Parolingizni kiriting"
-                className="w-full pl-12 pr-4 py-4 rounded-2xl border outline-none transition-all"
+                className="w-full pl-12 pr-4 py-4 rounded-2xl border outline-none transition-all disabled:opacity-60"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.02)',
                   borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -157,7 +159,7 @@ export default function PrepareLogin({ onLogin }: PrepareLoginProps) {
             <div className="flex items-center justify-center gap-2">
               {isLoading ? (
                 <>
-                  <div className="w-5 h-5 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                  <Loader2 className="w-5 h-5 animate-spin shrink-0" />
                   <span>Tekshirilmoqda...</span>
                 </>
               ) : (

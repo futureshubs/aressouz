@@ -602,7 +602,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
                 className="flex items-center justify-center gap-2 py-2.5 rounded-2xl font-bold active:scale-95 transition"
                 href={SUPPORT_TELEGRAM_URL}
                 target="_blank"
-                rel="noreferrer"
+                rel="noopener noreferrer"
                 style={{ background: accentColor.gradient, color: '#fff' }}
               >
                 <ExternalLink className="size-4" />

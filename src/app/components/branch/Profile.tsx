@@ -28,7 +28,8 @@ import {
   TrendingUp,
   ShoppingCart,
   DollarSign,
-  Activity
+  Activity,
+  Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId } from '../../../../utils/supabase/info';
@@ -80,6 +81,7 @@ export function Profile({ branchId, branchInfo }: ProfileProps) {
   const [isEditing, setIsEditing] = useState(false);
   const [activeTab, setActiveTab] = useState('overview'); // overview, settings, security, activity
   const [editedProfile, setEditedProfile] = useState<Partial<ProfileData>>({});
+  const [isSaving, setIsSaving] = useState(false);
   const visibilityRefetchTick = useVisibilityTick();
 
   const loadProfile = async () => {
@@ -140,9 +142,10 @@ export function Profile({ branchId, branchInfo }: ProfileProps) {
   };
 
   const handleSave = async () => {
-    try {
-      if (!profileData || !editedProfile) return;
+    if (!profileData || !editedProfile) return;
 
+    setIsSaving(true);
+    try {
       console.log('💾 Saving profile...');
 
       const response = await fetch(
@@ -170,6 +173,8 @@ export function Profile({ branchId, branchInfo }: ProfileProps) {
     } catch (error) {
       console.error('❌ Error saving profile:', error);
       toast.error('Profilni saqlashda xatolik');
+    } finally {
+      setIsSaving(false);
     }
   };
 
@@ -200,7 +205,7 @@ export function Profile({ branchId, branchInfo }: ProfileProps) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
         <div className="text-center">
-          <User className="w-12 h-12 mx-auto mb-4 animate-pulse" style={{ color: accentColor.color }} />
+          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
             Profil ma\'lumotlari yuklanmoqda...
           </p>
@@ -216,13 +221,16 @@ export function Profile({ branchId, branchInfo }: ProfileProps) {
           <User className="w-12 h-12 mx-auto mb-4" style={{ color: accentColor.color }} />
           <h3 className="text-xl font-bold mb-2">Profil ma\'lumotlari yo\'q</h3>
           <button
-            onClick={loadProfile}
-            className="px-4 py-2 rounded-xl font-medium transition-all"
+            type="button"
+            onClick={() => void loadProfile()}
+            disabled={isLoading}
+            className="px-4 py-2 rounded-xl font-medium transition-all inline-flex items-center justify-center gap-2 disabled:opacity-50"
             style={{
               background: accentColor.gradient,
               color: '#ffffff'
             }}
           >
+            {isLoading ? <Loader2 className="w-4 h-4 animate-spin" /> : null}
             Qayta yuklash
           </button>
         </div>
@@ -256,19 +264,23 @@ export function Profile({ branchId, branchInfo }: ProfileProps) {
           ) : (
             <div className="flex items-center gap-2">
               <button
-                onClick={handleSave}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all"
+                type="button"
+                onClick={() => void handleSave()}
+                disabled={isSaving}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl font-medium transition-all disabled:opacity-50"
                 style={{
                   background: accentColor.gradient,
                   color: '#ffffff'
                 }}
               >
-                <Save className="w-4 h-4" />
+                {isSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
                 Saqlash
               </button>
               <button
+                type="button"
                 onClick={handleCancel}
-                className="flex items-center gap-2 px-4 py-2 rounded-xl border transition-all hover:shadow-lg"
+                disabled={isSaving}
+                className="flex items-center gap-2 px-4 py-2 rounded-xl border transition-all hover:shadow-lg disabled:opacity-50"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.8)',
                   borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',

@@ -6,6 +6,19 @@ import { RouteChunkSkeleton } from './components/skeletons';
 import { LocationProvider } from './context/LocationContext';
 import { FavoritesProvider } from './context/FavoritesContext';
 import { RentalCartProvider } from './context/RentalCartContext';
+/** Router hooklari (useNavigate) — lazy chunkda ikkinchi React nusxasi bo‘lib Invalid hook call berardi; login va kuryer panel sahifalarini asos modul bilan bir xil chunkda yuklaymiz. */
+import AdminLogin from './pages/AdminLogin';
+import AutoCourierLogin from './pages/AutoCourierLogin';
+import BogalterLogin from './pages/BogalterLogin';
+import BranchLogin from './pages/BranchLogin';
+import CourierLogin from './pages/CourierLogin';
+import RentalProviderLogin from './pages/RentalProviderLogin';
+import RestaurantLogin from './pages/RestaurantLogin';
+import SellerLogin from './pages/SellerLogin';
+import StaffLogin from './pages/StaffLogin';
+import AutoCourierDashboard from './pages/AutoCourierDashboard';
+import CourierDashboard from './pages/CourierDashboard';
+import CourierMapPage from './pages/CourierMapPage';
 
 const SharePlacePage = lazy(() => import('./pages/SharePlacePage').then((m) => ({ default: m.SharePlacePage })));
 const OrderReviewSharePage = lazy(() =>
@@ -13,25 +26,13 @@ const OrderReviewSharePage = lazy(() =>
 );
 const ShareTargetPage = lazy(() => import('./pages/ShareTargetPage'));
 const OpenFilePage = lazy(() => import('./pages/OpenFilePage'));
-const AdminLogin = lazy(() => import('./pages/AdminLogin'));
 const AdminDashboard = lazy(() => import('./pages/AdminDashboard'));
-const BranchLogin = lazy(() => import('./pages/BranchLogin'));
 const BranchDashboard = lazy(() => import('./pages/BranchDashboard'));
-const CourierLogin = lazy(() => import('./pages/CourierLogin'));
-const CourierDashboard = lazy(() => import('./pages/CourierDashboard'));
-const AutoCourierLogin = lazy(() => import('./pages/AutoCourierLogin'));
-const AutoCourierDashboard = lazy(() => import('./pages/AutoCourierDashboard'));
-const CourierMapPage = lazy(() => import('./pages/CourierMapPage'));
-const SellerLogin = lazy(() => import('./pages/SellerLogin'));
 const SellerDashboard = lazy(() => import('./pages/SellerDashboard'));
 const PrepareWrapper = lazy(() => import('./pages/PrepareWrapper'));
-const RestaurantLogin = lazy(() => import('./pages/RestaurantLogin'));
 const RestaurantPanel = lazy(() => import('./pages/RestaurantPanel'));
-const BogalterLogin = lazy(() => import('./pages/BogalterLogin'));
 const BogalterDashboard = lazy(() => import('./pages/BogalterDashboard'));
-const StaffLogin = lazy(() => import('./pages/StaffLogin'));
 const StaffDashboard = lazy(() => import('./pages/StaffDashboard'));
-const RentalProviderLogin = lazy(() => import('./pages/RentalProviderLogin'));
 const RentalProviderDashboard = lazy(() => import('./pages/RentalProviderDashboard'));
 const Payment = lazy(() => import('./pages/Payment'));
 const PaymentDemo = lazy(() => import('./components/PaymentDemo'));

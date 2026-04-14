@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { X, Upload, Image as ImageIcon, Tag, Link, MapPin, FileText } from 'lucide-react';
+import { X, Upload, Image as ImageIcon, Tag, Link, MapPin, FileText, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { regions } from '../data/regions';
@@ -378,10 +378,11 @@ export function AddBannerModal({ branchId, category, onClose, onSuccess }: AddBa
             <button
               type="submit"
               disabled={isSubmitting || uploading}
-              className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
+              className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50 flex items-center justify-center gap-2"
               style={{ background: accentColor.color, color: '#ffffff' }}
             >
-              {isSubmitting ? 'Saqlanmoqda...' : 'Banner qo\'shish'}
+              {(isSubmitting || uploading) && <Loader2 className="w-6 h-6 animate-spin shrink-0" />}
+              {isSubmitting ? 'Saqlanmoqda...' : uploading ? 'Rasm yuklanmoqda...' : 'Banner qo\'shish'}
             </button>
           </div>
         </form>

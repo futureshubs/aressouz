@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { BriefcaseBusiness, Link2, Pencil, Plus, QrCode, RefreshCw, Save, Undo2, X } from 'lucide-react';
+import { BriefcaseBusiness, Link2, Pencil, Plus, QrCode, RefreshCw, Save, Undo2, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../../context/ThemeContext';
 import { buildBranchHeaders } from '../../utils/requestAuth';
@@ -458,7 +458,8 @@ export function CourierBagsPanel({ branchId, couriers, mode = 'full' }: Props) {
           </select>
 
           <button
-            onClick={handleAssignBag}
+            type="button"
+            onClick={() => void handleAssignBag()}
             disabled={assigningBagId !== null || availableBags.length === 0}
             className="px-4 py-3 rounded-2xl font-semibold flex items-center justify-center gap-2 disabled:opacity-50"
             style={{
@@ -466,8 +467,12 @@ export function CourierBagsPanel({ branchId, couriers, mode = 'full' }: Props) {
               color: '#ffffff',
             }}
           >
-            <Link2 className="w-4 h-4" />
-            Biriktirish
+            {assigningBagId !== null ? (
+              <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+            ) : (
+              <Link2 className="w-4 h-4 shrink-0" />
+            )}
+            {assigningBagId !== null ? 'Biriktirilmoqda...' : 'Biriktirish'}
           </button>
         </div>
         )}
@@ -516,7 +521,8 @@ export function CourierBagsPanel({ branchId, couriers, mode = 'full' }: Props) {
                   </div>
 
                   <button
-                    onClick={() => handleReleaseBag(bag.id)}
+                    type="button"
+                    onClick={() => void handleReleaseBag(bag.id)}
                     disabled={bag.status === 'occupied' || releasingBagId === bag.id}
                     className="px-4 py-2 rounded-2xl border text-sm font-semibold flex items-center gap-2 disabled:opacity-50"
                     style={{
@@ -524,7 +530,11 @@ export function CourierBagsPanel({ branchId, couriers, mode = 'full' }: Props) {
                       borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
                     }}
                   >
-                    <Undo2 className="w-4 h-4" />
+                    {releasingBagId === bag.id ? (
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                    ) : (
+                      <Undo2 className="w-4 h-4 shrink-0" />
+                    )}
                     {bag.status === 'occupied' ? 'Avval order tugasin' : 'Filialga qaytarish'}
                   </button>
                   {canManageBags && (
@@ -676,12 +686,16 @@ export function CourierBagsPanel({ branchId, couriers, mode = 'full' }: Props) {
               </button>
               <button
                 type="button"
-                onClick={handleSaveBag}
+                onClick={() => void handleSaveBag()}
                 disabled={isSaving}
                 className="px-4 py-2 rounded-2xl font-semibold text-white inline-flex items-center gap-2 disabled:opacity-60"
                 style={{ background: accentColor.gradient }}
               >
-                <Save className="w-4 h-4" />
+                {isSaving ? (
+                  <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                ) : (
+                  <Save className="w-4 h-4 shrink-0" />
+                )}
                 {isSaving ? 'Saqlanmoqda...' : 'Saqlash'}
               </button>
             </div>
