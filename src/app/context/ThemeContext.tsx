@@ -1,4 +1,12 @@
-import { createContext, useContext, useState, useEffect, useCallback, ReactNode } from 'react';
+import {
+  createContext,
+  useContext,
+  useState,
+  useEffect,
+  useCallback,
+  useMemo,
+  ReactNode,
+} from 'react';
 import { Toaster } from 'sonner';
 import { getUserId } from '../utils/userId';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
@@ -15,8 +23,30 @@ function readBoolLs(key: string, fallback: boolean): boolean {
   }
 }
 
+/** UI va `dark:` klasslari uchun yakuniy rejim */
 export type ThemeMode = 'light' | 'dark';
+/** Foydalanuvchi tanlovi: qurilma yoki majburiy kun/tun */
+export type ThemePreference = 'light' | 'dark' | 'system';
 export type Language = 'uz' | 'ru' | 'en';
+
+function readThemePreferenceLs(): ThemePreference {
+  try {
+    const saved = localStorage.getItem('theme');
+    if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
+  } catch {
+    /* ignore */
+  }
+  return 'system';
+}
+
+function readSystemPrefersDark(): boolean {
+  if (typeof window === 'undefined') return false;
+  try {
+    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+  } catch {
+    return false;
+  }
+}
 
 export const accentColors = [
   { id: 'teal', name: 'Teal', color: '#14b8a6', gradient: 'linear-gradient(135deg, #14b8a6, #0d9488)' },
@@ -34,12 +64,17 @@ export const accentColors = [
 ];
 
 interface ThemeContextType {
+  /** Qurilma + tanlov bo‘yicha yakuniy kun/tun (komponentlar shu bilan ishlaydi) */
   theme: ThemeMode;
+  /** `system` — OS `prefers-color-scheme` ga ergashadi */
+  themePreference: ThemePreference;
+  setThemePreference: (pref: ThemePreference) => void;
   language: Language;
   notifications: boolean;
   soundEnabled: boolean;
   supportChatEnabled: boolean;
   accentColor: typeof accentColors[0];
+  /** system → majburiy qarama-qarshi → (light↔dark) → system */
   toggleTheme: () => void;
   setLanguage: (lang: Language) => void;
   toggleNotifications: () => void;
@@ -68,16 +103,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const userId = getUserIdFromStorage();
   const visibilityRefetchTick = useVisibilityTick();
 
-  // Load from localStorage FIRST (instant). JSON.parse xatosi ThemeProvider’ni yiqitmasin.
-  const [theme, setTheme] = useState<ThemeMode>(() => {
-    try {
-      const saved = localStorage.getItem('theme');
-      if (saved === 'light' || saved === 'dark') return saved;
-    } catch {
-      /* ignore */
-    }
-    return 'dark';
-  });
+  const [themePreference, setThemePreferenceState] = useState<ThemePreference>(readThemePreferenceLs);
+  const [systemIsDark, setSystemIsDark] = useState<boolean>(readSystemPrefersDark);
+
+  useEffect(() => {
+    const mq = window.matchMedia('(prefers-color-scheme: dark)');
+    const onChange = () => setSystemIsDark(mq.matches);
+    mq.addEventListener('change', onChange);
+    return () => mq.removeEventListener('change', onChange);
+  }, []);
+
+  const theme: ThemeMode = useMemo(() => {
+    if (themePreference === 'system') return systemIsDark ? 'dark' : 'light';
+    return themePreference;
+  }, [themePreference, systemIsDark]);
+
+  const setThemePreference = useCallback((pref: ThemePreference) => {
+    setThemePreferenceState(pref);
+  }, []);
 
   const [language, setLanguageState] = useState<Language>(() => {
     try {
@@ -144,8 +187,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             const data = await response.json();
             const settings = data.settings;
 
-            // Update state with Supabase data
-            if (settings.theme) setTheme(settings.theme);
+            if (
+              settings.theme === 'light' ||
+              settings.theme === 'dark' ||
+              settings.theme === 'system'
+            ) {
+              setThemePreferenceState(settings.theme);
+            }
             if (settings.language) setLanguageState(settings.language);
             if (settings.notifications !== undefined) setNotifications(settings.notifications);
             if (settings.soundEnabled !== undefined) setSoundEnabled(settings.soundEnabled);
@@ -156,7 +204,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             }
             
             // Also update localStorage
-            localStorage.setItem('theme', settings.theme || 'dark');
+            localStorage.setItem('theme', settings.theme || 'system');
             localStorage.setItem('language', settings.language || 'uz');
             localStorage.setItem('notifications', JSON.stringify(settings.notifications !== undefined ? settings.notifications : true));
             localStorage.setItem('soundEnabled', JSON.stringify(settings.soundEnabled !== undefined ? settings.soundEnabled : true));
@@ -190,7 +238,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   // Single effect to save all settings when any change
   useEffect(() => {
-    localStorage.setItem('theme', theme);
+    localStorage.setItem('theme', themePreference);
     localStorage.setItem('language', language);
     localStorage.setItem('notifications', JSON.stringify(notifications));
     localStorage.setItem('soundEnabled', JSON.stringify(soundEnabled));
@@ -205,23 +253,39 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     // Debounce Supabase save
     const timer = setTimeout(() => {
       if (userId && userId !== 'anonymous') {
-        saveToSupabase({ 
-          theme, 
-          language, 
-          notifications, 
-          soundEnabled, 
+        saveToSupabase({
+          theme: themePreference,
+          language,
+          notifications,
+          soundEnabled,
           supportChatEnabled,
-          accentColor: accentColor.id 
+          accentColor: accentColor.id,
         });
       }
     }, 500);
     
     return () => clearTimeout(timer);
-  }, [theme, language, notifications, soundEnabled, accentColor.id, saveToSupabase, userId]);
+  }, [
+    themePreference,
+    language,
+    notifications,
+    soundEnabled,
+    supportChatEnabled,
+    accentColor.id,
+    saveToSupabase,
+    userId,
+  ]);
 
-  const toggleTheme = () => {
-    setTheme((prev: ThemeMode) => prev === 'dark' ? 'light' : 'dark');
-  };
+  const toggleTheme = useCallback(() => {
+    setThemePreferenceState((prev) => {
+      if (prev === 'system') {
+        const osDark = readSystemPrefersDark();
+        return osDark ? 'light' : 'dark';
+      }
+      if (prev === 'light') return 'dark';
+      return 'system';
+    });
+  }, []);
 
   const setLanguage = (lang: Language) => {
     setLanguageState(lang);
@@ -247,20 +311,24 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   };
 
   return (
-    <ThemeContext.Provider value={{
-      theme,
-      language,
-      notifications,
-      soundEnabled,
-      supportChatEnabled,
-      accentColor,
-      toggleTheme,
-      setLanguage,
-      toggleNotifications,
-      toggleSound,
-      toggleSupportChat,
-      setAccentColor,
-    }}>
+    <ThemeContext.Provider
+      value={{
+        theme,
+        themePreference,
+        setThemePreference,
+        language,
+        notifications,
+        soundEnabled,
+        supportChatEnabled,
+        accentColor,
+        toggleTheme,
+        setLanguage,
+        toggleNotifications,
+        toggleSound,
+        toggleSupportChat,
+        setAccentColor,
+      }}
+    >
       {children}
       <Toaster
         theme={theme}

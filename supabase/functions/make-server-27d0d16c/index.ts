@@ -9303,7 +9303,7 @@ app.get("/make-server-27d0d16c/user/:userId/settings", async (c) => {
     console.log('⚙️ Getting settings for user:', userId);
     
     const settings = await kv.get(`user:${userId}:settings`) || {
-      theme: 'dark',
+      theme: 'system',
       accentColor: '#14b8a6',
     };
     

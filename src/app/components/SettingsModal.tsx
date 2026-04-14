@@ -320,7 +320,21 @@ type SettingsInfoModal =
   | { title: string; rich: ReactNode };
 
 export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps) {
-  const { theme, toggleTheme, language, setLanguage, notifications, toggleNotifications, soundEnabled, toggleSound, accentColor, setAccentColor, supportChatEnabled, toggleSupportChat } = useTheme();
+  const {
+    theme,
+    themePreference,
+    toggleTheme,
+    language,
+    setLanguage,
+    notifications,
+    toggleNotifications,
+    soundEnabled,
+    toggleSound,
+    accentColor,
+    setAccentColor,
+    supportChatEnabled,
+    toggleSupportChat,
+  } = useTheme();
   const { isAuthenticated, signout } = useAuth();
   const t = useUserPanelT();
   const [showLanguageModal, setShowLanguageModal] = useState(false);
@@ -443,6 +457,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
         {
           icon: theme === 'dark' ? Moon : Sun,
           label: t('settings.darkMode'),
+          subtitle: themePreference === 'system' ? t('settings.themeFollowsDevice') : undefined,
           toggle: true,
           value: theme === 'dark',
           action: toggleTheme,
