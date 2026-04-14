@@ -3,6 +3,7 @@ import {
   useContext,
   useState,
   useEffect,
+  useLayoutEffect,
   useCallback,
   useMemo,
   ReactNode,
@@ -11,6 +12,12 @@ import { Toaster } from 'sonner';
 import { getUserId } from '../utils/userId';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+
+/**
+ * Tema: `themePreference` localStorage + serverda (`system` | `light` | `dark`).
+ * `system` bo‘lsa — `prefers-color-scheme` + `change` hodisasi; yakuniy `theme` butun UI uchun.
+ * `html.dark`, `color-scheme`, PWA meta — `useLayoutEffect` da (flash kam).
+ */
 
 function readBoolLs(key: string, fallback: boolean): boolean {
   try {
@@ -85,6 +92,9 @@ interface ThemeContextType {
 
 const ThemeContext = createContext<ThemeContextType | undefined>(undefined);
 
+const THEME_COLOR_LIGHT = '#f9fafb';
+const THEME_COLOR_DARK = '#0a0a0a';
+
 export function ThemeProvider({ children }: { children: ReactNode }) {
   // Get userId from localStorage instead of useAuth to avoid circular dependency
   const getUserIdFromStorage = () => {
@@ -109,8 +119,12 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const mq = window.matchMedia('(prefers-color-scheme: dark)');
     const onChange = () => setSystemIsDark(mq.matches);
-    mq.addEventListener('change', onChange);
-    return () => mq.removeEventListener('change', onChange);
+    if (typeof mq.addEventListener === 'function') {
+      mq.addEventListener('change', onChange);
+      return () => mq.removeEventListener('change', onChange);
+    }
+    mq.addListener(onChange);
+    return () => mq.removeListener(onChange);
   }, []);
 
   const theme: ThemeMode = useMemo(() => {
@@ -224,11 +238,22 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     loadSettings();
   }, [userId, visibilityRefetchTick]);
 
-  // Tailwind `dark:` va theme.css `.dark` o‘zgaruvchilari — html bilan sinxron
-  useEffect(() => {
+  // useLayoutEffect: brauzer bo‘yashdan oldin — SPA ichida tema almashganda flash kamayadi
+  useLayoutEffect(() => {
     const root = document.documentElement;
-    root.classList.toggle('dark', theme === 'dark');
-    root.style.colorScheme = theme === 'dark' ? 'dark' : 'light';
+    const isDark = theme === 'dark';
+    root.classList.toggle('dark', isDark);
+    root.style.colorScheme = isDark ? 'dark' : 'light';
+
+    const themeColorMeta = document.querySelector('meta[name="theme-color"]');
+    if (themeColorMeta) {
+      themeColorMeta.setAttribute('content', isDark ? THEME_COLOR_DARK : THEME_COLOR_LIGHT);
+    }
+
+    const appleStatus = document.querySelector('meta[name="apple-mobile-web-app-status-bar-style"]');
+    if (appleStatus) {
+      appleStatus.setAttribute('content', isDark ? 'black-translucent' : 'default');
+    }
   }, [theme]);
 
   useEffect(() => {
@@ -287,48 +312,66 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     });
   }, []);
 
-  const setLanguage = (lang: Language) => {
+  const setLanguage = useCallback((lang: Language) => {
     setLanguageState(lang);
-  };
+  }, []);
 
-  const toggleNotifications = () => {
+  const toggleNotifications = useCallback(() => {
     setNotifications((prev: boolean) => !prev);
-  };
+  }, []);
 
-  const toggleSound = () => {
+  const toggleSound = useCallback(() => {
     setSoundEnabled((prev: boolean) => !prev);
-  };
+  }, []);
 
-  const toggleSupportChat = () => {
+  const toggleSupportChat = useCallback(() => {
     setSupportChatEnabled((prev: boolean) => !prev);
-  };
+  }, []);
 
-  const setAccentColor = (colorId: string) => {
-    const color = accentColors.find(c => c.id === colorId);
+  const setAccentColor = useCallback((colorId: string) => {
+    const color = accentColors.find((c) => c.id === colorId);
     if (color) {
       setAccentColorState(color);
     }
-  };
+  }, []);
+
+  const contextValue = useMemo<ThemeContextType>(
+    () => ({
+      theme,
+      themePreference,
+      setThemePreference,
+      language,
+      notifications,
+      soundEnabled,
+      supportChatEnabled,
+      accentColor,
+      toggleTheme,
+      setLanguage,
+      toggleNotifications,
+      toggleSound,
+      toggleSupportChat,
+      setAccentColor,
+    }),
+    [
+      theme,
+      themePreference,
+      setThemePreference,
+      language,
+      notifications,
+      soundEnabled,
+      supportChatEnabled,
+      accentColor,
+      toggleTheme,
+      setLanguage,
+      toggleNotifications,
+      toggleSound,
+      toggleSupportChat,
+      setAccentColor,
+    ],
+  );
 
   return (
-    <ThemeContext.Provider
-      value={{
-        theme,
-        themePreference,
-        setThemePreference,
-        language,
-        notifications,
-        soundEnabled,
-        supportChatEnabled,
-        accentColor,
-        toggleTheme,
-        setLanguage,
-        toggleNotifications,
-        toggleSound,
-        toggleSupportChat,
-        setAccentColor,
-      }}
-    >
+    <ThemeContext.Provider value={contextValue}>
       {children}
       <Toaster
         theme={theme}

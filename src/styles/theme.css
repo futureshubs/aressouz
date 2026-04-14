@@ -470,3 +470,17 @@
     transform: translateX(400%);
   }
 }
+
+/* OS temasi bilan bir xil fon (birinchi bo‘yoqdan oldin) + silliq o‘tish */
+html {
+  background-color: var(--background);
+  color: var(--foreground);
+}
+
+@media (prefers-reduced-motion: no-preference) {
+  html {
+    transition:
+      background-color 0.18s ease,
+      color 0.18s ease;
+  }
+}

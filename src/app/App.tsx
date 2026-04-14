@@ -26,15 +26,16 @@ export default function App() {
       );
     };
 
-    // Set theme-color meta tag
+    // theme-color: index.html + ThemeProvider boshqaradi (kun/tun); faqat meta yo‘q bo‘lsa qo‘shamiz
     const setThemeColor = () => {
       let themeColor = document.querySelector('meta[name="theme-color"]');
       if (!themeColor) {
         themeColor = document.createElement('meta');
         themeColor.setAttribute('name', 'theme-color');
+        const dark = document.documentElement.classList.contains('dark');
+        themeColor.setAttribute('content', dark ? '#0a0a0a' : '#f9fafb');
         document.head.appendChild(themeColor);
       }
-      themeColor.setAttribute('content', '#14b8a6');
     };
 
     // Set apple-mobile-web-app-capable
@@ -51,9 +52,9 @@ export default function App() {
       if (!appleStatus) {
         appleStatus = document.createElement('meta');
         appleStatus.setAttribute('name', 'apple-mobile-web-app-status-bar-style');
+        appleStatus.setAttribute('content', 'black-translucent');
         document.head.appendChild(appleStatus);
       }
-      appleStatus.setAttribute('content', 'black-translucent');
     };
 
     setViewport();
