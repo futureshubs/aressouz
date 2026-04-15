@@ -38,7 +38,7 @@ export function ServiceDetailModal({ service, isOpen, onClose }: ServiceDetailMo
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center"
+      className="fixed inset-0 app-safe-pad z-50 flex items-end sm:items-center justify-center"
       onClick={onClose}
       style={{
         background: 'rgba(0, 0, 0, 0.6)',

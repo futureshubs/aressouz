@@ -255,7 +255,7 @@ export function RentalProviderAccountsPanel({ branchId }: { branchId: string }) 
       <div>
         <h3 className="text-lg font-semibold mb-3">Mavjud akkauntlar</h3>
         {loading ? (
-          <p className="text-sm opacity-60">Yuklanmoqda…</p>
+          <p className="text-sm opacity-60"></p>
         ) : providers.length === 0 ? (
           <p className="text-sm opacity-60">Hali akkaunt yo‘q</p>
         ) : (

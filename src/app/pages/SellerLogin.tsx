@@ -234,7 +234,7 @@ export default function SellerLogin() {
               }}
             >
               {isLoading && <Loader2 className="w-6 h-6 animate-spin shrink-0" />}
-              {isLoading ? 'Yuklanmoqda...' : 'Kirish'}
+              {isLoading ? '' : 'Kirish'}
             </button>
           </form>
 

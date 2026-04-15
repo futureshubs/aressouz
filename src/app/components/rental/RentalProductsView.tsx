@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { Plus, Package, Edit, Trash2, ImageIcon, X, LayoutGrid, Send, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
@@ -411,12 +411,15 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
     }
   };
 
-  // Filter products
-  const filteredProducts = products.filter(product => {
-    if (selectedCatalog && product.catalog !== selectedCatalog) return false;
-    if (selectedCategory && product.category !== selectedCategory) return false;
-    return true;
-  });
+  const filteredProducts = useMemo(
+    () =>
+      products.filter((product) => {
+        if (selectedCatalog && product.catalog !== selectedCatalog) return false;
+        if (selectedCategory && product.category !== selectedCategory) return false;
+        return true;
+      }),
+    [products, selectedCatalog, selectedCategory],
+  );
 
   if (loading) {
     return (
@@ -429,7 +432,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                }}
           />
           <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-            Yuklanmoqda...
+            
           </p>
         </div>
       </div>
@@ -662,7 +665,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
       {/* Modal */}
       {showModal && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.5)' }}
           onClick={() => setShowModal(false)}
         >
@@ -938,7 +941,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
                           <div className="text-center">
                             <Loader2 className="w-8 h-8 animate-spin mx-auto mb-2" style={{ color: accentColor.color }} />
                             <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-                              Yuklanmoqda...
+                              
                             </p>
                           </div>
                         ) : (

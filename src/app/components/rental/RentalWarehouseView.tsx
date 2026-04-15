@@ -72,7 +72,7 @@ export function RentalWarehouseView({ branchId }: { branchId: string }) {
         <div className="text-center">
           <Loader2 className="w-12 h-12 animate-spin mx-auto mb-4" style={{ color: accentColor.color }} />
           <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-            Yuklanmoqda...
+            
           </p>
         </div>
       </div>

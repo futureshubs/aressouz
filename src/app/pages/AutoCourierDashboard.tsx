@@ -16,6 +16,7 @@ import {
 import { RentalLiveCountdown } from '../components/rental/RentalLiveCountdown';
 import { normalizeRentalProductImageUrl } from '../utils/rentalProductImage';
 import { computeRentalCourierHandoffUzs } from '../utils/rentalCashHandoff';
+import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
 
 type QueueOrder = {
   id: string;
@@ -140,14 +141,14 @@ export default function AutoCourierDashboard() {
         setActiveRentals([]);
         return;
       }
-      setOrders(Array.isArray(data.orders) ? data.orders : []);
+      setOrders(sortOrdersNewestFirst(Array.isArray(data.orders) ? data.orders : []));
       if (jobsRes.ok && jobsData.success && Array.isArray(jobsData.orders)) {
-        setMyDeliveryJobs(jobsData.orders);
+        setMyDeliveryJobs(sortOrdersNewestFirst(jobsData.orders));
       } else {
         setMyDeliveryJobs([]);
       }
       if (activeRes.ok && activeData.success && Array.isArray(activeData.orders)) {
-        setActiveRentals(activeData.orders);
+        setActiveRentals(sortOrdersNewestFirst(activeData.orders));
       } else {
         setActiveRentals([]);
       }

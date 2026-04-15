@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
@@ -30,11 +30,11 @@ export default function StaffLogin({ requiredRole }: { requiredRole?: StaffRole 
   const [branchOptions, setBranchOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedBranchId, setSelectedBranchId] = useState('');
 
-  useVisibilityRefetch(() => {
+  const tryRedirectExistingStaffSession = useCallback(() => {
     const acc = localStorage.getItem('accountantSession');
     if (acc) {
       if (!requiredRole || requiredRole === 'accountant') {
-        navigate('/bogalter/dashboard');
+        navigate('/bogalter/dashboard', { replace: true });
       }
       return;
     }
@@ -45,10 +45,18 @@ export default function StaffLogin({ requiredRole }: { requiredRole?: StaffRole 
       const role = parsed.role as StaffRole;
       if (requiredRole && role !== requiredRole) return;
       const dash = roleToDashboardPath[role] || '/xodim/dashboard';
-      navigate(dash);
+      navigate(dash, { replace: true });
     } catch {
       /* ignore */
     }
+  }, [navigate, requiredRole]);
+
+  useEffect(() => {
+    tryRedirectExistingStaffSession();
+  }, [tryRedirectExistingStaffSession]);
+
+  useVisibilityRefetch(() => {
+    tryRedirectExistingStaffSession();
   });
 
   const submit = async (branchId?: string) => {

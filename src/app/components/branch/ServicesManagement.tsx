@@ -564,7 +564,7 @@ export default function ServicesManagement({ branchId, branchInfo }: ServicesMan
       {/* Create/Edit Modal */}
       {isModalOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.7)' }}
           onClick={() => setIsModalOpen(false)}
         >
@@ -726,7 +726,7 @@ export default function ServicesManagement({ branchId, branchInfo }: ServicesMan
                             <Upload className="w-8 h-8 mx-auto mb-2" style={{ color: accentColor.color }} />
                           )}
                           <p className="text-sm font-medium">
-                            {isUploading ? 'Yuklanmoqda...' : 'Rasmlarni yuklash'}
+                            {isUploading ? '' : 'Rasmlarni yuklash'}
                           </p>
                         </div>
                       </div>
@@ -780,7 +780,7 @@ export default function ServicesManagement({ branchId, branchInfo }: ServicesMan
                             <VideoIcon className="w-8 h-8 mx-auto mb-2" style={{ color: accentColor.color }} />
                           )}
                           <p className="text-sm font-medium">
-                            {isUploading ? 'Yuklanmoqda...' : 'Videolarni yuklash'}
+                            {isUploading ? '' : 'Videolarni yuklash'}
                           </p>
                         </div>
                       </div>
@@ -914,7 +914,7 @@ export default function ServicesManagement({ branchId, branchInfo }: ServicesMan
                 {isSaving ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Saqlanmoqda...</span>
+                    <span></span>
                   </>
                 ) : (
                   <>

@@ -180,7 +180,7 @@ export function AuctionParticipants({ branchId }: AuctionParticipantsProps) {
         }}>
           <Loader2 className="w-10 h-10 animate-spin" style={{ color: accentColor.color }} />
           <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
-            Ishtirokchilar yuklanmoqda…
+            
           </p>
         </div>
       ) : participants.length === 0 ? (

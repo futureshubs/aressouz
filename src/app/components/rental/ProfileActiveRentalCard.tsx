@@ -307,7 +307,7 @@ export function ProfileActiveRentalCard({
       </div>
 
       {extendOpen ? (
-        <div className="fixed inset-0 z-[140] flex items-end sm:items-center justify-center p-3 sm:p-4">
+        <div className="fixed inset-0 app-safe-pad z-[140] flex items-end sm:items-center justify-center p-3 sm:p-4">
           <button
             type="button"
             className="absolute inset-0 bg-black/55 backdrop-blur-sm"

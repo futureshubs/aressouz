@@ -41,6 +41,7 @@ import {
 } from '../components/seller/sellerOrderPaymentUtils';
 import { useBodyScrollLock } from '../utils/useBodyScrollLock';
 import { readValidSellerSession } from '../utils/sellerSession';
+import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
 
 export default function SellerDashboard() {
   const navigate = useNavigate();
@@ -150,7 +151,7 @@ export default function SellerDashboard() {
     );
     if (!response.ok) return [];
     const data = await response.json();
-    return Array.isArray(data.orders) ? data.orders : [];
+    return sortOrdersNewestFirst(Array.isArray(data.orders) ? data.orders : []);
   };
 
   const loadData = async (opts?: { silent?: boolean }) => {
@@ -177,7 +178,7 @@ export default function SellerDashboard() {
         ]);
         if (rOrders.ok) {
           const d = await rOrders.json().catch(() => ({}));
-          setOrders(Array.isArray(d.orders) ? d.orders : []);
+          setOrders(sortOrdersNewestFirst(Array.isArray(d.orders) ? d.orders : []));
         } else {
           setOrders([]);
         }
@@ -211,7 +212,7 @@ export default function SellerDashboard() {
           setOrders([]);
           return;
         }
-        setOrders(Array.isArray(data.orders) ? data.orders : []);
+        setOrders(sortOrdersNewestFirst(Array.isArray(data.orders) ? data.orders : []));
         return;
       }
 
@@ -552,7 +553,7 @@ export default function SellerDashboard() {
       {/* Sidebar - Mobile */}
       {sidebarOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-50 app-modal-overlay"
+          className="lg:hidden fixed inset-0 app-safe-pad z-50 app-modal-overlay"
           style={{ background: 'rgba(0, 0, 0, 0.5)' }}
           onClick={() => setSidebarOpen(false)}
           role="presentation"

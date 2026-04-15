@@ -394,7 +394,7 @@ export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsVi
             <div className="space-y-3">
               <div className="flex items-center justify-center gap-2 py-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
                 <Loader2 className="size-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
-                Avtomobillar yuklanmoqda…
+                
               </div>
               <CarGridSkeleton isDark={isDark} count={6} />
             </div>

@@ -145,7 +145,7 @@ export default function AdminSecurityView() {
       {loading ? (
         <p className="text-sm inline-flex items-center gap-2" style={{ opacity: 0.6 }}>
           <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: accentColor.color }} />
-          Yuklanmoqda…
+          
         </p>
       ) : null}
 

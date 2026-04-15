@@ -559,7 +559,7 @@ export function CourierBagsPanel({ branchId, couriers, mode = 'full' }: Props) {
 
       {lookupOpen && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-[100] flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.55)' }}
           onClick={() => setLookupOpen(false)}
           onKeyDown={(e) => e.key === 'Escape' && setLookupOpen(false)}
@@ -598,7 +598,7 @@ export function CourierBagsPanel({ branchId, couriers, mode = 'full' }: Props) {
 
       {canManageBags && isModalOpen && (
         <div
-          className="fixed inset-0 z-[110] flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-[110] flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.6)' }}
           onClick={() => !isSaving && setIsModalOpen(false)}
           role="presentation"
@@ -696,7 +696,7 @@ export function CourierBagsPanel({ branchId, couriers, mode = 'full' }: Props) {
                 ) : (
                   <Save className="w-4 h-4 shrink-0" />
                 )}
-                {isSaving ? 'Saqlanmoqda...' : 'Saqlash'}
+                {isSaving ? '' : 'Saqlash'}
               </button>
             </div>
           </div>

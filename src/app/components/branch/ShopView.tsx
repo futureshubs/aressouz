@@ -1505,7 +1505,7 @@ function AddShopModal({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0, 0, 0, 0.7)' }}>
+    <div className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0, 0, 0, 0.7)' }}>
       <div 
         className="w-full max-w-2xl max-h-[90vh] overflow-y-auto rounded-3xl p-6"
         style={{
@@ -1767,7 +1767,7 @@ function AddShopModal({
                 required
               >
                 {isLoadingDeliveryOptions && (
-                  <option value="">Yuklanmoqda...</option>
+                  <option value=""></option>
                 )}
                 {!isLoadingDeliveryOptions && deliveryTimeOptions.length === 0 && (
                   <option value="">Variantlar topilmadi</option>
@@ -1840,7 +1840,7 @@ function AddShopModal({
                   <div className="animate-spin rounded-full h-6 w-6 border-4 border-t-transparent" 
                     style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
                   />
-                  <span>Yuklanmoqda...</span>
+                  <span></span>
                 </div>
               ) : formData.logo ? (
                 <div className="space-y-3">
@@ -1898,7 +1898,7 @@ function AddShopModal({
                   <div className="animate-spin rounded-full h-6 w-6 border-4 border-t-transparent" 
                     style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
                   />
-                  <span>Yuklanmoqda...</span>
+                  <span></span>
                 </div>
               ) : formData.banner ? (
                 <div className="space-y-3">
@@ -1956,7 +1956,7 @@ function AddShopModal({
                   <div className="animate-spin rounded-full h-6 w-6 border-4 border-t-transparent"
                     style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
                   />
-                  <span>Yuklanmoqda...</span>
+                  <span></span>
                 </div>
               ) : formData.paymentQrImage ? (
                 <div className="space-y-3">
@@ -2009,7 +2009,7 @@ function AddShopModal({
               className="flex-1 px-6 py-3 rounded-xl font-medium"
               style={{ background: accentColor.color, color: '#ffffff' }}
             >
-              {isSubmitting ? 'Yuklanmoqda...' : 'Qo\'shish'}
+              {isSubmitting ? '' : 'Qo\'shish'}
             </button>
           </div>
         </form>

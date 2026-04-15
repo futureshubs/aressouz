@@ -397,11 +397,8 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
   if (isLoading && payments.length === 0) {
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
-          <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            To\'lovlar yuklanmoqda...
-          </p>
+        <div className="text-center" aria-hidden>
+          <Loader2 className="w-12 h-12 mx-auto animate-spin" style={{ color: accentColor.color }} />
         </div>
       </div>
     );
@@ -568,7 +565,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           Boolean(showDetails.qrImageUrl) &&
           !showDetails.receiptUrl && (
             <div
-              className="fixed inset-0 z-[70] flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4"
+              className="fixed inset-0 app-safe-pad z-[70] flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4"
               onClick={() => setShowDetails(null)}
               role="presentation"
             >
@@ -690,7 +687,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
                           style={{ width: `${Math.max(5, receiptUploadPct)}%`, background: accentColor.color }}
                         />
                       </div>
-                      <p className="mt-1 text-xs opacity-70">Yuklanmoqda: {receiptUploadPct}%</p>
+                      <p className="mt-1 text-xs opacity-70">{receiptUploadPct}%</p>
                     </div>
                   ) : null}
                 </div>
@@ -1392,7 +1389,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
       {/* Hisobot modal (kassa) */}
       {reportOpen && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center bg-black/50 p-4"
+          className="fixed inset-0 app-safe-pad z-[60] flex items-center justify-center bg-black/50 p-4"
           onClick={() => setReportOpen(false)}
           onKeyDown={(e) => e.key === 'Escape' && setReportOpen(false)}
           role="presentation"
@@ -1507,7 +1504,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
 
       {/* Details Modal (filial / operator — to‘liq) */}
       {showDetails && variant === 'full' && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 app-safe-pad bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div 
             className="w-full max-w-2xl p-6 rounded-2xl max-h-[80vh] overflow-y-auto"
             style={{
@@ -1643,20 +1640,24 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
                           <div className="flex items-center justify-between gap-3">
                             <div>
                               <p className="text-sm font-medium">
-                                {confirmingReceipt ? 'Chek yuklanmoqda...' : 'Chek rasmini tanlang'}
+                                {confirmingReceipt ? '' : 'Chek rasmini tanlang'}
                               </p>
                               <p className="text-xs mt-1" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
                                 PNG/JPG, yuklangandan so‘ng avtomatik tasdiqlanadi.
                               </p>
                             </div>
                             <span
-                              className="px-3 py-1.5 rounded-lg text-xs font-semibold"
+                              className="inline-flex items-center justify-center px-3 py-1.5 rounded-lg text-xs font-semibold min-w-[5.5rem]"
                               style={{
                                 background: `${accentColor.color}22`,
                                 color: accentColor.color,
                               }}
                             >
-                              {confirmingReceipt ? 'Yuklanmoqda' : 'Fayl tanlash'}
+                              {confirmingReceipt ? (
+                                <Loader2 className="w-4 h-4 animate-spin" aria-hidden />
+                              ) : (
+                                'Fayl tanlash'
+                              )}
                             </span>
                           </div>
                         </label>
@@ -1673,7 +1674,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
                               />
                             </div>
                             <p className="text-xs mt-1" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.7)' }}>
-                              Yuklanmoqda: {receiptUploadPct}%
+                              {receiptUploadPct}%
                             </p>
                           </div>
                         )}

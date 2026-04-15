@@ -512,7 +512,7 @@ export function AddAuction({ branchId, onSuccess }: AddAuctionProps) {
           }}
         >
           {submitting && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
-          {submitting ? 'Yuklanmoqda...' : 'Auksion yaratish'}
+          {submitting ? '' : 'Auksion yaratish'}
         </button>
       </form>
     </div>

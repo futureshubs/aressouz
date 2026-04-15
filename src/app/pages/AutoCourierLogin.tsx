@@ -24,8 +24,21 @@ export default function AutoCourierLogin() {
       : API_BASE_URL;
 
   useEffect(() => {
-    localStorage.removeItem('autoCourierSession');
-  }, []);
+    try {
+      const raw = localStorage.getItem('autoCourierSession');
+      if (!raw) return;
+      const s = JSON.parse(raw) as { token?: string; expiresAt?: number };
+      const token = String(s?.token || '').trim();
+      if (!token) return;
+      if (typeof s.expiresAt === 'number' && Date.now() > s.expiresAt) {
+        localStorage.removeItem('autoCourierSession');
+        return;
+      }
+      navigate('/avtokuryer/dashboard', { replace: true });
+    } catch {
+      /* ignore */
+    }
+  }, [navigate]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

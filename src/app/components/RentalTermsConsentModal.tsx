@@ -53,7 +53,7 @@ export function RentalTermsConsentModal({
 
   return createPortal(
     <div
-      className="fixed inset-0 bg-black/65 backdrop-blur-sm flex items-center justify-center z-[200] p-4"
+      className="fixed inset-0 app-safe-pad bg-black/65 backdrop-blur-sm flex items-center justify-center z-[200] p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}

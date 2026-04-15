@@ -225,7 +225,7 @@ export default function AdminBranchStatistics() {
 
       {loading && !globalM ? (
         <p className="text-sm" style={{ opacity: 0.6 }}>
-          Yuklanmoqda…
+          
         </p>
       ) : null}
 

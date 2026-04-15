@@ -1,7 +1,27 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
-import { Star, Clock, MapPin, ChevronRight, Utensils, TrendingUp, Leaf, X, Plus, Minus, Phone, Heart, Share2, PackageCheck, Timer, Loader2 } from 'lucide-react';
+import {
+  Star,
+  Clock,
+  MapPin,
+  ChevronRight,
+  ChevronLeft,
+  Utensils,
+  TrendingUp,
+  Leaf,
+  X,
+  Plus,
+  Minus,
+  Phone,
+  Heart,
+  Share2,
+  PackageCheck,
+  Timer,
+  Loader2,
+  Armchair,
+  CalendarDays,
+} from 'lucide-react';
 import { toast } from 'sonner';
 import { notifyCartAdded } from '../utils/appToast';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
@@ -10,9 +30,20 @@ import { regions as allRegions } from '../data/regions';
 import { matchesSelectedLocation } from '../utils/locationMatching';
 import { getMaxOrderableUnits } from '../utils/cartStock';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
-import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
+import { ProductCardSkeleton, ProductGridSkeleton, ShopListSkeleton, SkeletonBox } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import {
+  diningRoomCapacityRange,
+  diningRoomImageList,
+  formatDiningRoomCapacityLabel,
+} from '../utils/diningRoomClient';
+
+/** Restoran/taom modali — Telegram / notch ostida qolmasin */
+const FOODS_MODAL_TOP_OFFSET = 'calc(1.5rem + var(--app-safe-top, env(safe-area-inset-top, 0px)))';
+const FOODS_MODAL_LEFT_INSET = 'max(1rem, var(--app-safe-left, env(safe-area-inset-left, 0px)))';
+const FOODS_MODAL_RIGHT_INSET = 'max(1rem, var(--app-safe-right, env(safe-area-inset-right, 0px)))';
+const FOODS_MODAL_SECOND_ROW_TOP = 'calc(5rem + var(--app-safe-top, env(safe-area-inset-top, 0px)))';
 
 interface Restaurant {
   id: string;
@@ -57,9 +88,28 @@ interface Dish {
   isActive: boolean;
 }
 
+/** Restoran joy bron — panel bilan mos maydonlar */
+type PublicDiningRoom = {
+  id: string;
+  name: string;
+  description?: string;
+  capacity?: number;
+  capacityMin?: number;
+  capacityMax?: number;
+  images?: string[];
+  isPaidRoom?: boolean;
+  priceUzs?: number;
+};
+
 interface FoodsViewProps {
   platform: string;
-  onAddToCart: (dish: any, quantity: number, variant: any, additionalProducts: any[]) => void;
+  onAddToCart: (
+    dish: any,
+    quantity: number,
+    variant: any,
+    additionalProducts: any[],
+    diningRoom?: { id: string; name: string } | null,
+  ) => void;
 }
 
 export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
@@ -71,9 +121,33 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [allDishes, setAllDishes] = useState<Dish[]>([]);
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
+  const [diningRooms, setDiningRooms] = useState<PublicDiningRoom[]>([]);
+  const [roomsLoading, setRoomsLoading] = useState(false);
+  /** Restoran paneli o‘chirganda mijoz «Joy bron qilish» ko‘rmaydi */
+  const [publicTableBookingEnabled, setPublicTableBookingEnabled] = useState(true);
+  const [bookingRoomId, setBookingRoomId] = useState('');
+  const [bookingDate, setBookingDate] = useState('');
+  const [bookingTime, setBookingTime] = useState('');
+  const [bookingParty, setBookingParty] = useState(2);
+  const [bookingName, setBookingName] = useState('');
+  const [bookingPhone, setBookingPhone] = useState('');
+  const [bookingNotes, setBookingNotes] = useState('');
+  const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  /** Xona kartadan tanlangach — sana/ism formasi alohida modalda */
+  const [bookingModalOpen, setBookingModalOpen] = useState(false);
+  /** Joy bron modalida rasmni katta ko‘rish */
+  const [bookingImageLightbox, setBookingImageLightbox] = useState<{ urls: string[]; index: number } | null>(
+    null,
+  );
+  const [dishDetailRooms, setDishDetailRooms] = useState<PublicDiningRoom[]>([]);
+  const [dishDetailRoomsLoading, setDishDetailRoomsLoading] = useState(false);
+  const [dishDetailRoomId, setDishDetailRoomId] = useState('');
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
   const { query: headerSearch } = useHeaderSearchOptional();
   const [loading, setLoading] = useState(true);
+  /** Restoranlar bo‘yicha hali tugamagan taom so‘rovlari (progressive yuklash) */
+  const [dishFetchesRemaining, setDishFetchesRemaining] = useState(0);
+  const dishLoadGenRef = useRef(0);
 
   const [selectedVariant, setSelectedVariant] = useState<any>(null);
   const [selectedAddons, setSelectedAddons] = useState<{ name: string; quantity: number }[]>([]);
@@ -86,28 +160,69 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const selectedDistrictData = selectedRegionData?.districts.find(d => d.id === selectedDistrict);
   const selectedDistrictName = selectedDistrictData?.name || '';
 
-  // Debug logging for banner
-  console.log('🍕 FoodsView Banner Debug:', {
-    selectedRegionId: selectedRegion,
-    selectedDistrictId: selectedDistrict,
-    selectedRegionName,
-    selectedDistrictName,
-    willShowBanner: !!(selectedRegionName && selectedDistrictName)
-  });
-
   useEffect(() => {
-    loadRestaurantsAndDishes();
+    void loadRestaurantsAndDishes();
   }, [selectedRegion, selectedDistrict]);
 
+  useEffect(() => {
+    if (!bookingRoomId) return;
+    const room = diningRooms.find((r) => r.id === bookingRoomId);
+    const { min, max } = diningRoomCapacityRange(room);
+    setBookingParty((p) => Math.max(min, Math.min(max, p)));
+  }, [bookingRoomId, diningRooms]);
+
+  useEffect(() => {
+    if (!bookingModalOpen) setBookingImageLightbox(null);
+  }, [bookingModalOpen]);
+
+  useEffect(() => {
+    if (!bookingImageLightbox) return;
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.preventDefault();
+        setBookingImageLightbox(null);
+      }
+      if (e.key === 'ArrowLeft' && bookingImageLightbox.urls.length > 1) {
+        e.preventDefault();
+        setBookingImageLightbox((prev) =>
+          prev
+            ? {
+                ...prev,
+                index: (prev.index - 1 + prev.urls.length) % prev.urls.length,
+              }
+            : null,
+        );
+      }
+      if (e.key === 'ArrowRight' && bookingImageLightbox.urls.length > 1) {
+        e.preventDefault();
+        setBookingImageLightbox((prev) =>
+          prev
+            ? {
+                ...prev,
+                index: (prev.index + 1) % prev.urls.length,
+              }
+            : null,
+        );
+      }
+    };
+    window.addEventListener('keydown', onKey);
+    return () => window.removeEventListener('keydown', onKey);
+  }, [bookingImageLightbox]);
+
   const loadRestaurantsAndDishes = async () => {
+    const gen = ++dishLoadGenRef.current;
     try {
       setLoading(true);
+      setAllDishes([]);
+      setDishFetchesRemaining(0);
       const restaurantsResponse = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants`,
-        { headers: { 'Authorization': `Bearer ${publicAnonKey}` } }
+        { headers: { Authorization: `Bearer ${publicAnonKey}` } },
       );
       const restaurantsResult = await restaurantsResponse.json();
-      
+
+      if (gen !== dishLoadGenRef.current) return;
+
       if (restaurantsResult.success) {
         const filtered = restaurantsResult.data.filter(
           (restaurant: Restaurant) =>
@@ -115,30 +230,41 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
             matchesSelectedLocation(restaurant as unknown as Record<string, unknown>, {
               selectedRegionId: selectedRegion,
               selectedDistrictId: selectedDistrict,
-            })
+            }),
         );
         setRestaurants(filtered);
-        await loadAllDishes(filtered);
+        setLoading(false);
+        startProgressiveDishes(filtered, gen);
+      } else {
+        setRestaurants([]);
+        setAllDishes([]);
+        setLoading(false);
       }
     } catch (error) {
       console.error('Load restaurants error:', error);
       toast.error('Restoranlarni yuklashda xatolik!');
-    } finally {
       setLoading(false);
     }
   };
 
-  const loadAllDishes = async (restaurants: Restaurant[]) => {
-    try {
-      const allDishesArray: Dish[] = [];
-      for (const restaurant of restaurants) {
+  /** Har restoran uchun parallel so‘rov; tugaganlari bo‘yicha ro‘yxatga qo‘shiladi */
+  const startProgressiveDishes = (restaurantList: Restaurant[], gen: number) => {
+    if (restaurantList.length === 0) {
+      setDishFetchesRemaining(0);
+      return;
+    }
+    setDishFetchesRemaining(restaurantList.length);
+    for (const restaurant of restaurantList) {
+      void (async () => {
         try {
+          const rid = encodeURIComponent(restaurant.id);
           const response = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${restaurant.id}/dishes`,
-            { headers: { 'Authorization': `Bearer ${publicAnonKey}` } }
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/dishes`,
+            { headers: { Authorization: `Bearer ${publicAnonKey}` } },
           );
           const result = await response.json();
-          if (result.success) {
+          if (gen !== dishLoadGenRef.current) return;
+          if (result.success && Array.isArray(result.data)) {
             const activeDishes = result.data
               .filter((d: Dish) => d.isActive)
               .map((d: Dish) => ({
@@ -149,15 +275,21 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 restaurantRegion: restaurant.region,
                 restaurantDistrict: restaurant.district,
               }));
-            allDishesArray.push(...activeDishes);
+            setAllDishes((prev) => {
+              if (gen !== dishLoadGenRef.current) return prev;
+              const seen = new Set(prev.map((x) => x.id));
+              const add = activeDishes.filter((d) => !seen.has(d.id));
+              return add.length ? [...prev, ...add] : prev;
+            });
           }
-        } catch (error) {
-          console.error(`Error loading dishes for restaurant ${restaurant.name}:`, error);
+        } catch (err) {
+          console.error(`Taomlar: ${restaurant.name}`, err);
+        } finally {
+          if (gen === dishLoadGenRef.current) {
+            setDishFetchesRemaining((n) => Math.max(0, n - 1));
+          }
         }
-      }
-      setAllDishes(allDishesArray);
-    } catch (error) {
-      console.error('Load all dishes error:', error);
+      })();
     }
   };
 
@@ -175,6 +307,59 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
 
   const handleRestaurantClick = (restaurant: Restaurant) => {
     setSelectedRestaurant(restaurant);
+  };
+
+  const submitTableBooking = async () => {
+    if (!selectedRestaurant || !bookingRoomId) {
+      toast.error('Xona tanlang');
+      return;
+    }
+    if (!bookingName.trim() || !bookingPhone.trim()) {
+      toast.error('Ism va telefon majburiy');
+      return;
+    }
+    const brRoom = diningRooms.find((r) => r.id === bookingRoomId);
+    const { min: capMin, max: capMax } = diningRoomCapacityRange(brRoom);
+    if (bookingParty < capMin || bookingParty > capMax) {
+      toast.error(`Odamlar soni ${capMin} dan ${capMax} gacha bo‘lishi kerak`);
+      return;
+    }
+    try {
+      setBookingSubmitting(true);
+      const rid = encodeURIComponent(selectedRestaurant.id);
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/table-bookings`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+          body: JSON.stringify({
+            roomId: bookingRoomId,
+            customerName: bookingName.trim(),
+            customerPhone: bookingPhone.trim(),
+            bookingDate,
+            bookingTime,
+            partySize: bookingParty,
+            notes: bookingNotes.trim(),
+          }),
+        },
+      );
+      const j = await res.json();
+      if (j.success) {
+        toast.success('Bron yuborildi! Restoran Telegram orqali xabardor qilindi.');
+        setBookingNotes('');
+        setBookingModalOpen(false);
+        setBookingRoomId('');
+      } else {
+        toast.error(j.error || 'Bron qilishda xatolik');
+      }
+    } catch {
+      toast.error('Tarmoq xatolik');
+    } finally {
+      setBookingSubmitting(false);
+    }
   };
 
   const handleAddToCart = async () => {
@@ -207,7 +392,14 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       };
     }).filter(Boolean);
     
-    onAddToCart(selectedDish, quantity, selectedVariant, selectedAddonProducts);
+    const diningRoom =
+      dishDetailRoomId && dishDetailRooms.some((x) => x.id === dishDetailRoomId)
+        ? {
+            id: dishDetailRoomId,
+            name: dishDetailRooms.find((x) => x.id === dishDetailRoomId)?.name || 'Joy',
+          }
+        : null;
+    onAddToCart(selectedDish, quantity, selectedVariant, selectedAddonProducts, diningRoom);
     notifyCartAdded(quantity, { name: selectedDish.name });
     setSelectedDish(null);
   };
@@ -238,6 +430,11 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     );
   }, [restaurants, headerSearch]);
 
+  const todayDateInputMin = useMemo(() => {
+    const t = new Date();
+    return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
+  }, []);
+
   const selectedRestaurantDishes = useMemo(() => {
     if (!selectedRestaurant) return [];
     const base = allDishes.filter((d) => d.restaurantId === selectedRestaurant.id);
@@ -260,10 +457,104 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   }, [restaurants, selectedRestaurant]);
 
   useEffect(() => {
+    if (!selectedRestaurant) {
+      setDiningRooms([]);
+      setBookingRoomId('');
+      setPublicTableBookingEnabled(true);
+      setBookingModalOpen(false);
+      return;
+    }
+    const today = new Date();
+    const y = today.getFullYear();
+    const m = String(today.getMonth() + 1).padStart(2, '0');
+    const d = String(today.getDate()).padStart(2, '0');
+    setBookingDate(`${y}-${m}-${d}`);
+    setBookingTime('18:00');
+    let cancelled = false;
+    (async () => {
+      setRoomsLoading(true);
+      try {
+        const rid = encodeURIComponent(selectedRestaurant.id);
+        const r = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/rooms?public=1`,
+          { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+        );
+        const j = await r.json();
+        const list = j.success && Array.isArray(j.data) ? j.data : [];
+        const bookingOn = j.publicTableBookingEnabled !== false;
+        if (!cancelled) {
+          setPublicTableBookingEnabled(bookingOn);
+          setDiningRooms(list);
+          setBookingRoomId((prev) =>
+            prev && list.some((x: { id: string }) => x.id === prev) ? prev : '',
+          );
+          if (!bookingOn) {
+            setBookingModalOpen(false);
+            setBookingRoomId('');
+          }
+        }
+      } catch {
+        if (!cancelled) {
+          setDiningRooms([]);
+          setPublicTableBookingEnabled(true);
+        }
+      } finally {
+        if (!cancelled) setRoomsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRestaurant?.id]);
+
+  useEffect(() => {
+    if (!selectedRestaurant) setBookingModalOpen(false);
+  }, [selectedRestaurant]);
+
+  useEffect(() => {
     if (selectedDish && !allDishes.some(dish => dish.id === selectedDish.id)) {
       setSelectedDish(null);
     }
   }, [allDishes, selectedDish]);
+
+  useEffect(() => {
+    if (!selectedDish?.restaurantId) {
+      setDishDetailRooms([]);
+      setDishDetailRoomId('');
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      setDishDetailRoomsLoading(true);
+      try {
+        const rid = encodeURIComponent(selectedDish.restaurantId);
+        const r = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/rooms?public=1`,
+          { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+        );
+        const j = await r.json();
+        const list = j.success && Array.isArray(j.data) ? j.data : [];
+        if (!cancelled) {
+          setDishDetailRooms(list);
+          setDishDetailRoomId((prev) => {
+            if (prev && list.some((x: { id: string }) => x.id === prev)) return prev;
+            if (list.length === 1) return list[0].id;
+            return '';
+          });
+        }
+      } catch {
+        if (!cancelled) {
+          setDishDetailRooms([]);
+          setDishDetailRoomId('');
+        }
+      } finally {
+        if (!cancelled) setDishDetailRoomsLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDish?.id, selectedDish?.restaurantId]);
 
   return (
     <div
@@ -333,11 +624,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       </p>
 
       {loading ? (
-        <div className="px-4 pb-8">
-          <div className="flex items-center justify-center gap-2 py-3 mb-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
-            <Loader2 className="size-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
-            Yuklanmoqda…
-          </div>
+        <div className="px-4 pb-8" aria-hidden>
           {activeTab === 'dishes' ? (
             <ProductGridSkeleton
               isDark={isDark}
@@ -354,7 +641,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           {activeTab === 'dishes' && (
             <div className="px-4">
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 lg:grid-cols-5">
-                {filteredDishes.map(dish => {
+                {filteredDishes.map((dish) => {
                   const restaurant = restaurants.find(r => r.id === dish.restaurantId);
                   return (
                     <div
@@ -408,6 +695,15 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     </div>
                   );
                 })}
+                {filteredDishes.length === 0 &&
+                  dishFetchesRemaining > 0 &&
+                  Array.from({ length: Math.min(8, Math.max(dishFetchesRemaining, 4)) }, (_, i) => (
+                    <ProductCardSkeleton
+                      key={`dish-pending-${i}`}
+                      isDark={isDark}
+                      imageClassName="aspect-square"
+                    />
+                  ))}
               </div>
             </div>
           )}
@@ -527,12 +823,12 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       {selectedRestaurant && (
         <>
           <div 
-            className="fixed inset-0 bg-black/80 z-[100]"
+            className="fixed inset-0 app-safe-pad bg-black/80 z-[100]"
             onClick={() => setSelectedRestaurant(null)}
           />
           
           <div 
-            className="fixed inset-0 z-[101] overflow-y-auto"
+            className="fixed inset-0 app-safe-pad z-[101] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="min-h-screen">
@@ -546,8 +842,13 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 {/* Close Button */}
                 <button
                   onClick={() => setSelectedRestaurant(null)}
-                  className="absolute top-6 left-4 w-12 h-12 rounded-full flex items-center justify-center"
-                  style={{ background: 'rgba(0, 0, 0, 0.5)' }}
+                  type="button"
+                  className="absolute w-12 h-12 rounded-full flex items-center justify-center z-10"
+                  style={{
+                    top: FOODS_MODAL_TOP_OFFSET,
+                    left: FOODS_MODAL_LEFT_INSET,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                  }}
                 >
                   <X className="w-6 h-6 text-white" />
                 </button>
@@ -683,6 +984,98 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                       </div>
                     </div>
                   </div>
+
+                  {(roomsLoading ||
+                    !publicTableBookingEnabled ||
+                    diningRooms.length > 0) && (
+                  <div
+                    className="p-4 rounded-2xl mb-6 border"
+                    style={{
+                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+                    }}
+                  >
+                    <div className="flex items-center gap-2 mb-2">
+                      <Armchair className="w-6 h-6 shrink-0" style={{ color: accentColor.color }} />
+                      <h3 className="font-bold text-lg">Joy bron qilish</h3>
+                    </div>
+                    {roomsLoading ? (
+                      <div className="grid grid-cols-2 gap-3 py-1 sm:grid-cols-3" aria-hidden>
+                        <SkeletonBox isDark={isDark} className="h-24 rounded-2xl" />
+                        <SkeletonBox isDark={isDark} className="h-24 rounded-2xl" />
+                        <SkeletonBox isDark={isDark} className="hidden h-24 rounded-2xl sm:block" />
+                      </div>
+                    ) : !publicTableBookingEnabled ? (
+                      <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                        Bu restoran hozircha onlayn joy bron qabul qilmaydi. Telefon orqali bog‘laning yoki keyinroq urinib ko‘ring.
+                      </p>
+                    ) : diningRooms.length === 0 ? (
+                      <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                        Ushbu restoran hozircha onlayn joy bronini yoqmaganda. Keyinroq urinib ko‘ring yoki telefon orqali bog‘laning.
+                      </p>
+                    ) : (
+                      <>
+                        <p className="text-xs mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                          Xonani tanlang — sana, vaqt va aloqa ma’lumotlari keyingi qadamda ochiladi. So‘rov restoranga Telegram orqali boradi.
+                        </p>
+                        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                          {diningRooms.map((room) => {
+                            const imgs = diningRoomImageList(room);
+                            const capLbl = formatDiningRoomCapacityLabel(room);
+                            const paid = Boolean(room.isPaidRoom) && Number(room.priceUzs) > 0;
+                            return (
+                              <button
+                                key={room.id}
+                                type="button"
+                                onClick={() => {
+                                  setBookingRoomId(room.id);
+                                  setBookingModalOpen(true);
+                                }}
+                                className="text-left rounded-2xl border overflow-hidden transition-all active:scale-[0.98] hover:opacity-95 focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                                style={{
+                                  background: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.02)',
+                                  borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+                                  boxShadow: isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.06)',
+                                }}
+                              >
+                                <div className="relative h-24 w-full bg-black/15">
+                                  {imgs[0] ? (
+                                    <img src={imgs[0]} alt="" className="h-full w-full object-cover" />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center">
+                                      <Armchair className="h-8 w-8 opacity-35" style={{ color: accentColor.color }} />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="p-3">
+                                  <p className="font-bold text-sm leading-tight mb-0.5" style={{ color: isDark ? '#fff' : '#111' }}>
+                                    {room.name}
+                                  </p>
+                                  <p className="text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}>
+                                    {capLbl}
+                                  </p>
+                                  {paid ? (
+                                    <p className="text-xs font-semibold mt-0.5" style={{ color: accentColor.color }}>
+                                      {Number(room.priceUzs).toLocaleString('uz-UZ')} so‘m
+                                    </p>
+                                  ) : null}
+                                  {room.description ? (
+                                    <p className="text-xs mt-1 line-clamp-2" style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
+                                      {room.description}
+                                    </p>
+                                  ) : null}
+                                  <p className="text-xs font-semibold mt-2" style={{ color: accentColor.color }}>
+                                    Tanlash →
+                                  </p>
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                  )}
                 </div>
 
                 {/* Menu */}
@@ -742,6 +1135,306 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
               </div>
             </div>
           </div>
+
+          {publicTableBookingEnabled && bookingModalOpen && bookingRoomId ? (
+            <>
+              <button
+                type="button"
+                aria-label="Bron oynasini yopish"
+                className="fixed inset-0 app-safe-pad z-[110] w-full cursor-default border-0 p-0"
+                style={{ background: 'rgba(0,0,0,0.65)' }}
+                disabled={bookingSubmitting}
+                onClick={() => {
+                  if (!bookingSubmitting) {
+                    setBookingModalOpen(false);
+                    setBookingRoomId('');
+                  }
+                }}
+              />
+              <div className="fixed inset-0 app-safe-pad z-[111] flex items-end justify-center p-0 sm:items-center sm:p-4 pointer-events-none">
+                <div
+                  role="dialog"
+                  aria-modal="true"
+                  aria-labelledby="booking-modal-title"
+                  className="pointer-events-auto w-full max-h-[min(92dvh,720px)] overflow-y-auto rounded-t-[1.75rem] border p-5 pb-6 shadow-2xl sm:max-w-md sm:rounded-3xl"
+                  style={{
+                    background: isDark ? '#141414' : '#ffffff',
+                    borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+                  }}
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="mb-4 flex items-start justify-between gap-3">
+                    <div className="min-w-0 flex-1">
+                      <p className="mb-0.5 text-xs font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                        Joy bron qilish
+                      </p>
+                      <h4 id="booking-modal-title" className="text-lg font-bold leading-snug" style={{ color: isDark ? '#fff' : '#111' }}>
+                        {diningRooms.find((r) => r.id === bookingRoomId)?.name ?? 'Xona'}
+                      </h4>
+                      {(() => {
+                        const sel = diningRooms.find((r) => r.id === bookingRoomId);
+                        const capLbl = formatDiningRoomCapacityLabel(sel);
+                        const paid = Boolean(sel?.isPaidRoom) && Number(sel?.priceUzs) > 0;
+                        const imgs = diningRoomImageList(sel);
+                        return (
+                          <>
+                            {imgs.length > 0 ? (
+                              <div className="mt-2 flex gap-1.5 overflow-x-auto pb-1">
+                                {imgs.map((u, imgIdx) => (
+                                  <button
+                                    key={u}
+                                    type="button"
+                                    onClick={() => setBookingImageLightbox({ urls: imgs, index: imgIdx })}
+                                    className="relative shrink-0 cursor-zoom-in overflow-hidden rounded-lg border outline-none transition-opacity hover:opacity-90 focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                                    style={{
+                                      borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+                                      boxShadow: isDark ? 'none' : '0 1px 3px rgba(0,0,0,0.08)',
+                                    }}
+                                    aria-label={`Rasmni katta ko‘rish ${imgIdx + 1} / ${imgs.length}`}
+                                  >
+                                    <img src={u} alt="" className="h-16 w-20 object-cover" />
+                                  </button>
+                                ))}
+                              </div>
+                            ) : null}
+                            <p className="mt-1 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}>
+                              {capLbl}
+                            </p>
+                            {paid ? (
+                              <p className="mt-0.5 text-sm font-semibold" style={{ color: accentColor.color }}>
+                                Joy narxi: {Number(sel?.priceUzs).toLocaleString('uz-UZ')} so‘m
+                              </p>
+                            ) : null}
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (!bookingSubmitting) {
+                          setBookingModalOpen(false);
+                          setBookingRoomId('');
+                        }
+                      }}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full"
+                      style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+                      aria-label="Yopish"
+                    >
+                      <X className="h-5 w-5" style={{ color: isDark ? '#fff' : '#111' }} />
+                    </button>
+                  </div>
+
+                  <div className="space-y-3">
+                    <div className="grid grid-cols-2 gap-2">
+                      <div>
+                        <label className="mb-1 flex items-center gap-1 text-xs font-semibold" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
+                          <CalendarDays className="h-3.5 w-3.5" />
+                          Sana
+                        </label>
+                        <input
+                          type="date"
+                          value={bookingDate}
+                          min={todayDateInputMin}
+                          onChange={(e) => setBookingDate(e.target.value)}
+                          className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                          style={{
+                            background: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)',
+                            border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                            color: isDark ? '#fff' : '#111',
+                          }}
+                        />
+                      </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
+                          Vaqt
+                        </label>
+                        <input
+                          type="time"
+                          value={bookingTime}
+                          onChange={(e) => setBookingTime(e.target.value)}
+                          className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                          style={{
+                            background: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)',
+                            border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                            color: isDark ? '#fff' : '#111',
+                          }}
+                        />
+                      </div>
+                    </div>
+                    <div>
+                      {(() => {
+                        const r = diningRooms.find((x) => x.id === bookingRoomId);
+                        const { min: pMin, max: pMax } = diningRoomCapacityRange(r);
+                        return (
+                          <>
+                            <label className="mb-1 block text-xs font-semibold" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
+                              Odamlar soni ({pMin}–{pMax})
+                            </label>
+                            <input
+                              type="number"
+                              min={pMin}
+                              max={pMax}
+                              value={bookingParty}
+                              onChange={(e) =>
+                                setBookingParty(Math.max(pMin, Math.min(pMax, Number(e.target.value) || pMin)))
+                              }
+                              className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                              style={{
+                                background: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)',
+                                border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                                color: isDark ? '#fff' : '#111',
+                              }}
+                            />
+                          </>
+                        );
+                      })()}
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Ismingiz"
+                      value={bookingName}
+                      onChange={(e) => setBookingName(e.target.value)}
+                      className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                      style={{
+                        background: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)',
+                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                        color: isDark ? '#fff' : '#111',
+                      }}
+                    />
+                    <input
+                      type="tel"
+                      placeholder="Telefon (+998...)"
+                      value={bookingPhone}
+                      onChange={(e) => setBookingPhone(e.target.value)}
+                      className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                      style={{
+                        background: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)',
+                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                        color: isDark ? '#fff' : '#111',
+                      }}
+                    />
+                    <textarea
+                      placeholder="Izoh (ixtiyoriy)"
+                      value={bookingNotes}
+                      onChange={(e) => setBookingNotes(e.target.value)}
+                      rows={2}
+                      className="w-full resize-none rounded-xl px-3 py-2 text-sm outline-none"
+                      style={{
+                        background: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)',
+                        border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                        color: isDark ? '#fff' : '#111',
+                      }}
+                    />
+                    <button
+                      type="button"
+                      onClick={() => void submitTableBooking()}
+                      disabled={bookingSubmitting}
+                      className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-sm font-bold disabled:opacity-60"
+                      style={{ background: accentColor.color, color: '#fff' }}
+                    >
+                      {bookingSubmitting ? (
+                        <>
+                          <Loader2 className="h-5 w-5 animate-spin" />
+                          Yuborilmoqda…
+                        </>
+                      ) : (
+                        'Bronni yuborish'
+                      )}
+                    </button>
+                    <button
+                      type="button"
+                      disabled={bookingSubmitting}
+                      onClick={() => {
+                        setBookingModalOpen(false);
+                        setBookingRoomId('');
+                      }}
+                      className="w-full py-2 text-center text-sm font-medium disabled:opacity-50"
+                      style={{ color: accentColor.color }}
+                    >
+                      Boshqa xona tanlash
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              {bookingImageLightbox && bookingImageLightbox.urls.length > 0 ? (
+                <div
+                  className="fixed inset-0 z-[125] flex flex-col app-safe-pad"
+                  style={{ background: 'rgba(0,0,0,0.94)' }}
+                  role="dialog"
+                  aria-modal="true"
+                  aria-label="Xona rasmi"
+                  onClick={() => setBookingImageLightbox(null)}
+                >
+                  <div
+                    className="flex shrink-0 items-center justify-between gap-2 px-2 py-2 sm:px-3"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <p className="text-xs font-medium text-white/85">
+                      {bookingImageLightbox.index + 1} / {bookingImageLightbox.urls.length}
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => setBookingImageLightbox(null)}
+                      className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/10 text-white transition-colors hover:bg-white/20"
+                      aria-label="Yopish"
+                    >
+                      <X className="h-5 w-5" />
+                    </button>
+                  </div>
+                  <div
+                    className="relative flex min-h-0 flex-1 items-center justify-center px-2 pb-6 sm:px-4"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    {bookingImageLightbox.urls.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBookingImageLightbox((prev) =>
+                            prev && prev.urls.length > 1
+                              ? {
+                                  ...prev,
+                                  index: (prev.index - 1 + prev.urls.length) % prev.urls.length,
+                                }
+                              : prev,
+                          )
+                        }
+                        className="absolute left-1 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/12 text-white shadow-lg sm:left-3 sm:h-12 sm:w-12"
+                        aria-label="Oldingi rasm"
+                      >
+                        <ChevronLeft className="h-7 w-7" />
+                      </button>
+                    ) : null}
+                    <img
+                      src={bookingImageLightbox.urls[bookingImageLightbox.index]}
+                      alt=""
+                      className="max-h-[min(82dvh,820px)] max-w-full rounded-lg object-contain shadow-2xl"
+                    />
+                    {bookingImageLightbox.urls.length > 1 ? (
+                      <button
+                        type="button"
+                        onClick={() =>
+                          setBookingImageLightbox((prev) =>
+                            prev && prev.urls.length > 1
+                              ? {
+                                  ...prev,
+                                  index: (prev.index + 1) % prev.urls.length,
+                                }
+                              : prev,
+                          )
+                        }
+                        className="absolute right-1 top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-white/12 text-white shadow-lg sm:right-3 sm:h-12 sm:w-12"
+                        aria-label="Keyingi rasm"
+                      >
+                        <ChevronRight className="h-7 w-7" />
+                      </button>
+                    ) : null}
+                  </div>
+                </div>
+              ) : null}
+            </>
+          ) : null}
         </>
       )}
 
@@ -749,12 +1442,12 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       {selectedDish && (
         <>
           <div 
-            className="fixed inset-0 bg-black z-[100]"
+            className="fixed inset-0 app-safe-pad bg-black z-[100]"
             onClick={() => setSelectedDish(null)}
           />
           
           <div 
-            className="fixed inset-0 z-[101] overflow-y-auto"
+            className="fixed inset-0 app-safe-pad z-[101] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="min-h-screen" style={{ background: isDark ? '#000' : '#fff' }}>
@@ -768,8 +1461,13 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 {/* Close Button */}
                 <button
                   onClick={() => setSelectedDish(null)}
-                  className="absolute top-6 left-4 w-12 h-12 rounded-full flex items-center justify-center"
-                  style={{ background: 'rgba(0, 0, 0, 0.5)' }}
+                  type="button"
+                  className="absolute w-12 h-12 rounded-full flex items-center justify-center z-10"
+                  style={{
+                    top: FOODS_MODAL_TOP_OFFSET,
+                    left: FOODS_MODAL_LEFT_INSET,
+                    background: 'rgba(0, 0, 0, 0.5)',
+                  }}
                 >
                   <X className="w-6 h-6 text-white" />
                 </button>
@@ -777,8 +1475,13 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 {/* Popular Badge */}
                 {selectedDish.isPopular && (
                   <div 
-                    className="absolute top-6 right-4 px-3 py-1.5 rounded-xl text-xs font-bold"
-                    style={{ background: '#fbbf24', color: '#000' }}
+                    className="absolute px-3 py-1.5 rounded-xl text-xs font-bold z-10"
+                    style={{
+                      top: FOODS_MODAL_TOP_OFFSET,
+                      right: FOODS_MODAL_RIGHT_INSET,
+                      background: '#fbbf24',
+                      color: '#000',
+                    }}
                   >
                     MASHHUR
                   </div>
@@ -787,8 +1490,12 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 {/* Natural Badge */}
                 {selectedDish.isNatural && (
                   <div 
-                    className="absolute top-20 left-4 w-12 h-12 rounded-2xl flex items-center justify-center"
-                    style={{ background: accentColor.color }}
+                    className="absolute w-12 h-12 rounded-2xl flex items-center justify-center z-10"
+                    style={{
+                      top: FOODS_MODAL_SECOND_ROW_TOP,
+                      left: FOODS_MODAL_LEFT_INSET,
+                      background: accentColor.color,
+                    }}
                   >
                     <Leaf className="w-6 h-6 text-white" />
                   </div>
@@ -1063,6 +1770,106 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                         );
                       })}
                     </div>
+                  </div>
+                )}
+
+                {(dishDetailRoomsLoading || dishDetailRooms.length > 0) && (
+                  <div
+                    className="mb-4 sm:mb-6 p-4 rounded-2xl border"
+                    style={{
+                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+                    }}
+                  >
+                    <h3 className="mb-2 flex items-center gap-2 text-base font-bold sm:text-lg">
+                      <Armchair className="h-5 w-5 shrink-0" style={{ color: accentColor.color }} />
+                      Joy / xona
+                    </h3>
+                    {dishDetailRoomsLoading ? (
+                      <div className="grid grid-cols-2 gap-3 py-1 sm:grid-cols-3" aria-hidden>
+                        <SkeletonBox isDark={isDark} className="h-24 rounded-2xl" />
+                        <SkeletonBox isDark={isDark} className="h-24 rounded-2xl" />
+                        <SkeletonBox isDark={isDark} className="hidden h-24 rounded-2xl sm:block" />
+                      </div>
+                    ) : (
+                      <>
+                        <p className="mb-3 text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                          Buyurtma qaysi joyda tayyorlanishini tanlang (tavsifdan yuqori). Kartani bosing.
+                        </p>
+                        <div className="grid grid-cols-2 gap-3 md:grid-cols-3">
+                          {dishDetailRooms.map((room) => {
+                            const selected = dishDetailRoomId === room.id;
+                            const imgs = diningRoomImageList(room);
+                            const capLbl = formatDiningRoomCapacityLabel(room);
+                            const paid = Boolean(room.isPaidRoom) && Number(room.priceUzs) > 0;
+                            return (
+                              <button
+                                key={room.id}
+                                type="button"
+                                onClick={() => setDishDetailRoomId(room.id)}
+                                className="overflow-hidden rounded-2xl border text-left transition-all active:scale-[0.98] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent"
+                                style={{
+                                  background: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(0,0,0,0.02)',
+                                  borderColor: selected
+                                    ? accentColor.color
+                                    : isDark
+                                      ? 'rgba(255,255,255,0.12)'
+                                      : 'rgba(0,0,0,0.08)',
+                                  boxShadow: selected ? `0 0 0 2px ${accentColor.color}55` : isDark ? 'none' : '0 1px 4px rgba(0,0,0,0.06)',
+                                }}
+                              >
+                                <div className="relative h-20 w-full bg-black/15">
+                                  {imgs[0] ? (
+                                    <img src={imgs[0]} alt="" className="h-full w-full object-cover" />
+                                  ) : (
+                                    <div className="flex h-full w-full items-center justify-center">
+                                      <Armchair className="h-7 w-7 opacity-35" style={{ color: accentColor.color }} />
+                                    </div>
+                                  )}
+                                </div>
+                                <div className="p-3 sm:p-4">
+                                  <p className="text-sm font-bold leading-tight" style={{ color: isDark ? '#fff' : '#111' }}>
+                                    {room.name}
+                                  </p>
+                                  <p className="mt-0.5 text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}>
+                                    {capLbl}
+                                  </p>
+                                  {paid ? (
+                                    <p className="mt-0.5 text-xs font-semibold" style={{ color: accentColor.color }}>
+                                      {Number(room.priceUzs).toLocaleString('uz-UZ')} so‘m
+                                    </p>
+                                  ) : null}
+                                  {room.description ? (
+                                    <p className="mt-1 line-clamp-2 text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
+                                      {room.description}
+                                    </p>
+                                  ) : null}
+                                  {selected ? (
+                                    <p className="mt-2 text-xs font-semibold" style={{ color: accentColor.color }}>
+                                      Tanlangan
+                                    </p>
+                                  ) : (
+                                    <p className="mt-2 text-xs font-semibold opacity-70" style={{ color: accentColor.color }}>
+                                      Tanlash
+                                    </p>
+                                  )}
+                                </div>
+                              </button>
+                            );
+                          })}
+                        </div>
+                        {dishDetailRoomId ? (
+                          <button
+                            type="button"
+                            onClick={() => setDishDetailRoomId('')}
+                            className="mt-3 w-full py-2 text-center text-sm font-medium"
+                            style={{ color: accentColor.color }}
+                          >
+                            Tanlovni bekor qilish
+                          </button>
+                        ) : null}
+                      </>
+                    )}
                   </div>
                 )}
 

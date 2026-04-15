@@ -25,7 +25,9 @@ export function initTelegramMiniAppViewport(): void {
   const apply = () => {
     const si = (tg.safeAreaInset as Inset) || {};
     const ci = (tg.contentSafeAreaInset as Inset) || {};
-    const top = Math.max(Number(si.top) || 0, 0) + Math.max(Number(ci.top) || 0, 0);
+    const rawTop = Math.max(Number(si.top) || 0, 0) + Math.max(Number(ci.top) || 0, 0);
+    /** Inset 0 bo‘lsa ham ichki header / yopish tugmasi ostida qolmasin (Telegram WebView) */
+    const top = rawTop > 0 ? Math.max(rawTop, 44) : 48;
     const bottom = Math.max(Number(si.bottom) || 0, 0) + Math.max(Number(ci.bottom) || 0, 0);
     const left = Math.max(Number(si.left) || 0, 0) + Math.max(Number(ci.left) || 0, 0);
     const right = Math.max(Number(si.right) || 0, 0) + Math.max(Number(ci.right) || 0, 0);
@@ -33,7 +35,7 @@ export function initTelegramMiniAppViewport(): void {
     const root = document.documentElement;
     root.classList.add('telegram-mini-app');
 
-    if (top > 0) root.style.setProperty('--app-safe-top', px(Math.max(top, 44)));
+    root.style.setProperty('--app-safe-top', px(top));
     if (bottom > 0) root.style.setProperty('--app-safe-bottom', px(Math.max(bottom, 8)));
     if (left > 0) root.style.setProperty('--app-safe-left', px(left));
     if (right > 0) root.style.setProperty('--app-safe-right', px(right));

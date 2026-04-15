@@ -132,7 +132,7 @@ export const FoodDetailModal = memo(function FoodDetailModal({ food, onClose, on
 
   return (
     <div 
-      className="fixed inset-0 z-50 overflow-y-auto scrollbar-hide"
+      className="fixed inset-0 app-safe-pad z-50 overflow-y-auto scrollbar-hide"
       style={{
         background: isDark ? '#000000' : '#f9fafb',
       }}

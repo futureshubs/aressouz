@@ -53,12 +53,17 @@ function SelectorMethodMark({
       isDark={isDark}
       softLightBackdrop={softLight}
       embedInRow={embedInRow}
+      square={!embedInRow}
     >
       {logoSrc && !broken ? (
         <img
           src={logoSrc}
           alt=""
-          className="block max-h-full w-auto max-w-full object-contain object-center"
+          className={
+            embedInRow
+              ? 'block max-h-full w-auto max-w-full object-contain object-center'
+              : 'block h-full w-full object-contain object-center'
+          }
           draggable={false}
           decoding="async"
           onError={() => setBroken(true)}
@@ -123,11 +128,11 @@ export default function PaymentMethodSelector({
 
   /** Checkout bilan bir xil yo‘l — ramkali logotip */
   const methodLogoSrc: Record<string, string | undefined> = {
-    payme: '/payments/payme-logo.png?v=2',
-    click: '/payments/click-logo.png?v=2',
-    atmos: '/payments/atmos-logo.png?v=2',
-    uzumnasiya: '/payments/uzum-nasiya-logo.png?v=2',
-    uzum_nasiya: '/payments/uzum-nasiya-logo.png?v=2',
+    payme: '/payments/payme-official.png?v=2',
+    click: '/payments/click-official.svg?v=2',
+    atmos: '/payments/checkout-atmos-square.png?v=1',
+    uzumnasiya: '/payments/checkout-uzum-nasiya-square.png?v=1',
+    uzum_nasiya: '/payments/checkout-uzum-nasiya-square.png?v=1',
   };
 
   const methodDescriptions: {[key: string]: string} = {
@@ -261,13 +266,12 @@ export default function PaymentMethodSelector({
 
   if (isLoading) {
     return (
-      <div className="space-y-3 py-4" role="status" aria-label="To‘lov usullari yuklanmoqda">
+      <div className="space-y-3 py-4" aria-hidden>
         <SkeletonBox isDark={isDark} className="h-14 w-full rounded-2xl" />
         {[1, 2, 3, 4].map((i) => (
           <SkeletonBox key={i} isDark={isDark} className="h-[72px] w-full rounded-2xl" />
         ))}
-        <span className="sr-only">Yuklanmoqda</span>
-      </div>
+        </div>
     );
   }
 
@@ -446,7 +450,7 @@ export default function PaymentMethodSelector({
           {isProcessing ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              Yuklanmoqda...
+              
             </>
           ) : (
             <>

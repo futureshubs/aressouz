@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { Store, Lock, User, ArrowLeft, Building2, ChevronRight, Loader2 } from 'lucide-react';
@@ -16,6 +16,19 @@ export default function BogalterLogin() {
   const [needsBranchSelect, setNeedsBranchSelect] = useState(false);
   const [branchOptions, setBranchOptions] = useState<Array<{ id: string; name: string }>>([]);
   const [selectedBranchId, setSelectedBranchId] = useState('');
+
+  useEffect(() => {
+    const raw = localStorage.getItem('accountantSession');
+    if (!raw) return;
+    try {
+      const parsed = JSON.parse(raw) as { token?: string };
+      if (parsed?.token) {
+        navigate('/bogalter/dashboard', { replace: true });
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [navigate]);
 
   useVisibilityRefetch(() => {
     const session = localStorage.getItem('accountantSession');

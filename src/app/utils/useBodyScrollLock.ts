@@ -1,4 +1,4 @@
-import { useEffect } from 'react';
+import * as React from 'react';
 
 let lockDepth = 0;
 
@@ -36,7 +36,8 @@ function releaseLock() {
  * Bir nechta komponent bir vaqtda lock qilishi mumkin — hisoblagich bilan.
  */
 export function useBodyScrollLock(locked: boolean) {
-  useEffect(() => {
+  /** `import * as React` — named `useEffect` import ba'zi chunk/HMR holatlarida muammo berishi mumkin */
+  React.useEffect(() => {
     if (!locked) return;
     lockDepth += 1;
     if (lockDepth === 1) applyLock();

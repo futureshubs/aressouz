@@ -209,7 +209,7 @@ export default function Analytics({ branchId, orderType = 'all' }: AnalyticsProp
       <div className="flex items-center justify-center min-h-96">
         <div className="text-center">
           <Loader2 className="w-8 h-8 animate-spin mx-auto mb-4" style={{ color: accentColor.color }} />
-          <p className={isDark ? 'text-gray-300' : 'text-gray-600'}>Analitika yuklanmoqda...</p>
+          <p className={isDark ? 'text-gray-300' : 'text-gray-600'}></p>
         </div>
       </div>
     );

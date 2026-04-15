@@ -178,7 +178,7 @@ export function ProductDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex flex-col min-h-0 h-dvh max-h-dvh overflow-hidden"
+      className="fixed inset-0 app-safe-pad z-[100] flex flex-col min-h-0 h-dvh max-h-dvh overflow-hidden"
       style={{ background: isDark ? '#000000' : '#ffffff' }}
     >
       {/* Header */}
@@ -1018,7 +1018,7 @@ export function VariantSelectionMenu({
     <>
       {/* Backdrop */}
       <div 
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[110] animate-fadeIn"
+        className="fixed inset-0 app-safe-pad bg-black/60 backdrop-blur-sm z-[110] animate-fadeIn"
         onClick={onClose}
       />
       

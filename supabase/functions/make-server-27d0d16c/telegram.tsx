@@ -177,6 +177,133 @@ Bu buyurtmani tasdiqlash yoki bekor qilish uchun /seller platformasiga kiring va
   }
 }
 
+/** Stol / xona broni — restoran Telegram chatiga (RESTAURANT bot). Rasmlar bo‘lsa sendPhoto / sendMediaGroup. */
+export async function sendRestaurantTableBookingNotification(p: {
+  restaurantName: string;
+  chatId: string;
+  bookingIdShort: string;
+  roomName: string;
+  customerName: string;
+  customerPhone: string;
+  bookingDate: string;
+  bookingTime: string;
+  partySize: number;
+  notes?: string;
+  /** Xona rasmlari (HTTPS URL) — Telegram serverlari yuklay oladigan ochiq URL */
+  roomImageUrls?: string[];
+}): Promise<boolean> {
+  const botToken = TELEGRAM_RESTAURANT_BOT_TOKEN;
+  if (!botToken) {
+    console.error('❌ TELEGRAM_RESTAURANT_BOT_TOKEN sozlanmagan — joy bron Telegramga yuborilmaydi');
+    return false;
+  }
+  const chatId = String(p.chatId || '').trim();
+  if (!chatId || !isValidTelegramTarget(chatId)) {
+    console.error('❌ Joy bron: noto‘g‘ri Telegram chat ID', chatId);
+    return false;
+  }
+  const notesBlock =
+    p.notes && String(p.notes).trim()
+      ? `\n📝 <b>Izoh:</b> ${escapeTelegramHtml(String(p.notes).trim())}`
+      : '';
+  const message = `🪑 <b>YANGI JOY BRONI</b>
+
+🏪 <b>Restoran:</b> ${escapeTelegramHtml(p.restaurantName)}
+🔢 <b>Bron ID:</b> #${escapeTelegramHtml(p.bookingIdShort)}
+
+━━━━━━━━━━━━━━━━━━
+
+🚪 <b>Xona / joy:</b> ${escapeTelegramHtml(p.roomName)}
+📅 <b>Sana:</b> ${escapeTelegramHtml(p.bookingDate)}
+🕐 <b>Vaqt:</b> ${escapeTelegramHtml(p.bookingTime)}
+👥 <b>Odamlar:</b> ${p.partySize}
+
+━━━━━━━━━━━━━━━━━━
+
+👤 <b>Ism:</b> ${escapeTelegramHtml(p.customerName)}
+📞 <b>Telefon:</b> ${escapeTelegramHtml(p.customerPhone)}
+${notesBlock}
+
+━━━━━━━━━━━━━━━━━━
+
+✅ Mijoz ilovadan joy band qildi. Panelda «Xonalar» bo‘limidan bronni tasdiqlang yoki bekor qiling.`.trim();
+
+  const imageUrls = (Array.isArray(p.roomImageUrls) ? p.roomImageUrls : [])
+    .map((u) => String(u || '').trim())
+    .filter((u) => /^https?:\/\//i.test(u))
+    .slice(0, 10);
+
+  const captionMax = 1024;
+  const photoCaption =
+    message.length <= captionMax ? message : `${message.slice(0, Math.max(0, captionMax - 40)).trim()}…`;
+
+  try {
+    if (imageUrls.length > 0) {
+      if (imageUrls.length === 1) {
+        const response = await fetch(`https://api.telegram.org/bot${botToken}/sendPhoto`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            photo: imageUrls[0],
+            caption: photoCaption,
+            parse_mode: 'HTML',
+          }),
+        });
+        const j = await response.json().catch(() => ({}));
+        if (response.ok && j.ok) return true;
+        console.warn('⚠️ Joy bron sendPhoto muvaffaqiyatsiz:', response.status, JSON.stringify(j));
+      } else {
+        const media = imageUrls.map((url, idx) => {
+          const item: Record<string, unknown> = { type: 'photo', media: url };
+          // Telegram: albomda caption HTML — parse_mode odatda shu birinchi media obyektida bo‘lishi kerak
+          // (faqat sendMediaGroup ildizidagi parse_mode ko‘pincha caption uchun ishlamaydi).
+          if (idx === 0) {
+            item.caption = photoCaption;
+            item.parse_mode = 'HTML';
+          }
+          return item;
+        });
+        const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMediaGroup`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            chat_id: chatId,
+            media,
+          }),
+        });
+        const j = await response.json().catch(() => ({}));
+        if (response.ok && j.ok) return true;
+        console.warn('⚠️ Joy bron sendMediaGroup muvaffaqiyatsiz:', response.status, JSON.stringify(j));
+      }
+      const urlBlock = imageUrls
+        .map((u, i) => `🖼 <b>${i + 1}:</b> <code>${escapeTelegramHtml(u)}</code>`)
+        .join('\n');
+      const fallback = `${message}\n\n<b>Xona rasmlari</b> (havola):\n${urlBlock}`;
+      return await sendHtmlMessage({ type: 'restaurant', chatId, text: fallback });
+    }
+
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML',
+      }),
+    });
+    const j = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      console.error('❌ Joy bron Telegram API:', response.status, JSON.stringify(j));
+      return false;
+    }
+    return true;
+  } catch (e) {
+    console.error('❌ Joy bron Telegram xatolik:', e);
+    return false;
+  }
+}
+
 type ReceiptPhotoNotification = {
   type: NotificationType; // 'shop' | 'restaurant'
   chatId: string;

@@ -676,7 +676,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
         </div>
 
         {isLoading ? (
-          <div style={{ color: muted }}>Yuklanmoqda...</div>
+          <div style={{ color: muted }}></div>
         ) : filteredStaff.length === 0 ? (
           <div style={{ color: muted }}>Hali xodim yo‘q</div>
         ) : (
@@ -742,7 +742,7 @@ export function StaffManagement({ branchId }: { branchId: string; branchInfo?: a
 
       {editing ? (
         <div
-          className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-[200] flex items-end sm:items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.55)' }}
           role="dialog"
           aria-modal="true"

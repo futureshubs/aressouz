@@ -20,7 +20,7 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
   const phone = '+998901234567';
 
   return (
-    <div className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 app-safe-pad z-[60] flex items-end sm:items-center justify-center">
       <button
         className="absolute inset-0"
         style={{

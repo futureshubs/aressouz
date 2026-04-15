@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { Utensils, Lock, User, Loader2 } from 'lucide-react';
@@ -15,6 +15,20 @@ export default function RestaurantLogin() {
   const [login, setLogin] = useState('');
   const [password, setPassword] = useState('');
   const [isLoading, setIsLoading] = useState(false);
+
+  useEffect(() => {
+    const raw = localStorage.getItem('restaurantSession');
+    if (!raw) return;
+    try {
+      const data = JSON.parse(raw) as { id?: string };
+      if (data?.id) {
+        const targetPath = location.pathname.includes('/taom') ? '/taom/panel' : '/restaurant/panel';
+        navigate(targetPath, { replace: true });
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [navigate, location.pathname]);
 
   useVisibilityRefetch(() => {
     const session = localStorage.getItem('restaurantSession');
@@ -168,7 +182,7 @@ export default function RestaurantLogin() {
             style={{ background: accentColor.color, color: '#ffffff' }}
           >
             {isLoading && <Loader2 className="w-6 h-6 animate-spin shrink-0" />}
-            {isLoading ? 'Yuklanmoqda...' : 'Kirish'}
+            {isLoading ? '' : 'Kirish'}
           </button>
 
           {/* Back to Home */}

@@ -15,6 +15,7 @@ import { getEffectiveProductStockQuantity } from '../utils/cartStock';
 import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
 
 /** API: `GET /shops` — `rating`, `reviewCount` (barcha mahsulot sharhlari yig‘indisi) */
 function shopRatingFromApi(shop: { rating?: unknown; reviewCount?: unknown } | null | undefined): {
@@ -257,6 +258,25 @@ export default function OnlineShops({
       ]);
     });
   }, [filteredProducts, headerSearch, shopNameById]);
+
+  const onlineShopsProductGridSource =
+    activeTab !== 'products' || isLoadingProducts ? [] : searchFilteredProducts;
+  const onlineShopsRevealKey = useMemo(
+    () =>
+      `${catalogRefreshKey}-${allProducts.length}-${normalizeHeaderSearch(headerSearch) ? headerSearch : ''}-${selectedRegion}-${selectedDistrict}`,
+    [
+      catalogRefreshKey,
+      allProducts.length,
+      headerSearch,
+      selectedRegion,
+      selectedDistrict,
+    ],
+  );
+  const { visibleItems: progressiveOnlineShopProducts, sentinelRef: onlineShopGridSentinelRef } =
+    useProgressiveListReveal(onlineShopsProductGridSource, onlineShopsRevealKey, {
+      batchSize: 10,
+      initialCount: 16,
+    });
 
   useEffect(() => {
     if (selectedShop && !filteredShopIds.has(selectedShop.id)) {
@@ -633,7 +653,7 @@ export default function OnlineShops({
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
-                {searchFilteredProducts.map((product: any) => (
+                {progressiveOnlineShopProducts.map((product: any) => (
                   <div
                     key={product.id}
                     className="rounded-xl md:rounded-2xl overflow-hidden transition-all hover:scale-[1.02] active:scale-95 group cursor-pointer relative"
@@ -655,9 +675,11 @@ export default function OnlineShops({
                     {/* Image Container with Badges */}
                     <div className="relative">
                       {product.image ? (
-                        <img 
-                          src={product.image} 
+                        <img
+                          src={product.image}
                           alt={product.name}
+                          loading="lazy"
+                          decoding="async"
                           className="w-full h-32 sm:h-40 md:h-48 object-cover"
                         />
                       ) : (
@@ -866,6 +888,13 @@ export default function OnlineShops({
                     </div>
                   </div>
                 ))}
+                {progressiveOnlineShopProducts.length < searchFilteredProducts.length && (
+                  <div
+                    ref={onlineShopGridSentinelRef}
+                    className="col-span-full h-4 w-full shrink-0"
+                    aria-hidden
+                  />
+                )}
               </div>
             )}
           </>
@@ -910,7 +939,7 @@ export default function OnlineShops({
       {/* 🔐 Delete Confirmation Modal */}
       {showDeleteModal && deleteProduct && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(10px)' }}
         >
           <div 
@@ -985,7 +1014,7 @@ export default function OnlineShops({
       {/* 🔐 Delete Shop Confirmation Modal */}
       {showDeleteShopModal && deleteShop && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(10px)' }}
         >
           <div 
@@ -1113,6 +1142,17 @@ function ShopDetailModal({
     void loadProducts();
   }, [loadProducts]);
 
+  const shopModalProductSource = isLoading ? [] : products;
+  const shopModalRevealKey = useMemo(
+    () => `${shop?.id ?? ''}-${products.length}`,
+    [shop?.id, products.length],
+  );
+  const { visibleItems: progressiveShopModalProducts, sentinelRef: shopModalGridSentinelRef } =
+    useProgressiveListReveal(shopModalProductSource, shopModalRevealKey, {
+      batchSize: 10,
+      initialCount: 16,
+    });
+
   const modalShopRating = useMemo(() => {
     const fromApi = shopRatingFromApi(shop);
     if (fromApi.reviewCount > 0 && fromApi.rating > 0) return fromApi;
@@ -1155,7 +1195,7 @@ function ShopDetailModal({
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex flex-col min-h-0 h-dvh max-h-dvh overflow-hidden"
+      className="fixed inset-0 app-safe-pad z-50 flex flex-col min-h-0 h-dvh max-h-dvh overflow-hidden"
       style={{ background: isDark ? '#0a0a0a' : '#ffffff' }}
     >
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y pb-6 [-webkit-overflow-scrolling:touch]">
@@ -1291,7 +1331,7 @@ function ShopDetailModal({
                 <div className="space-y-3">
                   <div className="flex items-center justify-center gap-2 py-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
                     <Loader2 className="w-5 h-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
-                    Mahsulotlar yuklanmoqda…
+                    
                   </div>
                   <ProductGridSkeleton
                     isDark={isDark}
@@ -1311,7 +1351,7 @@ function ShopDetailModal({
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
-                  {products.map((product: any) => {
+                  {progressiveShopModalProducts.map((product: any) => {
                     return (
                     <div
                       key={product.id}
@@ -1326,9 +1366,11 @@ function ShopDetailModal({
                       {/* Image Container with Badges */}
                       <div className="relative">
                         {product.image ? (
-                          <img 
-                            src={product.image} 
+                          <img
+                            src={product.image}
                             alt={product.name}
+                            loading="lazy"
+                            decoding="async"
                             className="w-full h-32 sm:h-40 md:h-48 object-cover"
                             onError={(e) => {
                               e.currentTarget.style.display = 'none';
@@ -1539,6 +1581,13 @@ function ShopDetailModal({
                       </div>
                     </div>
                   )})}
+                  {progressiveShopModalProducts.length < products.length && (
+                    <div
+                      ref={shopModalGridSentinelRef}
+                      className="col-span-full h-4 w-full shrink-0"
+                      aria-hidden
+                    />
+                  )}
                 </div>
               )}
             </div>

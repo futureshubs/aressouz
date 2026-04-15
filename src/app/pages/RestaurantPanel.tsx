@@ -28,18 +28,26 @@ import {
   RotateCcw,
   Loader2,
   Menu,
+  Armchair,
+  CalendarDays,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
 import { useBodyScrollLock } from '../utils/useBodyScrollLock';
 import {
   clampPlatformCommissionPercentClient,
   platformCommissionHintUz,
   validateVariantCommissionsClient,
 } from '../utils/platformCommission';
+import {
+  diningRoomCapacityRange,
+  diningRoomImageList,
+  formatDiningRoomCapacityLabel,
+} from '../utils/diningRoomClient';
 
 const edgeFnHeaders = {
   Authorization: `Bearer ${publicAnonKey}`,
@@ -53,11 +61,27 @@ export default function RestaurantPanel() {
   const isDark = theme === 'dark';
   
   const [restaurant, setRestaurant] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<'dashboard' | 'orders' | 'dishes' | 'stats' | 'analytics' | 'payment'>('dashboard');
+  const [activeTab, setActiveTab] = useState<
+    'dashboard' | 'orders' | 'dishes' | 'rooms' | 'stats' | 'analytics' | 'payment'
+  >('dashboard');
   const [orders, setOrders] = useState<any[]>([]);
   const [ordersCategory, setOrdersCategory] = useState<'all' | 'new' | 'accepted' | 'completed' | 'cancelled'>('all');
   const [dishes, setDishes] = useState<any[]>([]);
   const [stats, setStats] = useState<any>(null);
+  const [diningRooms, setDiningRooms] = useState<any[]>([]);
+  const [tableBookings, setTableBookings] = useState<any[]>([]);
+  const [newRoomName, setNewRoomName] = useState('');
+  const [newRoomDescription, setNewRoomDescription] = useState('');
+  const [newRoomCapacityMin, setNewRoomCapacityMin] = useState(2);
+  const [newRoomCapacityMax, setNewRoomCapacityMax] = useState(8);
+  const [newRoomIsPaid, setNewRoomIsPaid] = useState(false);
+  const [newRoomPriceUzs, setNewRoomPriceUzs] = useState('');
+  const [newRoomImages, setNewRoomImages] = useState<string[]>([]);
+  const [uploadingRoomImages, setUploadingRoomImages] = useState(false);
+  const [editingRoomId, setEditingRoomId] = useState<string | null>(null);
+  const [roomSaveBusy, setRoomSaveBusy] = useState(false);
+  const [bookingStatusBusyId, setBookingStatusBusyId] = useState<string | null>(null);
+  const [bookingSettingsBusy, setBookingSettingsBusy] = useState(false);
   const [loading, setLoading] = useState(true);
   
   // Add / edit dish modal
@@ -80,18 +104,20 @@ export default function RestaurantPanel() {
   const [uploadProgress, setUploadProgress] = useState<{ [key: string]: number }>({});
   const [orderStatusBusyOrderId, setOrderStatusBusyOrderId] = useState<string | null>(null);
   const [dishToggleBusyId, setDishToggleBusyId] = useState<string | null>(null);
+  const [dishDeleteBusyId, setDishDeleteBusyId] = useState<string | null>(null);
   const [saveDishSubmitting, setSaveDishSubmitting] = useState(false);
   const [paymentRequestBusy, setPaymentRequestBusy] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const restaurantMenuTabs: Array<{
-    id: 'dashboard' | 'orders' | 'dishes' | 'stats' | 'analytics' | 'payment';
+    id: 'dashboard' | 'orders' | 'dishes' | 'rooms' | 'stats' | 'analytics' | 'payment';
     label: string;
     icon: typeof Package;
   }> = [
     { id: 'dashboard', label: 'Dashboard', icon: Package },
     { id: 'orders', label: 'Buyurtmalar', icon: ShoppingCart },
     { id: 'dishes', label: 'Taomlar', icon: ChefHat },
+    { id: 'rooms', label: 'Xonalar / bron', icon: Armchair },
     { id: 'stats', label: 'Statistika', icon: BarChart3 },
     { id: 'analytics', label: 'Data Analitika', icon: TrendingUp },
     { id: 'payment', label: "To'lov qabul qilish", icon: DollarSign },
@@ -125,7 +151,7 @@ export default function RestaurantPanel() {
         { headers: edgeFnHeaders }
       );
       const ordersResult = await ordersResponse.json();
-      if (ordersResult.success) setOrders(ordersResult.data || []);
+      if (ordersResult.success) setOrders(sortOrdersNewestFirst(ordersResult.data || []));
       else console.error('Restoran buyurtmalari:', ordersResult.error || ordersResponse.status);
 
       // Load dishes
@@ -135,6 +161,21 @@ export default function RestaurantPanel() {
       );
       const dishesResult = await dishesResponse.json();
       if (dishesResult.success) setDishes(dishesResult.data || []);
+
+      const [roomsRes, bookingsRes] = await Promise.all([
+        fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/rooms`,
+          { headers: edgeFnHeaders },
+        ),
+        fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/table-bookings`,
+          { headers: edgeFnHeaders },
+        ),
+      ]);
+      const roomsJson = await roomsRes.json();
+      const bookingsJson = await bookingsRes.json();
+      if (roomsJson.success) setDiningRooms(roomsJson.data || []);
+      if (bookingsJson.success) setTableBookings(bookingsJson.data || []);
 
       // Load stats
       const statsResponse = await fetch(
@@ -190,7 +231,7 @@ export default function RestaurantPanel() {
       
       if (result.success) {
         toast.success('Status yangilandi!');
-        loadData(restaurant.id);
+        void loadData(restaurant.id, { silent: true });
       } else {
         toast.error(result?.error || 'Status yangilanmadi');
       }
@@ -296,13 +337,305 @@ export default function RestaurantPanel() {
       
       if (result.success) {
         toast.success(currentStatus ? 'Taom to\'xtatildi' : 'Taom faollashtirildi');
-        loadData(restaurant.id);
+        const next = result.data;
+        if (next && typeof next === 'object' && String(next.id) === String(dishId)) {
+          setDishes((prev) => prev.map((d) => (d.id === dishId ? { ...d, ...next } : d)));
+        } else {
+          setDishes((prev) =>
+            prev.map((d) => (d.id === dishId ? { ...d, isActive: !currentStatus } : d)),
+          );
+        }
+        void loadData(restaurant.id, { silent: true });
       }
     } catch (error) {
       console.error('Toggle status error:', error);
       toast.error('Xatolik yuz berdi!');
     } finally {
       setDishToggleBusyId(null);
+    }
+  };
+
+  const deleteDish = async (dishId: string, dishName: string) => {
+    if (!restaurant?.id) return;
+    const label = (dishName || 'Taom').trim() || 'Taom';
+    const ok = window.confirm(
+      `«${label}» ni o‘chirishni tasdiqlaysizmi? Rasmlar ham o‘chiriladi; qayta tiklab bo‘lmaydi.`,
+    );
+    if (!ok) return;
+    setDishDeleteBusyId(dishId);
+    try {
+      const response = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dishes/${encodeURIComponent(dishId)}`,
+        {
+          method: 'DELETE',
+          headers: { ...edgeFnHeaders },
+        },
+      );
+      const result = await response.json();
+      if (result.success) {
+        toast.success('Taom o‘chirildi');
+        setDishes((prev) => prev.filter((d) => d.id !== dishId));
+        if (editingDishId === dishId) {
+          setShowAddDish(false);
+          setEditingDishId(null);
+          setNewDish(emptyNewDish());
+        }
+        void loadData(restaurant.id, { silent: true });
+      } else {
+        toast.error(typeof result?.error === 'string' ? result.error : 'O‘chirish amalga oshmadi');
+      }
+    } catch (error) {
+      console.error('Delete dish error:', error);
+      toast.error('Xatolik yuz berdi!');
+    } finally {
+      setDishDeleteBusyId(null);
+    }
+  };
+
+  const reloadRoomsFromServer = async (restaurantId: string) => {
+    const rid = encodeURIComponent(restaurantId);
+    const [roomsRes, bookingsRes] = await Promise.all([
+      fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/rooms`,
+        { headers: edgeFnHeaders },
+      ),
+      fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/table-bookings`,
+        { headers: edgeFnHeaders },
+      ),
+    ]);
+    const roomsJson = await roomsRes.json();
+    const bookingsJson = await bookingsRes.json();
+    if (roomsJson.success) setDiningRooms(roomsJson.data || []);
+    if (bookingsJson.success) setTableBookings(bookingsJson.data || []);
+  };
+
+  const resetRoomForm = () => {
+    setNewRoomName('');
+    setNewRoomDescription('');
+    setNewRoomCapacityMin(2);
+    setNewRoomCapacityMax(8);
+    setNewRoomIsPaid(false);
+    setNewRoomPriceUzs('');
+    setNewRoomImages([]);
+    setEditingRoomId(null);
+  };
+
+  const beginEditDiningRoom = (room: any) => {
+    const { min, max } = diningRoomCapacityRange(room);
+    setEditingRoomId(String(room.id));
+    setNewRoomName(String(room.name || ''));
+    setNewRoomDescription(String(room.description || ''));
+    setNewRoomCapacityMin(min);
+    setNewRoomCapacityMax(max);
+    const paid = Boolean(room.isPaidRoom) && Number(room.priceUzs) > 0;
+    setNewRoomIsPaid(paid);
+    setNewRoomPriceUzs(paid ? String(Math.floor(Number(room.priceUzs) || 0)) : '');
+    setNewRoomImages(diningRoomImageList(room));
+  };
+
+  const saveDiningRoomPanel = async () => {
+    if (!restaurant?.id || !newRoomName.trim()) {
+      toast.error('Xona nomini kiriting');
+      return;
+    }
+    let capMin = Math.max(1, Math.min(200, Math.floor(Number(newRoomCapacityMin) || 1)));
+    let capMax = Math.max(1, Math.min(200, Math.floor(Number(newRoomCapacityMax) || 4)));
+    if (capMin > capMax) {
+      const t = capMin;
+      capMin = capMax;
+      capMax = t;
+    }
+    if (newRoomIsPaid) {
+      const p = Math.floor(Number(String(newRoomPriceUzs).replace(/\s/g, '')) || 0);
+      if (p <= 0) {
+        toast.error('Pulik xona uchun narx (so‘m) kiriting');
+        return;
+      }
+    }
+    if (newRoomImages.length < 2 || newRoomImages.length > 4) {
+      toast.error('2 dan 4 tagacha rasm yuklang');
+      return;
+    }
+    setRoomSaveBusy(true);
+    try {
+      const rid = encodeURIComponent(restaurant.id);
+      const payload = {
+        name: newRoomName.trim(),
+        description: newRoomDescription.trim(),
+        capacity: capMax,
+        capacityMin: capMin,
+        capacityMax: capMax,
+        isPaidRoom: newRoomIsPaid,
+        priceUzs: newRoomIsPaid ? Math.floor(Number(String(newRoomPriceUzs).replace(/\s/g, '')) || 0) : 0,
+        images: newRoomImages,
+      };
+      const res = editingRoomId
+        ? await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dining-rooms/${encodeURIComponent(editingRoomId)}`,
+            {
+              method: 'PUT',
+              headers: { 'Content-Type': 'application/json', ...edgeFnHeaders },
+              body: JSON.stringify(payload),
+            },
+          )
+        : await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/rooms`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', ...edgeFnHeaders },
+              body: JSON.stringify(payload),
+            },
+          );
+      const j = await res.json();
+      if (j.success) {
+        toast.success(editingRoomId ? 'Xona yangilandi' : 'Xona qo‘shildi');
+        resetRoomForm();
+        await reloadRoomsFromServer(restaurant.id);
+      } else {
+        toast.error(j.error || 'Xatolik');
+      }
+    } catch {
+      toast.error('Tarmoq xatolik');
+    } finally {
+      setRoomSaveBusy(false);
+    }
+  };
+
+  const uploadRoomImages = async (files: FileList | File[]) => {
+    setUploadingRoomImages(true);
+    const uploadedUrls: string[] = [];
+    try {
+      const filesArray = Array.from(files);
+      const remaining = 4 - newRoomImages.length;
+      if (remaining <= 0) {
+        toast.error('Maksimal 4 ta rasm');
+        return;
+      }
+      const slice = filesArray.slice(0, remaining);
+      for (const file of slice) {
+        const formData = new FormData();
+        formData.append('file', file);
+        try {
+          const response = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/public/upload`,
+            { method: 'POST', headers: edgeFnHeaders, body: formData },
+          );
+          const result = await response.json();
+          if (result.success && result.url) uploadedUrls.push(result.url);
+          else toast.error(`${file.name}: ${result.error || 'Xatolik'}`);
+        } catch {
+          toast.error(`${file.name} yuklanmadi`);
+        }
+      }
+      if (uploadedUrls.length > 0) {
+        setNewRoomImages((prev) => [...prev, ...uploadedUrls].slice(0, 4));
+        toast.success(`${uploadedUrls.length} ta rasm yuklandi`);
+      }
+    } finally {
+      setUploadingRoomImages(false);
+    }
+  };
+
+  const deleteDiningRoomPanel = async (roomId: string) => {
+    if (!confirm('Xonani o‘chirishni tasdiqlaysizmi?')) return;
+    if (!restaurant?.id) return;
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dining-rooms/${encodeURIComponent(roomId)}`,
+        { method: 'DELETE', headers: edgeFnHeaders },
+      );
+      const j = await res.json();
+      if (j.success) {
+        toast.success('Xona o‘chirildi');
+        await reloadRoomsFromServer(restaurant.id);
+      } else {
+        toast.error(j.error || 'Xatolik');
+      }
+    } catch {
+      toast.error('Tarmoq xatolik');
+    }
+  };
+
+  const toggleDiningRoomPanel = async (room: any) => {
+    if (!restaurant?.id) return;
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/dining-rooms/${encodeURIComponent(room.id)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...edgeFnHeaders },
+          body: JSON.stringify({ isActive: !room.isActive }),
+        },
+      );
+      const j = await res.json();
+      if (j.success) {
+        toast.success(room.isActive ? 'Xona mijozdan yashirildi' : 'Xona faollashtirildi');
+        await reloadRoomsFromServer(restaurant.id);
+      }
+    } catch {
+      toast.error('Xatolik');
+    }
+  };
+
+  const patchBookingPanel = async (bookingId: string, status: string) => {
+    if (!restaurant?.id) return;
+    setBookingStatusBusyId(bookingId);
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/table-bookings/${encodeURIComponent(bookingId)}/status`,
+        {
+          method: 'PATCH',
+          headers: { 'Content-Type': 'application/json', ...edgeFnHeaders },
+          body: JSON.stringify({ status }),
+        },
+      );
+      const j = await res.json();
+      if (j.success) {
+        toast.success('Bron yangilandi');
+        await reloadRoomsFromServer(restaurant.id);
+      } else {
+        toast.error(j.error || 'Xatolik');
+      }
+    } catch {
+      toast.error('Tarmoq xatolik');
+    } finally {
+      setBookingStatusBusyId(null);
+    }
+  };
+
+  const setRestaurantPublicTableBooking = async (enabled: boolean) => {
+    if (!restaurant?.id) return;
+    setBookingSettingsBusy(true);
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${encodeURIComponent(restaurant.id)}`,
+        {
+          method: 'PUT',
+          headers: { 'Content-Type': 'application/json', ...edgeFnHeaders },
+          body: JSON.stringify({ publicTableBookingEnabled: enabled }),
+        },
+      );
+      const j = await res.json();
+      if (j.success && j.data) {
+        setRestaurant(j.data);
+        try {
+          localStorage.setItem('restaurantSession', JSON.stringify(j.data));
+        } catch {
+          /* ignore */
+        }
+        toast.success(
+          enabled
+            ? 'Mijozlar joy bron qila oladi'
+            : 'Onlayn joy bron o‘chirildi — mijozlar yangi so‘rov yubora olmaydi',
+        );
+      } else {
+        toast.error(j.error || 'Saqlanmadi');
+      }
+    } catch {
+      toast.error('Tarmoq xatolik');
+    } finally {
+      setBookingSettingsBusy(false);
     }
   };
 
@@ -432,7 +765,7 @@ export default function RestaurantPanel() {
         setShowAddDish(false);
         setEditingDishId(null);
         setNewDish(emptyNewDish());
-        loadData(restaurant.id);
+        void loadData(restaurant.id, { silent: true });
       } else {
         toast.error(result.error || 'Xatolik yuz berdi!');
       }
@@ -468,7 +801,7 @@ export default function RestaurantPanel() {
       
       if (result.success) {
         toast.success('To\'lov so\'rovi yuborildi! 24 soat ichida tekshiriladi.');
-        loadData(restaurant.id);
+        void loadData(restaurant.id, { silent: true });
       } else {
         toast.error(result.error || 'Xatolik yuz berdi!');
       }
@@ -584,7 +917,7 @@ export default function RestaurantPanel() {
       >
         <div className="text-center">
           <div className="inline-block w-12 h-12 border-4 border-t-transparent rounded-full animate-spin mb-4" style={{ borderColor: `${accentColor.color}40`, borderTopColor: accentColor.color }} />
-          <p>Yuklanmoqda...</p>
+          <p></p>
         </div>
       </div>
     );
@@ -664,7 +997,7 @@ export default function RestaurantPanel() {
       {/* Chap menyu — mobil (hamburger) */}
       {sidebarOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-50 app-modal-overlay"
+          className="lg:hidden fixed inset-0 app-safe-pad z-50 app-modal-overlay"
           style={{ background: 'rgba(0, 0, 0, 0.5)' }}
           onClick={() => setSidebarOpen(false)}
           role="presentation"
@@ -1144,16 +1477,18 @@ export default function RestaurantPanel() {
               {dishes.map(dish => (
                 <div
                   key={dish.id}
-                  className="rounded-2xl overflow-hidden"
+                  data-restaurant-dish-card="1"
+                  className="rounded-2xl flex flex-col"
                   style={{
+                    overflow: 'visible',
                     background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
                     border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
                     opacity: dish.isActive ? 1 : 0.5
                   }}
                 >
-                  <div className="relative h-48">
+                  <div className="relative h-48 shrink-0 overflow-hidden rounded-t-2xl">
                     <img src={dish.image} alt={dish.name} className="w-full h-full object-cover" />
-                    <div className="absolute top-2 right-2 flex items-center gap-2">
+                    <div className="absolute top-2 right-2 z-20 flex flex-wrap items-center justify-end gap-2 max-w-[85%]">
                       {dish.isPopular && (
                         <span className="px-2 py-1 rounded-lg text-xs font-bold" style={{ background: '#f59e0b', color: '#ffffff' }}>
                           <Star className="w-3 h-3 inline mr-1" />
@@ -1168,14 +1503,14 @@ export default function RestaurantPanel() {
                       )}
                     </div>
                   </div>
-                  <div className="p-4">
+                  <div className="p-4 overflow-visible shrink-0">
                     <h3 className="font-bold text-lg mb-2">{dish.name}</h3>
                     {dish.kcal && (
                       <p className="text-sm mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
                         🔥 {dish.kcal} kcal
                       </p>
                     )}
-                    <div className="flex flex-col gap-2">
+                    <div className="flex flex-col gap-2 w-full">
                       <button
                         type="button"
                         onClick={() => {
@@ -1183,36 +1518,458 @@ export default function RestaurantPanel() {
                           setNewDish(dishToForm(dish));
                           setShowAddDish(true);
                         }}
-                        className="w-full px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2"
+                        className="w-full px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2"
                         style={{
                           background: `${accentColor.color}22`,
                           color: accentColor.color,
                         }}
                       >
-                        <Edit2 className="w-4 h-4" />
+                        <Edit2 className="w-4 h-4 shrink-0" />
                         Tahrirlash
                       </button>
                       <button
                         type="button"
                         onClick={() => toggleDishStatus(dish.id, dish.isActive)}
-                        disabled={dishToggleBusyId === dish.id}
-                        className="w-full px-4 py-2 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                        disabled={dishToggleBusyId === dish.id || dishDeleteBusyId === dish.id}
+                        className="w-full px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                         style={{
                           background: dish.isActive ? 'rgba(239, 68, 68, 0.2)' : 'rgba(16, 185, 129, 0.2)',
                           color: dish.isActive ? '#ef4444' : '#10b981'
                         }}
                       >
                         {dishToggleBusyId === dish.id ? (
-                          <Loader2 className="w-4 h-4 animate-spin" />
+                          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
                         ) : (
-                          <Power className="w-4 h-4" />
+                          <Power className="w-4 h-4 shrink-0" />
                         )}
                         {dish.isActive ? 'Stop' : 'Faol'}
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => void deleteDish(dish.id, dish.name)}
+                        disabled={dishDeleteBusyId === dish.id || dishToggleBusyId === dish.id}
+                        className="w-full px-4 py-2.5 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed border"
+                        style={{
+                          background: isDark ? 'rgba(239, 68, 68, 0.2)' : 'rgba(239, 68, 68, 0.12)',
+                          color: isDark ? '#fecaca' : '#b91c1c',
+                          borderColor: isDark ? 'rgba(248, 113, 113, 0.45)' : 'rgba(239, 68, 68, 0.35)',
+                        }}
+                      >
+                        {dishDeleteBusyId === dish.id ? (
+                          <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                        ) : (
+                          <Trash2 className="w-4 h-4 shrink-0" />
+                        )}
+                        O‘chirish
                       </button>
                     </div>
                   </div>
                 </div>
               ))}
+            </div>
+          </div>
+        )}
+
+        {/* XONALAR / BRON */}
+        {activeTab === 'rooms' && restaurant?.id && (
+          <div className="space-y-6">
+            <div
+              className="p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4"
+              style={{
+                background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              }}
+            >
+              <div className="min-w-0">
+                <h3 className="font-bold text-lg mb-1">Onlayn joy bron (mijozlar)</h3>
+                <p className="text-sm opacity-75">
+                  O‘chirilsa, ilovada «Joy bron qilish» yo‘qoladi; restoran panelida bronlarni ko‘rish va
+                  holatini boshqarish davom etadi.
+                </p>
+                <p className="text-xs mt-2 font-semibold" style={{ color: accentColor.color }}>
+                  Holat: {restaurant?.publicTableBookingEnabled === false ? 'o‘chirilgan' : 'yoqilgan'}
+                </p>
+              </div>
+              <button
+                type="button"
+                disabled={bookingSettingsBusy}
+                onClick={() =>
+                  void setRestaurantPublicTableBooking(restaurant?.publicTableBookingEnabled === false)
+                }
+                className="px-5 py-2.5 rounded-xl font-bold text-sm shrink-0 flex items-center justify-center gap-2 disabled:opacity-50 min-w-[8rem]"
+                style={{
+                  background:
+                    restaurant?.publicTableBookingEnabled === false
+                      ? 'rgba(16,185,129,0.2)'
+                      : 'rgba(239,68,68,0.15)',
+                  color: restaurant?.publicTableBookingEnabled === false ? '#10b981' : '#ef4444',
+                }}
+              >
+                {bookingSettingsBusy ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : restaurant?.publicTableBookingEnabled === false ? (
+                  'Yoqish'
+                ) : (
+                  'O‘chirish'
+                )}
+              </button>
+            </div>
+
+            <div
+              className="p-4 rounded-2xl border space-y-4"
+              style={{
+                background: isDark ? 'rgba(255,255,255,0.04)' : '#fafafa',
+                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              }}
+            >
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <h3 className="font-bold text-base">
+                  {editingRoomId ? 'Xonani tahrirlash' : 'Yangi xona'}
+                </h3>
+                {editingRoomId ? (
+                  <button
+                    type="button"
+                    onClick={() => resetRoomForm()}
+                    className="text-xs font-semibold px-3 py-1.5 rounded-lg border"
+                    style={{
+                      borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)',
+                      color: isDark ? 'rgba(255,255,255,0.85)' : '#111',
+                    }}
+                  >
+                    Bekor qilish
+                  </button>
+                ) : null}
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-semibold block mb-1 opacity-70">Xona nomi *</label>
+                  <input
+                    value={newRoomName}
+                    onChange={(e) => setNewRoomName(e.target.value)}
+                    placeholder="Masalan: VIP, Terrasa"
+                    className="w-full px-4 py-3 rounded-xl outline-none"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                      color: isDark ? '#fff' : '#111',
+                    }}
+                  />
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-semibold block mb-1 opacity-70">Qisqa tavsif (ixtiyoriy)</label>
+                  <textarea
+                    value={newRoomDescription}
+                    onChange={(e) => setNewRoomDescription(e.target.value)}
+                    rows={2}
+                    placeholder="Mijozga ko‘rinadigan qisqa matn"
+                    className="w-full px-4 py-3 rounded-xl outline-none resize-none"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                      color: isDark ? '#fff' : '#111',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold block mb-1 opacity-70">Min. sig‘im (kishi) *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={newRoomCapacityMin}
+                    onChange={(e) =>
+                      setNewRoomCapacityMin(Math.max(1, Math.min(200, Number(e.target.value) || 1)))
+                    }
+                    className="w-full px-4 py-3 rounded-xl outline-none"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                      color: isDark ? '#fff' : '#111',
+                    }}
+                  />
+                </div>
+                <div>
+                  <label className="text-xs font-semibold block mb-1 opacity-70">Max. sig‘im (kishi) *</label>
+                  <input
+                    type="number"
+                    min={1}
+                    max={200}
+                    value={newRoomCapacityMax}
+                    onChange={(e) =>
+                      setNewRoomCapacityMax(Math.max(1, Math.min(200, Number(e.target.value) || 4)))
+                    }
+                    className="w-full px-4 py-3 rounded-xl outline-none"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
+                      border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                      color: isDark ? '#fff' : '#111',
+                    }}
+                  />
+                </div>
+                <div className="sm:col-span-2 flex flex-wrap items-center gap-4">
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={newRoomIsPaid}
+                      onChange={(e) => {
+                        setNewRoomIsPaid(e.target.checked);
+                        if (!e.target.checked) setNewRoomPriceUzs('');
+                      }}
+                      className="rounded border"
+                    />
+                    <span>Pulik xona (bron uchun alohida narx)</span>
+                  </label>
+                  {newRoomIsPaid ? (
+                    <div className="flex-1 min-w-[140px] max-w-xs">
+                      <label className="text-xs font-semibold block mb-1 opacity-70">Narx (so‘m) *</label>
+                      <input
+                        type="number"
+                        min={0}
+                        value={newRoomPriceUzs}
+                        onChange={(e) => setNewRoomPriceUzs(e.target.value)}
+                        placeholder="Masalan: 500000"
+                        className="w-full px-4 py-3 rounded-xl outline-none"
+                        style={{
+                          background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
+                          border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                          color: isDark ? '#fff' : '#111',
+                        }}
+                      />
+                    </div>
+                  ) : null}
+                </div>
+                <div className="sm:col-span-2">
+                  <label className="text-xs font-semibold block mb-1 opacity-70">
+                    Rasmlar * (2–4 ta, taomlar kabi yuklash)
+                  </label>
+                  <label
+                    className="w-full px-4 py-3 rounded-xl cursor-pointer flex items-center justify-center gap-2 border-2 border-dashed"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                      borderColor: uploadingRoomImages ? accentColor.color : (isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.15)'),
+                    }}
+                  >
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      className="hidden"
+                      disabled={uploadingRoomImages || newRoomImages.length >= 4}
+                      onChange={(e) => {
+                        if (e.target.files?.length) {
+                          const left = 4 - newRoomImages.length;
+                          if (e.target.files.length > left) {
+                            toast.error(`Yana maksimal ${left} ta rasm qo‘shishingiz mumkin`);
+                            return;
+                          }
+                          void uploadRoomImages(e.target.files);
+                        }
+                      }}
+                    />
+                    {uploadingRoomImages ? (
+                      <Loader2 className="w-5 h-5 animate-spin" style={{ color: accentColor.color }} />
+                    ) : (
+                      <Upload className="w-5 h-5" style={{ color: accentColor.color }} />
+                    )}
+                    <span className="text-sm">Yuklash ({newRoomImages.length}/4)</span>
+                  </label>
+                  {newRoomImages.length > 0 ? (
+                    <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 mt-3">
+                      {newRoomImages.map((url, idx) => (
+                        <div key={url + idx} className="relative rounded-xl overflow-hidden border" style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}>
+                          <img src={url} alt="" className="w-full h-24 object-cover" />
+                          <button
+                            type="button"
+                            onClick={() => setNewRoomImages((prev) => prev.filter((_, i) => i !== idx))}
+                            className="absolute top-1 right-1 w-7 h-7 rounded-full flex items-center justify-center"
+                            style={{ background: 'rgba(239,68,68,0.95)', color: '#fff' }}
+                            aria-label="O‘chirish"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => void saveDiningRoomPanel()}
+                disabled={roomSaveBusy}
+                className="px-6 py-3 rounded-xl font-bold flex items-center gap-2 disabled:opacity-50"
+                style={{ background: accentColor.color, color: '#fff' }}
+              >
+                {roomSaveBusy ? <Loader2 className="w-5 h-5 animate-spin" /> : editingRoomId ? <Edit2 className="w-5 h-5" /> : <Plus className="w-5 h-5" />}
+                {editingRoomId ? 'Saqlash' : 'Qo‘shish'}
+              </button>
+            </div>
+
+            <div>
+              <h2 className="text-xl font-bold mb-3">Xonalar</h2>
+              {diningRooms.length === 0 ? (
+                <p className="text-sm opacity-70">Xonalar yo‘q. Mijoz ilovasida joy bron paydo bo‘lishi uchun qo‘shing.</p>
+              ) : (
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+                  {diningRooms.map((room) => {
+                    const imgs = diningRoomImageList(room);
+                    const capLabel = formatDiningRoomCapacityLabel(room);
+                    const paid = Boolean(room.isPaidRoom) && Number(room.priceUzs) > 0;
+                    return (
+                      <div
+                        key={room.id}
+                        className="rounded-2xl border overflow-hidden"
+                        style={{
+                          background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                          opacity: room.isActive === false ? 0.55 : 1,
+                        }}
+                      >
+                        <div className="relative h-36 bg-black/10">
+                          {imgs[0] ? (
+                            <img src={imgs[0]} alt="" className="w-full h-full object-cover" />
+                          ) : (
+                            <div className="w-full h-full flex items-center justify-center text-sm opacity-50">
+                              Rasm yo‘q
+                            </div>
+                          )}
+                          {imgs.length > 1 ? (
+                            <div className="absolute bottom-2 right-2 flex gap-1">
+                              {imgs.slice(0, 4).map((u, i) => (
+                                <div
+                                  key={u + i}
+                                  className="w-7 h-7 rounded-md border-2 overflow-hidden shrink-0"
+                                  style={{
+                                    borderColor: i === 0 ? accentColor.color : 'rgba(255,255,255,0.6)',
+                                  }}
+                                >
+                                  <img src={u} alt="" className="w-full h-full object-cover" />
+                                </div>
+                              ))}
+                            </div>
+                          ) : null}
+                        </div>
+                        <div className="p-4">
+                          <p className="font-bold">{room.name}</p>
+                          <p className="text-sm opacity-70 mt-0.5">{capLabel}</p>
+                          {paid ? (
+                            <p className="text-sm font-semibold mt-1" style={{ color: accentColor.color }}>
+                              {Number(room.priceUzs).toLocaleString('uz-UZ')} so‘m
+                            </p>
+                          ) : (
+                            <p className="text-xs opacity-60 mt-1">Bepul / bron narxi yo‘q</p>
+                          )}
+                          {room.description ? (
+                            <p className="text-xs mt-2 line-clamp-2 opacity-75">{room.description}</p>
+                          ) : null}
+                          <div className="flex flex-wrap gap-2 mt-3">
+                            <button
+                              type="button"
+                              onClick={() => beginEditDiningRoom(room)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                              style={{ background: `${accentColor.color}22`, color: accentColor.color }}
+                            >
+                              Tahrirlash
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void toggleDiningRoomPanel(room)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                              style={{
+                                background: room.isActive ? 'rgba(239,68,68,0.15)' : 'rgba(16,185,129,0.15)',
+                                color: room.isActive ? '#ef4444' : '#10b981',
+                              }}
+                            >
+                              {room.isActive ? 'To‘xtatish' : 'Faol'}
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void deleteDiningRoomPanel(room.id)}
+                              className="px-3 py-1.5 rounded-lg text-xs font-bold"
+                              style={{ background: 'rgba(239,68,68,0.12)', color: '#ef4444' }}
+                            >
+                              O‘chirish
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
+            </div>
+
+            <div>
+              <h2 className="text-xl font-bold mb-3 flex items-center gap-2">
+                <CalendarDays className="w-5 h-5" style={{ color: accentColor.color }} />
+                Bronlar
+              </h2>
+              {tableBookings.length === 0 ? (
+                <p className="text-sm opacity-70">Bronlar yo‘q.</p>
+              ) : (
+                <div className="space-y-2">
+                  {tableBookings.map((b) => {
+                    const st = String(b.status || 'pending').toLowerCase();
+                    return (
+                      <div
+                        key={b.id}
+                        className="p-4 rounded-2xl border flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3"
+                        style={{
+                          background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                        }}
+                      >
+                        <div className="min-w-0">
+                          <p className="font-bold">
+                            {b.roomName} · {b.bookingDate} {b.bookingTime}
+                          </p>
+                          <p className="text-sm opacity-80">
+                            {b.customerName} — {b.customerPhone} ({b.partySize})
+                          </p>
+                          <p className="text-xs mt-1 font-semibold uppercase" style={{ color: accentColor.color }}>
+                            {st}
+                          </p>
+                        </div>
+                        <div className="flex flex-wrap gap-2 shrink-0">
+                          {st === 'pending' && (
+                            <>
+                              <button
+                                type="button"
+                                disabled={bookingStatusBusyId === b.id}
+                                onClick={() => void patchBookingPanel(b.id, 'confirmed')}
+                                className="px-3 py-2 rounded-xl text-xs font-bold disabled:opacity-50"
+                                style={{ background: 'rgba(16,185,129,0.2)', color: '#10b981' }}
+                              >
+                                Tasdiqlash
+                              </button>
+                              <button
+                                type="button"
+                                disabled={bookingStatusBusyId === b.id}
+                                onClick={() => void patchBookingPanel(b.id, 'rejected')}
+                                className="px-3 py-2 rounded-xl text-xs font-bold disabled:opacity-50"
+                                style={{ background: 'rgba(239,68,68,0.15)', color: '#ef4444' }}
+                              >
+                                Rad
+                              </button>
+                            </>
+                          )}
+                          {(st === 'confirmed' || st === 'pending') && (
+                            <button
+                              type="button"
+                              disabled={bookingStatusBusyId === b.id}
+                              onClick={() => void patchBookingPanel(b.id, 'cancelled')}
+                              className="px-3 py-2 rounded-xl text-xs font-bold disabled:opacity-50"
+                              style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+                            >
+                              Bekor
+                            </button>
+                          )}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              )}
             </div>
           </div>
         )}
@@ -1536,7 +2293,7 @@ export default function RestaurantPanel() {
                   {uploadingImages ? (
                     <>
                       <div className="w-5 h-5 border-2 border-t-transparent rounded-full animate-spin" style={{ borderColor: accentColor.color, borderTopColor: 'transparent' }} />
-                      <span>Yuklanmoqda...</span>
+                      <span></span>
                     </>
                   ) : (
                     <>
@@ -1875,27 +2632,56 @@ export default function RestaurantPanel() {
               </div>
 
               {/* Actions */}
-              <div className="flex items-center gap-3 pt-4">
-                <button
-                  type="button"
-                  onClick={closeAddDishModal}
-                  className="flex-1 px-4 py-3 rounded-xl font-bold"
-                  style={{
-                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)'
-                  }}
-                >
-                  Bekor qilish
-                </button>
-                <button
-                  type="button"
-                  onClick={saveDish}
-                  disabled={saveDishSubmitting || uploadingImages}
-                  className="flex-1 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
-                  style={{ background: accentColor.color, color: '#ffffff' }}
-                >
-                  {saveDishSubmitting && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
-                  Saqlash
-                </button>
+              <div className="flex flex-col gap-3 pt-4">
+                <div className="flex items-center gap-3">
+                  <button
+                    type="button"
+                    onClick={closeAddDishModal}
+                    disabled={Boolean(dishDeleteBusyId && editingDishId === dishDeleteBusyId)}
+                    className="flex-1 px-4 py-3 rounded-xl font-bold disabled:opacity-50"
+                    style={{
+                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                    }}
+                  >
+                    Bekor qilish
+                  </button>
+                  <button
+                    type="button"
+                    onClick={saveDish}
+                    disabled={
+                      saveDishSubmitting ||
+                      uploadingImages ||
+                      (Boolean(editingDishId) && dishDeleteBusyId === editingDishId)
+                    }
+                    className="flex-1 px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{ background: accentColor.color, color: '#ffffff' }}
+                  >
+                    {saveDishSubmitting && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
+                    Saqlash
+                  </button>
+                </div>
+                {editingDishId ? (
+                  <button
+                    type="button"
+                    onClick={() => void deleteDish(editingDishId, newDish.name)}
+                    disabled={
+                      saveDishSubmitting || uploadingImages || dishDeleteBusyId === editingDishId
+                    }
+                    className="w-full px-4 py-3 rounded-xl font-bold flex items-center justify-center gap-2 border disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{
+                      background: isDark ? 'rgba(239, 68, 68, 0.12)' : 'rgba(239, 68, 68, 0.08)',
+                      color: '#ef4444',
+                      borderColor: isDark ? 'rgba(239, 68, 68, 0.35)' : 'rgba(239, 68, 68, 0.25)',
+                    }}
+                  >
+                    {dishDeleteBusyId === editingDishId ? (
+                      <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                    ) : (
+                      <Trash2 className="w-5 h-5 shrink-0" />
+                    )}
+                    Taomni o‘chirish
+                  </button>
+                ) : null}
               </div>
             </div>
           </div>

@@ -131,7 +131,7 @@ export function RentalApplicationsView({ branchId }: { branchId: string }) {
                }}
           />
           <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-            Yuklanmoqda...
+            
           </p>
         </div>
       </div>

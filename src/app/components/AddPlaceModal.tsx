@@ -312,7 +312,7 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 app-safe-pad z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       style={{
         background: isDark 
           ? 'rgba(0, 0, 0, 0.7)' 
@@ -399,7 +399,7 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
               >
                 <div className="flex items-center justify-between text-sm font-semibold">
                   <span style={{ color: isDark ? '#fff' : '#111827' }}>
-                    {isUploading ? 'Yuklanmoqda…' : 'Tayyor'}
+                    {isUploading ? '' : 'Tayyor'}
                   </span>
                   <span style={{ color: accentColor.color }}>{overallPct}%</span>
                 </div>
@@ -971,7 +971,7 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
             }}
           >
             {loading && <Loader2 className="w-6 h-6 animate-spin shrink-0" />}
-            {loading ? 'Yuklanmoqda...' : 'Qo\'shish'}
+            {loading ? '' : 'Qo\'shish'}
           </button>
         </form>
       </div>

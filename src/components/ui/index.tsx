@@ -548,10 +548,9 @@ export const Spinner = forwardRef<HTMLDivElement, SpinnerProps>(
           colorClasses[color],
           className
         )}
+        aria-hidden
         {...props}
-      >
-        <span className="sr-only">Loading...</span>
-      </div>
+      />
     );
   }
 );
@@ -631,7 +630,7 @@ export const Modal: React.FC<ModalProps> = ({
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center">
+    <div className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center">
       {/* Overlay */}
       <div
         className="absolute inset-0 bg-black/50"

@@ -373,7 +373,7 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
 
       {modal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.55)' }}
           onClick={() => {
             if (!submitBusy) setModal(false);
@@ -450,7 +450,7 @@ export function AutoCouriers({ branchId }: AutoCouriersProps) {
                   style={{ background: accentColor.color, color: '#fff' }}
                 >
                   {submitBusy && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
-                  {submitBusy ? 'Saqlanmoqda...' : 'Saqlash'}
+                  {submitBusy ? '' : 'Saqlash'}
                 </button>
               </div>
             </form>

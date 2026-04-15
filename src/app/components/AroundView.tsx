@@ -401,7 +401,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                           <div className="animate-spin rounded-full h-4 w-4 border-2 border-t-transparent"
                             style={{ borderColor: `${accentColor.color}44`, borderTopColor: 'transparent' }}
                           />
-                          <span className="text-sm">Yuklanmoqda...</span>
+                          <span className="text-sm"></span>
                         </div>
                       </div>
                     )}

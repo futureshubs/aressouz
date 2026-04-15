@@ -148,7 +148,7 @@ export function VideoUpload({
         {uploading ? (
           <div className="flex flex-col items-center gap-3">
             <Loader2 className="w-12 h-12 text-[var(--accent-color)] animate-spin" />
-            <p className="text-white/60">Video yuklanmoqda...</p>
+            <p className="text-white/60"></p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-3">

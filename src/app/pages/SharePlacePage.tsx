@@ -65,7 +65,7 @@ export function SharePlacePage() {
   if (loading) {
     return (
       <div className={`flex min-h-screen flex-col items-center justify-center gap-4 app-safe-pad ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}>
-        <Loader2 className="h-10 w-10 shrink-0 animate-spin text-[#14b8a6]" aria-label="Yuklanmoqda" />
+        <Loader2 className="h-10 w-10 shrink-0 animate-spin text-[#14b8a6]" aria-hidden />
         <PlaceDetailPageSkeleton isDark={isDark} />
       </div>
     );

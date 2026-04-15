@@ -18,7 +18,7 @@ export function PlaceActionModal({ isOpen, onClose, place, onEdit, onDelete }: P
 
   return (
     <div 
-      className="fixed inset-0 z-[60] flex items-end sm:items-center justify-center"
+      className="fixed inset-0 app-safe-pad z-[60] flex items-end sm:items-center justify-center"
       style={{
         background: 'rgba(0, 0, 0, 0.8)',
         backdropFilter: 'blur(12px)',

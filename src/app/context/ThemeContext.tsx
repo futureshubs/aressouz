@@ -12,6 +12,7 @@ import { Toaster } from 'sonner';
 import { getUserId } from '../utils/userId';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { AUTH_SESSION_CHANGED_EVENT } from '../utils/authSessionEvents';
 
 /**
  * Tema: `themePreference` localStorage + serverda (`system` | `light` | `dark`).
@@ -36,20 +37,32 @@ export type ThemeMode = 'light' | 'dark';
 export type ThemePreference = 'light' | 'dark' | 'system';
 export type Language = 'uz' | 'ru' | 'en';
 
+function normalizeThemePreference(value: unknown): ThemePreference | null {
+  const s = String(value ?? '')
+    .trim()
+    .toLowerCase();
+  if (s === 'light' || s === 'dark' || s === 'system') return s;
+  return null;
+}
+
 function readThemePreferenceLs(): ThemePreference {
   try {
-    const saved = localStorage.getItem('theme');
-    if (saved === 'light' || saved === 'dark' || saved === 'system') return saved;
+    const saved = normalizeThemePreference(localStorage.getItem('theme'));
+    if (saved) return saved;
   } catch {
     /* ignore */
   }
   return 'system';
 }
 
+/** `prefers-color-scheme: light` aniq bo‘lsa — kun; aks holda `dark` so‘rovi (no-preference → yorug‘) */
 function readSystemPrefersDark(): boolean {
   if (typeof window === 'undefined') return false;
   try {
-    return window.matchMedia('(prefers-color-scheme: dark)').matches;
+    const prefersLight = window.matchMedia('(prefers-color-scheme: light)');
+    if (prefersLight.matches) return false;
+    const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+    return prefersDark.matches;
   } catch {
     return false;
   }
@@ -107,25 +120,75 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     } catch {
       /* ignore */
     }
+    try {
+      const sms = localStorage.getItem('sms_user');
+      if (sms) {
+        const parsed = JSON.parse(sms) as { id?: string };
+        if (parsed?.id) return getUserId(String(parsed.id));
+      }
+    } catch {
+      /* ignore */
+    }
     return 'anonymous';
   };
   
   const userId = getUserIdFromStorage();
   const visibilityRefetchTick = useVisibilityTick();
+  const [authSessionTick, setAuthSessionTick] = useState(0);
+
+  useEffect(() => {
+    const bump = () => setAuthSessionTick((n) => n + 1);
+    window.addEventListener(AUTH_SESSION_CHANGED_EVENT, bump);
+    return () => window.removeEventListener(AUTH_SESSION_CHANGED_EVENT, bump);
+  }, []);
 
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>(readThemePreferenceLs);
   const [systemIsDark, setSystemIsDark] = useState<boolean>(readSystemPrefersDark);
 
   useEffect(() => {
-    const mq = window.matchMedia('(prefers-color-scheme: dark)');
-    const onChange = () => setSystemIsDark(mq.matches);
-    if (typeof mq.addEventListener === 'function') {
-      mq.addEventListener('change', onChange);
-      return () => mq.removeEventListener('change', onChange);
+    if (typeof window === 'undefined') return;
+    const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
+    const mqLight = window.matchMedia('(prefers-color-scheme: light)');
+    const sync = () => setSystemIsDark(readSystemPrefersDark());
+    sync();
+    const onChange = () => sync();
+    if (typeof mqDark.addEventListener === 'function') {
+      mqDark.addEventListener('change', onChange);
+      mqLight.addEventListener('change', onChange);
+      return () => {
+        mqDark.removeEventListener('change', onChange);
+        mqLight.removeEventListener('change', onChange);
+      };
     }
-    mq.addListener(onChange);
-    return () => mq.removeListener(onChange);
+    mqDark.addListener(onChange);
+    mqLight.addListener(onChange);
+    return () => {
+      mqDark.removeListener(onChange);
+      mqLight.removeListener(onChange);
+    };
   }, []);
+
+  /** `system` rejimida: OS / oyna o‘lchami / WebView kechikishi — qayta o‘qish */
+  useEffect(() => {
+    if (themePreference !== 'system') return;
+    const sync = () => setSystemIsDark(readSystemPrefersDark());
+    const onVis = () => {
+      if (document.visibilityState === 'visible') sync();
+    };
+    document.addEventListener('visibilitychange', onVis);
+    window.addEventListener('focus', sync);
+    window.addEventListener('pageshow', sync);
+    window.addEventListener('resize', sync);
+    window.addEventListener('orientationchange', sync);
+    sync();
+    return () => {
+      document.removeEventListener('visibilitychange', onVis);
+      window.removeEventListener('focus', sync);
+      window.removeEventListener('pageshow', sync);
+      window.removeEventListener('resize', sync);
+      window.removeEventListener('orientationchange', sync);
+    };
+  }, [themePreference]);
 
   const theme: ThemeMode = useMemo(() => {
     if (themePreference === 'system') return systemIsDark ? 'dark' : 'light';
@@ -133,7 +196,18 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, [themePreference, systemIsDark]);
 
   const setThemePreference = useCallback((pref: ThemePreference) => {
-    setThemePreferenceState(pref);
+    const n = normalizeThemePreference(pref);
+    setThemePreferenceState(n || 'system');
+  }, []);
+
+  useEffect(() => {
+    const onStorage = (e: StorageEvent) => {
+      if (e.key !== 'theme') return;
+      const n = normalizeThemePreference(e.newValue);
+      if (n) setThemePreferenceState(n);
+    };
+    window.addEventListener('storage', onStorage);
+    return () => window.removeEventListener('storage', onStorage);
   }, []);
 
   const [language, setLanguageState] = useState<Language>(() => {
@@ -201,12 +275,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             const data = await response.json();
             const settings = data.settings;
 
-            if (
-              settings.theme === 'light' ||
-              settings.theme === 'dark' ||
-              settings.theme === 'system'
-            ) {
-              setThemePreferenceState(settings.theme);
+            const serverTheme = normalizeThemePreference(settings?.theme);
+            if (serverTheme) {
+              setThemePreferenceState(serverTheme);
+              localStorage.setItem('theme', serverTheme);
             }
             if (settings.language) setLanguageState(settings.language);
             if (settings.notifications !== undefined) setNotifications(settings.notifications);
@@ -216,9 +288,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
               const color = accentColors.find(c => c.id === settings.accentColor);
               if (color) setAccentColorState(color);
             }
-            
-            // Also update localStorage
-            localStorage.setItem('theme', settings.theme || 'system');
+
             localStorage.setItem('language', settings.language || 'uz');
             localStorage.setItem('notifications', JSON.stringify(settings.notifications !== undefined ? settings.notifications : true));
             localStorage.setItem('soundEnabled', JSON.stringify(settings.soundEnabled !== undefined ? settings.soundEnabled : true));
@@ -236,7 +306,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     };
 
     loadSettings();
-  }, [userId, visibilityRefetchTick]);
+  }, [userId, visibilityRefetchTick, authSessionTick]);
 
   // useLayoutEffect: brauzer bo‘yashdan oldin — SPA ichida tema almashganda flash kamayadi
   useLayoutEffect(() => {
@@ -244,6 +314,14 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const isDark = theme === 'dark';
     root.classList.toggle('dark', isDark);
     root.style.colorScheme = isDark ? 'dark' : 'light';
+
+    let schemeMeta = document.querySelector('meta[name="color-scheme"]');
+    if (!schemeMeta) {
+      schemeMeta = document.createElement('meta');
+      schemeMeta.setAttribute('name', 'color-scheme');
+      document.head.insertBefore(schemeMeta, document.head.firstChild);
+    }
+    schemeMeta.setAttribute('content', isDark ? 'dark' : 'light');
 
     const themeColorMeta = document.querySelector('meta[name="theme-color"]');
     if (themeColorMeta) {

@@ -104,7 +104,7 @@ export function SecurityCodeModal({ isOpen, onClose, onSuccess, action, title }:
 
   return (
     <div 
-      className="fixed inset-0 z-[70] flex items-center justify-center p-4"
+      className="fixed inset-0 app-safe-pad z-[70] flex items-center justify-center p-4"
       style={{
         background: 'rgba(0, 0, 0, 0.9)',
         backdropFilter: 'blur(16px)',

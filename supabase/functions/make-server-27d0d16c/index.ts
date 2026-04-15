@@ -19138,21 +19138,31 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
 
         const restTg = restaurant ? pickTelegramChatIdFromEntity(restaurant) : '';
         if (restaurant && restTg) {
-          const itemsForTelegram = (Array.isArray(order.items) ? order.items : []).map((item: any) => ({
-            name: String(item?.name || item?.title || item?.dishName || 'Taom'),
-            variantName: String(item?.variantName || item?.size || 'Standart'),
-            quantity: Number(item?.quantity || 1),
-            price: Number(item?.price || 0),
-            additionalProducts: (
-              Array.isArray(item?.additionalProducts)
-                ? item.additionalProducts
-                : (Array.isArray(item?.addons) ? item.addons : (Array.isArray(item?.extras) ? item.extras : []))
-            ).map((addon: any) => ({
-                  name: String(addon?.name || 'Qo\'shimcha'),
-                  price: Number(addon?.price || 0),
-                  quantity: Number(addon?.quantity || 1),
-                })),
-          }));
+          const itemsForTelegram = (Array.isArray(order.items) ? order.items : []).map((item: any) => {
+            const baseName = String(item?.name || item?.title || item?.dishName || 'Taom');
+            const room = String(
+              item?.diningRoomName ||
+                item?.dining_room_name ||
+                item?.dishDetails?.diningRoomName ||
+                '',
+            ).trim();
+            const nameWithRoom = room ? `${baseName} (joy: ${room})` : baseName;
+            return {
+              name: nameWithRoom,
+              variantName: String(item?.variantName || item?.size || 'Standart'),
+              quantity: Number(item?.quantity || 1),
+              price: Number(item?.price || 0),
+              additionalProducts: (
+                Array.isArray(item?.additionalProducts)
+                  ? item.additionalProducts
+                  : (Array.isArray(item?.addons) ? item.addons : (Array.isArray(item?.extras) ? item.extras : []))
+              ).map((addon: any) => ({
+                name: String(addon?.name || 'Qo\'shimcha'),
+                price: Number(addon?.price || 0),
+                quantity: Number(addon?.quantity || 1),
+              })),
+            };
+          });
 
           const sent = await telegram.sendOrderNotification({
             type: 'restaurant',

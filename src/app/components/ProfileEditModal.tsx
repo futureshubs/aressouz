@@ -165,7 +165,7 @@ export function ProfileEditModal({
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
+      className="fixed inset-0 app-safe-pad z-[100] flex items-center justify-center bg-black/80 backdrop-blur-sm p-4"
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -253,7 +253,7 @@ export function ProfileEditModal({
               }}
             >
               <div className="flex items-center justify-between text-sm font-semibold">
-                <span className="text-white/80">{uploadingImage ? 'Yuklanmoqda…' : 'Tayyor'}</span>
+                <span className="text-white/80">{uploadingImage ? '' : 'Tayyor'}</span>
                 <span style={{ color: accentColor.color }}>{uploadPct}%</span>
               </div>
               <div className="mt-2 h-2 rounded-full overflow-hidden" style={{ background: 'rgba(255,255,255,0.10)' }}>
@@ -377,7 +377,7 @@ export function ProfileEditModal({
               {loading || uploadingImage ? (
                 <span className="flex items-center justify-center gap-2">
                   <Loader2 className="w-5 h-5 animate-spin" />
-                  {uploadingImage ? 'Rasm yuklanmoqda...' : 'Saqlanmoqda...'}
+                  {uploadingImage ? '' : ''}
                 </span>
               ) : (
                 'Saqlash'

@@ -71,8 +71,8 @@ export default function RentalProviderDashboard() {
   if (!session) {
     return (
       <div className="min-h-screen flex flex-col items-center justify-center gap-3 app-safe-pt" style={{ background: isDark ? '#000' : '#f9fafb' }}>
-        <Loader2 className="w-10 h-10 animate-spin shrink-0" style={{ color: accentColor.color }} aria-label="Yuklanmoqda" />
-        <p className="text-sm opacity-60">Yuklanmoqda…</p>
+        <Loader2 className="w-10 h-10 animate-spin shrink-0" style={{ color: accentColor.color }} aria-hidden />
+        <p className="text-sm opacity-60"></p>
       </div>
     );
   }

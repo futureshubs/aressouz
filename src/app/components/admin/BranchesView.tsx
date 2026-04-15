@@ -377,7 +377,7 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
             className="text-sm"
             style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
           >
-            {isListLoading ? 'Yuklanmoqda…' : `Jami ${branches.length} ta filial`}
+            {isListLoading ? '' : `Jami ${branches.length} ta filial`}
           </p>
         </div>
         <button
@@ -564,7 +564,7 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
       {/* Modal */}
       {isModalOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.7)' }}
           onClick={() => setIsModalOpen(false)}
         >
@@ -833,7 +833,7 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
                   }}
                 >
                   {isSavingBranch ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                  {isSavingBranch ? 'Saqlanmoqda...' : 'Saqlash'}
+                  {isSavingBranch ? '' : 'Saqlash'}
                 </button>
               </div>
             </form>
@@ -844,7 +844,7 @@ export default function BranchesView({ onStatsUpdate }: BranchesViewProps) {
       {/* Delete Confirmation Dialog */}
       {deleteConfirmation.isOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.7)' }}
           onClick={() => cancelDelete()}
         >

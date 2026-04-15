@@ -1,6 +1,8 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 import { authAPI, getCurrentUser, setCurrentUser, clearAuthToken } from '../services/api';
 import { registerExpoPushTokenIfAvailable } from '../utils/registerExpoPushToken';
+import { isValidSmsOrJwtAccessToken } from '../utils/smsAccessToken';
+import { dispatchAuthSessionChanged } from '../utils/authSessionEvents';
 
 interface User {
   id: string;
@@ -60,14 +62,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
           return;
         }
 
-        // Check if it's a JWT (has 3 parts separated by dots)
-        const isJWT = parsedSession.access_token.split('.').length === 3;
-
-        // Check if it's a custom token (has dashes)
-        const tokenParts = parsedSession.access_token.split('-');
-        const isCustomToken = tokenParts.length >= 7;
-
-        if (!isJWT && !isCustomToken) {
+        if (!isValidSmsOrJwtAccessToken(parsedSession.access_token)) {
           localStorage.removeItem('sms_user');
           localStorage.removeItem('sms_session');
           setIsLoading(false);
@@ -155,25 +150,18 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   };
 
   const smsSignin = (userData: User, sessionData: Session) => {
-    // Save user and session data in memory and localStorage
+    if (!isValidSmsOrJwtAccessToken(sessionData.access_token)) {
+      throw new Error('Invalid token format received from server');
+    }
     setUser(userData);
     setSession(sessionData);
-    
-    // Persist to localStorage
     try {
-      // Validate token format (JWT or custom token)
-      const isJWT = sessionData.access_token && sessionData.access_token.split('.').length === 3;
-      const isCustomToken = sessionData.access_token && sessionData.access_token.split('-').length >= 7;
-
-      if (!isJWT && !isCustomToken) {
-        throw new Error('Invalid token format received from server');
-      }
-
       localStorage.setItem('sms_user', JSON.stringify(userData));
       localStorage.setItem('sms_session', JSON.stringify(sessionData));
-    } catch (error) {
-      throw error;
+    } catch {
+      /* private mode / quota */
     }
+    dispatchAuthSessionChanged();
   };
 
   const signout = () => {
@@ -184,6 +172,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     // Clear localStorage
     localStorage.removeItem('sms_user');
     localStorage.removeItem('sms_session');
+    dispatchAuthSessionChanged();
   };
 
   return (

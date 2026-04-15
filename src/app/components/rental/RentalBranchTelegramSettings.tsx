@@ -152,7 +152,7 @@ export function RentalBranchTelegramSettings({ branchId }: { branchId: string })
             background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.05)',
             border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)'}`,
           }}
-          placeholder={loading ? 'Yuklanmoqda…' : '-1001234567890 yoki @username'}
+          placeholder={loading ? '' : '-1001234567890 yoki @username'}
         />
       </div>
       <div className="flex flex-wrap gap-2">

@@ -135,7 +135,7 @@ export function PickupRacksPanel({ branchId }: Props) {
 
       <div className="rounded-3xl border p-4" style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff', borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}>
         {isLoading ? (
-          <div className="py-8 text-center opacity-70">Rastalar yuklanmoqda...</div>
+          <div className="py-8 text-center opacity-70"></div>
         ) : racks.length === 0 ? (
           <div className="py-8 text-center opacity-70">Hali rasta qo‘shilmagan</div>
         ) : (

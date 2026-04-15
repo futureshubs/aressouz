@@ -966,7 +966,7 @@ export default function Checkout({
   if (showSuccess) {
     return (
       <div
-        className="fixed inset-0 z-50 flex items-center justify-center"
+        className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center"
         style={{ background: 'rgba(0, 0, 0, 0.9)' }}
       >
         <div className="text-center">
@@ -985,7 +985,7 @@ export default function Checkout({
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto"
+      className="fixed inset-0 app-safe-pad z-50 overflow-y-auto"
       style={{ background: isDark ? '#000000' : '#ffffff' }}
     >
       {/* Header */}
@@ -1760,7 +1760,7 @@ export default function Checkout({
       {showRentalTerms && (
         <>
           {console.log('📋 Rental terms modal is showing!')}
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 app-safe-pad bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-900 rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl border border-gray-200/50 dark:border-gray-700/50">
             {/* Header */}
             <div 

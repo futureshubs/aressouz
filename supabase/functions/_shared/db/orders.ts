@@ -161,8 +161,20 @@ export const getBuyerOrders = async (args: {
       item_count,
       promo_code,
       bonus_used_amount,
+      buyer_note,
+      payment_requires_verification,
+      source_channel,
       created_at,
       updated_at,
+      order_addresses (
+        role,
+        type,
+        recipient_name,
+        recipient_phone,
+        address_line1,
+        address_line2,
+        landmark
+      ),
       groups:order_groups (
         id,
         seller_store_id,

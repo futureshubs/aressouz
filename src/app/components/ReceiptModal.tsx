@@ -212,7 +212,7 @@ export function ReceiptModal({ isOpen, onClose, receipt }: ReceiptModalProps) {
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] print:hidden"
+        className="fixed inset-0 app-safe-pad bg-black/60 backdrop-blur-sm z-[60] print:hidden"
         onClick={onClose}
       />
 

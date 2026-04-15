@@ -35,6 +35,7 @@ interface CartItem {
     prepTime?: string;
     weight?: string;
     kcal?: number;
+    diningRoomName?: string | null;
   };
   variantDetails?: {
     name: string;
@@ -107,7 +108,7 @@ export function Cart({ items, isOpen, onClose, onUpdateQuantity, onRemoveItem, o
     <>
       {/* Backdrop */}
       <div
-        className={`fixed inset-0 backdrop-blur-sm z-50 transition-opacity ${isDark ? 'bg-black/70' : 'bg-black/50'}`}
+        className={`fixed inset-0 app-safe-pad backdrop-blur-sm z-50 transition-opacity ${isDark ? 'bg-black/70' : 'bg-black/50'}`}
         onClick={onClose}
       />
 
@@ -311,6 +312,17 @@ export function Cart({ items, isOpen, onClose, onUpdateQuantity, onRemoveItem, o
                               🔥 {item.dishDetails.kcal} kcal
                             </span>
                           )}
+                          {item.dishDetails.diningRoomName ? (
+                            <span
+                              className="text-[10px] px-2 py-1 rounded-md inline-flex items-center gap-1 font-semibold"
+                              style={{
+                                background: `${accentColor.color}18`,
+                                color: accentColor.color,
+                              }}
+                            >
+                              🪑 {item.dishDetails.diningRoomName}
+                            </span>
+                          ) : null}
                         </div>
                       )}
                       

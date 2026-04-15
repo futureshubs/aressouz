@@ -32,7 +32,7 @@ export function ListingPreviewModal({ listing, isOpen, onClose, onEdit }: Listin
   const type = String(listing.type || '');
 
   return (
-    <div className="fixed inset-0 z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
+    <div className="fixed inset-0 app-safe-pad z-[200] flex items-end sm:items-center justify-center p-0 sm:p-4">
       <button
         type="button"
         className="absolute inset-0 bg-black/50 backdrop-blur-sm"

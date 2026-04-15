@@ -121,10 +121,7 @@ export function AuctionStatistics({ branchId }: AuctionStatisticsProps) {
             ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
             : 'linear-gradient(145deg, #ffffff, #f9fafb)',
         }}>
-          <Loader2 className="w-10 h-10 animate-spin" style={{ color: accentColor.color }} />
-          <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
-            Statistika yuklanmoqda…
-          </p>
+          <Loader2 className="w-10 h-10 animate-spin" style={{ color: accentColor.color }} aria-hidden />
         </div>
       ) : (
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">

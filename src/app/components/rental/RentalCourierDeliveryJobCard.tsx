@@ -67,7 +67,7 @@ export function RentalCourierDepositBlock({
         ) : (
           <Camera className="w-4 h-4 shrink-0" />
         )}
-        {depositBusyId === id ? 'Yuklanmoqda…' : 'Garov rasmini qo‘shish'}
+        {depositBusyId === id ? '' : 'Garov rasmini qo‘shish'}
         <input
           type="file"
           accept="image/*"

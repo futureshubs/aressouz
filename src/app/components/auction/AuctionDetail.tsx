@@ -194,7 +194,7 @@ export function AuctionDetail({ auction, onClose }: AuctionDetailProps) {
               <div className="flex flex-col items-center justify-center py-10 gap-2">
                 <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} />
                 <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
-                  Takliflar yuklanmoqda…
+                  
                 </p>
               </div>
             ) : bids.length === 0 ? (

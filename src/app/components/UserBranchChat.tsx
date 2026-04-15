@@ -342,7 +342,7 @@ export function UserBranchChat({ mode = 'split', embedTarget = 'default' }: User
       <div className="p-6 rounded-2xl" style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff' }}>
         <div className="flex items-center gap-2" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>
           <MessageCircle className="w-5 h-5" />
-          {embedTarget === 'support' ? 'Support chat ochilmoqda…' : 'Suhbatlar yuklanmoqda...'}
+          {embedTarget === 'support' ? '' : ''}
         </div>
       </div>
     );

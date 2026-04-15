@@ -13,7 +13,7 @@ function ClickBrandMark({ isDark }: { isDark: boolean }) {
   const [broken, setBroken] = useState(false);
   return (
     <div className="flex justify-center">
-      <PaymentMethodLogoFrame brandColor={CLICK_BRAND} isDark={isDark}>
+      <PaymentMethodLogoFrame brandColor={CLICK_BRAND} isDark={isDark} square squareSlotTone="dark">
         {broken ? (
           <svg width="92" height="30" viewBox="0 0 92 30" fill="none" aria-hidden>
             <rect width="92" height="30" rx="12" fill={CLICK_BRAND} />
@@ -23,9 +23,9 @@ function ClickBrandMark({ isDark }: { isDark: boolean }) {
           </svg>
         ) : (
           <img
-            src="/payments/click-logo.png?v=2"
+            src="/payments/click-official.svg?v=2"
             alt="Click"
-            className="block max-h-full w-auto max-w-full object-contain object-center"
+            className="block h-full w-full object-contain object-center"
             decoding="async"
             onError={() => setBroken(true)}
           />
@@ -263,7 +263,7 @@ export default function ClickPayment({
           {isProcessing ? (
             <>
               <Loader2 className="w-5 h-5 animate-spin" />
-              <span>Yuklanmoqda...</span>
+              <span></span>
             </>
           ) : (
             <>

@@ -46,6 +46,7 @@ import { SiteFooter } from './components/SiteFooter';
 import Checkout from './components/Checkout';
 import { RentalTermsConsentModal } from './components/RentalTermsConsentModal';
 import { useMarketplaceNativeCartBadge } from './hooks/useMarketplaceNativeCartBadge';
+import { useProgressiveListReveal } from './hooks/useProgressiveListReveal';
 import { useMainAppNavigation } from './hooks/useMainAppNavigation';
 import { MAIN_APP_QUERY, patchSearchParams } from './utils/mainAppSearchParams';
 import {
@@ -124,6 +125,9 @@ interface CartItem extends Product {
     prepTime?: string;
     weight?: string;
     kcal?: number;
+    /** Stol / xona (taom buyurtmasi) */
+    diningRoomId?: string | null;
+    diningRoomName?: string | null;
   };
   variantDetails?: {
     name: string;
@@ -145,6 +149,7 @@ function stableFoodCartLineNumericId(
   dishId: string,
   variantLabel: string,
   addons: { name?: string; quantity?: number }[],
+  diningRoomId?: string | null,
 ): number {
   const addonSig = addons
     .map((a) =>
@@ -152,7 +157,8 @@ function stableFoodCartLineNumericId(
     )
     .sort()
     .join('|');
-  const s = `${String(dishId).trim()}\u0000${String(variantLabel).trim()}\u0000${addonSig}`;
+  const roomKey = String(diningRoomId ?? '').trim();
+  const s = `${String(dishId).trim()}\u0000${String(variantLabel).trim()}\u0000${addonSig}\u0000${roomKey}`;
   let h = 2166136261 >>> 0;
   for (let i = 0; i < s.length; i++) {
     h ^= s.charCodeAt(i);
@@ -280,7 +286,8 @@ interface Branch {
 
 export default function AppContent() {
   const { theme, accentColor } = useTheme();
-  const { isAuthenticated, smsSignin, user, accessToken, isAuthOpen, setIsAuthOpen } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, smsSignin, user, accessToken, isAuthOpen, setIsAuthOpen } =
+    useAuth();
   const { parsed, goTab, pushPatch, replacePatch, goBack, searchParams, replaceSearch } =
     useMainAppNavigation();
   const { selectedRegion, selectedDistrict } = useLocation();
@@ -322,8 +329,14 @@ export default function AppContent() {
 
   const authInUrl = searchParams.get(MAIN_APP_QUERY.auth) === '1';
   useEffect(() => {
+    if (authLoading) return;
+    if (isAuthenticated) {
+      setIsAuthOpen(false);
+      if (authInUrl) replacePatch({ [MAIN_APP_QUERY.auth]: null });
+      return;
+    }
     setIsAuthOpen(authInUrl);
-  }, [authInUrl, setIsAuthOpen]);
+  }, [authInUrl, isAuthenticated, authLoading, setIsAuthOpen, replacePatch]);
 
   useEffect(() => {
     if (!isAuthOpen) return;
@@ -1001,6 +1014,13 @@ export default function AppContent() {
   }, [goBack, searchParams, setIsAuthOpen]);
 
   const isCommunityFullscreen = activeTab === 'community' && !isProfileOpen;
+
+  const suppressSupportChat =
+    isCartOpen ||
+    flowCheckoutOpen ||
+    flowRentalTermsOpen ||
+    isAuthOpen ||
+    Boolean(parsed.productKey);
   
   const isDark = theme === 'dark';
 
@@ -1010,6 +1030,24 @@ export default function AppContent() {
     !!selectedRegion &&
     !!selectedDistrict &&
     (isLoadingBranches || isLoadingProducts);
+
+  const marketplaceProductGridSource = marketProductsLoading ? [] : searchFilteredProducts;
+  const marketplaceProductRevealKey = useMemo(
+    () =>
+      `${refreshKey}-${branchProducts.length}-${headerSearchQuery}:${selectedCatalogId ?? ''}:${selectedCategoryId ?? ''}`,
+    [
+      refreshKey,
+      branchProducts.length,
+      headerSearchQuery,
+      selectedCatalogId,
+      selectedCategoryId,
+    ],
+  );
+  const { visibleItems: progressiveMarketProducts, sentinelRef: marketProductGridSentinelRef } =
+    useProgressiveListReveal(marketplaceProductGridSource, marketplaceProductRevealKey, {
+      batchSize: 10,
+      initialCount: 16,
+    });
 
   /** Mobil (<sm): bitta ichki scroll — iOS/Android WebView da body scroll ishonchsiz bo‘lishi mumkin */
   const mainAppMobileScroll = !isCommunityFullscreen && !isProfileOpen;
@@ -1219,7 +1257,7 @@ export default function AppContent() {
 
                   {!marketProductsLoading && searchFilteredProducts.length > 0 && (
                     <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-5 sm:gap-5 md:gap-6 lg:gap-7 xl:gap-8">
-                      {searchFilteredProducts.map((product) => (
+                      {progressiveMarketProducts.map((product) => (
                         <ProductCard
                           key={product.productUuid || product.id}
                           product={product}
@@ -1228,6 +1266,13 @@ export default function AppContent() {
                           onProductClick={openProductDetail}
                         />
                       ))}
+                      {progressiveMarketProducts.length < searchFilteredProducts.length && (
+                        <div
+                          ref={marketProductGridSentinelRef}
+                          className="col-span-full h-4 w-full shrink-0"
+                          aria-hidden
+                        />
+                      )}
                     </div>
                   )}
                 </div>
@@ -1257,19 +1302,14 @@ export default function AppContent() {
         {/* Profil Modal — yuqori qator scroll tashqarisida: kontent pt orqasiga chiqib ketmasin */}
         {isProfileOpen && (
           <div
-            className={`fixed inset-0 z-[100] flex flex-col overflow-hidden overscroll-none ${isDark ? 'bg-black' : 'bg-background'}`}
-            style={{
-              paddingRight: 'var(--app-safe-right)',
-              paddingBottom: 'var(--app-safe-bottom)',
-              paddingLeft: 'var(--app-safe-left)',
-            }}
+            className={`fixed inset-0 app-safe-pad z-[100] flex flex-col overflow-hidden overscroll-none ${isDark ? 'bg-black' : 'bg-background'}`}
           >
             <div
               className={`shrink-0 z-[110] flex items-center ${isDark ? 'bg-black' : 'bg-background'}`}
               style={{
-                paddingTop: 'max(0.75rem, var(--app-safe-top))',
-                paddingLeft: 'max(0.75rem, var(--app-safe-left))',
-                paddingRight: 'max(0.75rem, var(--app-safe-right))',
+                paddingTop: '0.75rem',
+                paddingLeft: '0.75rem',
+                paddingRight: '0.75rem',
                 paddingBottom: '0.75rem',
                 borderBottom: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
               }}
@@ -1337,7 +1377,7 @@ export default function AppContent() {
         {activeTab === 'taomlar' && !isProfileOpen && (
           <FoodsView 
             platform={platform}
-            onAddToCart={(dish, quantity, variant, additionalProducts) => {
+            onAddToCart={(dish, quantity, variant, additionalProducts, diningRoom) => {
               // Calculate prices - ENSURE NUMBERS, NOT STRINGS!
               const addonsTotalPrice = additionalProducts.reduce((sum: number, addon: any) => {
                 const addonPrice = parseMoneyValue(addon.price);
@@ -1365,7 +1405,12 @@ export default function AppContent() {
                 name: addon.name,
                 quantity: Number(addon.quantity) || 1,
               }));
-              const lineId = stableFoodCartLineNumericId(String(dish.id), variantLabel, addonRows);
+              const lineId = stableFoodCartLineNumericId(
+                String(dish.id),
+                variantLabel,
+                addonRows,
+                diningRoom?.id ?? null,
+              );
 
               const variantImg = String((variant as any)?.image ?? '').trim();
               const firstDishImg =
@@ -1407,6 +1452,8 @@ export default function AppContent() {
                   prepTime: variant.prepTime,
                   weight: dish.weight,
                   kcal: dish.kcal,
+                  diningRoomId: diningRoom?.id ? String(diningRoom.id) : null,
+                  diningRoomName: diningRoom?.name ? String(diningRoom.name) : null,
                 },
                 variantDetails: {
                   name: variant.name,
@@ -1585,7 +1632,11 @@ export default function AppContent() {
           />
         )}
 
-        <SupportChatWidget activeTab={activeTab} isProfileOpen={isProfileOpen} />
+        <SupportChatWidget
+          activeTab={activeTab}
+          isProfileOpen={isProfileOpen}
+          suppressFloating={suppressSupportChat}
+        />
 
         {/* Product Detail Modal */}
         {selectedProduct && (
@@ -1612,7 +1663,12 @@ export default function AppContent() {
           isOpen={isAuthOpen}
           onClose={closeAuthModal}
           onSuccess={(user, session) => {
-            smsSignin(user, session);
+            try {
+              smsSignin(user, session);
+            } catch (e: unknown) {
+              console.error('SMS session save failed:', e);
+              toast.error(e instanceof Error ? e.message : 'Kirishni saqlab bo‘lmadi');
+            }
           }}
         />
 

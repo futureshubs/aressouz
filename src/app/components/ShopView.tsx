@@ -1,4 +1,4 @@
-import { useState, memo, useEffect } from 'react';
+import { useState, memo, useEffect, useMemo } from 'react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ShoppingBag, Store as StoreIcon, Loader2 } from 'lucide-react';
 import { stores, Store } from '../data/stores';
@@ -11,6 +11,7 @@ import { useTheme } from '../context/ThemeContext';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { getEffectiveProductStockQuantity } from '../utils/cartStock';
 import { ProductGridSkeleton } from './skeletons';
+import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
 
 interface Product {
   id: number;
@@ -43,6 +44,20 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   const isDark = theme === 'dark';
   const isIOS = platform === 'ios';
+
+  const shopProductGridSource = isLoadingProducts ? [] : onlineShopProducts;
+  const shopProductRevealKey = useMemo(
+    () =>
+      onlineShopProducts.length === 0
+        ? 'empty'
+        : `${onlineShopProducts.length}-${String(onlineShopProducts[0]?.id ?? '')}`,
+    [onlineShopProducts],
+  );
+  const { visibleItems: progressiveShopProducts, sentinelRef: shopViewGridSentinelRef } =
+    useProgressiveListReveal(shopProductGridSource, shopProductRevealKey, {
+      batchSize: 10,
+      initialCount: 16,
+    });
 
   // Load online shop products
   useEffect(() => {
@@ -298,7 +313,7 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
                     {isLoadingProducts ? (
                       <>
                         <Loader2 className="size-3.5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
-                        Yuklanmoqda…
+                        
                       </>
                     ) : (
                       <>{onlineShopProducts.length} ta</>
@@ -316,16 +331,25 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
                       />
                     </div>
                   ) : (
-                    onlineShopProducts.map((product) => (
-                      <ProductCard
-                        key={product.id}
-                        product={product}
-                        onAddToCart={onAddToCart}
-                        platform={platform}
-                        onProductClick={setSelectedProduct}
-                        source="shop"
-                      />
-                    ))
+                    <>
+                      {progressiveShopProducts.map((product) => (
+                        <ProductCard
+                          key={product.id}
+                          product={product}
+                          onAddToCart={onAddToCart}
+                          platform={platform}
+                          onProductClick={setSelectedProduct}
+                          source="shop"
+                        />
+                      ))}
+                      {progressiveShopProducts.length < onlineShopProducts.length && (
+                        <div
+                          ref={shopViewGridSentinelRef}
+                          className="col-span-full h-4 w-full shrink-0"
+                          aria-hidden
+                        />
+                      )}
+                    </>
                   )}
                 </div>
               </div>

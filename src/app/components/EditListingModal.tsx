@@ -304,7 +304,7 @@ export function EditListingModal({ isOpen, onClose, listing, accessToken, onSucc
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+      className="fixed inset-0 app-safe-pad z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
       style={{ background: 'rgba(0, 0, 0, 0.6)', backdropFilter: 'blur(8px)' }}
       onClick={() => {
         if (!isSubmitting) onClose();
@@ -630,7 +630,7 @@ export function EditListingModal({ isOpen, onClose, listing, accessToken, onSucc
               >
                 <div className="flex items-center justify-between text-sm font-semibold">
                   <span style={{ color: isDark ? '#fff' : '#111827' }}>
-                    {isUploadingImages ? 'Yuklanmoqda…' : 'Tayyor'}
+                    {isUploadingImages ? '' : 'Tayyor'}
                   </span>
                   <span style={{ color: accentColor.color }}>{overallUploadPct}%</span>
                 </div>
@@ -755,7 +755,7 @@ export function EditListingModal({ isOpen, onClose, listing, accessToken, onSucc
             }}
           >
             {isSubmitting && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
-            {isSubmitting ? 'Saqlanmoqda...' : 'Saqlash'}
+            {isSubmitting ? '' : 'Saqlash'}
           </button>
         </div>
       </div>

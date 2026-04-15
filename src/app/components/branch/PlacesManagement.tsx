@@ -852,7 +852,7 @@ export default function PlacesManagement({ branchId, branchInfo }: PlacesManagem
       {/* Create/Edit Modal */}
       {isModalOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.7)', backdropFilter: 'blur(8px)' }}
           onClick={() => setIsModalOpen(false)}
         >
@@ -904,7 +904,7 @@ export default function PlacesManagement({ branchId, branchInfo }: PlacesManagem
                       }}
                     >
                       <div className="flex items-center justify-between text-sm font-semibold">
-                        <span>Yuklanmoqda…</span>
+                        <span></span>
                         <span>{overallUploadProgress}%</span>
                       </div>
                       <div
@@ -1435,7 +1435,7 @@ export default function PlacesManagement({ branchId, branchInfo }: PlacesManagem
                 {isSaving ? (
                   <>
                     <Loader2 className="w-5 h-5 animate-spin" />
-                    <span>Saqlanmoqda...</span>
+                    <span></span>
                   </>
                 ) : (
                   <>

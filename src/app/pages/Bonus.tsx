@@ -419,7 +419,7 @@ export default function Bonus({ onClose }: BonusProps) {
 
   const copyReferralCode = async () => {
     if (!referralCode) {
-      toast.info('Kod yuklanmoqda…');
+      toast.info('');
       void loadReferral();
       return;
     }
@@ -1002,7 +1002,7 @@ export default function Bonus({ onClose }: BonusProps) {
                   style={{ color: accentColor.color }}
                 >
                   {referralCode || (
-                    <span className="text-lg font-bold opacity-45">Yuklanmoqda…</span>
+                    <span className="text-lg font-bold opacity-45"></span>
                   )}
                 </p>
               )}

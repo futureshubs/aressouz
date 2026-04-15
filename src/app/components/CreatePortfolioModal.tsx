@@ -211,7 +211,7 @@ export function CreatePortfolioModal({
   if (!userData || !accessToken) {
     return (
       <div 
-        className="fixed inset-0 z-50 flex items-center justify-center p-4"
+        className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
         style={{
           background: 'rgba(0, 0, 0, 0.7)',
           backdropFilter: 'blur(8px)',
@@ -424,7 +424,7 @@ export function CreatePortfolioModal({
 
   return (
     <div 
-      className="fixed inset-0 z-50"
+      className="fixed inset-0 app-safe-pad z-50"
       style={{
         background: 'rgba(0, 0, 0, 0.7)',
         backdropFilter: 'blur(8px)',
@@ -971,7 +971,7 @@ export function CreatePortfolioModal({
                 }}
               >
                 {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
-                {loading ? 'Yuklanmoqda...' : portfolioToEdit ? 'Portfolio yangilash' : 'Portfolio yaratish'}
+                {loading ? '' : portfolioToEdit ? 'Portfolio yangilash' : 'Portfolio yaratish'}
               </button>
             </div>
           </form>

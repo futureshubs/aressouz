@@ -509,11 +509,8 @@ export default function AutoComplete({
         <div className="absolute top-full left-0 right-0 mt-1 bg-white dark:bg-gray-800 border border-gray-200 dark:border-gray-600 rounded-lg shadow-lg z-50 max-h-96 overflow-y-auto">
           {/* Loading State */}
           {isLoading && (
-            <div className="px-4 py-8 text-center">
-              <Loader2 className="w-6 h-6 text-blue-500 animate-spin mx-auto mb-2" />
-              <p className="text-sm text-gray-600 dark:text-gray-400">
-                Takliflar yuklanmoqda...
-              </p>
+            <div className="px-4 py-8 text-center" aria-hidden>
+              <Loader2 className="w-6 h-6 text-blue-500 animate-spin mx-auto" />
             </div>
           )}
 

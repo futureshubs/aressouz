@@ -19,6 +19,7 @@ import { useTheme } from '../../context/ThemeContext';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
+import { sortOrdersNewestFirst } from '../../utils/sortOrdersNewestFirst';
 import { tryResolveImageFromBranchCatalog } from '../../utils/branchCatalogProductImage';
 import { isShopProductCartLine } from '../../utils/submitRegularCartOrderQuick';
 
@@ -371,7 +372,7 @@ export function PendingCashMarketBranchPanel({
       if (cashPendingScope !== 'all') {
         list = list.filter((o: any) => orderMatchesCashPendingScope(o, cashPendingScope));
       }
-      setPendingCashMarketOrders(list);
+      setPendingCashMarketOrders(sortOrdersNewestFirst(list));
       let cancelledList = data.orders.filter((o: any) => {
         const ot = String(o.orderType || '').toLowerCase();
         if (ot !== 'market' && ot !== 'shop' && ot !== 'food' && ot !== 'restaurant') return false;
@@ -386,7 +387,7 @@ export function PendingCashMarketBranchPanel({
           orderMatchesCashPendingScope(o, cashPendingScope),
         );
       }
-      setCancelledCashMarketOrders(cancelledList.slice(0, 50));
+      setCancelledCashMarketOrders(sortOrdersNewestFirst(cancelledList).slice(0, 50));
     } catch (e) {
       console.error('pending cash market orders:', e);
       setPendingCashMarketOrders([]);

@@ -349,7 +349,7 @@ export default function SellerPaymentsPanel({
 
       {lightboxUrl ? (
         <div
-          className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-[200] flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.85)' }}
           role="dialog"
           aria-modal

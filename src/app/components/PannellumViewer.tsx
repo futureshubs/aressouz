@@ -193,7 +193,7 @@ export function PannellumViewer({ scenes, initialSceneId }: PannellumViewerProps
                 style={{ borderColor: `${accentColor.color} transparent transparent transparent` }}
               />
               <p className="text-sm font-medium" style={{ color: accentColor.color }}>
-                3D ko'rinish yuklanmoqda...
+                
               </p>
             </div>
           </div>

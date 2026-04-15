@@ -350,7 +350,7 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
 
   return (
     <div
-      className="fixed inset-0 z-[100] flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden overscroll-none md:items-center md:justify-center md:p-4"
+      className="fixed inset-0 app-safe-pad z-[100] flex h-[100dvh] max-h-[100dvh] flex-col overflow-hidden overscroll-none md:items-center md:justify-center md:p-4"
       style={{
         background: 'rgba(0, 0, 0, 0.95)',
       }}
@@ -1307,7 +1307,7 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
               {banksLoading && (
                 <div className="flex items-center justify-center gap-2 py-3 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
                   <Loader2 className="size-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
-                  Banklar yuklanmoqda…
+                  
                 </div>
               )}
 
@@ -1458,7 +1458,7 @@ export function HouseDetailModal({ house, isOpen, onClose }: HouseDetailModalPro
       {/* Fullscreen Image Viewer */}
       {isFullscreen && (
         <div
-          className="fixed inset-0 z-[9999] flex items-center justify-center"
+          className="fixed inset-0 app-safe-pad z-[9999] flex items-center justify-center"
           style={{
             background: 'rgba(0, 0, 0, 0.98)',
           }}

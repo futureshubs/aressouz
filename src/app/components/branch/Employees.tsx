@@ -381,7 +381,7 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
         <div className="text-center">
           <RefreshCw className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Ishchilar yuklanmoqda...
+            
           </p>
         </div>
       </div>
@@ -625,7 +625,7 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
 
       {/* Add/Edit Employee Modal */}
       {(isAddingEmployee || editingEmployee) && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 app-safe-pad bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div 
             className="w-full max-w-2xl p-6 rounded-2xl max-h-[80vh] overflow-y-auto"
             style={{
@@ -924,7 +924,7 @@ export function Employees({ branchId, branchInfo }: EmployeesProps) {
 
       {/* Details Modal */}
       {showDetails && (
-        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
+        <div className="fixed inset-0 app-safe-pad bg-black bg-opacity-50 flex items-center justify-center p-4 z-50">
           <div 
             className="w-full max-w-3xl p-6 rounded-2xl max-h-[80vh] overflow-y-auto"
             style={{

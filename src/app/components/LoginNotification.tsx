@@ -29,7 +29,7 @@ export function LoginNotification({ isOpen, onClose, onLogin, message }: LoginNo
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 z-[100] transition-opacity"
+        className="fixed inset-0 app-safe-pad z-[100] transition-opacity"
         style={{
           background: 'rgba(0, 0, 0, 0.3)',
           backdropFilter: 'blur(4px)',

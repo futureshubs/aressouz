@@ -220,7 +220,7 @@ export function AddDishModal({
     <>
       {/* Backdrop */}
       <div 
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] animate-fadeIn"
+        className="fixed inset-0 app-safe-pad bg-black/60 backdrop-blur-sm z-[100] animate-fadeIn"
         onClick={onClose}
       />
       
@@ -642,7 +642,7 @@ export function AddDishModal({
               style={{ background: accentColor.color, color: '#ffffff' }}
             >
               {isSubmitting && <Loader2 className="w-6 h-6 animate-spin shrink-0" />}
-              {isSubmitting ? 'Saqlanmoqda...' : dish ? 'Yangilash' : 'Taom qo\'shish'}
+              {isSubmitting ? '' : dish ? 'Yangilash' : 'Taom qo\'shish'}
             </button>
           </div>
         </form>

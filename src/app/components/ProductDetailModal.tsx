@@ -506,7 +506,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
 
   return (
     <div 
-      className="fixed inset-0 z-[100] flex items-end sm:items-center justify-center overflow-hidden"
+      className="fixed inset-0 app-safe-pad z-[100] flex items-end sm:items-center justify-center overflow-hidden"
       onClick={onClose}
     >
       {/* Backdrop */}
@@ -1195,7 +1195,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
                       className="text-xs sm:text-sm"
                       style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}
                     >
-                      Sharhlar yuklanmoqda...
+                      
                     </p>
                   </div>
                 ) : reviews.length > 0 ? (

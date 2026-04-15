@@ -352,11 +352,8 @@ export function Statistics({ branchId, branchInfo, orderType = 'all' }: Statisti
   if (isLoading) {
     return (
       <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <Loader2 className="w-12 h-12 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
-          <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Statistika ma\'lumotlari yuklanmoqda...
-          </p>
+        <div className="text-center" aria-hidden>
+          <Loader2 className="w-12 h-12 mx-auto animate-spin" style={{ color: accentColor.color }} />
         </div>
       </div>
     );

@@ -19,6 +19,7 @@ import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAut
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { PendingOrderLineCard } from './PendingCashMarketBranchPanel';
 import { toast } from 'sonner';
+import { sortOrdersNewestFirst } from '../../utils/sortOrdersNewestFirst';
 
 const paymentMethodLabel = (m: string) => {
   const x = String(m || '').toLowerCase();
@@ -110,7 +111,7 @@ export function BranchRefundsPanel({ variant = 'branch' }: BranchRefundsPanelPro
         setRows([]);
         return;
       }
-      setRows(data.orders);
+      setRows(sortOrdersNewestFirst(data.orders));
     } catch (e) {
       console.error('branch refunds:', e);
       setRows([]);

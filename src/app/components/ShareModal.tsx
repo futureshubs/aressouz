@@ -102,7 +102,7 @@ export function ShareModal({ isOpen, onClose, placeId, placeName, placeImage }: 
             onClick={() => {
               if (!loading) onClose();
             }}
-            className={`fixed inset-0 z-50 backdrop-blur-sm ${isDark ? 'bg-black/60' : 'bg-black/40'}`}
+            className={`fixed inset-0 app-safe-pad z-50 backdrop-blur-sm ${isDark ? 'bg-black/60' : 'bg-black/40'}`}
           />
 
           <motion.div

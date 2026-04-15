@@ -765,7 +765,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
 
   return (
     <div 
-      className="fixed inset-0 z-50"
+      className="fixed inset-0 app-safe-pad z-50"
       style={{
         background: 'rgba(0, 0, 0, 0.7)',
         backdropFilter: 'blur(8px)',
@@ -1946,7 +1946,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                   >
                     <div className="flex items-center justify-between text-sm font-semibold">
                       <span style={{ color: isDark ? '#fff' : '#111827' }}>
-                        {isUploadingImages ? 'Yuklanmoqda…' : 'Tayyor'}
+                        {isUploadingImages ? '' : 'Tayyor'}
                       </span>
                       <span style={{ color: accentColor.color }}>{overallUploadPct}%</span>
                     </div>
@@ -2048,7 +2048,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
             >
               {isSubmitting && <Loader2 className="w-5 h-5 animate-spin shrink-0 text-white" />}
               <span className="font-bold text-white text-lg">
-                {isSubmitting ? 'Yuklanmoqda...' : 'E\'lon joylash'}
+                {isSubmitting ? '' : 'E\'lon joylash'}
               </span>
             </button>
           </div>

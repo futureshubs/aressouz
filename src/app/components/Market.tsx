@@ -10,6 +10,7 @@ import { ProductCard } from './ProductCard';
 import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
 
 interface Product {
   id: number;
@@ -315,6 +316,17 @@ export default function Market() {
     );
   }, [filteredBranches, headerSearch]);
 
+  const marketGridSource = isLoading || isLoadingProducts ? [] : searchFilteredProducts;
+  const marketRevealKey = useMemo(
+    () => `${headerSearch}-${products.length}-${selectedRegion}-${selectedDistrict}`,
+    [headerSearch, products.length, selectedRegion, selectedDistrict],
+  );
+  const { visibleItems: progressiveMarketSearchProducts, sentinelRef: marketSearchSentinelRef } =
+    useProgressiveListReveal(marketGridSource, marketRevealKey, {
+      batchSize: 10,
+      initialCount: 16,
+    });
+
   const searchFilteredBranchProducts = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return branchProducts;
     return branchProducts.filter((p) =>
@@ -327,6 +339,18 @@ export default function Market() {
       ]),
     );
   }, [branchProducts, headerSearch]);
+
+  const branchGridSource =
+    !selectedBranch || loadingBranchId != null ? [] : searchFilteredBranchProducts;
+  const branchDetailRevealKey = useMemo(
+    () => `${selectedBranch?.id ?? 'none'}-${branchProducts.length}-${headerSearch}`,
+    [selectedBranch?.id, branchProducts.length, headerSearch],
+  );
+  const { visibleItems: progressiveBranchProducts, sentinelRef: branchModalSentinelRef } =
+    useProgressiveListReveal(branchGridSource, branchDetailRevealKey, {
+      batchSize: 10,
+      initialCount: 16,
+    });
 
   return (
     <div className="min-h-screen" style={{ background: isDark ? '#0a0a0a' : '#f5f5f5' }}>
@@ -430,7 +454,7 @@ export default function Market() {
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                {searchFilteredProducts.map((product) => (
+                {progressiveMarketSearchProducts.map((product) => (
                   <ProductCard
                     key={product.id}
                     product={product}
@@ -438,6 +462,13 @@ export default function Market() {
                     onProductClick={() => {}}
                   />
                 ))}
+                {progressiveMarketSearchProducts.length < searchFilteredProducts.length && (
+                  <div
+                    ref={marketSearchSentinelRef}
+                    className="col-span-full h-4 w-full shrink-0"
+                    aria-hidden
+                  />
+                )}
               </div>
             )}
           </>
@@ -537,7 +568,7 @@ export default function Market() {
       {/* Branch Detail Modal */}
       {selectedBranch && (
         <div 
-          className="fixed inset-0 z-50"
+          className="fixed inset-0 app-safe-pad z-50"
           style={{ background: isDark ? '#0a0a0a' : '#ffffff' }}
         >
           <div className="h-full overflow-y-auto pb-6">
@@ -572,7 +603,7 @@ export default function Market() {
                 <div className="flex flex-col items-center justify-center py-16 gap-3">
                   <Loader2 className="w-10 h-10 animate-spin" style={{ color: accentColor.color }} />
                   <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
-                    Mahsulotlar yuklanmoqda…
+                    
                   </p>
                 </div>
               ) : branchProducts.length === 0 ? (
@@ -597,7 +628,7 @@ export default function Market() {
                 </div>
               ) : (
                 <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-4">
-                  {searchFilteredBranchProducts.map((product) => (
+                  {progressiveBranchProducts.map((product) => (
                     <ProductCard
                       key={product.id}
                       product={product}
@@ -605,6 +636,13 @@ export default function Market() {
                       onProductClick={() => {}}
                     />
                   ))}
+                  {progressiveBranchProducts.length < searchFilteredBranchProducts.length && (
+                    <div
+                      ref={branchModalSentinelRef}
+                      className="col-span-full h-4 w-full shrink-0"
+                      aria-hidden
+                    />
+                  )}
                 </div>
               )}
             </div>

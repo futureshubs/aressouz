@@ -57,7 +57,7 @@ export function AuthModal({ isOpen, onClose, platform, initialMode = 'signin' }:
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
       onClick={onClose}
     >
       {/* Backdrop */}
@@ -246,7 +246,7 @@ export function AuthModal({ isOpen, onClose, platform, initialMode = 'signin' }:
             }}
           >
             {isLoading 
-              ? 'Yuklanmoqda...' 
+              ? '' 
               : mode === 'signin' 
                 ? 'Kirish' 
                 : 'Ro\'yxatdan o\'tish'}

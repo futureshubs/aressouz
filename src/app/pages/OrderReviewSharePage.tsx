@@ -58,7 +58,7 @@ export function OrderReviewSharePage() {
   if (loading) {
     return (
       <div className={`flex min-h-screen flex-col items-center justify-center gap-4 px-4 app-safe-pt ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}>
-        <Loader2 className="h-10 w-10 shrink-0 animate-spin text-[#14b8a6]" aria-label="Yuklanmoqda" />
+        <Loader2 className="h-10 w-10 shrink-0 animate-spin text-[#14b8a6]" aria-hidden />
         <OrderReviewPageSkeleton isDark={isDark} />
       </div>
     );
@@ -67,7 +67,7 @@ export function OrderReviewSharePage() {
   if (error || !payload) {
     return (
       <div
-        className={`fixed inset-0 flex items-center justify-center px-6 ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}
+        className={`fixed inset-0 app-safe-pad flex items-center justify-center px-6 ${isDark ? 'bg-[#0a0a0a]' : 'bg-background'}`}
       >
         <div className="max-w-md text-center">
           <h1 className={`mb-2 text-2xl font-bold ${isDark ? 'text-white' : 'text-foreground'}`}>

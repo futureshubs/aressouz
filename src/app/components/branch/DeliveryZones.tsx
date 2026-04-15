@@ -1124,7 +1124,7 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
       {/* Modal */}
       {showModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.7)' }}
           onClick={closeModal}
         >
@@ -1426,7 +1426,7 @@ export default function DeliveryZones({ isDark, accentColor, branchInfo }: Deliv
                     ) : (
                       <Save className="w-5 h-5 shrink-0" />
                     )}
-                    <span>{zoneSaving ? 'Saqlanmoqda...' : editingZone ? 'Saqlash' : 'Qo\'shish'}</span>
+                    <span>{zoneSaving ? '' : editingZone ? 'Saqlash' : 'Qo\'shish'}</span>
                   </div>
                 </button>
               </div>

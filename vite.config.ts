@@ -91,7 +91,13 @@ export default defineConfig(({ mode }) => {
   return {
   optimizeDeps: {
     /** `react-router` ni bu yerga qo‘shmaslik kerak: alias/prebundle bilan ikki nusxa bo‘lib useLocation "Router tashqarida" xatosi chiqadi */
-    include: ['react', 'react-dom', 'react-dom/client', 'react/jsx-runtime'],
+    include: [
+      'react',
+      'react-dom',
+      'react-dom/client',
+      'react/jsx-runtime',
+      'react/jsx-dev-runtime',
+    ],
   },
   plugins: [
     // The React and Tailwind plugins are both required for Make, even if
@@ -110,13 +116,15 @@ export default defineConfig(({ mode }) => {
     : {}),
 
   resolve: {
-    dedupe: ['react', 'react-dom'],
+    dedupe: ['react', 'react-dom', 'react/jsx-runtime', 'react/jsx-dev-runtime'],
     alias: {
       // Alias @ to the src directory
       '@': path.resolve(__dirname, './src'),
       // Bitta React nusxasi — aks holda ba'zi chunklarda "Invalid hook call" / useState null
       react: path.resolve(__dirname, 'node_modules/react'),
       'react-dom': path.resolve(__dirname, 'node_modules/react-dom'),
+      'react/jsx-runtime': path.resolve(__dirname, 'node_modules/react/jsx-runtime.js'),
+      'react/jsx-dev-runtime': path.resolve(__dirname, 'node_modules/react/jsx-dev-runtime.js'),
     },
   },
 
@@ -144,6 +152,10 @@ export default defineConfig(({ mode }) => {
       output: {
         manualChunks(id) {
           if (!id.includes('node_modules')) return;
+          /** React / DOM / scheduler — `vendor` ga yig‘ilganda ba'zi sahifalarda "null (reading 'useEffect')" chiqadi */
+          if (/\/node_modules\/react\//.test(id)) return;
+          if (/\/node_modules\/react-dom\//.test(id)) return;
+          if (/\/node_modules\/scheduler\//.test(id)) return;
           // Avoid circular chunk graphs: keep large deps in vendor except a few leaf chunks.
           if (id.includes('lucide-react')) return 'icons';
           if (id.includes('sonner')) return 'toast';

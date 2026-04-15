@@ -241,7 +241,7 @@ export function PortfolioDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-[200] flex items-end md:items-center justify-center"
+      className="fixed inset-0 app-safe-pad z-[200] flex items-end md:items-center justify-center"
       style={{
         backgroundColor: isDark ? 'rgba(0, 0, 0, 0.92)' : 'rgba(0, 0, 0, 0.75)',
         backdropFilter: 'blur(16px)',
@@ -954,7 +954,7 @@ export function PortfolioDetailModal({
                         }}
                       >
                         {submittingReview && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
-                        {submittingReview ? 'Yuklanmoqda...' : 'Sharh yuborish'}
+                        {submittingReview ? '' : 'Sharh yuborish'}
                       </button>
                     </div>
                   </form>
@@ -1151,7 +1151,7 @@ export function PortfolioDetailModal({
       {/* Image Viewer Modal */}
       {selectedImage && (
         <div
-          className="fixed inset-0 z-[300] flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-[300] flex items-center justify-center p-4"
           style={{
             backgroundColor: 'rgba(0, 0, 0, 0.95)',
             backdropFilter: 'blur(20px)',

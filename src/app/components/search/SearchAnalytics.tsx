@@ -354,7 +354,7 @@ export default function SearchAnalyticsDashboard() {
       <div className="flex items-center justify-center min-h-96">
         <div className="text-center">
           <BarChart3 className="w-12 h-12 text-gray-400 mx-auto mb-4 animate-pulse" />
-          <p className="text-gray-600 dark:text-gray-400">Analitika yuklanmoqda...</p>
+          <p className="text-gray-600 dark:text-gray-400"></p>
         </div>
       </div>
     );

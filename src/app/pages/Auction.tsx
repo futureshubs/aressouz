@@ -645,7 +645,7 @@ export default function Auction({ onClose }: AuctionProps) {
       {/* Detail Modal */}
       {selectedAuction && (
         <div 
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-end sm:items-center justify-center p-0 sm:p-4"
           style={{
             background: 'rgba(0, 0, 0, 0.8)',
             backdropFilter: 'blur(12px)',

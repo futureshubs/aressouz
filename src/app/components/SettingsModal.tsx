@@ -457,7 +457,12 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
         {
           icon: theme === 'dark' ? Moon : Sun,
           label: t('settings.darkMode'),
-          subtitle: themePreference === 'system' ? t('settings.themeFollowsDevice') : undefined,
+          subtitle:
+            themePreference === 'system'
+              ? t('settings.themeFollowsDevice')
+              : themePreference === 'light'
+                ? t('settings.themeAlwaysLight')
+                : t('settings.themeAlwaysDark'),
           toggle: true,
           value: theme === 'dark',
           action: toggleTheme,
@@ -529,7 +534,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
   ];
 
   const infoModalLayer = infoModal ? (
-      <div className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center">
+      <div className="fixed inset-0 app-safe-pad z-[70] flex items-end sm:items-center justify-center">
         <button
           type="button"
           className="absolute inset-0"
@@ -662,7 +667,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
 
   const languageChoices: Language[] = ['uz', 'ru', 'en'];
   const languagePickerLayer = showLanguageModal ? (
-    <div className="fixed inset-0 z-[80] flex items-end sm:items-center justify-center">
+    <div className="fixed inset-0 app-safe-pad z-[80] flex items-end sm:items-center justify-center">
       <button
         type="button"
         className="absolute inset-0"
@@ -754,7 +759,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
     return (
       <>
       <div 
-        className="fixed inset-0 z-[60] flex items-end justify-center"
+        className="fixed inset-0 app-safe-pad z-[60] flex items-end justify-center"
         onClick={onClose}
       >
         {/* Backdrop */}
@@ -961,7 +966,7 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
   return (
     <>
     <div 
-      className="fixed inset-0 z-[60] flex items-end justify-center"
+      className="fixed inset-0 app-safe-pad z-[60] flex items-end justify-center"
       onClick={onClose}
     >
       {/* Backdrop */}

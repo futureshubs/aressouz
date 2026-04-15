@@ -445,7 +445,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
 
   return (
     <div
-      className="fixed inset-0 z-50 flex flex-col h-dvh max-h-dvh min-h-0 overflow-hidden"
+      className="fixed inset-0 app-safe-pad z-50 flex flex-col h-dvh max-h-dvh min-h-0 overflow-hidden"
       style={{ background: isDark ? '#000000' : '#f9fafb' }}
     >
       {/* Real System Header */}
@@ -927,7 +927,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
       {/* Request Form Modal */}
       {showRequestForm && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.7)' }}
           onClick={() => setShowRequestForm(false)}
         >

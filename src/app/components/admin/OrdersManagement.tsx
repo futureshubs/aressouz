@@ -42,6 +42,7 @@ import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { toast } from 'sonner';
 import { PendingCashMarketBranchPanel } from '../branch/PendingCashMarketBranchPanel';
 import { isShopProductCartLine } from '../../utils/submitRegularCartOrderQuick';
+import { sortOrdersNewestFirst } from '../../utils/sortOrdersNewestFirst';
 
 /** Savat/API qatorida do‘kon mahsuloti (shop_product / source shop) bormi */
 function orderHasShopProductLine(order: Pick<Order, 'items'>): boolean {
@@ -601,6 +602,7 @@ export default function OrdersManagement({
           merged = merged.filter((order: Order) => String(order.branchId) === String(branchId));
         }
 
+        merged = sortOrdersNewestFirst(merged);
         applyNewOrderToast(merged);
         setOrders(merged);
         return;
@@ -624,7 +626,7 @@ export default function OrdersManagement({
         allOrders = allOrders.filter(
           (order: Order) => String(order.branchId || '') === String(effectiveBranchFilter),
         );
-        const mapped = allOrders.map(mapRawToOrder);
+        const mapped = sortOrdersNewestFirst(allOrders.map(mapRawToOrder));
         applyNewOrderToast(mapped);
         setOrders(mapped);
       } else if (!silent) {
@@ -690,7 +692,7 @@ export default function OrdersManagement({
         const mapped = mapRawToOrder(orderPayload);
         setSelectedOrder(mapped);
         setOrders((prev) =>
-          prev.map((x) => (String(x.id) === String(orderId) ? mapped : x)),
+          sortOrdersNewestFirst(prev.map((x) => (String(x.id) === String(orderId) ? mapped : x))),
         );
       }
       if (!showOrderModalRef.current) {
@@ -722,8 +724,10 @@ export default function OrdersManagement({
       if (data.success) {
         toast.success('Buyurtma holati yangilandi');
         setOrders((prev) =>
-          prev.map((x) =>
-            String(x.id) === String(orderId) ? { ...x, status: newStatus as any } : x,
+          sortOrdersNewestFirst(
+            prev.map((x) =>
+              String(x.id) === String(orderId) ? { ...x, status: newStatus as any } : x,
+            ),
           ),
         );
         setSelectedOrder((cur) =>
@@ -1943,7 +1947,7 @@ export default function OrdersManagement({
             style={{ borderColor: `${accentColor.color}40`, borderTopColor: 'transparent' }}
           />
           <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Yuklanmoqda...
+            
           </p>
         </div>
       </div>
@@ -2075,7 +2079,7 @@ export default function OrdersManagement({
             </select>
             {adminBranchesLoading ? (
               <p className="text-xs mt-2" style={{ opacity: 0.65 }}>
-                Filiallar ro‘yxati yuklanmoqda…
+                
               </p>
             ) : adminBranches.length === 0 ? (
               <p className="text-xs mt-2" style={{ opacity: 0.65 }}>

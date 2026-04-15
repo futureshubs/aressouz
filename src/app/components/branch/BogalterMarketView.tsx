@@ -369,7 +369,7 @@ export function BogalterMarketView() {
           }}
         >
           <Loader2 className="w-4 h-4 animate-spin shrink-0" style={{ color: accentColor.color }} />
-          Sotuv va ombor tarixi yuklanmoqda…
+          
         </div>
       ) : null}
       {/* Sections */}

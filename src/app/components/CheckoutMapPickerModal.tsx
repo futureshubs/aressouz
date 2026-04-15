@@ -341,7 +341,7 @@ export function CheckoutMapPickerModal({
             <p
               className={`text-sm font-semibold leading-snug ${isDark ? 'text-white' : 'text-gray-900'}`}
             >
-              {previewLine || 'Xaritani siljiting — manzil yuklanmoqda…'}
+              {previewLine || ''}
             </p>
             {previewSub ? (
               <p className="text-xs mt-0.5" style={{ color: muted }}>

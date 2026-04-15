@@ -148,6 +148,8 @@ export const ProductCard = memo(function ProductCard({
             <img
               src={displayImage}
               alt={product.name}
+              loading="lazy"
+              decoding="async"
               className="w-full h-full object-cover transition-all duration-500"
               style={{
                 transform:

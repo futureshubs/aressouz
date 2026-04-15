@@ -148,12 +148,12 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
   const footerBorder = isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)';
 
   return (
-    <div className="fixed inset-0 z-[60] pointer-events-none">
+    <div className="fixed inset-0 app-safe-pad z-[60] pointer-events-none">
       {/* Orqa fon — to‘liq ekran (notch ostida ham) */}
       <button
         type="button"
         aria-label="Yopish"
-        className="pointer-events-auto fixed inset-0 z-0 cursor-pointer border-0 backdrop-blur-md"
+        className="pointer-events-auto fixed inset-0 app-safe-pad z-0 cursor-pointer border-0 backdrop-blur-md"
         style={{
           background: isDark ? 'rgba(0, 0, 0, 0.82)' : 'rgba(0, 0, 0, 0.55)',
         }}
@@ -510,7 +510,7 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
           {loadingRatings ? (
             <div className="mb-6 flex items-center justify-center gap-2 py-6 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
               <Loader2 className="size-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
-              Sharhlar yuklanmoqda…
+              
             </div>
           ) : ratings.length > 0 ? (
             <div className="mb-6">

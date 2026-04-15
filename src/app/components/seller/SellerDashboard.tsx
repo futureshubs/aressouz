@@ -425,7 +425,7 @@ export default function SellerDashboard() {
 
       {/* Add Product Modal */}
       {showAddProduct && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-6" style={{ background: 'rgba(0, 0, 0, 0.7)' }}>
+        <div className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-6" style={{ background: 'rgba(0, 0, 0, 0.7)' }}>
           <div 
             className="w-full max-w-lg p-6 rounded-3xl"
             style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}

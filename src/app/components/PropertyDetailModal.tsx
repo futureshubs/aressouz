@@ -72,7 +72,7 @@ export function PropertyDetailModal({ property, onClose }: PropertyDetailModalPr
 
   return (
     <div 
-      className="fixed inset-0 z-50 overflow-y-auto"
+      className="fixed inset-0 app-safe-pad z-50 overflow-y-auto"
       style={{
         background: isDark ? 'rgba(0, 0, 0, 0.95)' : 'rgba(0, 0, 0, 0.5)',
       }}

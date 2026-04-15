@@ -327,7 +327,7 @@ export default function CourierBagsView() {
         {isLoading ? (
           <div className="py-12 text-center flex flex-col items-center gap-2" style={{ color: mutedTextColor }}>
             <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} />
-            So‘mkalar yuklanmoqda...
+            
           </div>
         ) : bags.length === 0 ? (
           <div className="py-12 text-center" style={{ color: mutedTextColor }}>
@@ -417,7 +417,7 @@ export default function CourierBagsView() {
       </div>
 
       {isModalOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }}>
+        <div className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4" style={{ background: 'rgba(0,0,0,0.6)' }}>
           <div
             className="w-full max-w-lg rounded-3xl border p-6"
             style={{

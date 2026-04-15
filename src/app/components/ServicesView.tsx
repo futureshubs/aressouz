@@ -472,7 +472,7 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
             {loadingPortfolios ? (
               <div className="col-span-full flex flex-col items-center justify-center gap-2 py-8">
                 <Loader2 className="size-6 animate-spin shrink-0" style={{ color: accentColor.color }} />
-                <p className="text-sm font-medium" style={{ color: isDark ? '#ffffff' : '#111827' }}>Ustalar yuklanmoqda...</p>
+                <p className="text-sm font-medium" style={{ color: isDark ? '#ffffff' : '#111827' }}></p>
               </div>
             ) : portfolios.length > 0 ? (
               portfolios.map((portfolio) => (

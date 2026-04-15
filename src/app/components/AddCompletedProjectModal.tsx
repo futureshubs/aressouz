@@ -140,7 +140,7 @@ export function AddCompletedProjectModal({
 
   return (
     <div
-      className="fixed inset-0 z-[250] flex items-center justify-center p-4"
+      className="fixed inset-0 app-safe-pad z-[250] flex items-center justify-center p-4"
       style={{
         background: 'rgba(0, 0, 0, 0.7)',
         backdropFilter: 'blur(8px)',
@@ -239,7 +239,7 @@ export function AddCompletedProjectModal({
                 <Upload className="size-8" style={{ color: accentColor.color }} />
               )}
               <span className="text-sm font-medium" style={{ color: textSecondary }}>
-                {uploading ? 'Yuklanmoqda...' : 'Rasmlarni yuklash uchun bosing'}
+                {uploading ? '' : 'Rasmlarni yuklash uchun bosing'}
               </span>
               <input
                 type="file"
@@ -287,7 +287,7 @@ export function AddCompletedProjectModal({
             }}
           >
             {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
-            {loading ? 'Yuklanmoqda...' : 'Loyiha qo\'shish'}
+            {loading ? '' : 'Loyiha qo\'shish'}
           </button>
         </form>
       </div>

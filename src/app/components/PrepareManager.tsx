@@ -584,7 +584,7 @@ export default function PrepareManager() {
 
       {/* Form Modal */}
       {showForm && (
-        <div className="fixed inset-0 z-50 overflow-y-auto" style={{ background: 'rgba(0, 0, 0, 0.8)' }}>
+        <div className="fixed inset-0 app-safe-pad z-50 overflow-y-auto" style={{ background: 'rgba(0, 0, 0, 0.8)' }}>
           <div className="min-h-screen px-4 flex items-center justify-center">
             <div
               className="w-full max-w-2xl rounded-2xl p-6"

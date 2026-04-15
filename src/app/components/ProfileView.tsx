@@ -19,6 +19,7 @@ import {
   Clock,
   CheckCircle2,
   Loader2,
+  FileText,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { SettingsModal } from './SettingsModal';
@@ -32,6 +33,8 @@ import { ListingCard } from './ListingCard';
 import { PortfolioDetailModal } from './PortfolioDetailModal';
 import { ListingPreviewModal } from './ListingPreviewModal';
 import { devLog } from '../utils/devLog';
+import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
+import { isValidSmsOrJwtAccessToken } from '../utils/smsAccessToken';
 import { useTheme, type Language } from '../context/ThemeContext';
 import {
   profileOrderBadgeLabel,
@@ -40,12 +43,20 @@ import {
   useUserPanelT,
   userPanelFormatDateTime,
   userPanelLocale,
+  userPanelT,
 } from '../i18n/userPanel';
 import { formatListingFeeDisplay } from '../constants/listingFee';
 import { useAuth } from '../context/AuthContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { publicAnonKey, API_BASE_URL, DEV_API_BASE_URL } from '/utils/supabase/info';
 import { OrderReviewModal } from './OrderReviewModal';
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+  DialogDescription,
+} from './ui/dialog';
 import type { FavoriteOrderEntry } from '../context/FavoritesContext';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProfileActiveRentalCard, type ProfileActiveRentalOrder } from './rental/ProfileActiveRentalCard';
@@ -73,9 +84,24 @@ function normalizePhoneForRentalsApi(phone: string): string {
 }
 
 function mapRelationalOrderStatus(s: string): 'active' | 'completed' | 'cancelled' {
-  const x = (s || '').toLowerCase();
+  const x = (s || '').toLowerCase().trim();
   if (['cancelled', 'refunded', 'partially_refunded', 'rejected'].includes(x)) return 'cancelled';
-  if (['fulfilled', 'confirmed', 'split'].includes(x)) return 'completed';
+  if (
+    [
+      'fulfilled',
+      'confirmed',
+      'split',
+      'delivered',
+      'completed',
+      'complete',
+      'done',
+      'shipped',
+      'out_for_delivery',
+      'delivered_to_customer',
+      'delivery_completed',
+    ].includes(x)
+  )
+    return 'completed';
   return 'active';
 }
 
@@ -111,6 +137,18 @@ function mergePreviewLinesWithKv(
   });
 }
 
+function pickMergedOrderStatus(
+  kv: Record<string, unknown>,
+  rel: Record<string, unknown>,
+): 'active' | 'completed' | 'cancelled' {
+  const r = (v: unknown) => String(v || '').toLowerCase().trim();
+  const ks = r(kv.orderStatus);
+  const rs = r(rel.orderStatus);
+  if (ks === 'cancelled' || rs === 'cancelled') return 'cancelled';
+  if (ks === 'completed' || rs === 'completed') return 'completed';
+  return 'active';
+}
+
 /** Bir xil `id`: relational ma’lumot + KV qatorlaridagi rasmlar */
 function mergeRelationalAndKvOrder(rel: Record<string, unknown>, kv: Record<string, unknown>) {
   const relLines = Array.isArray(rel.previewLines)
@@ -120,7 +158,7 @@ function mergeRelationalAndKvOrder(rel: Record<string, unknown>, kv: Record<stri
     ? (kv.previewLines as ProfileOrderLinePreview[])
     : [];
   const previewLines = mergePreviewLinesWithKv(relLines, kvLines);
-  return { ...kv, ...rel, previewLines };
+  return { ...kv, ...rel, orderStatus: pickMergedOrderStatus(kv, rel), previewLines };
 }
 
 function enrichOrderPreviewLineImages(order: Record<string, unknown>): Record<string, unknown> {
@@ -188,9 +226,10 @@ function pickItemImageFromKvLine(it: Record<string, unknown>): string | null {
   );
 }
 
-function kvItemsToPreviewLines(items: unknown): ProfileOrderLinePreview[] {
+function kvItemsToLines(items: unknown, max: number | null): ProfileOrderLinePreview[] {
   if (!Array.isArray(items)) return [];
-  return items.slice(0, 5).map((raw) => {
+  const arr = max == null ? items : items.slice(0, max);
+  return arr.map((raw) => {
     const it = raw && typeof raw === 'object' ? (raw as Record<string, unknown>) : {};
     const qty = Math.max(1, Number(it.quantity || 1));
     const vd = it.variantDetails as Record<string, unknown> | undefined;
@@ -239,6 +278,14 @@ function kvItemsToPreviewLines(items: unknown): ProfileOrderLinePreview[] {
   });
 }
 
+function kvItemsToPreviewLines(items: unknown): ProfileOrderLinePreview[] {
+  return kvItemsToLines(items, 5);
+}
+
+function kvItemsToReceiptLines(items: unknown): ProfileOrderLinePreview[] {
+  return kvItemsToLines(items, null);
+}
+
 function pickPrimaryProductMediaUrl(
   product: { media?: Array<Record<string, unknown>> } | null | undefined,
   variantId: string | null,
@@ -263,13 +310,21 @@ function pickPrimaryProductMediaUrl(
   return String(sorted[0]?.media_url || '').trim() || null;
 }
 
-function relationalItemsToPreviewLines(
+function relationalItemsToLines(
   groups: Array<Record<string, unknown>> | undefined,
+  maxItems: number | null,
 ): ProfileOrderLinePreview[] {
-  const g0 = Array.isArray(groups) && groups[0] ? groups[0] : null;
-  const items = (g0?.items as Array<Record<string, unknown>> | undefined) || [];
-  if (!Array.isArray(items)) return [];
-  return items.slice(0, 5).map((it) => {
+  if (!Array.isArray(groups) || groups.length === 0) return [];
+  const flat: Array<Record<string, unknown>> = [];
+  for (const g of groups) {
+    const items = (g?.items as Array<Record<string, unknown>> | undefined) || [];
+    for (const it of items) {
+      if (it && typeof it === 'object') flat.push(it);
+    }
+  }
+  if (flat.length === 0) return [];
+  const src = maxItems == null ? flat : flat.slice(0, maxItems);
+  return src.map((it) => {
     const qty = Math.max(1, Number(it.quantity || 1));
     const unit = Number(it.unit_price || 0);
     const total = Number(it.total_amount ?? unit * qty);
@@ -303,6 +358,18 @@ function relationalItemsToPreviewLines(
   });
 }
 
+function relationalItemsToPreviewLines(
+  groups: Array<Record<string, unknown>> | undefined,
+): ProfileOrderLinePreview[] {
+  return relationalItemsToLines(groups, 5);
+}
+
+function relationalItemsToReceiptLines(
+  groups: Array<Record<string, unknown>> | undefined,
+): ProfileOrderLinePreview[] {
+  return relationalItemsToLines(groups, null);
+}
+
 function getProfileOrderPreviewLines(order: Record<string, unknown>): ProfileOrderLinePreview[] {
   if (Array.isArray(order.previewLines) && order.previewLines.length > 0) {
     return order.previewLines as ProfileOrderLinePreview[];
@@ -315,7 +382,7 @@ function getProfileOrderCardMeta(order: Record<string, unknown>, lang: Language)
   const isRel = order.relational === true;
   const totalRaw = isRel ? order.total : order.finalTotal ?? order.totalAmount ?? order.total;
   const total = typeof totalRaw === 'number' ? totalRaw : Number(totalRaw);
-  const shippingRaw = order.shippingAmount ?? order.deliveryPrice;
+  const shippingRaw = order.shippingAmount ?? order.shipping_amount ?? order.deliveryPrice;
   const shipping =
     typeof shippingRaw === 'number' ? shippingRaw : Number(shippingRaw || 0);
   const lines = getProfileOrderPreviewLines(order);
@@ -338,13 +405,220 @@ function getProfileOrderCardMeta(order: Record<string, unknown>, lang: Language)
   };
 }
 
+function getProfileOrderReceiptLines(order: Record<string, unknown>): ProfileOrderLinePreview[] {
+  if (order.relational === true) {
+    const groups = order.groups as Array<Record<string, unknown>> | undefined;
+    const full = relationalItemsToReceiptLines(groups);
+    if (full.length > 0) return full;
+  }
+  if (Array.isArray(order.items) && order.items.length > 0) {
+    const kv = kvItemsToReceiptLines(order.items);
+    if (kv.length > 0) return kv;
+  }
+  if (Array.isArray(order.previewLines) && order.previewLines.length > 0) {
+    return order.previewLines as ProfileOrderLinePreview[];
+  }
+  return getProfileOrderPreviewLines(order);
+}
+
+function getProfileOrderReceiptMeta(order: Record<string, unknown>, lang: Language) {
+  const base = getProfileOrderCardMeta(order, lang);
+  const lines = getProfileOrderReceiptLines(order);
+  return { ...base, lines };
+}
+
+/** Yetkazilgan / yakunlangan buyurtmada mijoz chekini ko‘rishi */
+function orderEligibleForReceiptView(order: Record<string, unknown>): boolean {
+  const st = String(order.orderStatus || '').toLowerCase().trim();
+  if (st === 'cancelled') return false;
+  if (st === 'completed') return true;
+  const raw = String((order as { status?: unknown }).status || '').toLowerCase();
+  if (raw.includes('bekor') || raw.includes('cancel')) return false;
+  if (
+    raw.includes('yakun') ||
+    raw.includes('yetkaz') ||
+    raw.includes('deliver') ||
+    raw.includes('fulfil') ||
+    raw === 'completed' ||
+    raw === 'done'
+  )
+    return true;
+  return false;
+}
+
+function getOrderReceiptExtras(order: Record<string, unknown>) {
+  const pick = (...keys: string[]) => {
+    for (const k of keys) {
+      const v = order[k];
+      if (v != null && String(v).trim()) return String(v).trim();
+    }
+    return '';
+  };
+  const groupNotes = (() => {
+    const gr = order.groups as Array<Record<string, unknown>> | undefined;
+    if (!Array.isArray(gr)) return '';
+    const parts: string[] = [];
+    for (const g of gr) {
+      const n = g?.note != null ? String(g.note).trim() : '';
+      if (n) parts.push(n);
+    }
+    return parts.join('\n\n');
+  })();
+  const discountRaw =
+    order.discount ?? order.discountAmount ?? order.promoDiscount ?? order.discountTotal;
+  const discountKv = typeof discountRaw === 'number' ? discountRaw : Number(discountRaw || 0);
+  const discountRel = pickOrderNumber(order, ['discount_amount', 'discountAmount']);
+  const discountNum = Number.isFinite(discountRel) && discountRel! > 0 ? discountRel! : discountKv;
+  const discount = Number.isFinite(discountNum) && discountNum > 0 ? discountNum : null;
+
+  const addrRel = formatOrderAddressesBlock(order.order_addresses);
+  let customerName = pick('customerName', 'customer_name', 'fullName', 'recipientName');
+  let customerPhone = pick('customerPhone', 'customer_phone', 'phone');
+  if ((!customerName || !customerPhone) && Array.isArray(order.order_addresses)) {
+    const list = order.order_addresses as Record<string, unknown>[];
+    const ship =
+      list.find((a) => {
+        const r = String(a.role || '').toLowerCase();
+        return r.includes('shipping') || r === 'delivery';
+      }) ||
+      list.find((a) => String(a.type || '').toLowerCase() === 'shipping') ||
+      list[0];
+    if (ship) {
+      if (!customerName) customerName = String(ship.recipient_name || '').trim();
+      if (!customerPhone) customerPhone = String(ship.recipient_phone || '').trim();
+    }
+  }
+  const addressStructured =
+    stringifyOrderAddressValue(order.address) ||
+    stringifyOrderAddressValue(order.deliveryAddress) ||
+    stringifyOrderAddressValue(order.delivery_address) ||
+    stringifyOrderAddressValue(order.fullAddress);
+  const address =
+    addressStructured ||
+    (typeof order.fullAddress === 'string' ? String(order.fullAddress).trim() : '') ||
+    addrRel;
+
+  const paymentMethod = pick(
+    'paymentMethod',
+    'payment_method',
+    'paymentType',
+    'payment_type',
+    'payType',
+    'pay_type',
+  );
+  const paymentProviderRaw = String(order.paymentProvider || '').trim();
+  const paymentMethodTypeRaw = String(order.paymentMethodType || '').trim();
+
+  const promo =
+    pick('promoCode', 'promo_code') ||
+    (order.promoCode != null ? String(order.promoCode).trim() : '') ||
+    (order.promo_code != null ? String(order.promo_code).trim() : '');
+
+  const rentalDetailBlock = (() => {
+    if (order.rentalKv !== true) return '';
+    const bits: string[] = [];
+    const pu = String((order as { pickupAddress?: unknown }).pickupAddress || '').trim();
+    if (pu) bits.push(`Olish joyi: ${pu}`);
+    const dz = String((order as { deliveryZoneSummary?: unknown }).deliveryZoneSummary || '').trim();
+    if (dz) bits.push(`Yetkazish zonasi: ${dz}`);
+    const dur = String((order as { duration?: unknown }).duration || '').trim();
+    const rp = String((order as { rentalPeriod?: unknown }).rentalPeriod || '').trim();
+    const rd = (order as { rentalDuration?: unknown }).rentalDuration;
+    if (dur) bits.push(`Muddat: ${dur}`);
+    else if (rp || rd != null) bits.push(`Muddat: ${rp || '—'}${rd != null ? ` × ${rd}` : ''}`);
+    const ppp = Number((order as { pricePerPeriod?: unknown }).pricePerPeriod);
+    if (Number.isFinite(ppp) && ppp > 0) {
+      bits.push(`Bir davr narxi: ${ppp.toLocaleString('uz-UZ')} so‘m`);
+    }
+    const csd = String((order as { contractStartDate?: unknown }).contractStartDate || '').trim();
+    if (csd) {
+      try {
+        bits.push(`Shartnoma boshlanishi: ${new Date(csd).toLocaleString('uz-UZ')}`);
+      } catch {
+        bits.push(`Shartnoma boshlanishi: ${csd}`);
+      }
+    }
+    const dep = String((order as { depositDescription?: unknown }).depositDescription || '').trim();
+    const depAmt = Number((order as { depositAmountUzs?: unknown }).depositAmountUzs);
+    if (dep) bits.push(`Depozit: ${dep}`);
+    if (Number.isFinite(depAmt) && depAmt > 0) {
+      bits.push(`Depozit summasi: ${depAmt.toLocaleString('uz-UZ')} so‘m`);
+    }
+    const ps = String((order as { paymentSchedule?: unknown }).paymentSchedule || '').trim();
+    if (ps) bits.push(`To‘lov jadvali: ${ps}`);
+    return bits.join('\n');
+  })();
+
+  const noteParts = [
+    rentalDetailBlock,
+    pick('notes', 'comment', 'orderNotes'),
+    (() => {
+      const b = order.buyer_note ?? order.buyerNote;
+      return b != null && String(b).trim() ? String(b).trim() : '';
+    })(),
+    (() => {
+      const g = order.groupNote;
+      return g != null && String(g).trim() ? String(g).trim() : '';
+    })(),
+    groupNotes,
+  ].filter(Boolean);
+  const notes = noteParts.join('\n\n');
+
+  const taxAmount = pickOrderNumber(order, ['tax_amount', 'taxAmount']);
+  const bonusUsed = pickOrderNumber(order, ['bonus_used_amount', 'bonusUsedAmount']);
+
+  const branchFromGroups = (() => {
+    const gr = order.groups as Array<Record<string, unknown>> | undefined;
+    if (!Array.isArray(gr) || gr.length === 0) return '';
+    const lines: string[] = [];
+    let idx = 0;
+    for (const g of gr) {
+      idx += 1;
+      const vt = String(g?.vertical_type || '').trim();
+      const bid = g?.branch_id != null ? String(g.branch_id).trim() : '';
+      const sid = g?.seller_store_id != null ? String(g.seller_store_id).trim() : '';
+      const bits: string[] = [];
+      if (vt) bits.push(vt);
+      if (bid) bits.push(`filial: ${bid}`);
+      if (sid) bits.push(`do‘kon: ${sid}`);
+      if (!bits.length) continue;
+      lines.push(gr.length > 1 ? `#${idx} ${bits.join(' · ')}` : bits.join(' · '));
+    }
+    return lines.join('\n');
+  })();
+
+  return {
+    customerName,
+    customerPhone,
+    address,
+    branchName: pick('branchName', 'branch_name') || branchFromGroups,
+    paymentMethod,
+    paymentProviderRaw,
+    paymentMethodTypeRaw,
+    promo,
+    notes,
+    discount,
+    taxAmount: taxAmount != null && taxAmount > 0 ? taxAmount : null,
+    bonusUsed: bonusUsed != null && bonusUsed > 0 ? bonusUsed : null,
+  };
+}
+
 /** KV buyurtma: filtrlash va mijoz tekshiruvi uchun qisqa maydonlar */
 function normalizeKvOrderForProfile(o: any) {
   if (!o || o.relational) return o;
   const s = String(o.status || '').toLowerCase().trim();
   let orderStatus: 'active' | 'completed' | 'cancelled' = 'active';
   if (s === 'cancelled' || s === 'canceled' || s === 'rejected') orderStatus = 'cancelled';
-  else if (s === 'delivered' || s === 'completed') orderStatus = 'completed';
+  else if (
+    s === 'delivered' ||
+    s === 'completed' ||
+    s === 'fulfilled' ||
+    s === 'done' ||
+    s === 'delivery_completed' ||
+    s === 'delivered_to_customer' ||
+    s === 'customer_received'
+  )
+    orderStatus = 'completed';
   const refundWait = o.refundPending === true && (s === 'cancelled' || s === 'canceled');
   const payRefunded =
     String(o.paymentStatus || o.payment_status || '').toLowerCase() === 'refunded';
@@ -383,7 +657,16 @@ function relationalOrderToUi(row: Record<string, unknown>) {
   const statusLabel =
     uiStatus === 'completed' ? 'Yakunlangan' : uiStatus === 'cancelled' ? 'Bekor qilingan' : 'Faol';
   const previewLines = relationalItemsToPreviewLines(groups);
-  const lineRowCount = Array.isArray(g0?.items) ? g0.items.length : 0;
+  const lineRowCount = Array.isArray(groups)
+    ? groups.reduce(
+        (n, g) => n + (Array.isArray((g as { items?: unknown }).items) ? (g as { items: unknown[] }).items.length : 0),
+        0,
+      )
+    : 0;
+  const p0 =
+    Array.isArray(row.payments) && row.payments[0] && typeof row.payments[0] === 'object'
+      ? (row.payments[0] as Record<string, unknown>)
+      : null;
   return {
     id: row.id,
     orderNumber: row.order_number,
@@ -392,13 +675,39 @@ function relationalOrderToUi(row: Record<string, unknown>) {
     category: mapRelationalVerticalToCategory(vertical),
     total: row.total_amount,
     subtotal: row.subtotal_amount,
+    subtotal_amount: row.subtotal_amount,
     shippingAmount: row.shipping_amount,
+    shipping_amount: row.shipping_amount,
+    tax_amount: row.tax_amount,
+    discount_amount: row.discount_amount,
     createdAt: row.created_at,
+    updated_at: row.updated_at,
     currency_code: row.currency_code,
     item_count: row.item_count,
     payment_status: row.payment_status,
     paymentStatus: row.payment_status,
+    promo_code: row.promo_code,
+    promoCode: row.promo_code,
+    buyer_note: row.buyer_note,
+    buyerNote: row.buyer_note,
+    tax_amount: row.tax_amount,
+    discount_amount: row.discount_amount,
+    bonus_used_amount: row.bonus_used_amount,
+    payment_requires_verification: row.payment_requires_verification,
+    source_channel: row.source_channel,
+    fulfillment_type: g0?.fulfillment_type,
+    groupNote: g0?.note,
+    payments: row.payments,
+    order_addresses: row.order_addresses,
+    ...(p0
+      ? {
+          paymentProvider: String(p0.provider || ''),
+          paymentMethodType: String(p0.method_type || ''),
+        }
+      : {}),
     relational: true as const,
+    /** Chek: barcha qatorlar — `getProfileOrderReceiptLines` uchun majburiy */
+    groups: row.groups,
     previewLines,
     lineRowCount,
   };
@@ -419,14 +728,38 @@ function rentalKvStatusLabel(raw: string): string {
   return 'Faol';
 }
 
-/** KV ijara buyurtmasi → profil «Buyurtmalar» kartochkasi (category rent) */
+/** KV ijara buyurtmasi → profil «Buyurtmalar» kartochkasi (category rent) + chek maydonlari */
 function rentalKvOrderToProfileCard(r: Record<string, unknown>) {
   const orderStatus = mapRentalKvStatusToProfile(String(r.status || ''));
-  const name = String(r.productName || 'Ijara').trim() || 'Ijara';
-  const displayName = name.length > 28 ? `${name.slice(0, 28)}…` : name;
+  const fullName = String(r.productName || 'Ijara').trim() || 'Ijara';
+  const displayName = fullName.length > 28 ? `${fullName.slice(0, 28)}…` : fullName;
   const imgRaw = String(r.productImage || r.image || '').trim();
+  const qty = Math.max(1, Number(r.quantity) || 1);
   const lineTotal = Number(r.totalPrice ?? r.pricePerPeriod ?? 0) || 0;
+  const unit = Number(r.pricePerPeriod) || (qty > 0 ? lineTotal / qty : lineTotal);
+  const addr = String(r.deliveryAddress || r.address || '').trim();
+  const subtitle = [
+    r.duration != null ? String(r.duration).trim() : '',
+    r.rentalPeriod != null ? String(r.rentalPeriod) : '',
+    r.rentalDuration != null ? `×${r.rentalDuration}` : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const paySt = String(r.paymentStatus || (String(r.paymentMethod || '').toLowerCase() === 'cash' ? 'pending' : 'paid')).toLowerCase();
+
+  const itemLine = {
+    name: fullName,
+    quantity: qty,
+    price: unit,
+    unitPrice: unit,
+    total: lineTotal,
+    lineTotal,
+    image: imgRaw,
+    imageUrl: imgRaw,
+  };
+
   return {
+    ...r,
     id: r.id,
     orderNumber: displayName,
     orderStatus,
@@ -438,17 +771,27 @@ function rentalKvOrderToProfileCard(r: Record<string, unknown>) {
     rentalKv: true as const,
     relational: false as const,
     awaitingCustomerReceipt: false,
+    customerName: String(r.customerName || '').trim(),
+    customerPhone: String(r.customerPhone || '').trim(),
+    address: addr,
+    paymentMethod: String(r.paymentMethod || 'cash').trim(),
+    paymentStatus: paySt,
+    shippingAmount: Math.max(0, Number(r.deliveryPrice) || 0),
+    deliveryPrice: Number(r.deliveryPrice) || 0,
+    notes: String(r.notes || '').trim(),
     previewLines: [
       {
         imageUrl: imgRaw && (imgRaw.startsWith('http') || imgRaw.startsWith('/') || imgRaw.startsWith('data:'))
           ? imgRaw
           : null,
-        title: displayName,
-        quantity: 1,
+        title: fullName,
+        subtitle: subtitle || undefined,
+        quantity: qty,
         lineTotal,
+        unitPrice: Number.isFinite(unit) && unit > 0 ? unit : undefined,
       },
     ] satisfies ProfileOrderLinePreview[],
-    paymentStatus: 'paid',
+    items: [itemLine],
     lineRowCount: 1,
   };
 }
@@ -457,6 +800,447 @@ interface ProfileViewProps {
   onOpenBonus?: () => void;
   /** Masalan market bo‘limidan «Barchasi» — Buyurtmalar tabida shu kategoriya tanlanadi */
   initialOrderCategory?: 'all' | 'market' | 'shop' | 'rent' | 'food' | 'auction';
+}
+
+function pickOrderNumber(order: Record<string, unknown>, keys: string[]): number | null {
+  for (const k of keys) {
+    const v = order[k];
+    if (v == null || v === '') continue;
+    const n = typeof v === 'number' ? v : Number(v);
+    if (Number.isFinite(n)) return n;
+  }
+  return null;
+}
+
+/** KV checkout `address: { street, building, apartment, note }` — String() bo‘lsa [object Object] */
+function stringifyOrderAddressValue(v: unknown): string {
+  if (v == null) return '';
+  if (typeof v === 'string') return v.trim();
+  if (typeof v !== 'object' || Array.isArray(v)) return '';
+  const o = v as Record<string, unknown>;
+  const parts = [
+    o.street,
+    o.building,
+    o.apartment,
+    o.line1,
+    o.address_line1,
+    o.city,
+    o.region,
+    o.postalCode,
+    o.postal_code,
+    o.note,
+    o.comment,
+  ]
+    .map((x) => (x != null && typeof x !== 'object' ? String(x).trim() : ''))
+    .filter(Boolean);
+  return parts.join(', ');
+}
+
+function formatOrderAddressesBlock(addresses: unknown): string {
+  if (!Array.isArray(addresses) || addresses.length === 0) return '';
+  const list = addresses as Record<string, unknown>[];
+  const ship =
+    list.find((a) => {
+      const r = String(a.role || '').toLowerCase();
+      return r.includes('shipping') || r === 'delivery';
+    }) ||
+    list.find((a) => String(a.type || '').toLowerCase() === 'shipping') ||
+    list[0];
+  const parts: string[] = [];
+  const push = (s: string) => {
+    const x = String(s || '').trim();
+    if (x) parts.push(x);
+  };
+  push(String(ship.recipient_name || ''));
+  push(String(ship.recipient_phone || ''));
+  push(String(ship.address_line1 || ''));
+  push(String(ship.address_line2 || ''));
+  push(String(ship.landmark || ''));
+  return parts.join(', ');
+}
+
+function receiptMethodTypeLabel(lang: Language, raw: string): string {
+  const x = String(raw || '')
+    .toLowerCase()
+    .trim()
+    .replace(/-/g, '_');
+  if (!x) return '';
+  const keyMap: Record<string, string> = {
+    online: 'profile.receipt.methodOnline',
+    cash_on_delivery: 'profile.receipt.methodCod',
+    bank_transfer: 'profile.receipt.methodBank',
+    wallet: 'profile.receipt.methodWallet',
+    installment: 'profile.receipt.methodInstallment',
+  };
+  const k = keyMap[x];
+  return k ? userPanelT(lang, k) : raw.replace(/_/g, ' ');
+}
+
+function receiptFulfillmentLabel(lang: Language, raw: string): string {
+  const x = String(raw || '')
+    .toLowerCase()
+    .trim()
+    .replace(/-/g, '_');
+  if (!x) return '';
+  const keyMap: Record<string, string> = {
+    delivery: 'profile.receipt.fulfillmentDelivery',
+    pickup: 'profile.receipt.fulfillmentPickup',
+    on_site: 'profile.receipt.fulfillmentOnsite',
+    digital: 'profile.receipt.fulfillmentDigital',
+  };
+  const k = keyMap[x];
+  return k ? userPanelT(lang, k) : raw.replace(/_/g, ' ');
+}
+
+function receiptChannelLabel(lang: Language, raw: string): string {
+  const x = String(raw || '').toLowerCase().trim();
+  if (!x) return '';
+  if (x === 'web' || x === 'website') return userPanelT(lang, 'profile.receipt.channelWeb');
+  if (x === 'app' || x === 'ios' || x === 'android' || x === 'mobile')
+    return userPanelT(lang, 'profile.receipt.channelApp');
+  return userPanelT(lang, 'profile.receipt.channelUnknown');
+}
+
+function formatPaymentMethodRaw(raw: string): string {
+  const s = String(raw || '').trim();
+  if (!s) return '';
+  const x = s.toLowerCase().replace(/-/g, '_');
+  const map: Record<string, string> = {
+    cash: 'Naqd',
+    naqd: 'Naqd',
+    click: 'Click',
+    click_card: 'Click (karta)',
+    payme: 'Payme',
+    atmos: 'Atmos',
+    uzum_nasiya: 'Uzum Nasiya',
+    uzumnasiya: 'Uzum Nasiya',
+    online: 'Onlayn',
+    qr: 'QR',
+    aresso: 'Karta (Aresso)',
+    bank_transfer: 'Bank o‘tkazmasi',
+    wallet: 'Hamyon',
+    card: 'Karta',
+    uzcard: 'Uzcard',
+    humo: 'Humo',
+  };
+  return map[x] || s.replace(/_/g, ' ').replace(/\b\w/g, (c) => c.toUpperCase());
+}
+
+function ProfileReceiptModalInner({
+  order,
+  language,
+  isDark,
+  accentColor,
+  t,
+}: {
+  order: Record<string, unknown>;
+  language: Language;
+  isDark: boolean;
+  accentColor: string;
+  t: (key: string) => string;
+}) {
+  const rmeta = getProfileOrderReceiptMeta(order, language);
+  const extras = getOrderReceiptExtras(order);
+  const linesSum = rmeta.lines.reduce(
+    (s, l) => s + (Number.isFinite(l.lineTotal) ? l.lineTotal : 0),
+    0,
+  );
+  const oid = String(order.id || '').trim();
+  const branch =
+    extras.branchName || (order.branchName != null ? String(order.branchName).trim() : '');
+
+  const firstPay =
+    Array.isArray(order.payments) && order.payments[0] && typeof order.payments[0] === 'object'
+      ? (order.payments[0] as Record<string, unknown>)
+      : null;
+  const fromV2Method = [
+    extras.paymentProviderRaw ? formatPaymentMethodRaw(extras.paymentProviderRaw) : '',
+    extras.paymentMethodTypeRaw ? receiptMethodTypeLabel(language, extras.paymentMethodTypeRaw) : '',
+  ]
+    .filter(Boolean)
+    .join(' · ');
+  const fromKvMethod = extras.paymentMethod.trim()
+    ? formatPaymentMethodRaw(extras.paymentMethod.trim())
+    : '';
+  const payMethodLine = [fromV2Method, fromKvMethod].filter(Boolean).join(' · ');
+  const payMethodDisplay =
+    payMethodLine ||
+    (firstPay && String(firstPay.provider || '').trim()
+      ? formatPaymentMethodRaw(String(firstPay.provider))
+      : '');
+
+  const payStatusRaw = String(
+    firstPay?.status || order.payment_status || order.paymentStatus || '',
+  )
+    .toLowerCase()
+    .trim();
+  const payStatusLabel = profilePaymentStatus(language, payStatusRaw);
+
+  const payAmountRaw = firstPay?.amount;
+  const payAmountNum = typeof payAmountRaw === 'number' ? payAmountRaw : Number(payAmountRaw || NaN);
+  const payAmountShown = Number.isFinite(payAmountNum) && payAmountNum > 0 ? payAmountNum : null;
+
+  const allPaymentsText =
+    Array.isArray(order.payments) && order.payments.length > 1
+      ? (order.payments as Record<string, unknown>[])
+          .map((pr, idx) => {
+            const prov = formatPaymentMethodRaw(String(pr.provider || ''));
+            const st = profilePaymentStatus(language, String(pr.status || '').toLowerCase());
+            const amtRaw = pr.amount;
+            const amt = typeof amtRaw === 'number' ? amtRaw : Number(amtRaw || NaN);
+            const amtS =
+              Number.isFinite(amt) && amt > 0 ? formatMoneyProfile(amt, rmeta.currency, language) : '—';
+            const ref = String(pr.provider_payment_ref || '').trim();
+            const refS = ref ? ` · ref: ${ref}` : '';
+            return `${idx + 1}) ${prov} · ${st} · ${amtS}${refS}`;
+          })
+          .join('\n')
+      : '';
+
+  const firstPayRef =
+    firstPay && String(firstPay.provider_payment_ref || '').trim()
+      ? String(firstPay.provider_payment_ref).trim()
+      : '';
+
+  const fulfillmentRaw = String(order.fulfillment_type || '').trim();
+  const fulfillmentLabel = fulfillmentRaw ? receiptFulfillmentLabel(language, fulfillmentRaw) : '';
+
+  const channelRaw = String(order.source_channel || '').trim();
+  const channelLabel = channelRaw ? receiptChannelLabel(language, channelRaw) : '';
+
+  const verifyNeeded = order.payment_requires_verification === true;
+
+  const subtotalDb = pickOrderNumber(order, ['subtotal_amount', 'subtotal', 'finalSubtotal']);
+  const subtotalShown =
+    subtotalDb != null && subtotalDb > 0 ? subtotalDb : Math.max(0, linesSum);
+
+  const updatedRaw = order.updated_at ?? order.updatedAt;
+  const updatedStr =
+    updatedRaw && String(updatedRaw).trim()
+      ? userPanelFormatDateTime(language, new Date(String(updatedRaw)))
+      : '';
+
+  const totalShown =
+    rmeta.total != null && Number.isFinite(rmeta.total) && rmeta.total > 0
+      ? rmeta.total
+      : Math.max(0, linesSum + (rmeta.shipping || 0) - (extras.discount || 0));
+
+  const Row = ({
+    label,
+    value,
+    multiline,
+  }: {
+    label: string;
+    value: string;
+    multiline?: boolean;
+  }) =>
+    value ? (
+      <div
+        className="flex flex-col gap-0.5 border-b py-2 last:border-b-0"
+        style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+      >
+        <span
+          className="text-[11px] font-semibold uppercase tracking-wide"
+          style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+        >
+          {label}
+        </span>
+        <span
+          className={`text-sm font-medium leading-snug ${multiline ? 'whitespace-pre-wrap' : ''}`}
+          style={{ color: isDark ? '#f8fafc' : '#111827' }}
+        >
+          {value}
+        </span>
+      </div>
+    ) : null;
+
+  return (
+    <>
+      <DialogHeader
+        className="space-y-1 border-b px-4 pb-4 pt-2 text-left"
+        style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+      >
+        <DialogTitle className="flex items-center gap-2 pr-10 text-left text-lg">
+          <FileText className="size-5 shrink-0" style={{ color: accentColor }} aria-hidden />
+          {t('profile.receiptTitle')}
+        </DialogTitle>
+        <DialogDescription className="sr-only">{t('profile.receiptSubtitle')}</DialogDescription>
+        <div className="text-left text-xs leading-relaxed">
+          <span className="font-semibold" style={{ color: isDark ? '#e5e7eb' : '#374151' }}>
+            #{String(order.orderNumber || order.id || '')}
+          </span>
+          {order.createdAt ? (
+            <>
+              {' · '}
+              {userPanelFormatDateTime(language, new Date(String(order.createdAt)))}
+            </>
+          ) : null}
+          <span className="mt-1 block" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+            {rmeta.categoryLabel} ·{' '}
+            {profileOrderBadgeLabel(language, {
+              orderStatus: String(order.orderStatus || ''),
+              awaitingCustomerReceipt: Boolean(order.awaitingCustomerReceipt),
+            })}
+          </span>
+          <span
+            className="mt-1 block text-[11px]"
+            style={{ color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.45)' }}
+          >
+            {t('profile.receiptSubtitle')}
+          </span>
+        </div>
+      </DialogHeader>
+
+      <div className="px-4 py-2">
+        <Row label={t('profile.receiptCustomer')} value={extras.customerName} />
+        <Row label={t('profile.receiptPhone')} value={extras.customerPhone} />
+        <Row label={t('profile.receiptAddress')} value={extras.address} />
+        <Row label={t('profile.receiptBranch')} value={branch} />
+        <Row
+          label={t('profile.receiptPayment')}
+          value={payMethodDisplay || t('profile.pay.unknown')}
+        />
+        <Row label={t('profile.receiptPaymentStatus')} value={payStatusLabel} />
+        {payAmountShown != null ? (
+          <Row
+            label={t('profile.receiptPaymentAmount')}
+            value={formatMoneyProfile(payAmountShown, rmeta.currency, language)}
+          />
+        ) : null}
+        {firstPayRef ? (
+          <Row label={t('profile.receiptPaymentRef')} value={firstPayRef} multiline />
+        ) : null}
+        {allPaymentsText ? (
+          <Row label={t('profile.receiptPaymentsList')} value={allPaymentsText} multiline />
+        ) : null}
+        {fulfillmentLabel ? (
+          <Row label={t('profile.receiptFulfillment')} value={fulfillmentLabel} />
+        ) : null}
+        {channelLabel ? <Row label={t('profile.receiptChannel')} value={channelLabel} /> : null}
+        {verifyNeeded ? (
+          <Row label={t('profile.receiptVerifyPayment')} value={t('profile.receipt.verifyRequired')} />
+        ) : null}
+        {updatedStr ? <Row label={t('profile.receiptUpdated')} value={updatedStr} /> : null}
+        <Row label={t('profile.receiptPromo')} value={extras.promo} />
+        <Row label={t('profile.receiptNotes')} value={extras.notes} multiline />
+      </div>
+
+      <div className="px-4 pb-2">
+        <p
+          className="mb-2 text-xs font-bold uppercase tracking-wide"
+          style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}
+        >
+          {t('profile.receiptLines')}
+        </p>
+        <div
+          className="space-y-2 rounded-xl border p-3"
+          style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}
+        >
+          {rmeta.lines.map((line, idx) => (
+            <div
+              key={`rcpt-${idx}-${line.title}`}
+              className="flex gap-3 border-b pb-3 last:border-b-0 last:pb-0"
+              style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}
+            >
+              <div className="min-w-0 flex-1">
+                <p className="text-sm font-semibold leading-snug" style={{ color: isDark ? '#fff' : '#111827' }}>
+                  {line.title}
+                </p>
+                {line.subtitle ? (
+                  <p className="mt-0.5 text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                    {line.subtitle}
+                  </p>
+                ) : null}
+                <p className="mt-1 text-[11px]" style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
+                  ×{line.quantity}
+                  {line.unitPrice != null && Number.isFinite(line.unitPrice) ? (
+                    <span>
+                      {' '}
+                      · {formatMoneyProfile(line.unitPrice, rmeta.currency, language)} / {t('profile.unitEach')}
+                    </span>
+                  ) : null}
+                </p>
+              </div>
+              <div
+                className="shrink-0 text-sm font-bold tabular-nums"
+                style={{ color: isDark ? '#e5e7eb' : '#111827' }}
+              >
+                {formatMoneyProfile(line.lineTotal, rmeta.currency, language)}
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+
+      <div
+        className="mt-2 space-y-2 border-t px-4 py-4 text-sm"
+        style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}
+      >
+        <div className="flex justify-between gap-3">
+          <span style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+            {t('profile.receiptSubtotal')}
+          </span>
+          <span className="font-semibold tabular-nums" style={{ color: isDark ? '#e5e7eb' : '#111827' }}>
+            {formatMoneyProfile(subtotalShown, rmeta.currency, language)}
+          </span>
+        </div>
+        {extras.discount != null ? (
+          <div className="flex justify-between gap-3">
+            <span style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+              {t('profile.receiptDiscount')}
+            </span>
+            <span className="font-semibold tabular-nums text-emerald-600">
+              −{formatMoneyProfile(extras.discount, rmeta.currency, language)}
+            </span>
+          </div>
+        ) : null}
+        {extras.taxAmount != null ? (
+          <div className="flex justify-between gap-3">
+            <span style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+              {t('profile.receiptTax')}
+            </span>
+            <span className="font-semibold tabular-nums" style={{ color: isDark ? '#e5e7eb' : '#111827' }}>
+              {formatMoneyProfile(extras.taxAmount, rmeta.currency, language)}
+            </span>
+          </div>
+        ) : null}
+        {extras.bonusUsed != null ? (
+          <div className="flex justify-between gap-3">
+            <span style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+              {t('profile.receiptBonus')}
+            </span>
+            <span className="font-semibold tabular-nums text-amber-600">
+              −{formatMoneyProfile(extras.bonusUsed, rmeta.currency, language)}
+            </span>
+          </div>
+        ) : null}
+        {rmeta.shipping != null && rmeta.shipping > 0 ? (
+          <div className="flex justify-between gap-3">
+            <span style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>{t('profile.shipping')}</span>
+            <span className="font-semibold tabular-nums" style={{ color: isDark ? '#e5e7eb' : '#111827' }}>
+              {formatMoneyProfile(rmeta.shipping, rmeta.currency, language)}
+            </span>
+          </div>
+        ) : null}
+        <div className="flex justify-between gap-3 border-t pt-3 text-base" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
+          <span className="font-bold" style={{ color: isDark ? '#fff' : '#111827' }}>
+            {t('profile.total')}
+          </span>
+          <span className="font-extrabold tabular-nums" style={{ color: accentColor }}>
+            {formatMoneyProfile(totalShown, rmeta.currency, language)}
+          </span>
+        </div>
+        {oid ? (
+          <p
+            className="break-all pt-2 font-mono text-[10px] opacity-70"
+            style={{ color: isDark ? 'rgba(255,255,255,0.4)' : 'rgba(0,0,0,0.5)' }}
+          >
+            {t('profile.receiptOrderId')}: {oid}
+          </p>
+        ) : null}
+      </div>
+    </>
+  );
 }
 
 export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewProps) {
@@ -488,7 +1272,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
 
   const { theme, accentColor, language } = useTheme();
   const t = useUserPanelT();
-  const { isAuthenticated, user, session, signout, smsSignin } = useAuth();
+  const { isAuthenticated, isLoading: authLoading, user, session, signout, smsSignin } = useAuth();
   const {
     favorites: localFavorites,
     favoriteOrders,
@@ -510,6 +1294,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
   /** Buyurtmalar ro‘yxati alohida yuklanadi — profil boshlig‘i bilan aralashmasin */
   const [ordersLoading, setOrdersLoading] = useState(false);
   const [reviewModalOrder, setReviewModalOrder] = useState<any | null>(null);
+  const [receiptModalOrder, setReceiptModalOrder] = useState<Record<string, unknown> | null>(null);
   const [deleteListingId, setDeleteListingId] = useState<string | null>(null);
   const [deleteListingBusy, setDeleteListingBusy] = useState(false);
   const [receiptActionOrderId, setReceiptActionOrderId] = useState<string | null>(null);
@@ -528,13 +1313,10 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
   
   useEffect(() => {
     if (accessToken) {
-      const tokenParts = accessToken.split('-');
-      // Valid token should have at least 7 parts (UUID has 5 dashes + timestamp + random)
-      if (tokenParts.length < 7) {
+      if (!isValidSmsOrJwtAccessToken(accessToken)) {
         console.warn('⚠️ Invalid token format detected in ProfileView!');
-        console.warn('⚠️ Token parts:', tokenParts.length, '(expected: 7+)');
         console.warn('⚠️ Token:', accessToken);
-        console.warn('⚠️ This token appears to be just a userId, clearing localStorage...');
+        console.warn('⚠️ This token does not match JWT or SMS KV format, clearing localStorage...');
         
         // Automatically clear localStorage and session
         localStorage.removeItem('sms_user');
@@ -610,7 +1392,8 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
   }, [isAuthenticated, user, session, accessToken]);
 
   useEffect(() => {
-    // Check if user is authenticated before fetching data
+    if (authLoading) return;
+
     if (!isAuthenticated) {
       devLog('🔐 User not authenticated, showing login modal');
       setIsAuthOpen(true);
@@ -619,7 +1402,9 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
       return;
     }
 
-    if (isAuthenticated && user && accessToken) {
+    setIsAuthOpen(false);
+
+    if (user && accessToken) {
       fetchUserData();
       fetchOrders();
       fetchFavorites();
@@ -630,7 +1415,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
       setLoading(false);
       setOrdersLoading(false);
     }
-  }, [isAuthenticated, user, accessToken, userData?.phone, profileVisibilityTick]);
+  }, [authLoading, isAuthenticated, user, accessToken, userData?.phone, profileVisibilityTick]);
 
   const fetchUserData = async () => {
     try {
@@ -820,11 +1605,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
 
       list = list.map((o) => enrichOrderPreviewLineImages(o as Record<string, unknown>));
 
-      list.sort(
-        (a: any, b: any) =>
-          new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
-      );
-      setOrders(list);
+      setOrders(sortOrdersNewestFirst(list));
     } catch (error) {
       console.error('Error fetching orders:', error);
     } finally {
@@ -1237,8 +2018,13 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
           isOpen={isAuthOpen}
           onClose={() => setIsAuthOpen(false)}
           onSuccess={(user, session) => {
-            smsSignin(user, session);
-            setIsAuthOpen(false);
+            try {
+              smsSignin(user, session);
+              setIsAuthOpen(false);
+            } catch (e: unknown) {
+              console.error('SMS session save failed:', e);
+              toast.error(e instanceof Error ? e.message : t('profile.sessionSaveFailed'));
+            }
           }}
         />
       </>
@@ -1516,16 +2302,14 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
             </p>
             {myRentalsLoading ? (
               <div
-                className="rounded-2xl border p-4 flex items-center gap-3"
+                className="rounded-2xl border p-4 flex items-center justify-center"
                 style={{
                   background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
                   borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
                 }}
+                aria-hidden
               >
                 <Loader2 className="size-5 animate-spin shrink-0" style={{ color: accentColor.color }} />
-                <span className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
-                  {t('profile.rentalsLoading')}
-                </span>
               </div>
             ) : null}
             <div className="space-y-2">
@@ -1791,15 +2575,15 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
 
               {ordersLoading && orders.length > 0 ? (
                 <div
-                  className="flex items-center justify-center gap-2 py-2.5 px-3 rounded-xl text-xs font-semibold mb-1"
+                  className="flex items-center justify-center py-2.5 px-3 rounded-xl text-xs font-semibold mb-1"
                   style={{
                     background: isDark ? 'rgba(255,255,255,0.07)' : `${accentColor.color}14`,
                     color: isDark ? 'rgba(255,255,255,0.88)' : '#374151',
                     border: isDark ? '0.5px solid rgba(255,255,255,0.1)' : `0.5px solid ${accentColor.color}33`,
                   }}
+                  aria-hidden
                 >
                   <Loader2 className="size-4 animate-spin shrink-0" style={{ color: accentColor.color }} />
-                  {t('profile.ordersRefreshing')}
                 </div>
               ) : null}
 
@@ -1811,14 +2595,9 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                       background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)',
                       border: isDark ? '0.5px solid rgba(255,255,255,0.08)' : '0.5px solid rgba(0,0,0,0.06)',
                     }}
+                    aria-hidden
                   >
                     <Loader2 className="size-8 animate-spin" style={{ color: accentColor.color }} strokeWidth={2.5} />
-                    <p className="text-sm font-semibold" style={{ color: isDark ? '#fff' : '#111827' }}>
-                      {t('profile.ordersLoading')}
-                    </p>
-                    <p className="text-xs px-4 text-center" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
-                      {t('profile.ordersLoadingHint')}
-                    </p>
                   </div>
                   {[0, 1, 2].map((sk) => (
                     <div
@@ -1878,16 +2657,34 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                         ? (order as { items: unknown[] }).items.length
                         : meta.lines.length;
                   const moreCount = Math.max(0, rowTotal - meta.lines.length);
+                  const receiptEligible = orderEligibleForReceiptView(orec);
                   return (
                   <div
                     key={buildListKey('order', order, index, ['id', 'orderNumber', 'createdAt'])}
-                    className="p-4 rounded-2xl"
+                    className={`p-4 rounded-2xl transition-transform ${receiptEligible ? 'cursor-pointer active:scale-[0.995]' : ''}`}
                     style={{
                       background: isDark 
                         ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.1), rgba(255, 255, 255, 0.05))'
                         : 'linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(250, 250, 250, 0.95))',
                       border: isDark ? '0.5px solid rgba(255, 255, 255, 0.1)' : '0.5px solid rgba(0, 0, 0, 0.08)',
                     }}
+                    role={receiptEligible ? 'button' : undefined}
+                    tabIndex={receiptEligible ? 0 : undefined}
+                    onClick={
+                      receiptEligible
+                        ? () => setReceiptModalOrder(orec)
+                        : undefined
+                    }
+                    onKeyDown={
+                      receiptEligible
+                        ? (e) => {
+                            if (e.key === 'Enter' || e.key === ' ') {
+                              e.preventDefault();
+                              setReceiptModalOrder(orec);
+                            }
+                          }
+                        : undefined
+                    }
                   >
                     <div className="flex items-start justify-between gap-2 mb-3">
                       <div className="min-w-0 flex-1">
@@ -2077,6 +2874,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                             ? '1px solid rgba(245, 158, 11, 0.35)'
                             : '1px solid rgba(245, 158, 11, 0.28)',
                         }}
+                        onClick={(e) => e.stopPropagation()}
                       >
                         <p
                           className="text-xs leading-relaxed font-medium"
@@ -2084,7 +2882,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                         >
                           {t('profile.receiptHint')}
                         </p>
-                        <div className="flex flex-wrap gap-2">
+                        <div className="flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
                           <button
                             type="button"
                             disabled={receiptActionOrderId === String(order.id)}
@@ -2120,7 +2918,22 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                         </div>
                       </div>
                     ) : null}
-                    <div className="mt-3 flex flex-wrap gap-2">
+                    <div className="mt-3 flex flex-wrap gap-2" onClick={(e) => e.stopPropagation()}>
+                      {receiptEligible ? (
+                        <button
+                          type="button"
+                          onClick={() => setReceiptModalOrder(orec)}
+                          className="inline-flex items-center gap-1.5 rounded-xl border px-3 py-2 text-xs font-semibold transition-all active:scale-95"
+                          style={{
+                            borderColor: `${accentColor.color}55`,
+                            color: accentColor.color,
+                            background: isDark ? `${accentColor.color}18` : `${accentColor.color}10`,
+                          }}
+                        >
+                          <FileText className="size-3.5" />
+                          {t('profile.viewReceipt')}
+                        </button>
+                      ) : null}
                       <button
                         type="button"
                         onClick={() => setReviewModalOrder(order)}
@@ -2662,8 +3475,13 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         isOpen={isAuthOpen}
         onClose={() => setIsAuthOpen(false)}
         onSuccess={(user, session) => {
-          smsSignin(user, session);
-          setIsAuthOpen(false);
+          try {
+            smsSignin(user, session);
+            setIsAuthOpen(false);
+          } catch (e: unknown) {
+            console.error('SMS session save failed:', e);
+            toast.error(e instanceof Error ? e.message : t('profile.sessionSaveFailed'));
+          }
         }}
       />
 
@@ -2687,7 +3505,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
 
       {deleteListingId !== null && (
         <div
-          className="fixed inset-0 z-[520] flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-[520] flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.55)' }}
           role="presentation"
           onClick={closeDeleteListingModal}
@@ -2750,6 +3568,25 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
           </div>
         </div>
       )}
+
+      <Dialog
+        open={Boolean(receiptModalOrder)}
+        onOpenChange={(open) => {
+          if (!open) setReceiptModalOrder(null);
+        }}
+      >
+        <DialogContent className="max-h-[min(92dvh,900px)] gap-0 overflow-y-auto overscroll-y-contain p-0 sm:max-w-lg">
+          {receiptModalOrder ? (
+            <ProfileReceiptModalInner
+              order={receiptModalOrder}
+              language={language}
+              isDark={isDark}
+              accentColor={accentColor.color}
+              t={t}
+            />
+          ) : null}
+        </DialogContent>
+      </Dialog>
 
       <OrderReviewModal
         isOpen={!!reviewModalOrder}

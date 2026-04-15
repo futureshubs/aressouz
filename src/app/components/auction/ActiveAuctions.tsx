@@ -277,7 +277,7 @@ export function ActiveAuctions({ branchId }: ActiveAuctionsProps) {
         }}>
           <Loader2 className="w-10 h-10 animate-spin" style={{ color: accentColor.color }} />
           <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Auksionlar yuklanmoqda…
+            
           </p>
         </div>
       ) : filteredAuctions.length === 0 ? (

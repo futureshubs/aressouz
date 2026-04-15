@@ -13,7 +13,7 @@ function AtmosBrandMark({ isDark }: { isDark: boolean }) {
   const [broken, setBroken] = useState(false);
   return (
     <div className="flex justify-center">
-      <PaymentMethodLogoFrame brandColor={ATMOS_BRAND} isDark={isDark}>
+      <PaymentMethodLogoFrame brandColor={ATMOS_BRAND} isDark={isDark} square>
         {broken ? (
           <svg
             className="max-h-full w-auto max-w-full"
@@ -30,9 +30,9 @@ function AtmosBrandMark({ isDark }: { isDark: boolean }) {
           </svg>
         ) : (
           <img
-            src="/payments/atmos-logo.png?v=2"
+            src="/payments/checkout-atmos-square.png?v=1"
             alt="Atmos"
-            className="block max-h-full w-auto max-w-full object-contain object-center"
+            className="block h-full w-full object-contain object-center"
             decoding="async"
             onError={() => setBroken(true)}
           />

@@ -136,7 +136,7 @@ export function AddBannerModal({ branchId, category, onClose, onSuccess }: AddBa
     <>
       {/* Backdrop */}
       <div 
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] animate-fadeIn"
+        className="fixed inset-0 app-safe-pad bg-black/60 backdrop-blur-sm z-[100] animate-fadeIn"
         onClick={onClose}
       />
       
@@ -208,7 +208,7 @@ export function AddBannerModal({ branchId, category, onClose, onSuccess }: AddBa
               </div>
               {uploading && (
                 <p className="text-sm mt-2 text-center" style={{ color: accentColor.color }}>
-                  Yuklanmoqda...
+                  
                 </p>
               )}
             </div>
@@ -382,7 +382,7 @@ export function AddBannerModal({ branchId, category, onClose, onSuccess }: AddBa
               style={{ background: accentColor.color, color: '#ffffff' }}
             >
               {(isSubmitting || uploading) && <Loader2 className="w-6 h-6 animate-spin shrink-0" />}
-              {isSubmitting ? 'Saqlanmoqda...' : uploading ? 'Rasm yuklanmoqda...' : 'Banner qo\'shish'}
+              {isSubmitting ? '' : uploading ? '' : 'Banner qo\'shish'}
             </button>
           </div>
         </form>

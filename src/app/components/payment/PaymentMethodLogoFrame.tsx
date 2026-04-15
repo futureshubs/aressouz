@@ -21,6 +21,13 @@ type PaymentMethodLogoFrameProps = {
    * chap chekka rounded-xl bilan yopishadi (tashqi tugma overflow-hidden).
    */
   embedInRow?: boolean;
+  /** Bir xil kvadrat ichida logo (checkout / modallar) */
+  square?: boolean;
+  /**
+   * square bo‘lganda ichki fon: dark = oq yozuvli brend (masalan Click SVG),
+   * light = rangli/yorqin ikonka (Payme, Atmos).
+   */
+  squareSlotTone?: 'light' | 'dark';
 };
 
 /**
@@ -33,6 +40,8 @@ export function PaymentMethodLogoFrame({
   className = '',
   softLightBackdrop = false,
   embedInRow = false,
+  square = false,
+  squareSlotTone = 'light',
 }: PaymentMethodLogoFrameProps) {
   const border = withAlpha(brandColor, isDark ? 0.55 : 0.42);
   const glow = withAlpha(brandColor, isDark ? 0.32 : 0.18);
@@ -52,6 +61,35 @@ export function PaymentMethodLogoFrame({
   const innerRadius = embedInRow ? '6px' : softLightBackdrop ? '10px' : '4px';
 
   const xl = '0.75rem';
+  const squareBox = '4.25rem';
+
+  /** Kvadrat ichida oq «karta» fon yo‘q; Click oq yozuvi light temada o‘qilishi uchun qora fon */
+  const squareInnerBg =
+    squareSlotTone === 'dark' ? (isDark ? 'transparent' : '#0a0a0a') : 'transparent';
+
+  const innerBoxStyle =
+    square && !embedInRow
+      ? {
+          height: squareBox,
+          minHeight: squareBox,
+          width: squareBox,
+          minWidth: squareBox,
+          maxWidth: squareBox,
+          padding: innerPad,
+          background: squareInnerBg,
+          borderRadius: innerRadius,
+          boxSizing: 'border-box' as const,
+        }
+      : {
+          height: embedInRow ? '100%' : 44,
+          minHeight: embedInRow ? '100%' : 44,
+          maxWidth: embedInRow ? 'min(104px, 28vw)' : 'min(212px, 56vw)',
+          minWidth: embedInRow ? 56 : 0,
+          padding: innerPad,
+          background: innerBg,
+          borderRadius: innerRadius,
+          boxSizing: 'border-box' as const,
+        };
 
   return (
     <div
@@ -77,19 +115,7 @@ export function PaymentMethodLogoFrame({
         `,
       }}
     >
-      <div
-        className="flex items-center justify-center leading-none"
-        style={{
-          height: embedInRow ? '100%' : 44,
-          minHeight: embedInRow ? '100%' : 44,
-          maxWidth: embedInRow ? 'min(104px, 28vw)' : 'min(212px, 56vw)',
-          minWidth: embedInRow ? 56 : 0,
-          padding: innerPad,
-          background: innerBg,
-          borderRadius: innerRadius,
-          boxSizing: 'border-box',
-        }}
-      >
+      <div className="flex items-center justify-center leading-none" style={innerBoxStyle}>
         {children}
       </div>
     </div>

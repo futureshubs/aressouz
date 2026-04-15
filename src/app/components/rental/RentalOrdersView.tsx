@@ -8,6 +8,7 @@ import {
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { buildBranchHeaders, buildRentalPanelHeaders } from '../../utils/requestAuth';
+import { sortOrdersNewestFirst } from '../../utils/sortOrdersNewestFirst';
 import { RentalNextPaymentInfo } from './RentalNextPaymentInfo';
 
 export function RentalOrdersView({ branchId }: { branchId: string }) {
@@ -86,7 +87,7 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
         const data = await response.json().catch(() => ({}));
         console.log('📊 Branch rental orders response:', { status: response.status, data });
         if (response.ok && data.success && Array.isArray(data.orders)) {
-          setOrders(data.orders);
+          setOrders(sortOrdersNewestFirst(data.orders));
         } else {
           console.warn('❌ Branch rental orders:', data?.error || data);
           setOrders([]);
@@ -319,7 +320,7 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
                }}
           />
           <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-            Yuklanmoqda...
+            
           </p>
         </div>
       </div>
@@ -650,7 +651,7 @@ export function RentalOrdersView({ branchId }: { branchId: string }) {
                           }
                         >
                           <option value="">
-                            {couriersLoading ? 'Kuryerlar yuklanmoqda...' : 'Kuryerni tanlang'}
+                            {couriersLoading ? '' : 'Kuryerni tanlang'}
                           </option>
                           {couriers.map((c) => (
                             <option key={c.id} value={c.id}>

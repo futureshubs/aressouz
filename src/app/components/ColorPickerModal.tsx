@@ -25,7 +25,7 @@ export function ColorPickerModal({ isOpen, onClose, platform, selectedColorId, o
   if (isIOS) {
     return (
       <div 
-        className="fixed inset-0 z-[70] flex items-end justify-center"
+        className="fixed inset-0 app-safe-pad z-[70] flex items-end justify-center"
         onClick={onClose}
       >
         {/* Backdrop */}
@@ -169,7 +169,7 @@ export function ColorPickerModal({ isOpen, onClose, platform, selectedColorId, o
   // Android Material Design
   return (
     <div 
-      className="fixed inset-0 z-[70] flex items-end justify-center"
+      className="fixed inset-0 app-safe-pad z-[70] flex items-end justify-center"
       onClick={onClose}
     >
       {/* Backdrop */}

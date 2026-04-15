@@ -99,7 +99,7 @@ export default function StaffDashboard() {
   if (!session || !role || !branchId) {
     return (
       <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: isDark ? '#fff' : '#111827' }}>Yuklanmoqda...</div>
+        <div style={{ color: isDark ? '#fff' : '#111827' }}></div>
       </div>
     );
   }

@@ -13,6 +13,7 @@ import {
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
 
 interface PreparerInfo {
   id: string;
@@ -327,7 +328,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
             const dedupedOrders = Array.from(
               new Map(allowedOrders.map((order: Order) => [order.id, order])).values(),
             );
-            setOrders(dedupedOrders);
+            setOrders(sortOrdersNewestFirst(dedupedOrders));
             return;
           }
 
@@ -1293,7 +1294,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
       {/* Tayyor + so'mka tanlash */}
       {readyBagModalOrder && (
         <div
-          className="fixed inset-0 z-[60] flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-[60] flex items-center justify-center p-4"
           style={{ background: 'rgba(0,0,0,0.65)' }}
           onClick={closeReadyBagModal}
           role="presentation"
@@ -1320,7 +1321,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
             {loadingReadyBags ? (
               <div className="py-10 text-center" style={{ color: mutedTextColor }}>
                 <RefreshCw className="w-8 h-8 mx-auto mb-2 animate-spin" style={{ color: accentColor.color }} />
-                Rastalar yuklanmoqda...
+                
               </div>
             ) : readyBagOptions.length === 0 ? (
               <p className="py-6 text-center text-sm" style={{ color: mutedTextColor }}>
@@ -1392,7 +1393,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
                   opacity: submittingReady || !selectedReadyBagId || loadingReadyBags ? 0.5 : 1,
                 }}
               >
-                {submittingReady ? 'Saqlanmoqda...' : 'Tayyor deb belgilash'}
+                {submittingReady ? '' : 'Tayyor deb belgilash'}
               </button>
             </div>
           </div>
@@ -1402,7 +1403,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
       {/* Barcode Scanner Modal */}
       {showScanner && (
         <div
-          className="fixed inset-0 z-50 overflow-y-auto"
+          className="fixed inset-0 app-safe-pad z-50 overflow-y-auto"
           style={{ background: 'rgba(0, 0, 0, 0.95)' }}
           onClick={stopScanner}
         >

@@ -1,5 +1,5 @@
 /* ARESSO PWA — precache shell + build assets + runtime cache + offline support */
-const VERSION = 'aressouz-sw-10';
+const VERSION = 'aressouz-sw-13';
 const PRECACHE = `precache-${VERSION}`;
 const RUNTIME = `runtime-${VERSION}`;
 

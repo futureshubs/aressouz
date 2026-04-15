@@ -310,7 +310,7 @@ export function AddRestaurantModal({
     <>
       {/* Backdrop */}
       <div 
-        className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[100] animate-fadeIn"
+        className="fixed inset-0 app-safe-pad bg-black/60 backdrop-blur-sm z-[100] animate-fadeIn"
         onClick={onClose}
       />
       
@@ -383,7 +383,7 @@ export function AddRestaurantModal({
                       style={{ background: 'rgba(0,0,0,0.45)' }}
                     >
                       <Loader2 className="h-9 w-9 animate-spin text-white" aria-hidden />
-                      <span className="text-xs font-medium text-white">Yuklanmoqda...</span>
+                      <span className="text-xs font-medium text-white"></span>
                     </div>
                   ) : null}
                   <input
@@ -427,7 +427,7 @@ export function AddRestaurantModal({
                       style={{ background: 'rgba(0,0,0,0.45)' }}
                     >
                       <Loader2 className="h-9 w-9 animate-spin text-white" aria-hidden />
-                      <span className="text-xs font-medium text-white">Yuklanmoqda...</span>
+                      <span className="text-xs font-medium text-white"></span>
                     </div>
                   ) : null}
                   <input
@@ -502,7 +502,7 @@ export function AddRestaurantModal({
                     style={{ background: 'rgba(0,0,0,0.45)' }}
                   >
                     <Loader2 className="h-9 w-9 animate-spin text-white" aria-hidden />
-                    <span className="text-xs font-medium text-white">Yuklanmoqda...</span>
+                    <span className="text-xs font-medium text-white"></span>
                   </div>
                 ) : null}
               </div>
@@ -810,7 +810,7 @@ export function AddRestaurantModal({
               className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 disabled:opacity-50"
               style={{ background: accentColor.color, color: '#ffffff' }}
             >
-              {isSubmitting ? 'Saqlanmoqda...' : isEdit ? 'O‘zgarishlarni saqlash' : "Restoran qo'shish"}
+              {isSubmitting ? '' : isEdit ? 'O‘zgarishlarni saqlash' : "Restoran qo'shish"}
             </button>
           </div>
         </form>

@@ -480,9 +480,9 @@ export default function CarPage({ onClose }: CarProps) {
           <>
             {loadingCars ? (
               <div className="flex flex-col items-center justify-center gap-3 py-24 sm:py-32">
-                <Loader2 className="h-10 w-10 shrink-0 animate-spin" style={{ color: accentColor.color }} aria-label="Yuklanmoqda" />
+                <Loader2 className="h-10 w-10 shrink-0 animate-spin" style={{ color: accentColor.color }} aria-hidden />
                 <p className="text-sm font-semibold opacity-60" style={{ color: isDark ? '#ffffff' : '#000000' }}>
-                  Avtomobillar yuklanmoqda…
+                  
                 </p>
               </div>
             ) : filteredCars.length === 0 ? (
@@ -830,7 +830,7 @@ export default function CarPage({ onClose }: CarProps) {
       {/* Detail Modal */}
       {selectedCar && (
         <div 
-          className="fixed inset-0 z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto"
+          className="fixed inset-0 app-safe-pad z-50 flex items-end sm:items-center justify-center p-0 sm:p-4 overflow-y-auto"
           style={{
             background: 'rgba(0, 0, 0, 0.8)',
             backdropFilter: 'blur(12px)',

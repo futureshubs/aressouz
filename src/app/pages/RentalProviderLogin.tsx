@@ -23,8 +23,17 @@ export default function RentalProviderLogin() {
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
-    localStorage.removeItem('rentalProviderSession');
-  }, []);
+    const raw = localStorage.getItem('rentalProviderSession');
+    if (!raw) return;
+    try {
+      const p = JSON.parse(raw) as { token?: string; branchId?: string };
+      if (p?.token && p?.branchId) {
+        navigate('/ijara-panel/dashboard', { replace: true });
+      }
+    } catch {
+      /* ignore */
+    }
+  }, [navigate]);
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();

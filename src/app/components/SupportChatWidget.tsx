@@ -8,6 +8,8 @@ interface SupportChatWidgetProps {
   activeTab: string;
   /** Hide when profile overlay open */
   isProfileOpen: boolean;
+  /** Savat, checkout, mahsulot / kirish modallari va hokazo — faqat asosiy sahifada ko‘rinsin */
+  suppressFloating?: boolean;
 }
 
 const STORAGE_KEY = 'support_chat_widget_pos_v1';
@@ -64,7 +66,11 @@ function defaultPosition(): Pos {
   });
 }
 
-export function SupportChatWidget({ activeTab, isProfileOpen }: SupportChatWidgetProps) {
+export function SupportChatWidget({
+  activeTab,
+  isProfileOpen,
+  suppressFloating = false,
+}: SupportChatWidgetProps) {
   const { theme, accentColor, supportChatEnabled } = useTheme() as any;
   const isDark = theme === 'dark';
   const [open, setOpen] = useState(false);
@@ -185,6 +191,7 @@ export function SupportChatWidget({ activeTab, isProfileOpen }: SupportChatWidge
 
   if (!supportChatEnabled) return null;
   if (isProfileOpen) return null;
+  if (suppressFloating) return null;
   if (!shouldShowOnTab(activeTab)) return null;
   if (position == null) return null;
 

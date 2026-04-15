@@ -20,7 +20,7 @@ export function LocationPromptModal({ isOpen, onSelectLocation, onDismiss }: Loc
 
   return (
     <div 
-      className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+      className="fixed inset-0 app-safe-pad z-[100] flex items-center justify-center p-4"
       style={{
         backgroundColor: isDark ? 'rgba(0, 0, 0, 0.85)' : 'rgba(0, 0, 0, 0.6)',
         backdropFilter: 'blur(12px)',

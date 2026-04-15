@@ -229,7 +229,7 @@ export const FullMapView = memo(function FullMapView({
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex flex-col"
+      className="fixed inset-0 app-safe-pad z-50 flex flex-col"
       style={{
         background: isDark ? '#000000' : '#ffffff',
       }}

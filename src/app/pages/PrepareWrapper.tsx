@@ -51,12 +51,10 @@ export default function PrepareWrapper() {
         } else {
           localStorage.removeItem('preparerToken');
         }
-      } else {
-        localStorage.removeItem('preparerToken');
       }
+      // HTTP xatolik yoki tarmoq uzilishi: tokenni saqlab qolamiz — keyingi visibility yoki qayta yuklashda qayta tekshiriladi
     } catch (error) {
       console.error('Session validation error:', error);
-      localStorage.removeItem('preparerToken');
     } finally {
       setIsLoading(false);
     }
@@ -85,7 +83,7 @@ export default function PrepareWrapper() {
           color: isDark ? '#ffffff' : '#111827',
         }}
       >
-        <Loader2 className="h-12 w-12 animate-spin shrink-0 text-blue-500" aria-label="Yuklanmoqda" />
+        <Loader2 className="h-12 w-12 animate-spin shrink-0 text-blue-500" aria-hidden />
       </div>
     );
   }

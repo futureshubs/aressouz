@@ -7,6 +7,7 @@ import {
   clampPlatformCommissionPercent,
   validateVariantCommissionsForSave,
 } from './platform-commission.ts';
+import * as telegram from './telegram.tsx';
 
 const app = new Hono();
 
@@ -144,6 +145,47 @@ async function listDishesForRestaurant(canonicalRestaurantId: string): Promise<a
     if (d?.id) byId.set(String(d.id), d);
   }
   return Array.from(byId.values());
+}
+
+async function listDiningRoomsForRestaurant(canonicalRestaurantId: string): Promise<any[]> {
+  const primary = await kv.getByPrefix(`dining_room:${canonicalRestaurantId}:`);
+  const legacy = restaurantLegacyId(canonicalRestaurantId);
+  const secondary =
+    legacy && legacy !== canonicalRestaurantId
+      ? await kv.getByPrefix(`dining_room:${legacy}:`)
+      : [];
+  const byId = new Map<string, any>();
+  for (const d of [...primary, ...secondary]) {
+    if (d?.id) byId.set(String(d.id), d);
+  }
+  return Array.from(byId.values());
+}
+
+async function listTableBookingsForRestaurant(canonicalRestaurantId: string): Promise<any[]> {
+  const primary = await kv.getByPrefix(`table_booking:${canonicalRestaurantId}:`);
+  const legacy = restaurantLegacyId(canonicalRestaurantId);
+  const secondary =
+    legacy && legacy !== canonicalRestaurantId
+      ? await kv.getByPrefix(`table_booking:${legacy}:`)
+      : [];
+  const byId = new Map<string, any>();
+  for (const d of [...primary, ...secondary]) {
+    if (d?.id) byId.set(String(d.id), d);
+  }
+  return Array.from(byId.values()).sort(
+    (a, b) =>
+      new Date(b.createdAt || 0).getTime() - new Date(a.createdAt || 0).getTime(),
+  );
+}
+
+function normalizeBookingTimeSlot(t: unknown): string {
+  const s = String(t ?? '').trim();
+  if (!s) return '';
+  const m = s.match(/^(\d{1,2}):(\d{2})/);
+  if (!m) return s.slice(0, 8);
+  const hh = Math.min(23, Math.max(0, parseInt(m[1], 10)));
+  const mm = Math.min(59, Math.max(0, parseInt(m[2], 10)));
+  return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
 function mergeOrdersLists(lists: any[][]): any[] {
@@ -386,6 +428,15 @@ app.delete('/restaurants/:id', async (c) => {
     for (const dish of dishes) {
       await purgeAllRestaurantR2Media(dish);
       await kv.del(dish.id);
+    }
+
+    const diningRooms = await listDiningRoomsForRestaurant(canonicalId);
+    for (const room of diningRooms) {
+      await kv.del(room.id);
+    }
+    const tableBookings = await listTableBookingsForRestaurant(canonicalId);
+    for (const b of tableBookings) {
+      await kv.del(b.id);
     }
 
     if (existing) await purgeAllRestaurantR2Media(existing);
@@ -778,7 +829,9 @@ app.post('/orders/restaurant', async (c) => {
                 .join('\n')}`
             : '';
 
-          return `• ${item.dishName} ${item.variantName ? `(${item.variantName})` : ''} x${item.quantity} - ${Number(item.price || 0).toLocaleString()} so'm${addonsText}`;
+          const joy = String(item?.diningRoomName || item?.dining_room_name || '').trim();
+          const joyLine = joy ? `\n  🪑 Joy: ${joy}` : '';
+          return `• ${item.dishName} ${item.variantName ? `(${item.variantName})` : ''} x${item.quantity} - ${Number(item.price || 0).toLocaleString()} so'm${joyLine}${addonsText}`;
         })
         .join('\n');
 
@@ -1050,6 +1103,351 @@ app.post('/restaurants/:restaurantId/payment-request', async (c) => {
     return c.json({ success: true, message: 'To\'lov so\'rovi yuborildi!' });
   } catch (error) {
     console.error('To\'lov so\'rovida xato:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// ==================== XONALAR / JOY BRON ====================
+
+app.get('/restaurants/:restaurantId/rooms', async (c) => {
+  try {
+    const raw = c.req.param('restaurantId');
+    const resolved = await resolveRestaurantRecord(raw);
+    if (!resolved) {
+      return c.json({ success: true, data: [] });
+    }
+    const rooms = await listDiningRoomsForRestaurant(resolved.id);
+    const publicOnly = String(c.req.query('public') ?? '').trim() === '1';
+    const data = publicOnly ? rooms.filter((r: any) => r?.isActive !== false) : rooms;
+    /** `false` bo‘lsa mijoz ilovasida «Joy bron qilish» yashirinadi (default: yoqilgan) */
+    const publicTableBookingEnabled = resolved.record?.publicTableBookingEnabled !== false;
+    return c.json(
+      publicOnly
+        ? { success: true, data, publicTableBookingEnabled }
+        : { success: true, data },
+    );
+  } catch (error) {
+    console.error('Xonalarni olishda xato:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+function sanitizeDiningRoomImages(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  const out: string[] = [];
+  for (const item of raw) {
+    const s = String(item ?? '').trim();
+    if (!/^https?:\/\//i.test(s)) continue;
+    if (out.length >= 4) break;
+    out.push(s);
+  }
+  return out;
+}
+
+app.post('/restaurants/:restaurantId/rooms', async (c) => {
+  try {
+    const raw = c.req.param('restaurantId');
+    const resolved = await resolveRestaurantRecord(raw);
+    if (!resolved) {
+      return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
+    }
+    const restaurantId = resolved.id;
+    const body = await c.req.json();
+    const name = String(body?.name ?? '').trim();
+    if (!name) {
+      return c.json({ success: false, error: 'Xona nomi majburiy' }, 400);
+    }
+    const capacityMax = Math.min(
+      200,
+      Math.max(1, Math.floor(Number(body?.capacityMax ?? body?.capacity) || 4)),
+    );
+    const capacityMin = Math.min(
+      capacityMax,
+      Math.max(1, Math.floor(Number(body?.capacityMin) || 1)),
+    );
+    const images = sanitizeDiningRoomImages(body?.images);
+    if (images.length < 2 || images.length > 4) {
+      return c.json({ success: false, error: '2 dan 4 tagacha rasm URL majburiy' }, 400);
+    }
+    const isPaidRoom = Boolean(body?.isPaidRoom);
+    const priceUzs = isPaidRoom ? Math.max(0, Math.floor(Number(body?.priceUzs) || 0)) : 0;
+    if (isPaidRoom && priceUzs <= 0) {
+      return c.json({ success: false, error: 'Pulik xona uchun narx (so‘m) kiriting' }, 400);
+    }
+    const roomId = `dining_room:${restaurantId}:${Date.now()}`;
+    const room = {
+      id: roomId,
+      restaurantId,
+      name,
+      description: String(body?.description ?? '').trim(),
+      capacity: capacityMax,
+      capacityMin,
+      capacityMax,
+      images,
+      isPaidRoom,
+      priceUzs,
+      sortOrder: Math.floor(Number(body?.sortOrder) || 0),
+      isActive: body?.isActive !== false,
+      createdAt: new Date().toISOString(),
+    };
+    await kv.set(roomId, room);
+    return c.json({ success: true, data: room });
+  } catch (error) {
+    console.error('Xona qo‘shishda xato:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+app.put('/dining-rooms/:id', async (c) => {
+  try {
+    const id = decodeURIComponent(String(c.req.param('id') ?? '').trim());
+    const existing = await kv.get(id);
+    if (!existing || String(existing.id || '') !== id || !String(id).startsWith('dining_room:')) {
+      return c.json({ success: false, error: 'Xona topilmadi' }, 404);
+    }
+    const body = await c.req.json();
+    const name = body?.name != null ? String(body.name).trim() : existing.name;
+    if (!name) {
+      return c.json({ success: false, error: 'Xona nomi bo‘sh bo‘lmasligi kerak' }, 400);
+    }
+    const exMax = Math.min(
+      200,
+      Math.max(1, Math.floor(Number((existing as any).capacityMax ?? (existing as any).capacity) || 4)),
+    );
+    const exMin = Math.min(exMax, Math.max(1, Math.floor(Number((existing as any).capacityMin) || 1)));
+    const capacityMax =
+      body?.capacity != null || body?.capacityMax != null
+        ? Math.min(200, Math.max(1, Math.floor(Number(body.capacityMax ?? body.capacity) || exMax)))
+        : exMax;
+    const capacityMin =
+      body?.capacityMin != null
+        ? Math.min(capacityMax, Math.max(1, Math.floor(Number(body.capacityMin) || exMin)))
+        : Math.min(capacityMax, exMin);
+    let images: string[];
+    if (body?.images != null) {
+      images = sanitizeDiningRoomImages(body.images);
+      if (images.length < 2 || images.length > 4) {
+        return c.json({ success: false, error: '2 dan 4 tagacha rasm URL majburiy' }, 400);
+      }
+    } else {
+      images = sanitizeDiningRoomImages((existing as any).images);
+    }
+    const isPaidRoom =
+      body?.isPaidRoom !== undefined ? Boolean(body.isPaidRoom) : Boolean((existing as any).isPaidRoom);
+    const priceUzs =
+      body?.priceUzs != null
+        ? Math.max(0, Math.floor(Number(body.priceUzs) || 0))
+        : Math.max(0, Math.floor(Number((existing as any).priceUzs) || 0));
+    if (isPaidRoom && priceUzs <= 0) {
+      return c.json({ success: false, error: 'Pulik xona uchun narx (so‘m) kiriting' }, 400);
+    }
+    const updated = {
+      ...existing,
+      name,
+      description: body?.description != null ? String(body.description).trim() : existing.description,
+      capacity: capacityMax,
+      capacityMin,
+      capacityMax,
+      images,
+      isPaidRoom,
+      priceUzs: isPaidRoom ? priceUzs : 0,
+      sortOrder:
+        body?.sortOrder != null ? Math.floor(Number(body.sortOrder) || 0) : existing.sortOrder ?? 0,
+      isActive: body?.isActive !== undefined ? Boolean(body.isActive) : existing.isActive !== false,
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(id, updated);
+    return c.json({ success: true, data: updated });
+  } catch (error) {
+    console.error('Xonani tahrirlashda xato:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+app.delete('/dining-rooms/:id', async (c) => {
+  try {
+    const id = decodeURIComponent(String(c.req.param('id') ?? '').trim());
+    const existing = await kv.get(id);
+    if (!existing || String(existing.id || '') !== id) {
+      return c.json({ success: false, error: 'Xona topilmadi' }, 404);
+    }
+    await kv.del(id);
+    return c.json({ success: true });
+  } catch (error) {
+    console.error('Xonani o‘chirishda xato:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+app.get('/restaurants/:restaurantId/table-bookings', async (c) => {
+  try {
+    const raw = c.req.param('restaurantId');
+    const resolved = await resolveRestaurantRecord(raw);
+    if (!resolved) {
+      return c.json({ success: true, data: [] });
+    }
+    const list = await listTableBookingsForRestaurant(resolved.id);
+    return c.json({ success: true, data: list });
+  } catch (error) {
+    console.error('Bronlarni olishda xato:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+app.post('/restaurants/:restaurantId/table-bookings', async (c) => {
+  try {
+    const raw = c.req.param('restaurantId');
+    const resolved = await resolveRestaurantRecord(raw);
+    if (!resolved) {
+      return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
+    }
+    const restaurantCanonicalId = resolved.id;
+    const restaurant = resolved.record;
+    if (restaurant?.publicTableBookingEnabled === false) {
+      return c.json(
+        { success: false, error: 'Bu restoran hozircha onlayn joy bron qabul qilmaydi.' },
+        403,
+      );
+    }
+    const body = await c.req.json();
+    const roomId = String(body?.roomId ?? '').trim();
+    if (!roomId) {
+      return c.json({ success: false, error: 'Xona tanlang' }, 400);
+    }
+    const room = await kv.get(roomId);
+    if (!room || String(room.restaurantId) !== String(restaurantCanonicalId)) {
+      return c.json({ success: false, error: 'Xona topilmadi yoki bu restoranga tegishli emas' }, 404);
+    }
+    if (room.isActive === false) {
+      return c.json({ success: false, error: 'Bu xona hozir bron qabul qilmaydi' }, 400);
+    }
+    const customerName = String(body?.customerName ?? '').trim();
+    const customerPhone = String(body?.customerPhone ?? '').trim();
+    if (!customerName || !customerPhone) {
+      return c.json({ success: false, error: 'Ism va telefon majburiy' }, 400);
+    }
+    const bookingDate = String(body?.bookingDate ?? '').trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(bookingDate)) {
+      return c.json({ success: false, error: 'Sana formati YYYY-MM-DD bo‘lishi kerak' }, 400);
+    }
+    const bookingTime = normalizeBookingTimeSlot(body?.bookingTime ?? '');
+    if (!bookingTime) {
+      return c.json({ success: false, error: 'Vaqt kiriting' }, 400);
+    }
+    const partySize = Math.min(200, Math.max(1, Math.floor(Number(body?.partySize) || 1)));
+    const notes = String(body?.notes ?? '').trim().slice(0, 500);
+
+    const capMax = Math.min(
+      200,
+      Math.max(1, Math.floor(Number((room as any).capacityMax ?? (room as any).capacity) || 200)),
+    );
+    const capMin = Math.min(capMax, Math.max(1, Math.floor(Number((room as any).capacityMin) || 1)));
+    if (partySize < capMin || partySize > capMax) {
+      return c.json(
+        { success: false, error: `Odamlar soni ${capMin} dan ${capMax} gacha bo‘lishi kerak` },
+        400,
+      );
+    }
+
+    const now = new Date();
+    const y = now.getFullYear();
+    const m = String(now.getMonth() + 1).padStart(2, '0');
+    const d = String(now.getDate()).padStart(2, '0');
+    const todayStr = `${y}-${m}-${d}`;
+    if (bookingDate < todayStr) {
+      return c.json({ success: false, error: 'O‘tgan kunga bron qilib bo‘lmaydi' }, 400);
+    }
+
+    const existingBookings = await listTableBookingsForRestaurant(restaurantCanonicalId);
+    const slotBusy = existingBookings.some((b: any) => {
+      const st = String(b?.status || 'pending').toLowerCase();
+      if (st === 'cancelled' || st === 'rejected') return false;
+      return (
+        String(b?.roomId) === roomId &&
+        String(b?.bookingDate) === bookingDate &&
+        normalizeBookingTimeSlot(b?.bookingTime) === bookingTime
+      );
+    });
+    if (slotBusy) {
+      return c.json(
+        { success: false, error: 'Bu vaqtda ushbu joy allaqachon band. Boshqa vaqt tanlang.' },
+        409,
+      );
+    }
+
+    const bookingId = `table_booking:${restaurantCanonicalId}:${Date.now()}`;
+    const booking = {
+      id: bookingId,
+      restaurantId: restaurantCanonicalId,
+      roomId,
+      roomName: String(room.name || 'Xona'),
+      customerName,
+      customerPhone,
+      bookingDate,
+      bookingTime,
+      partySize,
+      notes,
+      status: 'pending',
+      createdAt: new Date().toISOString(),
+    };
+    await kv.set(bookingId, booking);
+
+    const chatIdRaw = restaurant?.telegramChatId;
+    const chatId = chatIdRaw != null ? String(chatIdRaw).trim() : '';
+    const shortId = bookingId.split(':').pop() || bookingId.slice(-8);
+    const roomImageUrls = Array.isArray((room as any).images)
+      ? ((room as any).images as unknown[])
+          .map((u) => String(u ?? '').trim())
+          .filter((u) => /^https?:\/\//i.test(u))
+          .slice(0, 4)
+      : [];
+    if (chatId) {
+      await telegram.sendRestaurantTableBookingNotification({
+        restaurantName: String(restaurant?.name || 'Restoran'),
+        chatId,
+        bookingIdShort: shortId,
+        roomName: String(room.name || 'Xona'),
+        customerName,
+        customerPhone,
+        bookingDate,
+        bookingTime,
+        partySize,
+        notes,
+        roomImageUrls: roomImageUrls.length ? roomImageUrls : undefined,
+      });
+    } else {
+      console.warn(`⚠️ Restoran ${restaurantCanonicalId} — telegramChatId bo‘sh, joy bron Telegramga yuborilmadi`);
+    }
+
+    return c.json({ success: true, data: booking });
+  } catch (error) {
+    console.error('Joy bron yaratishda xato:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+app.patch('/table-bookings/:id/status', async (c) => {
+  try {
+    const id = decodeURIComponent(String(c.req.param('id') ?? '').trim());
+    const { status } = await c.req.json().catch(() => ({}));
+    const next = String(status || '').trim().toLowerCase();
+    const allowed = new Set(['pending', 'confirmed', 'cancelled', 'rejected', 'completed']);
+    if (!allowed.has(next)) {
+      return c.json({ success: false, error: 'Noto‘g‘ri status' }, 400);
+    }
+    const existing = await kv.get(id);
+    if (!existing || !String(id).startsWith('table_booking:')) {
+      return c.json({ success: false, error: 'Bron topilmadi' }, 404);
+    }
+    const updated = {
+      ...existing,
+      status: next,
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(id, updated);
+    return c.json({ success: true, data: updated });
+  } catch (error) {
+    console.error('Bron statusida xato:', error);
     return c.json({ success: false, error: String(error) }, 500);
   }
 });

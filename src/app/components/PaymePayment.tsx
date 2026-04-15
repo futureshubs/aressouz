@@ -13,7 +13,7 @@ function PaymeBrandMark({ isDark }: { isDark: boolean }) {
   const [broken, setBroken] = useState(false);
   return (
     <div className="flex justify-center">
-      <PaymentMethodLogoFrame brandColor="#00AACB" isDark={isDark}>
+      <PaymentMethodLogoFrame brandColor="#00AACB" isDark={isDark} square squareSlotTone="light">
         {broken ? (
           <svg width="88" height="28" viewBox="0 0 88 28" fill="none" aria-hidden>
             <path
@@ -26,9 +26,9 @@ function PaymeBrandMark({ isDark }: { isDark: boolean }) {
           </svg>
         ) : (
           <img
-            src="/payments/payme-logo.png?v=2"
+            src="/payments/payme-official.png?v=2"
             alt="Payme"
-            className="block max-h-full w-auto max-w-full object-contain object-center"
+            className="block h-full w-full object-contain object-center"
             decoding="async"
             onError={() => setBroken(true)}
           />

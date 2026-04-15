@@ -17,7 +17,7 @@ export const StoreDetailModal = memo(function StoreDetailModal({ store, onClose,
 
   return (
     <div 
-      className="fixed inset-0 z-50 overflow-hidden"
+      className="fixed inset-0 app-safe-pad z-50 overflow-hidden"
       style={{
         background: isDark ? '#000000' : '#f9fafb',
       }}

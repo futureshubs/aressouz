@@ -441,7 +441,7 @@ export default function AdminLogin() {
                   }}
                 >
                   {loading && <Loader2 className="w-5 h-5 animate-spin shrink-0" />}
-                  {loading ? 'Yuklanmoqda...' : '2FA yoqish'}
+                  {loading ? '' : '2FA yoqish'}
                   {!loading && <ChevronRight className="w-5 h-5 shrink-0" />}
                 </button>
               </div>

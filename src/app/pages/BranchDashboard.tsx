@@ -529,7 +529,7 @@ export default function BranchDashboard() {
       {/* Sidebar - Mobile */}
       {sidebarOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-50 app-modal-overlay"
+          className="lg:hidden fixed inset-0 app-safe-pad z-50 app-modal-overlay"
           style={{ background: 'rgba(0, 0, 0, 0.5)' }}
           onClick={() => setSidebarOpen(false)}
           role="presentation"
@@ -765,7 +765,7 @@ export default function BranchDashboard() {
                           <Loader2
                             className="w-7 h-7 animate-spin"
                             style={{ color: stat.color }}
-                            aria-label="Yuklanmoqda"
+                            aria-hidden
                           />
                         ) : (
                           stat.getValue()

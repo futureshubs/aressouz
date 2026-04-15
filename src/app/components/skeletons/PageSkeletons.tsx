@@ -82,11 +82,10 @@ export function ProductGridSkeleton({
 }) {
   const n = Math.max(1, Math.min(24, count));
   return (
-    <div className={gridClassName} role="status" aria-label="Mahsulotlar yuklanmoqda">
+    <div className={gridClassName} aria-hidden>
       {Array.from({ length: n }, (_, i) => (
         <ProductCardSkeleton key={i} isDark={isDark} imageClassName={imageClassName} />
       ))}
-      <span className="sr-only">Yuklanmoqda</span>
     </div>
   );
 }
@@ -113,11 +112,10 @@ export function ShopRowSkeleton({ isDark }: { isDark: boolean }) {
 export function ShopListSkeleton({ isDark, rows = 5 }: { isDark: boolean; rows?: number }) {
   const n = Math.max(1, Math.min(12, rows));
   return (
-    <div className="space-y-3" role="status" aria-label="Ro‘yxat yuklanmoqda">
+    <div className="space-y-3" aria-hidden>
       {Array.from({ length: n }, (_, i) => (
         <ShopRowSkeleton key={i} isDark={isDark} />
       ))}
-      <span className="sr-only">Yuklanmoqda</span>
     </div>
   );
 }
@@ -141,15 +139,10 @@ export function CarCardSkeleton({ isDark }: { isDark: boolean }) {
 export function CarGridSkeleton({ isDark, count = 6 }: { isDark: boolean; count?: number }) {
   const n = Math.max(1, Math.min(12, count));
   return (
-    <div
-      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4"
-      role="status"
-      aria-label="Avtomobillar yuklanmoqda"
-    >
+    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4" aria-hidden>
       {Array.from({ length: n }, (_, i) => (
         <CarCardSkeleton key={i} isDark={isDark} />
       ))}
-      <span className="sr-only">Yuklanmoqda</span>
     </div>
   );
 }
@@ -187,11 +180,7 @@ export function ChatMessagesSkeleton({ isDark }: { isDark: boolean }) {
 
 export function CommunityRoomSkeleton({ isDark }: { isDark: boolean }) {
   return (
-    <div
-      className="flex min-h-0 flex-1 flex-col items-stretch justify-center px-4 py-6"
-      role="status"
-      aria-label="Chat yuklanmoqda"
-    >
+    <div className="flex min-h-0 flex-1 flex-col items-stretch justify-center px-4 py-6" aria-hidden>
       <div
         className={clsx(
           'mx-auto w-full max-w-xl flex-1 min-h-[280px] rounded-[24px] p-4 sm:p-5 flex flex-col',
@@ -201,7 +190,6 @@ export function CommunityRoomSkeleton({ isDark }: { isDark: boolean }) {
         <SkeletonBox isDark={isDark} className="h-9 w-40 rounded-2xl mb-4" />
         <ChatMessagesSkeleton isDark={isDark} />
       </div>
-      <span className="sr-only">Yuklanmoqda</span>
     </div>
   );
 }
@@ -209,9 +197,8 @@ export function CommunityRoomSkeleton({ isDark }: { isDark: boolean }) {
 export function PlaceDetailPageSkeleton({ isDark }: { isDark: boolean }) {
   return (
     <div
-      className={clsx('fixed inset-0 z-50 flex flex-col p-4 sm:p-6', isDark ? 'bg-black' : 'bg-[#f9fafb]')}
-      role="status"
-      aria-label="Joy yuklanmoqda"
+      className={clsx('fixed inset-0 app-safe-pad z-50 flex flex-col p-4 sm:p-6', isDark ? 'bg-black' : 'bg-[#f9fafb]')}
+      aria-hidden
     >
       <SkeletonBox isDark={isDark} className="w-full max-w-lg mx-auto h-[38vh] sm:h-[42vh] rounded-3xl" />
       <div className="max-w-lg mx-auto w-full mt-6 space-y-3 flex-1">
@@ -220,7 +207,6 @@ export function PlaceDetailPageSkeleton({ isDark }: { isDark: boolean }) {
         <SkeletonBox isDark={isDark} className="h-4 w-[70%]" />
         <SkeletonBox isDark={isDark} className="h-12 w-full rounded-2xl mt-4" />
       </div>
-      <span className="sr-only">Yuklanmoqda</span>
     </div>
   );
 }
@@ -228,9 +214,8 @@ export function PlaceDetailPageSkeleton({ isDark }: { isDark: boolean }) {
 export function OrderReviewPageSkeleton({ isDark }: { isDark: boolean }) {
   return (
     <div
-      className={clsx('fixed inset-0 z-50 flex items-center justify-center p-6', isDark ? 'bg-[#0a0a0a]' : 'bg-[#f9fafb]')}
-      role="status"
-      aria-label="Yuklanmoqda"
+      className={clsx('fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-6', isDark ? 'bg-[#0a0a0a]' : 'bg-[#f9fafb]')}
+      aria-hidden
     >
       <div className="w-full max-w-md space-y-4">
         <div className="flex justify-center gap-1">
@@ -242,7 +227,6 @@ export function OrderReviewPageSkeleton({ isDark }: { isDark: boolean }) {
         <SkeletonBox isDark={isDark} className="h-5 w-2/3 mx-auto" />
         <SkeletonBox isDark={isDark} className="h-4 w-1/2 mx-auto" />
       </div>
-      <span className="sr-only">Yuklanmoqda</span>
     </div>
   );
 }
@@ -254,8 +238,7 @@ export function RouteChunkSkeleton() {
   return (
     <div
       className={clsx('min-h-screen pb-10', isDark ? 'bg-black text-white' : 'bg-[#f9fafb] text-gray-900')}
-      role="status"
-      aria-label="Sahifa yuklanmoqda"
+      aria-hidden
     >
       <div className="mx-auto max-w-[1600px] px-3 sm:px-4 pt-3 space-y-4">
         <SkeletonBox isDark={isDark} className="h-14 w-full rounded-2xl max-w-4xl mx-auto" />
@@ -264,7 +247,6 @@ export function RouteChunkSkeleton() {
         <SectionHeaderSkeleton isDark={isDark} />
         <ProductGridSkeleton isDark={isDark} count={10} />
       </div>
-      <span className="sr-only">Yuklanmoqda</span>
     </div>
   );
 }

@@ -401,7 +401,7 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
       {/* Add/Edit Modal */}
       {showModal && (
         <div
-          className="fixed inset-0 z-[100] flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-[100] flex items-center justify-center p-4"
           style={{
             background: 'rgba(0, 0, 0, 0.8)',
             backdropFilter: 'blur(8px)',
@@ -687,7 +687,7 @@ export function BankManagement({ branchId, branchInfo }: BankManagementProps) {
                   ) : (
                     <Check className="size-5 shrink-0" strokeWidth={2.5} />
                   )}
-                  <span>{saving ? 'Saqlanmoqda...' : editingBank ? 'Saqlash' : 'Qo\'shish'}</span>
+                  <span>{saving ? '' : editingBank ? 'Saqlash' : 'Qo\'shish'}</span>
                 </button>
 
                 <button

@@ -155,7 +155,7 @@ export function CashierCashReceiveTab({ branchId }: Props) {
 
       {loading ? (
         <div className="flex items-center gap-2 text-sm" style={{ color: muted }}>
-          <Loader2 className="w-4 h-4 animate-spin" /> Yuklanmoqda...
+          <Loader2 className="w-4 h-4 animate-spin" /> 
         </div>
       ) : null}
 

@@ -34,7 +34,7 @@ export const CarItemDetailModal = memo(function CarItemDetailModal({
       <>
         {/* Backdrop */}
         <div
-          className="fixed inset-0 backdrop-blur-xl z-50 transition-all duration-300"
+          className="fixed inset-0 app-safe-pad backdrop-blur-xl z-50 transition-all duration-300"
           style={{
             background: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.6)',
           }}
@@ -388,7 +388,7 @@ export const CarItemDetailModal = memo(function CarItemDetailModal({
     <>
       {/* Backdrop */}
       <div
-        className="fixed inset-0 bg-black/80 z-50 transition-all duration-200"
+        className="fixed inset-0 app-safe-pad bg-black/80 z-50 transition-all duration-200"
         onClick={onClose}
       />
 

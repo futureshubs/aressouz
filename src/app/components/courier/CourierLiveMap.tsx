@@ -657,7 +657,7 @@ export default function CourierLiveMap({
       className={[
         'courier-live-map-shell border',
         mobileFullscreen
-          ? 'fixed inset-0 z-[260] m-0 flex max-h-[100dvh] h-[100dvh] w-full max-w-none flex-col overflow-hidden rounded-none border-0'
+          ? 'fixed inset-0 app-safe-pad z-[260] m-0 flex max-h-[100dvh] h-[100dvh] w-full max-w-none flex-col overflow-hidden rounded-none border-0'
           : pageMode
             ? 'flex h-full min-h-0 flex-1 flex-col overflow-hidden rounded-3xl'
             : `overflow-hidden ${isMobileLayout ? 'rounded-2xl' : 'rounded-3xl'}`,
@@ -666,13 +666,6 @@ export default function CourierLiveMap({
         background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
         borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
         colorScheme: 'light',
-        ...(mobileFullscreen
-          ? {
-              paddingTop: 'max(0.5rem, env(safe-area-inset-top, 0px))',
-              paddingLeft: 'env(safe-area-inset-left, 0px)',
-              paddingRight: 'env(safe-area-inset-right, 0px)',
-            }
-          : {}),
       }}
     >
       <div

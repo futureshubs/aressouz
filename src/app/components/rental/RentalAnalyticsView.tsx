@@ -5,6 +5,7 @@ import { projectId } from '../../../../utils/supabase/info';
 import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
+import { sortOrdersNewestFirst } from '../../utils/sortOrdersNewestFirst';
 
 export function RentalAnalyticsView({ branchId }: { branchId: string }) {
   const { theme, accentColor } = useTheme();
@@ -36,7 +37,7 @@ export function RentalAnalyticsView({ branchId }: { branchId: string }) {
       const ordersData = await ordersRes.json();
       const productsData = await productsRes.json();
 
-      if (ordersData.success) setOrders(ordersData.orders);
+      if (ordersData.success) setOrders(sortOrdersNewestFirst(ordersData.orders));
       if (productsData.success) setProducts(productsData.products);
     } catch (error) {
       console.error('Error loading analytics data:', error);
@@ -158,7 +159,7 @@ export function RentalAnalyticsView({ branchId }: { branchId: string }) {
                }}
           />
           <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-            Yuklanmoqda...
+            
           </p>
         </div>
       </div>

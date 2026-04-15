@@ -304,7 +304,7 @@ export default function AdminDashboard() {
       {/* Sidebar - Mobile */}
       {sidebarOpen && (
         <div
-          className="lg:hidden fixed inset-0 z-50 app-modal-overlay"
+          className="lg:hidden fixed inset-0 app-safe-pad z-50 app-modal-overlay"
           style={{ background: 'rgba(0, 0, 0, 0.5)' }}
           onClick={() => setSidebarOpen(false)}
           role="presentation"
@@ -531,7 +531,7 @@ export default function AdminDashboard() {
                     <div className="flex flex-col items-center justify-center py-10 gap-3">
                       <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} />
                       <p className="text-sm" style={{ opacity: 0.6 }}>
-                        Yuklanmoqda…
+                        
                       </p>
                     </div>
                   ) : recentActivity.length === 0 ? (

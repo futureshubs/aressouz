@@ -110,7 +110,7 @@ export function AuctionDetailModal({
 
   return (
     <div
-      className="fixed inset-0 z-[60] flex flex-col overflow-hidden"
+      className="fixed inset-0 app-safe-pad z-[60] flex flex-col overflow-hidden"
       style={{
         background: isDark ? '#0a0a0a' : '#ffffff',
       }}
@@ -362,7 +362,7 @@ export function AuctionDetailModal({
                 {submitting ? (
                   <>
                     <div className="w-5 h-5 border-2 border-white/30 border-t-white rounded-full animate-spin" />
-                    <span>Yuklanmoqda...</span>
+                    <span></span>
                   </>
                 ) : (
                   <>

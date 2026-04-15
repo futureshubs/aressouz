@@ -4,6 +4,7 @@ import { ArrowLeft, Bike, KeyRound, User, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
+import { getStoredCourierToken } from '../utils/requestAuth';
 
 export default function CourierLogin() {
   const navigate = useNavigate();
@@ -18,8 +19,10 @@ export default function CourierLogin() {
   const [isLoading, setIsLoading] = useState(false);
 
   useEffect(() => {
-    localStorage.removeItem('courierSession');
-  }, []);
+    if (getStoredCourierToken()) {
+      navigate('/kuryer/dashboard', { replace: true });
+    }
+  }, [navigate]);
 
   const handleSubmit = async (event: React.FormEvent) => {
     event.preventDefault();

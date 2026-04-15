@@ -364,7 +364,7 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
         {loadingPayme ? (
           <div className="flex items-center gap-2 py-8 opacity-70">
             <Loader2 className="w-5 h-5 animate-spin" />
-            Yuklanmoqda...
+            
           </div>
         ) : (
           <div className="p-6 rounded-3xl border space-y-5" style={surface}>
@@ -481,7 +481,7 @@ export default function PaymentsView({ onStatsUpdate }: PaymentsViewProps) {
         </div>
 
         {isLoading ? (
-          <p className="text-center py-8 opacity-70">Yuklanmoqda...</p>
+          <p className="text-center py-8 opacity-70"></p>
         ) : filteredPayments.length === 0 ? (
           <div
             className="text-center py-12 rounded-3xl border"

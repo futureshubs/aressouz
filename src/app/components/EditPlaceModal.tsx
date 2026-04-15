@@ -187,7 +187,7 @@ export function EditPlaceModal({ isOpen, onClose, place, onSuccess }: EditPlaceM
 
   return (
     <div 
-      className="fixed inset-0 z-[70] flex items-end sm:items-center justify-center sm:p-4"
+      className="fixed inset-0 app-safe-pad z-[70] flex items-end sm:items-center justify-center sm:p-4"
       style={{
         background: 'rgba(0, 0, 0, 0.8)',
         backdropFilter: 'blur(12px)',
@@ -666,7 +666,7 @@ export function EditPlaceModal({ isOpen, onClose, place, onSuccess }: EditPlaceM
               }}
             >
               {isSubmitting && <Loader2 className="h-4 w-4 sm:h-5 sm:w-5 animate-spin shrink-0 text-white" />}
-              <span className="text-sm sm:text-base">{isSubmitting ? 'Saqlanmoqda...' : 'Saqlash'}</span>
+              <span className="text-sm sm:text-base">{isSubmitting ? '' : 'Saqlash'}</span>
             </button>
           </div>
         </form>

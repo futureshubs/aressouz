@@ -382,7 +382,7 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
 
   return (
     <div 
-      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
       style={{ background: 'rgba(0, 0, 0, 0.7)' }}
       onClick={onClose}
     >
@@ -759,7 +759,7 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
             {isSubmitting ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin" />
-                Saqlanmoqda...
+                
               </>
             ) : (
               <>

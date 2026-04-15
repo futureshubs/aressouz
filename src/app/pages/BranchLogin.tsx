@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { Building2, User, Lock, Key, ChevronRight, Shield, Loader2 } from 'lucide-react';
@@ -39,11 +39,19 @@ export default function BranchLogin() {
     return () => window.clearInterval(id);
   }, [twoFactorLockedUntil]);
 
-  useVisibilityRefetch(() => {
+  const redirectIfBranchSession = useCallback(() => {
     const session = localStorage.getItem('branchSession');
     if (session) {
-      navigate('/filyal/dashboard');
+      navigate('/filyal/dashboard', { replace: true });
     }
+  }, [navigate]);
+
+  useEffect(() => {
+    redirectIfBranchSession();
+  }, [redirectIfBranchSession]);
+
+  useVisibilityRefetch(() => {
+    redirectIfBranchSession();
   });
 
   const completeBranchLogin = (branch: any, token: string) => {

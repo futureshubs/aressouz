@@ -48,6 +48,7 @@ import { openExternalUrlSync } from '../utils/openExternalUrl';
 import { RentalLiveCountdown } from '../components/rental/RentalLiveCountdown';
 import { normalizeRentalProductImageUrl } from '../utils/rentalProductImage';
 import { computeMarketCourierHandoffUzs, computeRentalCourierHandoffUzs } from '../utils/rentalCashHandoff';
+import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
 import {
   RentalCourierDeliveryJobCard,
   RentalCourierDepositBlock,
@@ -339,7 +340,9 @@ const buildProfileSignature = (profile: CourierProfile | null) =>
 
 const buildOrdersSignature = (orders: CourierOrder[]) =>
   JSON.stringify(
-    orders.map((order) => ({
+    [...orders]
+      .sort((a, b) => String(a.id).localeCompare(String(b.id)))
+      .map((order) => ({
       id: order.id,
       orderNumber: order.orderNumber || '',
       customerName: order.customerName,
@@ -725,7 +728,7 @@ export default function CourierDashboard() {
         }
       }
       if (availableResponse?.ok && availableData?.success) {
-        const nextOrders = availableData.orders || [];
+        const nextOrders = sortOrdersNewestFirst(availableData.orders || []);
         const nextOrdersSignature = buildOrdersSignature(nextOrders);
         if (nextOrdersSignature !== lastAvailableOrdersSignatureRef.current) {
           lastAvailableOrdersSignatureRef.current = nextOrdersSignature;
@@ -733,11 +736,13 @@ export default function CourierDashboard() {
         }
       }
       if (activeResponse?.ok && activeData?.success) {
-        const nextList: CourierOrder[] = Array.isArray(activeData.orders)
-          ? activeData.orders
-          : activeData.order
-            ? [activeData.order]
-            : [];
+        const nextList: CourierOrder[] = sortOrdersNewestFirst(
+          Array.isArray(activeData.orders)
+            ? activeData.orders
+            : activeData.order
+              ? [activeData.order]
+              : [],
+        );
         const nextSig = buildActiveOrdersSignature(nextList);
         if (nextSig !== lastActiveOrderSignatureRef.current) {
           lastActiveOrderSignatureRef.current = nextSig;
@@ -745,10 +750,12 @@ export default function CourierDashboard() {
         }
       }
       if (historyResponse?.ok && historyData?.success) {
-        setDeliveredOrders(Array.isArray(historyData.orders) ? historyData.orders : []);
+        setDeliveredOrders(
+          sortOrdersNewestFirst(Array.isArray(historyData.orders) ? historyData.orders : []),
+        );
       }
       if (rentalIjaraResponse?.ok && rentalIjaraData?.success && Array.isArray(rentalIjaraData.orders)) {
-        setCourierRentalOrders(rentalIjaraData.orders);
+        setCourierRentalOrders(sortOrdersNewestFirst(rentalIjaraData.orders));
       } else {
         setCourierRentalOrders([]);
       }
@@ -757,7 +764,7 @@ export default function CourierDashboard() {
         rentalDeliveryJobsData?.success &&
         Array.isArray(rentalDeliveryJobsData.orders)
       ) {
-        setCourierRentalDeliveryJobs(rentalDeliveryJobsData.orders);
+        setCourierRentalDeliveryJobs(sortOrdersNewestFirst(rentalDeliveryJobsData.orders));
       } else {
         setCourierRentalDeliveryJobs([]);
       }
@@ -1699,7 +1706,7 @@ export default function CourierDashboard() {
       >
         <div className="text-center">
           <RefreshCw className="w-10 h-10 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
-          <p>Kuryer panel yuklanmoqda...</p>
+          <p></p>
         </div>
       </div>
     );
@@ -2617,7 +2624,7 @@ export default function CourierDashboard() {
                       >
                         <div className="flex items-center justify-between text-xs font-semibold">
                           <span style={{ color: 'rgba(255,255,255,0.80)' }}>
-                            {isUploadingAvatar ? 'Yuklanmoqda…' : 'Tayyor'}
+                            {isUploadingAvatar ? '' : 'Tayyor'}
                           </span>
                           <span style={{ color: '#fff' }}>{avatarUploadPct}%</span>
                         </div>
@@ -3770,7 +3777,7 @@ export default function CourierDashboard() {
 
         {profileEditOpen && (
           <div
-            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            className="fixed inset-0 app-safe-pad z-[200] flex items-center justify-center p-4"
             style={{ background: 'rgba(0,0,0,0.55)' }}
             onClick={() => setProfileEditOpen(false)}
             role="presentation"
@@ -3817,7 +3824,7 @@ export default function CourierDashboard() {
 
         {settingsOpen && (
           <div
-            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            className="fixed inset-0 app-safe-pad z-[200] flex items-center justify-center p-4"
             style={{ background: 'rgba(0,0,0,0.55)' }}
             onClick={() => setSettingsOpen(false)}
             role="presentation"
@@ -3853,7 +3860,7 @@ export default function CourierDashboard() {
 
         {securityOpen && (
           <div
-            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            className="fixed inset-0 app-safe-pad z-[200] flex items-center justify-center p-4"
             style={{ background: 'rgba(0,0,0,0.55)' }}
             onClick={() => setSecurityOpen(false)}
             role="presentation"
@@ -3881,7 +3888,7 @@ export default function CourierDashboard() {
 
         {helpOpen && (
           <div
-            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            className="fixed inset-0 app-safe-pad z-[200] flex items-center justify-center p-4"
             style={{ background: 'rgba(0,0,0,0.55)' }}
             onClick={() => setHelpOpen(false)}
             role="presentation"
@@ -3910,7 +3917,7 @@ export default function CourierDashboard() {
 
         {bagQrOpen && (
           <div
-            className="fixed inset-0 z-[200] flex items-center justify-center p-4"
+            className="fixed inset-0 app-safe-pad z-[200] flex items-center justify-center p-4"
             style={{ background: 'rgba(0,0,0,0.55)' }}
             onClick={() => setBagQrOpen(false)}
             role="presentation"

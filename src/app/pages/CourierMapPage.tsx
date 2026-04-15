@@ -9,6 +9,7 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useTabVisible } from '../hooks/useTabVisible';
 import CourierLiveMap, { type CourierMapRoutePreview } from '../components/courier/CourierLiveMap';
 import { COURIER_MAP_ROUTE_STORAGE_KEY } from '../utils/courierMapRouteSession';
+import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
 
 const readPayload = async (response: Response) => {
   const text = await response.text();
@@ -170,17 +171,19 @@ export default function CourierMapPage() {
         const avRes = avResult.status === 'fulfilled' ? avResult.value : null;
         const avData = avRes ? await readPayload(avRes) : null;
         if (avRes?.ok && avData?.success) {
-          setAvailableOrders(Array.isArray(avData.orders) ? avData.orders : []);
+          setAvailableOrders(sortOrdersNewestFirst(Array.isArray(avData.orders) ? avData.orders : []));
         }
 
         const acRes = acResult.status === 'fulfilled' ? acResult.value : null;
         const acData = acRes ? await readPayload(acRes) : null;
         if (acRes?.ok && acData?.success) {
-          const nextList = Array.isArray(acData.orders)
-            ? acData.orders
-            : acData.order
-              ? [acData.order]
-              : [];
+          const nextList = sortOrdersNewestFirst(
+            Array.isArray(acData.orders)
+              ? acData.orders
+              : acData.order
+                ? [acData.order]
+                : [],
+          );
           setActiveOrders(nextList);
         }
       } catch (e) {

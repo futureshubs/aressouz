@@ -381,13 +381,8 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
 
   if (isLoading) {
     return (
-      <div className="flex items-center justify-center min-h-[60vh]">
-        <div className="text-center">
-          <MessageCircle className="w-12 h-12 mx-auto mb-4 animate-pulse" style={{ color: accentColor.color }} />
-          <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Suhbatlar yuklanmoqda...
-          </p>
-        </div>
+      <div className="flex items-center justify-center min-h-[60vh]" aria-hidden>
+        <Loader2 className="w-12 h-12 animate-spin" style={{ color: accentColor.color }} />
       </div>
     );
   }
@@ -622,14 +617,8 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
                 <Loader2
                   className="w-8 h-8 animate-spin"
                   style={{ color: accentColor.color }}
-                  aria-label="Xabarlar yuklanmoqda"
+                  aria-hidden
                 />
-                <span
-                  className="text-sm"
-                  style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}
-                >
-                  Xabarlar yuklanmoqda...
-                </span>
               </div>
             ) : null}
             {messages.map((message) => {

@@ -96,6 +96,8 @@ type CheckoutPayMethodRow = {
   icon: ComponentType<{ className?: string; style?: CSSProperties }>;
   color: string;
   logoSrc?: string;
+  /** Logo qutisi foni: dark — oq yozuvli SVG (Click); light — yorqin ikonka */
+  logoSlot?: 'light' | 'dark';
 };
 
 const CHECKOUT_PAYMENT_METHODS: CheckoutPayMethodRow[] = [
@@ -105,7 +107,7 @@ const CHECKOUT_PAYMENT_METHODS: CheckoutPayMethodRow[] = [
     tagline: 'Yetkazib berishda yoki filialda naqd',
     icon: Banknote,
     color: '#10b981',
-    logoSrc: '/payments/cash-naqd.svg',
+    logoSrc: '/payments/cash-naqd.svg?v=2',
   },
   {
     id: 'click',
@@ -113,7 +115,8 @@ const CHECKOUT_PAYMENT_METHODS: CheckoutPayMethodRow[] = [
     tagline: 'Click orqali — ilova yoki kartadan',
     icon: CreditCard,
     color: '#00a650',
-    logoSrc: '/payments/click-logo.png?v=2',
+    logoSrc: '/payments/click-official.svg?v=2',
+    logoSlot: 'dark',
   },
   {
     id: 'payme',
@@ -121,7 +124,8 @@ const CHECKOUT_PAYMENT_METHODS: CheckoutPayMethodRow[] = [
     tagline: 'Payme ilova yoki QR orqali',
     icon: CreditCard,
     color: '#00AACB',
-    logoSrc: '/payments/payme-logo.png?v=2',
+    logoSrc: '/payments/payme-official.png?v=2',
+    logoSlot: 'light',
   },
   {
     id: 'atmos',
@@ -129,7 +133,7 @@ const CHECKOUT_PAYMENT_METHODS: CheckoutPayMethodRow[] = [
     tagline: 'Uzcard / Humo onlayn to‘lov',
     icon: CreditCard,
     color: '#1e40af',
-    logoSrc: '/payments/atmos-logo.png?v=2',
+    logoSrc: '/payments/checkout-atmos-square.png?v=1',
   },
   {
     id: 'uzum_nasiya',
@@ -137,7 +141,7 @@ const CHECKOUT_PAYMENT_METHODS: CheckoutPayMethodRow[] = [
     tagline: 'Bo‘lib to‘lash — 3 / 6 / 12 / 24 oy',
     icon: CreditCard,
     color: '#7c3aed',
-    logoSrc: '/payments/uzum-nasiya-logo.png?v=2',
+    logoSrc: '/payments/checkout-uzum-nasiya-square.png?v=1',
   },
 ];
 
@@ -157,10 +161,21 @@ function CheckoutPaymentMethodCard({
   const Icon = method.icon;
   const showComingSoon = method.id === 'uzum_nasiya' && !uzumNasiyaEnabled;
   const [logoFailed, setLogoFailed] = useState(false);
+  const logoSlot = method.logoSlot ?? 'light';
+
+  /** Faqat logo — oq «pill» fon yo‘q; Click SVG light temada oq yozuv uchun juda ixcham qora fon */
+  const logoBoxSurface =
+    method.logoSrc && !logoFailed
+      ? logoSlot === 'dark' && !isDark
+        ? { background: '#0a0a0a', border: 'none', boxShadow: 'none' }
+        : { background: 'transparent', border: 'none', boxShadow: 'none' }
+      : null;
 
   return (
     <button
       type="button"
+      aria-label={method.label}
+      aria-pressed={selected}
       onClick={onSelect}
       className="group relative w-full overflow-hidden rounded-2xl border text-left transition-all duration-200 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       style={{
@@ -183,6 +198,10 @@ function CheckoutPaymentMethodCard({
             : '0 4px 20px rgba(15,23,42,0.07), inset 0 1px 0 rgba(255,255,255,0.9)',
       }}
     >
+      <div
+        className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100"
+        style={{ background: method.color }}
+      />
       {selected && (
         <div
           className="pointer-events-none absolute inset-x-0 top-0 h-0.5 opacity-90"
@@ -191,18 +210,12 @@ function CheckoutPaymentMethodCard({
           }}
         />
       )}
-      <div className="relative flex items-center gap-3.5 p-3.5 sm:gap-4 sm:p-4">
+      <div className="relative flex items-center gap-4 p-4 sm:gap-5 sm:p-[1.125rem]">
         <div
-          className="relative flex h-[3.75rem] w-[3.75rem] shrink-0 items-center justify-center overflow-hidden rounded-2xl sm:h-[4.25rem] sm:w-[4.25rem]"
+          className="relative flex aspect-square h-[4.25rem] w-[4.25rem] shrink-0 items-center justify-center overflow-visible rounded-2xl ring-0 sm:h-[4.75rem] sm:w-[4.75rem]"
           style={
-            method.logoSrc && !logoFailed
-              ? {
-                  background: isDark ? 'rgba(255,255,255,0.96)' : '#ffffff',
-                  border: isDark ? '1px solid rgba(255,255,255,0.14)' : '1px solid rgba(15,23,42,0.08)',
-                  boxShadow: isDark
-                    ? 'inset 0 1px 0 rgba(255,255,255,0.5), 0 8px 24px rgba(0,0,0,0.35)'
-                    : 'inset 0 1px 0 rgba(255,255,255,1), 0 6px 20px rgba(15,23,42,0.08)',
-                }
+            logoBoxSurface
+              ? logoBoxSurface
               : {
                   background: `linear-gradient(145deg, ${method.color}45, ${method.color}18)`,
                   border: `1px solid ${method.color}55`,
@@ -217,12 +230,13 @@ function CheckoutPaymentMethodCard({
             <img
               src={method.logoSrc}
               alt=""
-              className="max-h-[2.85rem] max-w-[4.85rem] h-auto w-auto object-contain p-1 sm:max-h-[3.1rem] sm:max-w-[5.25rem]"
+              className="h-full w-full object-contain object-center p-0 sm:p-0.5"
               style={{
                 filter: 'none',
               }}
               draggable={false}
               decoding="async"
+              loading="lazy"
               onError={() => setLogoFailed(true)}
             />
           ) : (
@@ -578,6 +592,9 @@ function mapFoodCartLinesToRestaurantApi(items: any[]) {
     const did = String(it?.dishId || it?.dishDetails?.dishId || '').trim();
     const idFallback =
       typeof it?.id === 'string' && String(it.id).includes('dish:') ? String(it.id).trim() : '';
+    const roomName = String(
+      it?.dishDetails?.diningRoomName || it?.diningRoomName || '',
+    ).trim();
     return {
       dishId: did || idFallback,
       dishName: String(it?.name || 'Taom'),
@@ -586,6 +603,8 @@ function mapFoodCartLinesToRestaurantApi(items: any[]) {
       price: parseMoneyValue(it?.variantDetails?.price ?? it?.price ?? 0),
       additionalProducts: normalizedAdditionalProducts,
       addons: normalizedAdditionalProducts,
+      diningRoomId: String(it?.dishDetails?.diningRoomId || it?.diningRoomId || '').trim() || undefined,
+      diningRoomName: roomName || undefined,
     };
   });
 }
@@ -2181,8 +2200,8 @@ export default function Checkout({
                           {gpsAddressLine}
                         </p>
                       ) : (
-                        <p className="text-xs mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}>
-                          Manzil matni (ko‘cha, aholi punkti) yuklanmoqda…
+                        <p className="text-xs mb-2 flex items-center gap-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}>
+                          <Loader2 className="size-3.5 shrink-0 animate-spin opacity-70" aria-hidden />
                         </p>
                       )}
                       <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
@@ -2595,7 +2614,7 @@ export default function Checkout({
       {/* Ijara Shartlari Modal */}
       {showRentalTerms && (
         <>
-          <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+          <div className="fixed inset-0 app-safe-pad bg-black/60 backdrop-blur-sm flex items-center justify-center z-50 p-4">
           <div className="bg-white dark:bg-gray-900 rounded-3xl max-w-3xl w-full max-h-[85vh] overflow-hidden flex flex-col shadow-2xl border border-gray-200/50 dark:border-gray-700/50">
             {/* Header */}
             <div 

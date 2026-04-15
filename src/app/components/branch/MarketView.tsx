@@ -1636,7 +1636,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                 className="text-lg font-medium"
                 style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
               >
-                Yuklanmoqda...
+                
               </p>
             </div>
           )}
@@ -2637,7 +2637,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       {/* Add/Edit Product Modal */}
       {isModalOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.7)' }}
           onClick={() => setIsModalOpen(false)}
         >
@@ -2962,7 +2962,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                                       style={{ color: accentColor.color }}
                                       aria-hidden
                                     />
-                                    <span className="text-sm">Yuklanmoqda...</span>
+                                    <span className="text-sm"></span>
                                   </>
                                 ) : (
                                   <>
@@ -3165,7 +3165,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                   }}
                 >
                   {isSaving ? <Loader2 className="w-5 h-5 animate-spin" /> : <Save className="w-5 h-5" />}
-                  {isSaving ? 'Saqlanmoqda...' : 'Saqlash'}
+                  {isSaving ? '' : 'Saqlash'}
                 </button>
               </div>
             </form>
@@ -3176,7 +3176,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       {/* Inventory Operation Modal */}
       {isInventoryModalOpen && selectedInventoryProduct && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.6)' }}
           onClick={() => setIsInventoryModalOpen(false)}
         >
@@ -3446,7 +3446,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                         d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
                       />
                     </svg>
-                    Yuklanmoqda...
+                    
                   </>
                 ) : (
                   'Tasdiqlash'
@@ -3460,7 +3460,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       {/* POS Modal */}
       {isPOSOpen && (
         <div 
-          className="fixed inset-0 z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
           style={{ background: 'rgba(0, 0, 0, 0.7)' }}
           onClick={() => setIsPOSOpen(false)}
         >
@@ -4009,7 +4009,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                   {isProcessingPayment ? (
                     <>
                       <Loader2 className="w-5 h-5 animate-spin" />
-                      Yuklanmoqda...
+                      
                     </>
                   ) : (
                     <>
