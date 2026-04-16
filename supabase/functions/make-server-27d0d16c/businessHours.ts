@@ -1,12 +1,14 @@
-/** O‘zbekiston (Asia/Tashkent) bo‘yicha soddalashtirilgan ish vaqti: "09:00-21:00" */
+/** Mahalliy zona (viloyat/tuman yoki `timeZone`) bo‘yicha ish vaqti: "09:00-21:00" */
 
-const TASHKENT_TZ = 'Asia/Tashkent';
+import { timeZoneFromMerchantRecord } from './merchantRegionTimeZone.ts';
 
 export type ParsedDayRange = { startMin: number; endMin: number };
 
-export function getTashkentHMS(d = new Date()): { h: number; m: number; s: number } {
+const FALLBACK_WALL_CLOCK_TZ = 'Asia/Samarkand';
+
+export function getWallClockHMS(timeZone: string, d = new Date()): { h: number; m: number; s: number } {
   const f = new Intl.DateTimeFormat('en-GB', {
-    timeZone: TASHKENT_TZ,
+    timeZone,
     hour: '2-digit',
     minute: '2-digit',
     second: '2-digit',
@@ -15,6 +17,10 @@ export function getTashkentHMS(d = new Date()): { h: number; m: number; s: numbe
   const parts = f.formatToParts(d);
   const num = (t: string) => Number(parts.find((p) => p.type === t)?.value ?? '0');
   return { h: num('hour'), m: num('minute'), s: num('second') };
+}
+
+export function getTashkentHMS(d = new Date()): { h: number; m: number; s: number } {
+  return getWallClockHMS('Asia/Tashkent', d);
 }
 
 export function parseHoursRange(input: string | null | undefined): ParsedDayRange | null {
@@ -107,12 +113,16 @@ function formatRangeLabel(r: ParsedDayRange): string {
   return `${fmt(r.startMin)}–${fmt(r.endMin)}`;
 }
 
-export function evaluateHourStrings(strings: string[], ref = new Date()): EvaluateHoursResult {
+export function evaluateHourStrings(
+  strings: string[],
+  ref = new Date(),
+  timeZone: string = FALLBACK_WALL_CLOCK_TZ,
+): EvaluateHoursResult {
   const range = firstParseableRange(strings);
   if (!range || range.startMin === range.endMin) {
     return { allowed: true, alwaysOn: true, range: null, nextOpenIso: null, label: null };
   }
-  const { h, m, s } = getTashkentHMS(ref);
+  const { h, m, s } = getWallClockHMS(timeZone, ref);
   const nowSec = h * 3600 + m * 60 + s;
   if (isOpenForRange(range, nowSec)) {
     return { allowed: true, alwaysOn: false, range, nextOpenIso: null, label: formatRangeLabel(range) };
@@ -126,6 +136,14 @@ export function evaluateHourStrings(strings: string[], ref = new Date()): Evalua
     nextOpenIso,
     label: formatRangeLabel(range),
   };
+}
+
+export function evaluateMerchantHours(
+  rec: Record<string, unknown> | null | undefined,
+  ref = new Date(),
+): EvaluateHoursResult {
+  const tz = timeZoneFromMerchantRecord(rec);
+  return evaluateHourStrings(collectHourStringsFromRecord(rec), ref, tz);
 }
 
 export function normalizeShopKey(id: string): string {

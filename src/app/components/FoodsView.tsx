@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
 import {
@@ -38,6 +38,16 @@ import {
   diningRoomImageList,
   formatDiningRoomCapacityLabel,
 } from '../utils/diningRoomClient';
+import {
+  activePublicBookingsForRoomDate,
+  diningRoomBookingUnavailableRanges,
+  generateBookingTimeSlotOptions,
+  isTimeInUnavailableRange,
+  normalizeBookingTimeClient,
+  normalizeDishIngredients,
+  type PublicBookingSlot,
+} from '../utils/foodBookingUi';
+import { evaluateMerchantHours } from '../utils/businessHoursClient';
 
 /** Restoran/taom modali — Telegram / notch ostida qolmasin */
 const FOODS_MODAL_TOP_OFFSET = 'calc(1.5rem + var(--app-safe-top, env(safe-area-inset-top, 0px)))';
@@ -65,6 +75,8 @@ interface Restaurant {
   };
   totalOrders: number;
   isActive: boolean;
+  /** Restoran paneli: mijoz stol band qilishi */
+  publicTableBookingEnabled?: boolean;
 }
 
 interface Dish {
@@ -80,6 +92,13 @@ interface Dish {
   calories: number;
   description: string;
   ingredients: string[];
+  /** Server: so‘nggi 7 kundagi sotilgan dona (buyurtmalar bo‘yicha) */
+  weeklyOrderCount?: number;
+  /** 0–100: panel yoki server (restoran ichida haftalik nisbiy) */
+  likesPercent?: number;
+  /** true bo‘lsa likesPercent haftalik sotuvdan nisbiy hisoblangan */
+  likesPercentDerived?: boolean;
+  weeklyPopularityScore?: number;
   weight: string;
   additionalProducts: { name: string; price: number }[];
   variants: { name: string; image: string; price: number; prepTime: string }[];
@@ -99,6 +118,8 @@ type PublicDiningRoom = {
   images?: string[];
   isPaidRoom?: boolean;
   priceUzs?: number;
+  /** Bron qilib bo‘lmaydigan vaqt oralig‘lari (HH:mm), masalan tushlik */
+  bookingUnavailableRanges?: { from: string; to: string }[];
 };
 
 interface FoodsViewProps {
@@ -133,6 +154,8 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const [bookingPhone, setBookingPhone] = useState('');
   const [bookingNotes, setBookingNotes] = useState('');
   const [bookingSubmitting, setBookingSubmitting] = useState(false);
+  /** Mijoz uchun xavfsiz bron slotlari (ism/telefon yo‘q) */
+  const [publicBookings, setPublicBookings] = useState<PublicBookingSlot[]>([]);
   /** Xona kartadan tanlangach — sana/ism formasi alohida modalda */
   const [bookingModalOpen, setBookingModalOpen] = useState(false);
   /** Joy bron modalida rasmni katta ko‘rish */
@@ -153,6 +176,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const [selectedAddons, setSelectedAddons] = useState<{ name: string; quantity: number }[]>([]);
   const [quantity, setQuantity] = useState(1);
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
+  const [foodHoursTick, setFoodHoursTick] = useState(0);
 
   // Convert region ID to name for banners
   const selectedRegionData = allRegions.find(r => r.id === selectedRegion);
@@ -163,6 +187,11 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   useEffect(() => {
     void loadRestaurantsAndDishes();
   }, [selectedRegion, selectedDistrict]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setFoodHoursTick((t) => t + 1), 30000);
+    return () => window.clearInterval(id);
+  }, []);
 
   useEffect(() => {
     if (!bookingRoomId) return;
@@ -267,14 +296,32 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           if (result.success && Array.isArray(result.data)) {
             const activeDishes = result.data
               .filter((d: Dish) => d.isActive)
-              .map((d: Dish) => ({
-                ...d,
-                restaurantId: restaurant.id,
-                restaurantName: restaurant.name,
-                restaurantBranchId: restaurant.branchId,
-                restaurantRegion: restaurant.region,
-                restaurantDistrict: restaurant.district,
-              }));
+              .map((d: Dish) => {
+                const raw = d as Dish & {
+                  weeklyOrderCount?: unknown;
+                  likesPercent?: unknown;
+                  likeRating?: unknown;
+                  likesPercentDerived?: unknown;
+                  weeklyPopularityScore?: unknown;
+                };
+                const wc = Number(raw.weeklyOrderCount);
+                const lp = Number(raw.likesPercent ?? raw.likeRating);
+                const wps = Number(raw.weeklyPopularityScore);
+                const lpd = raw.likesPercentDerived === true;
+                return {
+                  ...d,
+                  ingredients: normalizeDishIngredients((d as { ingredients?: unknown }).ingredients),
+                  ...(Number.isFinite(wc) && wc >= 0 ? { weeklyOrderCount: Math.floor(wc) } : {}),
+                  ...(Number.isFinite(lp) && lp >= 0 && lp <= 100 ? { likesPercent: Math.round(lp) } : {}),
+                  ...(lpd ? { likesPercentDerived: true } : {}),
+                  ...(Number.isFinite(wps) && wps >= 0 && wps <= 100 ? { weeklyPopularityScore: Math.round(wps) } : {}),
+                  restaurantId: restaurant.id,
+                  restaurantName: restaurant.name,
+                  restaurantBranchId: restaurant.branchId,
+                  restaurantRegion: restaurant.region,
+                  restaurantDistrict: restaurant.district,
+                };
+              });
             setAllDishes((prev) => {
               if (gen !== dishLoadGenRef.current) return prev;
               const seen = new Set(prev.map((x) => x.id));
@@ -309,6 +356,38 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     setSelectedRestaurant(restaurant);
   };
 
+  const fetchPublicBookings = useCallback(async (restaurantId: string) => {
+    const id = String(restaurantId || '').trim();
+    if (!id) {
+      setPublicBookings([]);
+      return;
+    }
+    try {
+      const rid = encodeURIComponent(id);
+      const r = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/table-bookings?public=1`,
+        { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+      );
+      const j = await r.json().catch(() => ({}));
+      if (r.ok && j.success && Array.isArray(j.data)) {
+        setPublicBookings(j.data as PublicBookingSlot[]);
+      } else {
+        setPublicBookings([]);
+      }
+    } catch {
+      setPublicBookings([]);
+    }
+  }, []);
+
+  useEffect(() => {
+    const rid = selectedRestaurant?.id || selectedDish?.restaurantId;
+    if (!rid) {
+      setPublicBookings([]);
+      return;
+    }
+    void fetchPublicBookings(rid);
+  }, [selectedRestaurant?.id, selectedDish?.restaurantId, fetchPublicBookings]);
+
   const submitTableBooking = async () => {
     if (!selectedRestaurant || !bookingRoomId) {
       toast.error('Xona tanlang');
@@ -322,6 +401,21 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     const { min: capMin, max: capMax } = diningRoomCapacityRange(brRoom);
     if (bookingParty < capMin || bookingParty > capMax) {
       toast.error(`Odamlar soni ${capMin} dan ${capMax} gacha bo‘lishi kerak`);
+      return;
+    }
+    const ranges = diningRoomBookingUnavailableRanges(brRoom as unknown as Record<string, unknown>);
+    const nt = normalizeBookingTimeClient(bookingTime);
+    const taken = new Set(
+      activePublicBookingsForRoomDate(publicBookings, bookingRoomId, bookingDate).map((b) =>
+        normalizeBookingTimeClient(b.bookingTime),
+      ),
+    );
+    if (isTimeInUnavailableRange(nt, ranges)) {
+      toast.error('Tanlangan vaqt restoran tomonidan yopiq (masalan tushlik oralig‘i). Boshqa vaqt tanlang.');
+      return;
+    }
+    if (taken.has(nt)) {
+      toast.error('Bu vaqtda xona allaqachon band. Pastdagi ro‘yxatdan bo‘sh slot tanlang.');
       return;
     }
     try {
@@ -352,6 +446,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
         setBookingNotes('');
         setBookingModalOpen(false);
         setBookingRoomId('');
+        void fetchPublicBookings(selectedRestaurant.id);
       } else {
         toast.error(j.error || 'Bron qilishda xatolik');
       }
@@ -366,6 +461,15 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     if (!selectedDish || !selectedVariant) {
       toast.error('Variant tanlang!');
       return;
+    }
+
+    if (selectedDish.restaurantId) {
+      const rest = restaurants.find((r) => r.id === selectedDish.restaurantId);
+      const ev = evaluateMerchantHours(rest as Record<string, unknown> | null | undefined);
+      if (!ev.allowed) {
+        toast.error(ev.label ? `Hozir yopiq (${ev.label})` : 'Restoran hozir yopiq');
+        return;
+      }
     }
 
     const stockProbe = {
@@ -430,10 +534,43 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     );
   }, [restaurants, headerSearch]);
 
+  const dishModalRestaurant = useMemo(() => {
+    if (!selectedDish?.restaurantId) return null;
+    return restaurants.find((r) => r.id === selectedDish.restaurantId) ?? null;
+  }, [selectedDish?.restaurantId, restaurants]);
+
+  const dishModalHoursEv = useMemo(
+    () => evaluateMerchantHours(dishModalRestaurant as Record<string, unknown> | null | undefined),
+    [dishModalRestaurant, foodHoursTick],
+  );
+  const restaurantClosedByHours =
+    !!selectedDish && dishModalRestaurant != null && !dishModalHoursEv.allowed;
+
   const todayDateInputMin = useMemo(() => {
     const t = new Date();
     return `${t.getFullYear()}-${String(t.getMonth() + 1).padStart(2, '0')}-${String(t.getDate()).padStart(2, '0')}`;
   }, []);
+
+  const bookingTimeOptions = useMemo(() => {
+    const room = diningRooms.find((r) => r.id === bookingRoomId);
+    const ranges = diningRoomBookingUnavailableRanges(room as unknown as Record<string, unknown>);
+    const booked = activePublicBookingsForRoomDate(publicBookings, bookingRoomId, bookingDate);
+    const bookedTimes = new Set(booked.map((b) => normalizeBookingTimeClient(b.bookingTime)));
+    return generateBookingTimeSlotOptions({
+      stepMinutes: 30,
+      dayStartHour: 9,
+      dayEndHour: 22,
+      unavailableRanges: ranges,
+      bookedNormalizedTimes: bookedTimes,
+    });
+  }, [diningRooms, bookingRoomId, bookingDate, publicBookings]);
+
+  useEffect(() => {
+    const opts = bookingTimeOptions;
+    if (!opts.length) return;
+    const n = normalizeBookingTimeClient(bookingTime);
+    if (!opts.includes(n)) setBookingTime(opts[0]);
+  }, [bookingTimeOptions, bookingTime]);
 
   const selectedRestaurantDishes = useMemo(() => {
     if (!selectedRestaurant) return [];
@@ -516,6 +653,25 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       setSelectedDish(null);
     }
   }, [allDishes, selectedDish]);
+
+  /** Ro‘yxat qayta yuklanganda taom modali statistikasi yangilansin */
+  useEffect(() => {
+    const id = selectedDish?.id;
+    if (!id) return;
+    const fresh = allDishes.find((d) => d.id === id);
+    if (!fresh) return;
+    setSelectedDish((prev) => {
+      if (!prev || prev.id !== fresh.id) return prev;
+      if (
+        prev.weeklyOrderCount === fresh.weeklyOrderCount &&
+        prev.likesPercent === fresh.likesPercent &&
+        prev.likesPercentDerived === fresh.likesPercentDerived
+      ) {
+        return prev;
+      }
+      return { ...prev, ...fresh };
+    });
+  }, [allDishes, selectedDish?.id]);
 
   useEffect(() => {
     if (!selectedDish?.restaurantId) {
@@ -749,12 +905,14 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     <div className="flex-1 min-w-0">
                       <div className="flex items-start justify-between mb-2">
                         <h3 className="font-bold text-lg">{restaurant.name}</h3>
-                        <div 
+                        <div
                           className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold"
                           style={{ background: `${accentColor.color}20`, color: accentColor.color }}
                         >
-                          <Star className="w-3 h-3 fill-current" />
-                          4.9
+                          <TrendingUp className="w-3 h-3" />
+                          {typeof restaurant.totalOrders === 'number' && restaurant.totalOrders >= 0
+                            ? `${restaurant.totalOrders} buyurtma`
+                            : '—'}
                         </div>
                       </div>
                       
@@ -780,7 +938,11 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                       <div className="flex items-center gap-4 text-sm mb-3">
                         <div className="flex items-center gap-1">
                           <TrendingUp className="w-4 h-4" style={{ color: accentColor.color }} />
-                          <span>{restaurant.totalOrders || 2547}</span>
+                          <span>
+                            {typeof restaurant.totalOrders === 'number' && restaurant.totalOrders >= 0
+                              ? `${restaurant.totalOrders} buyurtma`
+                              : '—'}
+                          </span>
                         </div>
                         <div className="flex items-center gap-1">
                           <Clock className="w-4 h-4" style={{ color: accentColor.color }} />
@@ -1059,6 +1221,36 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                                       {Number(room.priceUzs).toLocaleString('uz-UZ')} so‘m
                                     </p>
                                   ) : null}
+                                  {diningRoomBookingUnavailableRanges(room as unknown as Record<string, unknown>).map(
+                                    (br, bi) => (
+                                      <p
+                                        key={`br-${bi}`}
+                                        className="mt-1 text-[10px] leading-tight"
+                                        style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                                      >
+                                        Yopiq: {br.from} – {br.to}
+                                      </p>
+                                    ),
+                                  )}
+                                  {(() => {
+                                    const slots = activePublicBookingsForRoomDate(
+                                      publicBookings,
+                                      room.id,
+                                      todayDateInputMin,
+                                    );
+                                    if (!slots.length) return null;
+                                    const times = [
+                                      ...new Set(slots.map((s) => normalizeBookingTimeClient(s.bookingTime))),
+                                    ].sort();
+                                    return (
+                                      <p
+                                        className="mt-1 text-[10px] font-semibold leading-tight"
+                                        style={{ color: '#f59e0b' }}
+                                      >
+                                        Bron qilindi: {times.join(', ')}
+                                      </p>
+                                    );
+                                  })()}
                                   {room.description ? (
                                     <p className="text-xs mt-1 line-clamp-2" style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
                                       {room.description}
@@ -1247,11 +1439,10 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                       </div>
                       <div>
                         <label className="mb-1 block text-xs font-semibold" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
-                          Vaqt
+                          Vaqt (bo‘sh slot)
                         </label>
-                        <input
-                          type="time"
-                          value={bookingTime}
+                        <select
+                          value={normalizeBookingTimeClient(bookingTime)}
                           onChange={(e) => setBookingTime(e.target.value)}
                           className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
                           style={{
@@ -1259,9 +1450,57 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                             border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
                             color: isDark ? '#fff' : '#111',
                           }}
-                        />
+                        >
+                          {bookingTimeOptions.length === 0 ? (
+                            <option value="">Bo‘sh slot yo‘q</option>
+                          ) : (
+                            bookingTimeOptions.map((t) => (
+                              <option key={t} value={t}>
+                                {t}
+                              </option>
+                            ))
+                          )}
+                        </select>
                       </div>
                     </div>
+                    {(() => {
+                      const busy = activePublicBookingsForRoomDate(publicBookings, bookingRoomId, bookingDate);
+                      if (!busy.length) return null;
+                      const lines = busy
+                        .map(
+                          (b) =>
+                            `${normalizeBookingTimeClient(b.bookingTime)} (${b.partySize} kishi, ${String(b.status || '').toLowerCase() === 'pending' ? 'tasdiq kutilmoqda' : String(b.status || '')})`,
+                        )
+                        .sort();
+                      return (
+                        <div
+                          className="rounded-xl border px-3 py-2 text-xs"
+                          style={{
+                            borderColor: isDark ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.4)',
+                            background: isDark ? 'rgba(245,158,11,0.08)' : 'rgba(245,158,11,0.06)',
+                            color: isDark ? 'rgba(255,255,255,0.88)' : 'rgba(17,24,39,0.88)',
+                          }}
+                        >
+                          <p className="mb-1 font-semibold text-amber-600">Band vaqtlar (ushbu sana)</p>
+                          <ul className="list-disc space-y-0.5 pl-4">
+                            {lines.map((line, i) => (
+                              <li key={i}>{line}</li>
+                            ))}
+                          </ul>
+                        </div>
+                      );
+                    })()}
+                    {(() => {
+                      const r = diningRooms.find((x) => x.id === bookingRoomId);
+                      const br = diningRoomBookingUnavailableRanges(r as unknown as Record<string, unknown>);
+                      if (!br.length) return null;
+                      return (
+                        <p className="text-[11px] leading-snug" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                          Restoran yopiq qilgan vaqtlar:{' '}
+                          {br.map((x) => `${x.from}–${x.to}`).join(' · ')}. Shu oraliklarda bron tanlanmaydi.
+                        </p>
+                      );
+                    })()}
                     <div>
                       {(() => {
                         const r = diningRooms.find((x) => x.id === bookingRoomId);
@@ -1504,24 +1743,40 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 {/* Title and Rating on Image */}
                 <div className="absolute bottom-6 left-4 right-4">
                   <h2 className="text-3xl font-bold text-white mb-3">{selectedDish.name}</h2>
-                  <div className="flex items-center gap-4 text-white">
-                    <span className="text-sm">{selectedDish.weight}</span>
-                    <span className="text-sm">•</span>
-                    <span className="text-sm">{selectedDish.kcal} kcal</span>
-                    <span className="text-sm">•</span>
+                  <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-white text-sm">
+                    {[
+                      selectedDish.weight ? String(selectedDish.weight) : '',
+                      (() => {
+                        const c = Number(selectedDish.calories || selectedDish.kcal || 0);
+                        if (c > 0) return `${c} kkal`;
+                        if (selectedDish.kcal) return `${selectedDish.kcal} kcal`;
+                        return '';
+                      })(),
+                    ]
+                      .filter(Boolean)
+                      .join(' · ')}
+                    {selectedDish.weight ||
+                    Number(selectedDish.calories || selectedDish.kcal || 0) > 0 ||
+                    selectedDish.kcal ? (
+                      <span className="text-white/70">·</span>
+                    ) : null}
                     <span className="font-bold" style={{ color: accentColor.color }}>
                       {selectedVariant?.price.toLocaleString()} so'm
                     </span>
                   </div>
                 </div>
 
-                {/* Rating Badge */}
-                <div 
-                  className="absolute bottom-6 right-4 px-3 py-1.5 rounded-xl flex items-center gap-1 font-bold"
-                  style={{ background: 'rgba(0, 0, 0, 0.7)', color: '#fff' }}
+                {/* Bu hafta sotuv (dinamik) */}
+                <div
+                  className="absolute bottom-6 right-4 flex max-w-[min(12rem,46vw)] items-center gap-1.5 rounded-xl px-3 py-1.5 font-bold"
+                  style={{ background: 'rgba(0, 0, 0, 0.72)', color: '#fff' }}
                 >
-                  <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                  4.9
+                  <TrendingUp className="h-4 w-4 shrink-0" style={{ color: accentColor.color }} />
+                  <span className="text-xs leading-tight sm:text-sm">
+                    {typeof selectedDish.weeklyOrderCount === 'number'
+                      ? `${selectedDish.weeklyOrderCount} ta bu hafta`
+                      : '—'}
+                  </span>
                 </div>
 
                 {/* Image Indicators */}
@@ -1567,11 +1822,118 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                         </div>
                       </div>
                       <button
+                        type="button"
                         className="px-3 sm:px-4 py-2 rounded-xl text-xs sm:text-sm font-bold flex-shrink-0"
                         style={{ background: accentColor.color, color: '#fff' }}
+                        onClick={() => {
+                          setSelectedDish(null);
+                          setSelectedRestaurant(restaurant);
+                        }}
                       >
                         Restoran
                       </button>
+                    </div>
+                  );
+                })()}
+
+                {(() => {
+                  const desc = String(selectedDish.description || '').trim();
+                  const ings = Array.isArray(selectedDish.ingredients) ? selectedDish.ingredients : [];
+                  const cal = Number(selectedDish.calories || selectedDish.kcal || 0);
+                  const w = String(selectedDish.weight || '').trim();
+                  if (!desc && !ings.length && !w && !(cal > 0)) {
+                    return (
+                      <div
+                        className="mb-4 sm:mb-6 rounded-2xl border p-4 sm:p-5"
+                        style={{
+                          background: isDark ? 'rgba(255, 255, 255, 0.04)' : '#ffffff',
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+                        }}
+                      >
+                        <h3 className="mb-2 flex items-center gap-2 text-base font-bold sm:text-lg">
+                          <Utensils className="h-5 w-5 shrink-0" style={{ color: accentColor.color }} />
+                          Taom haqida va tarkibi
+                        </h3>
+                        <p className="text-sm leading-relaxed" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.6)' }}>
+                          Ushbu taom uchun batafsil tavsif va tarkib hozircha kiritilmagan. Restoran bilan bog‘laning yoki
+                          boshqa taomni tanlang.
+                        </p>
+                      </div>
+                    );
+                  }
+                  return (
+                    <div
+                      className="mb-4 sm:mb-6 rounded-2xl border p-4 sm:p-5"
+                      style={{
+                        background: isDark ? 'rgba(255, 255, 255, 0.04)' : '#ffffff',
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+                      }}
+                    >
+                      <h3 className="mb-3 flex items-center gap-2 text-base font-bold sm:text-lg">
+                        <Leaf className="h-5 w-5 shrink-0" style={{ color: accentColor.color }} />
+                        Taom haqida va tarkibi
+                      </h3>
+                      {desc ? (
+                        <div className="mb-4">
+                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-70">Tavsif</p>
+                          <p
+                            className="whitespace-pre-wrap break-words text-sm leading-relaxed sm:text-[15px]"
+                            style={{ color: isDark ? 'rgba(255, 255, 255, 0.9)' : 'rgba(17, 24, 39, 0.92)' }}
+                          >
+                            {selectedDish.description}
+                          </p>
+                        </div>
+                      ) : null}
+                      {w || cal > 0 ? (
+                        <p
+                          className="mb-4 text-sm leading-relaxed"
+                          style={{ color: isDark ? 'rgba(255,255,255,0.78)' : 'rgba(17,24,39,0.8)' }}
+                        >
+                          {w ? <span className="font-semibold">Og‘irlik / hajm: </span> : null}
+                          {w ? <span>{w}</span> : null}
+                          {w && cal > 0 ? <span className="mx-2 text-white/40">·</span> : null}
+                          {cal > 0 ? (
+                            <>
+                              <span className="font-semibold">Energiya: </span>
+                              <span>{cal} kkal</span>
+                            </>
+                          ) : null}
+                        </p>
+                      ) : null}
+                      {ings.length > 0 ? (
+                        <div className="mb-2">
+                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide opacity-70">Asosiy tarkib</p>
+                          <ol
+                            className="mb-3 list-decimal space-y-2.5 pl-5 text-sm leading-relaxed sm:text-[15px]"
+                            style={{ color: isDark ? 'rgba(255,255,255,0.92)' : 'rgba(17,24,39,0.92)' }}
+                          >
+                            {ings.map((ingredient, idx) => (
+                              <li key={idx} className="break-words pl-0.5 marker:font-semibold">
+                                {ingredient}
+                              </li>
+                            ))}
+                          </ol>
+                          <p className="mb-2 text-xs opacity-70">Qisqa ko‘rinish:</p>
+                          <div className="flex flex-wrap gap-2">
+                            {ings.map((ingredient, idx) => (
+                              <span
+                                key={`chip-${idx}`}
+                                className="rounded-xl px-3 py-1.5 text-xs font-medium sm:text-sm"
+                                style={{
+                                  background: `${accentColor.color}18`,
+                                  color: accentColor.color,
+                                }}
+                              >
+                                {ingredient}
+                              </span>
+                            ))}
+                          </div>
+                        </div>
+                      ) : desc ? (
+                        <p className="text-xs leading-snug opacity-75" style={{ color: isDark ? '#fff' : '#111' }}>
+                          Alohida tarkib qatori restoran tomonidan kiritilmagan — batafsil ma’lumot yuqoridagi tavsifda.
+                        </p>
+                      ) : null}
                     </div>
                   );
                 })()}
@@ -1608,8 +1970,20 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     >
                       <TrendingUp className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: accentColor.color }} />
                     </div>
-                    <p className="text-[10px] sm:text-xs mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>Bu hafta</p>
-                    <p className="font-bold text-xs sm:text-sm">243 ta</p>
+                    <p className="text-[10px] sm:text-xs mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
+                      Bu hafta sotuv
+                    </p>
+                    <p className="font-bold text-xs sm:text-sm">
+                      {typeof selectedDish.weeklyOrderCount === 'number' && selectedDish.weeklyOrderCount >= 0
+                        ? `${selectedDish.weeklyOrderCount} ta`
+                        : '—'}
+                    </p>
+                    <p
+                      className="mt-0.5 text-[9px] leading-tight"
+                      style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                    >
+                      So‘nggi 7 kun, tasdiqlangan buyurtmalar
+                    </p>
                   </div>
 
                   <div 
@@ -1625,8 +1999,26 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     >
                       <Heart className="w-4 h-4 sm:w-5 sm:h-5" style={{ color: accentColor.color }} />
                     </div>
-                    <p className="text-[10px] sm:text-xs mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>Yoqtirish</p>
-                    <p className="font-bold text-xs sm:text-sm">98%</p>
+                    <p className="text-[10px] sm:text-xs mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
+                      Baholash
+                    </p>
+                    <p className="font-bold text-xs sm:text-sm">
+                      {typeof selectedDish.likesPercent === 'number' &&
+                      selectedDish.likesPercent >= 0 &&
+                      selectedDish.likesPercent <= 100
+                        ? `${selectedDish.likesPercent}%`
+                        : selectedDish.isPopular
+                          ? 'Mashhur'
+                          : '—'}
+                    </p>
+                    {selectedDish.likesPercentDerived ? (
+                      <p
+                        className="mt-0.5 text-[9px] leading-tight"
+                        style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                      >
+                        Shu restoran taomlari ichida bu haftalik sotuv nisbati
+                      </p>
+                    ) : null}
                   </div>
                 </div>
 
@@ -1715,7 +2107,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                             <div className="flex items-center justify-between gap-3 p-3">
                               {/* Name and Price */}
                               <div className="flex-1 min-w-0">
-                                <h4 className="font-bold text-sm mb-0.5 truncate">{addon.name}</h4>
+                                <h4 className="font-bold text-sm mb-0.5 break-words line-clamp-3">{addon.name}</h4>
                                 <p className="text-xs" style={{ color: accentColor.color }}>
                                   +{addon.price.toLocaleString()} so'm
                                 </p>
@@ -1839,6 +2231,36 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                                       {Number(room.priceUzs).toLocaleString('uz-UZ')} so‘m
                                     </p>
                                   ) : null}
+                                  {diningRoomBookingUnavailableRanges(room as unknown as Record<string, unknown>).map(
+                                    (br, bi) => (
+                                      <p
+                                        key={`dbr-${bi}`}
+                                        className="mt-1 text-[10px] leading-tight"
+                                        style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                                      >
+                                        Yopiq: {br.from} – {br.to}
+                                      </p>
+                                    ),
+                                  )}
+                                  {(() => {
+                                    const slots = activePublicBookingsForRoomDate(
+                                      publicBookings,
+                                      room.id,
+                                      todayDateInputMin,
+                                    );
+                                    if (!slots.length) return null;
+                                    const times = [
+                                      ...new Set(slots.map((s) => normalizeBookingTimeClient(s.bookingTime))),
+                                    ].sort();
+                                    return (
+                                      <p
+                                        className="mt-1 text-[10px] font-semibold leading-tight"
+                                        style={{ color: '#f59e0b' }}
+                                      >
+                                        Bugun bron: {times.join(', ')}
+                                      </p>
+                                    );
+                                  })()}
                                   {room.description ? (
                                     <p className="mt-1 line-clamp-2 text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}>
                                       {room.description}
@@ -1873,72 +2295,6 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                   </div>
                 )}
 
-                {/* Description */}
-                {selectedDish.description && (
-                  <div className="mb-4 sm:mb-6">
-                    <h3 className="font-bold mb-3 text-base sm:text-lg flex items-center gap-2">
-                      <div 
-                        className="w-6 h-6 rounded-lg flex items-center justify-center"
-                        style={{ background: `${accentColor.color}20` }}
-                      >
-                        📝
-                      </div>
-                      Tavsif
-                    </h3>
-                    <div 
-                      className="p-4 rounded-2xl"
-                      style={{ 
-                        background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                        border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
-                      }}
-                    >
-                      <p 
-                        className="text-sm leading-relaxed"
-                        style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.8)' }}
-                      >
-                        {selectedDish.description}
-                      </p>
-                    </div>
-                  </div>
-                )}
-
-                {/* Ingredients */}
-                {selectedDish.ingredients && Array.isArray(selectedDish.ingredients) && selectedDish.ingredients.length > 0 && (
-                  <div className="mb-4 sm:mb-6">
-                    <h3 className="font-bold mb-3 text-base sm:text-lg flex items-center gap-2">
-                      <div 
-                        className="w-6 h-6 rounded-lg flex items-center justify-center"
-                        style={{ background: `${accentColor.color}20` }}
-                      >
-                        🥘
-                      </div>
-                      Tarkibi ({selectedDish.ingredients.length} ta)
-                    </h3>
-                    <div 
-                      className="p-4 rounded-2xl"
-                      style={{ 
-                        background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                        border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
-                      }}
-                    >
-                      <div className="flex flex-wrap gap-2">
-                        {selectedDish.ingredients.map((ingredient, idx) => (
-                          <div
-                            key={idx}
-                            className="px-3 py-2 rounded-xl text-sm font-medium"
-                            style={{ 
-                              background: `${accentColor.color}15`,
-                              color: accentColor.color
-                            }}
-                          >
-                            {ingredient}
-                          </div>
-                        ))}
-                      </div>
-                    </div>
-                  </div>
-                )}
-
               </div>
 
               {/* Bottom Bar */}
@@ -1949,10 +2305,19 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                   borderTop: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
                 }}
               >
+                {restaurantClosedByHours && dishModalHoursEv.label ? (
+                  <p
+                    className="text-xs text-center mb-2"
+                    style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
+                  >
+                    Yopiq — ish vaqti: {dishModalHoursEv.label}
+                  </p>
+                ) : null}
                 <div className="flex items-center gap-3">
                   {/* Quantity Controls */}
                   <div className="flex items-center gap-2">
                     <button
+                      type="button"
                       onClick={() => setQuantity(Math.max(1, quantity - 1))}
                       className="w-11 h-11 rounded-xl flex items-center justify-center"
                       style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
@@ -1961,8 +2326,10 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     </button>
                     <span className="text-xl font-bold w-8 text-center">{quantity}</span>
                     <button
+                      type="button"
                       onClick={() => setQuantity(quantity + 1)}
-                      className="w-11 h-11 rounded-xl flex items-center justify-center"
+                      disabled={restaurantClosedByHours}
+                      className="w-11 h-11 rounded-xl flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{ background: accentColor.color, color: '#fff' }}
                     >
                       <Plus className="w-5 h-5" />
@@ -1971,35 +2338,50 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
 
                   {/* Add to Cart Button with Total Price */}
                   <button
+                    type="button"
                     onClick={handleAddToCart}
-                    className="flex-1 py-4 rounded-2xl font-bold text-base"
-                    style={{ background: accentColor.color, color: '#fff' }}
+                    disabled={restaurantClosedByHours}
+                    className="flex-1 py-4 rounded-2xl font-bold text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                    style={{
+                      background: restaurantClosedByHours
+                        ? isDark
+                          ? 'rgba(255,255,255,0.12)'
+                          : 'rgba(0,0,0,0.12)'
+                        : accentColor.color,
+                      color: '#fff',
+                    }}
                   >
-                    <div className="flex items-center justify-between px-4">
-                      <div className="flex items-center gap-2">
-                        <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
-                        </svg>
-                        <span>Savatga</span>
+                    {restaurantClosedByHours ? (
+                      <div className="flex w-full items-center justify-center py-0.5">
+                        <Clock className="w-6 h-6" aria-label="Yopiq" />
                       </div>
-                      {selectedVariant && (
-                        <span>
-                          {(() => {
-                            // Calculate addons total
-                            const addonsTotal = selectedAddons.reduce((sum, addon) => {
-                              const addonProduct = selectedDish.additionalProducts?.find(p => p.name === addon.name);
-                              return sum + ((addonProduct?.price || 0) * addon.quantity);
-                            }, 0);
-                            
-                            // Calculate total price
-                            const dishTotal = selectedVariant.price * quantity;
-                            const totalPrice = dishTotal + addonsTotal;
-                            
-                            return totalPrice.toLocaleString();
-                          })()} so'm
-                        </span>
-                      )}
-                    </div>
+                    ) : (
+                      <div className="flex items-center justify-between px-4">
+                        <div className="flex items-center gap-2">
+                          <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 3h2l.4 2M7 13h10l4-8H5.4M7 13L5.4 5M7 13l-2.293 2.293c-.63.63-.184 1.707.707 1.707H17m0 0a2 2 0 100 4 2 2 0 000-4zm-8 2a2 2 0 11-4 0 2 2 0 014 0z" />
+                          </svg>
+                          <span>Savatga</span>
+                        </div>
+                        {selectedVariant && (
+                          <span>
+                            {(() => {
+                              // Calculate addons total
+                              const addonsTotal = selectedAddons.reduce((sum, addon) => {
+                                const addonProduct = selectedDish.additionalProducts?.find(p => p.name === addon.name);
+                                return sum + ((addonProduct?.price || 0) * addon.quantity);
+                              }, 0);
+                              
+                              // Calculate total price
+                              const dishTotal = selectedVariant.price * quantity;
+                              const totalPrice = dishTotal + addonsTotal;
+                              
+                              return totalPrice.toLocaleString();
+                            })()} so'm
+                          </span>
+                        )}
+                      </div>
+                    )}
                   </button>
                 </div>
 

@@ -1,9 +1,10 @@
-import { X, Plus, Minus, ShoppingCart, ChevronLeft, ChevronRight } from 'lucide-react';
-import { memo, useState, useRef } from 'react';
+import { X, Plus, Minus, ShoppingCart, ChevronLeft, ChevronRight, Clock } from 'lucide-react';
+import { memo, useState, useRef, useEffect, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { toast } from 'sonner';
 import { notifyCartAdded } from '../utils/appToast';
 import { getVariantStockQuantity } from '../utils/cartStock';
+import { evaluateMerchantHours } from '../utils/businessHoursClient';
 
 interface Product {
   id: number;
@@ -60,10 +61,21 @@ export const ProductVariantModal = memo(function ProductVariantModal({
   onClose, 
   onAddToCart,
   onAddMultipleLines,
-  source = 'market'
+  source = 'market',
+  merchantHoursRecord = null,
 }: ProductVariantModalProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
+  const [hoursUiTick, setHoursUiTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setHoursUiTick((t) => t + 1), 30000);
+    return () => window.clearInterval(id);
+  }, []);
+  const hoursEv = useMemo(
+    () => evaluateMerchantHours(merchantHoursRecord ?? undefined),
+    [merchantHoursRecord, hoursUiTick],
+  );
+  const shopClosedByHours = source === 'shop' && !hoursEv.allowed;
   
   // Product images gallery - use real variant images
   // Shop products: variants have `images` array and `stock` property
@@ -154,6 +166,10 @@ export const ProductVariantModal = memo(function ProductVariantModal({
   };
 
   const handleAddVariantToCart = (variantId: string) => {
+    if (shopClosedByHours) {
+      toast.error(hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq");
+      return;
+    }
     const variant = variants.find(v => v.id === variantId);
     if (!variant || variant.stockCount === 0) return;
     
@@ -175,6 +191,10 @@ export const ProductVariantModal = memo(function ProductVariantModal({
   }, 0);
 
   const handleFinalAddToCart = () => {
+    if (shopClosedByHours) {
+      toast.error(hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq");
+      return;
+    }
     const lines = Object.entries(quantities)
       .filter(([, qty]) => qty > 0)
       .map(([variantId, qty]) => {
@@ -373,6 +393,14 @@ export const ProductVariantModal = memo(function ProductVariantModal({
 
           {/* O'lchamni tanlang */}
           <div className="px-4">
+            {shopClosedByHours && hoursEv.label ? (
+              <p
+                className="text-xs text-center mb-3"
+                style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
+              >
+                Yopiq — ish vaqti: {hoursEv.label}
+              </p>
+            ) : null}
             <h4 
               className="font-bold text-lg mb-4"
               style={{ color: isDark ? '#ffffff' : '#111827' }}
@@ -388,6 +416,7 @@ export const ProductVariantModal = memo(function ProductVariantModal({
                 const stockCount = variant.stockCount;
                 const isOutOfStock = stockCount === 0;
                 const isMaxQuantity = quantity >= stockCount;
+                const rowHoursClosed = shopClosedByHours && !isOutOfStock;
                 
                 return (
                   <div
@@ -485,7 +514,7 @@ export const ProductVariantModal = memo(function ProductVariantModal({
                           
                           <button
                             onClick={() => handleQuantityChange(variant.id, 1)}
-                            disabled={isMaxQuantity}
+                            disabled={isMaxQuantity || shopClosedByHours}
                             className="p-1 rounded-lg transition-all active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
                             style={{
                               backgroundImage: isMaxQuantity ? 'none' : accentColor.gradient,
@@ -501,18 +530,36 @@ export const ProductVariantModal = memo(function ProductVariantModal({
                         </div>
                       ) : (
                         <button
+                          type="button"
                           onClick={() => handleAddVariantToCart(variant.id)}
-                          disabled={isOutOfStock}
-                          className="px-5 py-2.5 rounded-xl font-bold transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                          disabled={isOutOfStock || rowHoursClosed}
+                          className="px-5 py-2.5 rounded-xl font-bold transition-all active:scale-95 flex items-center gap-2 justify-center min-w-[7rem] disabled:opacity-50 disabled:cursor-not-allowed"
                           style={{
-                            backgroundImage: isOutOfStock ? 'none' : accentColor.gradient,
-                            background: isOutOfStock ? (isDark ? '#666666' : '#9ca3af') : undefined,
+                            backgroundImage: isOutOfStock || rowHoursClosed ? 'none' : accentColor.gradient,
+                            background:
+                              isOutOfStock || rowHoursClosed
+                                ? isDark
+                                  ? '#666666'
+                                  : '#9ca3af'
+                                : undefined,
                             color: '#ffffff',
-                            boxShadow: isOutOfStock ? 'none' : `0 4px 12px ${accentColor.color}66`,
+                            boxShadow:
+                              isOutOfStock || rowHoursClosed ? 'none' : `0 4px 12px ${accentColor.color}66`,
                           }}
                         >
-                          <ShoppingCart className="size-4" strokeWidth={2.5} />
-                          <span>{isOutOfStock ? 'Tugadi' : 'Savatga'}</span>
+                          {isOutOfStock ? (
+                            <>
+                              <ShoppingCart className="size-4" strokeWidth={2.5} />
+                              <span>Tugadi</span>
+                            </>
+                          ) : rowHoursClosed ? (
+                            <Clock className="size-4" strokeWidth={2.5} aria-label="Yopiq" />
+                          ) : (
+                            <>
+                              <ShoppingCart className="size-4" strokeWidth={2.5} />
+                              <span>Savatga</span>
+                            </>
+                          )}
                         </button>
                       )}
                     </div>
@@ -559,16 +606,25 @@ export const ProductVariantModal = memo(function ProductVariantModal({
 
                 {/* Add to Cart Button */}
                 <button
+                  type="button"
                   onClick={handleFinalAddToCart}
-                  className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-98 flex items-center justify-center gap-2"
+                  disabled={shopClosedByHours}
+                  className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-98 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
-                    backgroundImage: accentColor.gradient,
+                    backgroundImage: shopClosedByHours ? 'none' : accentColor.gradient,
+                    background: shopClosedByHours ? (isDark ? '#666666' : '#9ca3af') : undefined,
                     color: '#ffffff',
-                    boxShadow: `0 8px 24px ${accentColor.color}80`,
+                    boxShadow: shopClosedByHours ? 'none' : `0 8px 24px ${accentColor.color}80`,
                   }}
                 >
-                  <ShoppingCart className="size-6" strokeWidth={2.5} />
-                  <span>Savatga qo'shish ({totalItems})</span>
+                  {shopClosedByHours ? (
+                    <Clock className="size-6" strokeWidth={2.5} aria-label="Yopiq" />
+                  ) : (
+                    <>
+                      <ShoppingCart className="size-6" strokeWidth={2.5} />
+                      <span>Savatga qo'shish ({totalItems})</span>
+                    </>
+                  )}
                 </button>
               </div>
             )}

@@ -1,4 +1,8 @@
-/** Mahalliy zona: viloyat/tuman yoki `timeZone` — "09:00-21:00" formatidagi ish vaqti */
+/**
+ * Server `businessHours.ts` bilan bir xil mantiq — mijoz UI.
+ * Soat: do‘kon/restoran `region` / `timeZone` bo‘yicha (Toshkent doimiy emas).
+ * Do‘kon/restoran `workingHours` / `workTime` / `openingHours` / `contact.workHours` maydonlari.
+ */
 
 import { timeZoneFromMerchantRecord } from './merchantRegionTimeZone';
 
@@ -19,6 +23,7 @@ export function getWallClockHMS(timeZone: string, d = new Date()): { h: number; 
   return { h: num('hour'), m: num('minute'), s: num('second') };
 }
 
+/** Orqaga moslik — faqat Toshkent zonasi kerak bo‘lsa */
 export function getTashkentHMS(d = new Date()): { h: number; m: number; s: number } {
   return getWallClockHMS('Asia/Tashkent', d);
 }
@@ -57,7 +62,7 @@ function isOpenForRange(r: ParsedDayRange, nowSecFromMidnight: number): boolean 
   return true;
 }
 
-export function secondsUntilOpenAfterClose(r: ParsedDayRange, nowSecFromMidnight: number): number {
+function secondsUntilOpenAfterClose(r: ParsedDayRange, nowSecFromMidnight: number): number {
   const S0 = r.startMin * 60;
   const S1 = r.endMin * 60;
   if (r.startMin < r.endMin) {
@@ -136,6 +141,7 @@ export function evaluateHourStrings(
   };
 }
 
+/** Yozuvdagi ish vaqti + viloyat/tuman bo‘yicha mahalliy soat */
 export function evaluateMerchantHours(
   rec: Record<string, unknown> | null | undefined,
   ref = new Date(),
@@ -144,24 +150,8 @@ export function evaluateMerchantHours(
   return evaluateHourStrings(collectHourStringsFromRecord(rec), ref, tz);
 }
 
-export function normalizeShopKey(id: string): string {
-  const t = String(id ?? '').trim();
-  if (!t) return '';
-  return t.startsWith('shop:') ? t.slice('shop:'.length) : t;
+export function isMerchantHoursOpen(rec: Record<string, unknown> | null | undefined, ref = new Date()): boolean {
+  return evaluateMerchantHours(rec, ref).allowed;
 }
 
-export function formatCountdownParts(totalSeconds: number): { h: number; m: number; s: number } {
-  const sec = Math.max(0, Math.floor(totalSeconds));
-  return {
-    h: Math.floor(sec / 3600),
-    m: Math.floor((sec % 3600) / 60),
-    s: sec % 60,
-  };
-}
-
-export function secondsUntilIso(targetIso: string | null | undefined, ref = new Date()): number {
-  if (!targetIso) return 0;
-  const t = new Date(targetIso).getTime();
-  if (!Number.isFinite(t)) return 0;
-  return Math.max(0, Math.floor((t - ref.getTime()) / 1000));
-}
+export { timeZoneFromMerchantRecord } from './merchantRegionTimeZone';

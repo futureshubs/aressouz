@@ -1,27 +1,43 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
+import { useAuth } from '../context/AuthContext';
 import { useFavorites } from '../context/FavoritesContext';
+import { postRecoEvents, productToRecoPayload } from '../utils/recommendationsClient';
 import { X, Heart, Share2, Star, ChevronLeft, ChevronRight, ShoppingCart, Package, Clock, RotateCcw, Settings, MapPin, ChevronRight as ChevronRightIcon, Minus, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { notifyCartAdded } from '../utils/appToast';
 import { shareTitleTextUrl } from '../utils/marketplaceNativeBridge';
 import { getVariantStockQuantity } from '../utils/cartStock';
+import { evaluateMerchantHours } from '../utils/businessHoursClient';
 
 // Full Screen Product Detail Modal (Ozon/Wildberries style)
 export function ProductDetailModal({ 
   product, 
   onClose, 
   onAddToCart,
-  source = 'market' // Add source prop
+  source = 'market', // Add source prop
+  merchantHoursRecord = null,
 }: { 
   product: any; 
   onClose: () => void; 
   onAddToCart: (product: any, quantity: number, variantId?: string, variantName?: string) => void;
   source?: 'market' | 'shop'; // Add source type
+  /** Do'kon ish vaqti (API bilan mos maydonlar) — faqat `source === 'shop'` da */
+  merchantHoursRecord?: Record<string, unknown> | null;
 }) {
   const { theme, accentColor } = useTheme();
+  const { accessToken } = useAuth();
   const isDark = theme === 'dark';
   const { isFavorite: isProductFavorite, toggleFavorite } = useFavorites();
+  const [hoursUiTick, setHoursUiTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setHoursUiTick((t) => t + 1), 30000);
+    return () => window.clearInterval(id);
+  }, []);
+  const hoursEv = useMemo(
+    () => evaluateMerchantHours(merchantHoursRecord ?? undefined),
+    [merchantHoursRecord, hoursUiTick],
+  );
   const [currentImageIndex, setCurrentImageIndex] = useState(0);
   const [selectedVariant, setSelectedVariant] = useState(0); // Add variant state
   const [touchStart, setTouchStart] = useState<number | null>(null);
@@ -29,6 +45,12 @@ export function ProductDetailModal({
   const [activeTab, setActiveTab] = useState<'description' | 'specs' | 'reviews'>('description'); // Add tabs state
   const [quantity, setQuantity] = useState(0); // Add quantity state - start at 0
   const [selectedInstallmentMonth, setSelectedInstallmentMonth] = useState(3); // Nasiya oyi - default 3 oy
+
+  useEffect(() => {
+    if (!product?.id) return;
+    const row = product as Record<string, unknown>;
+    void postRecoEvents([productToRecoPayload(row)], accessToken);
+  }, [product?.id, accessToken]);
 
   const readVariantSoldTotal = (v: Record<string, unknown> | null | undefined): number => {
     const raw = v
@@ -70,6 +92,8 @@ export function ProductDetailModal({
   const currentPrice = currentVariant.price;
   const currentOldPrice = currentVariant.oldPrice; // Faqat real oldPrice ishlatiladi
   const currentStockQuantity = currentVariant.stockQuantity;
+  const shopClosedByHours =
+    source === 'shop' && currentStockQuantity > 0 && !hoursEv.allowed;
 
   const images = currentImages.filter(
     (u: unknown) => typeof u === 'string' && String(u).trim().length > 0,
@@ -218,6 +242,11 @@ export function ProductDetailModal({
                 branchName: product.branchName,
                 branchId: product.branchId,
               });
+              const row = product as Record<string, unknown>;
+              void postRecoEvents(
+                [{ ...productToRecoPayload(row), type: was ? 'favorite_remove' : 'favorite_add' }],
+                accessToken,
+              );
               toast.success(was ? 'Sevimlilardan olib tashlandi' : 'Sevimlilarga qo‘shildi');
             }}
             className="w-10 h-10 rounded-full flex items-center justify-center transition-all active:scale-90"
@@ -803,6 +832,14 @@ export function ProductDetailModal({
         }}
       >
         {/* Stock Badge - Hidden */}
+        {shopClosedByHours && hoursEv.label && (
+          <p
+            className="text-xs text-center pb-1"
+            style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
+          >
+            Yopiq — ish vaqti: {hoursEv.label}
+          </p>
+        )}
         {false && currentStockQuantity !== undefined && currentStockQuantity > 0 && (
           <div 
             className="px-3 py-1.5 rounded-xl flex items-center justify-between text-sm font-medium"
@@ -905,16 +942,29 @@ export function ProductDetailModal({
                       toast.error(`Omborda faqat ${currentStockQuantity} dona mavjud`);
                     }
                   }}
-                  disabled={quantity >= currentStockQuantity}
+                  disabled={quantity >= currentStockQuantity || shopClosedByHours}
                   className="p-1 rounded-lg transition-all active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{
-                    backgroundImage: quantity >= currentStockQuantity ? 'none' : accentColor.gradient,
-                    background: quantity >= currentStockQuantity ? (isDark ? '#333333' : '#d1d5db') : undefined,
+                    backgroundImage:
+                      quantity >= currentStockQuantity || shopClosedByHours ? 'none' : accentColor.gradient,
+                    background:
+                      quantity >= currentStockQuantity || shopClosedByHours
+                        ? isDark
+                          ? '#333333'
+                          : '#d1d5db'
+                        : undefined,
                   }}
                 >
                   <Plus 
                     className="size-4" 
-                    style={{ color: quantity >= currentStockQuantity ? (isDark ? '#666666' : '#9ca3af') : '#ffffff' }} 
+                    style={{
+                      color:
+                        quantity >= currentStockQuantity || shopClosedByHours
+                          ? isDark
+                            ? '#666666'
+                            : '#9ca3af'
+                          : '#ffffff',
+                    }} 
                     strokeWidth={2.5} 
                   />
                 </button>
@@ -922,21 +972,36 @@ export function ProductDetailModal({
             ) : (
               <button
                 onClick={() => {
-                  if (currentStockQuantity > 0) {
+                  if (currentStockQuantity > 0 && !shopClosedByHours) {
                     setQuantity(1);
                   }
                 }}
-                disabled={currentStockQuantity === 0}
+                disabled={currentStockQuantity === 0 || shopClosedByHours}
                 className="px-5 py-2.5 rounded-xl font-bold transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                 style={{
-                  backgroundImage: currentStockQuantity === 0 ? 'none' : accentColor.gradient,
-                  background: currentStockQuantity === 0 ? (isDark ? '#666666' : '#9ca3af') : undefined,
+                  backgroundImage:
+                    currentStockQuantity === 0 || shopClosedByHours ? 'none' : accentColor.gradient,
+                  background:
+                    currentStockQuantity === 0 || shopClosedByHours
+                      ? isDark
+                        ? '#666666'
+                        : '#9ca3af'
+                      : undefined,
                   color: '#ffffff',
-                  boxShadow: currentStockQuantity === 0 ? 'none' : `0 4px 12px ${accentColor.color}66`,
+                  boxShadow:
+                    currentStockQuantity === 0 || shopClosedByHours
+                      ? 'none'
+                      : `0 4px 12px ${accentColor.color}66`,
                 }}
               >
-                <ShoppingCart className="size-4" strokeWidth={2.5} />
-                <span>{currentStockQuantity === 0 ? 'Tugagan' : 'Savatga'}</span>
+                {shopClosedByHours ? (
+                  <Clock className="size-4" strokeWidth={2.5} aria-label="Yopiq" />
+                ) : (
+                  <>
+                    <ShoppingCart className="size-4" strokeWidth={2.5} />
+                    <span>{currentStockQuantity === 0 ? 'Tugagan' : 'Savatga'}</span>
+                  </>
+                )}
               </button>
             )}
           </div>
@@ -954,6 +1019,12 @@ export function ProductDetailModal({
                 price: currentPrice
               });
               
+              if (shopClosedByHours) {
+                toast.error(
+                  hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq",
+                );
+                return;
+              }
               if (quantity > 0) {
                 onAddToCart(product, quantity, currentVariant.variantId, currentVariant.label);
                 notifyCartAdded(quantity, {
@@ -967,21 +1038,27 @@ export function ProductDetailModal({
                 console.log('❌ Quantity = 0, qo\'shilmadi');
               }
             }}
-            disabled={quantity === 0}
+            disabled={quantity === 0 || shopClosedByHours}
             className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
             style={{ 
-              background: quantity > 0 ? accentColor.color : '#666666',
+              background: quantity > 0 && !shopClosedByHours ? accentColor.color : '#666666',
               color: '#ffffff',
-              boxShadow: quantity > 0 ? `0 6px 20px ${accentColor.color}66` : 'none'
+              boxShadow: quantity > 0 && !shopClosedByHours ? `0 6px 20px ${accentColor.color}66` : 'none'
             }}
           >
-            <ShoppingCart className="w-6 h-6" />
-            <span>
-              {quantity === 0 
-                ? 'Miqdorni tanlang' 
-                : `Savatga qo'shish - ${(currentPrice * quantity).toLocaleString()} so'm`
-              }
-            </span>
+            {shopClosedByHours ? (
+              <Clock className="w-6 h-6" aria-label="Yopiq" />
+            ) : (
+              <>
+                <ShoppingCart className="w-6 h-6" />
+                <span>
+                  {quantity === 0 
+                    ? 'Miqdorni tanlang' 
+                    : `Savatga qo'shish - ${(currentPrice * quantity).toLocaleString()} so'm`
+                  }
+                </span>
+              </>
+            )}
           </button>
         )}
       </div>

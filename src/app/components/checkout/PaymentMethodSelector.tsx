@@ -17,7 +17,10 @@ import { useVisibilityTick } from '../../utils/visibilityRefetch';
 import { coerceUiPaymentTestMode } from '../../utils/paymentTestMode';
 import { SkeletonBox } from '../skeletons';
 import { openExternalUrlSync } from '../../utils/openExternalUrl';
-import { PaymentMethodLogoFrame } from '../payment/PaymentMethodLogoFrame';
+import {
+  PAYMENT_LOGO_FRAME_SKEW_DEG,
+  PaymentMethodLogoFrame,
+} from '../payment/PaymentMethodLogoFrame';
 
 interface PaymentMethod {
   type: string;
@@ -47,6 +50,8 @@ function SelectorMethodMark({
   const [broken, setBroken] = useState(!logoSrc);
   const softLight =
     type === 'uzumnasiya' || type === 'uzum_nasiya' || type === 'uzum-nasiya';
+  const skewDeg =
+    String(type).toLowerCase() === 'payme' ? PAYMENT_LOGO_FRAME_SKEW_DEG * 1.35 : undefined;
   return (
     <PaymentMethodLogoFrame
       brandColor={color}
@@ -54,6 +59,7 @@ function SelectorMethodMark({
       softLightBackdrop={softLight}
       embedInRow={embedInRow}
       square={!embedInRow}
+      skewDeg={skewDeg}
     >
       {logoSrc && !broken ? (
         <img
@@ -326,7 +332,7 @@ export default function PaymentMethodSelector({
       <div>
         <h3 className="text-lg font-bold mb-3">To'lov usulini tanlang</h3>
         <div
-          className="overflow-hidden rounded-2xl border transition-colors"
+          className="overflow-visible rounded-2xl border transition-colors"
           style={{
             borderColor: (() => {
               const m = paymentMethods.find((x) => x.type === selectedMethod);

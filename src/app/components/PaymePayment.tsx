@@ -5,7 +5,10 @@ import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/su
 import { toast } from 'sonner';
 import { ExternalLink, Check, X, Loader2 } from 'lucide-react';
 import { openExternalUrl } from '../utils/openExternalUrl';
-import { PaymentMethodLogoFrame } from './payment/PaymentMethodLogoFrame';
+import {
+  PAYMENT_LOGO_FRAME_SKEW_DEG,
+  PaymentMethodLogoFrame,
+} from './payment/PaymentMethodLogoFrame';
 
 const edgePaymeBase = import.meta.env.DEV ? DEV_API_BASE_URL : API_BASE_URL;
 
@@ -13,7 +16,13 @@ function PaymeBrandMark({ isDark }: { isDark: boolean }) {
   const [broken, setBroken] = useState(false);
   return (
     <div className="flex justify-center">
-      <PaymentMethodLogoFrame brandColor="#00AACB" isDark={isDark} square squareSlotTone="light">
+      <PaymentMethodLogoFrame
+        brandColor="#00AACB"
+        isDark={isDark}
+        square
+        squareSlotTone="light"
+        skewDeg={PAYMENT_LOGO_FRAME_SKEW_DEG * 1.35}
+      >
         {broken ? (
           <svg width="88" height="28" viewBox="0 0 88 28" fill="none" aria-hidden>
             <path

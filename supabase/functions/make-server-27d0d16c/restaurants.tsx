@@ -188,6 +188,25 @@ function normalizeBookingTimeSlot(t: unknown): string {
   return `${String(hh).padStart(2, '0')}:${String(mm).padStart(2, '0')}`;
 }
 
+/** Mijoz bron qila olmaydigan vaqt oralig‘i (masalan tushlik 10:00–13:00), [from, to) daqiqada from < to */
+function sanitizeBookingUnavailableRanges(raw: unknown): { from: string; to: string }[] {
+  if (!Array.isArray(raw)) return [];
+  const out: { from: string; to: string }[] = [];
+  for (const row of raw) {
+    if (!row || typeof row !== 'object') continue;
+    const from = normalizeBookingTimeSlot((row as { from?: unknown }).from);
+    const to = normalizeBookingTimeSlot((row as { to?: unknown }).to);
+    if (!from || !to) continue;
+    const fa =
+      parseInt(from.slice(0, 2), 10) * 60 +
+      parseInt(from.slice(3, 5), 10);
+    const ta = parseInt(to.slice(0, 2), 10) * 60 + parseInt(to.slice(3, 5), 10);
+    if (!Number.isFinite(fa) || !Number.isFinite(ta) || fa >= ta) continue;
+    out.push({ from, to });
+  }
+  return out.slice(0, 8);
+}
+
 function mergeOrdersLists(lists: any[][]): any[] {
   const byId = new Map<string, any>();
   for (const list of lists) {
@@ -231,6 +250,62 @@ async function listRestaurantOrders(canonicalRestaurantId: string): Promise<any[
   const merged = mergeOrdersLists([primary, secondary]);
   // Avval naqd + filial qabuli bo‘lmaguncha yashirilgan — restoran Telegram oladi, lekin panel bo‘sh qolardi.
   return merged.filter((o: any) => !o?.deleted);
+}
+
+const DISH_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/** So‘nggi 7 kunda taom pozitsiyasi (dona) — bekor/rad buyurtmalar hisobga olinmaydi */
+function aggregateWeeklyDishUnitSales(dishes: any[], orders: any[]): Map<string, number> {
+  const counts = new Map<string, number>();
+  const now = Date.now();
+  const nameToId = new Map<string, string>();
+  for (const d of dishes) {
+    const id = String(d?.id || '').trim();
+    const nm = String(d?.name || '').trim().toLowerCase();
+    if (id && nm) nameToId.set(nm, id);
+  }
+  for (const o of orders) {
+    const ct = new Date(o?.createdAt || 0).getTime();
+    if (!Number.isFinite(ct) || now - ct > DISH_WEEK_MS) continue;
+    const st = String(o?.status || '').toLowerCase();
+    if (st === 'cancelled' || st === 'rejected') continue;
+    const items = Array.isArray(o?.items) ? o.items : [];
+    for (const it of items) {
+      let did = String(it?.dishId || '').trim();
+      if (!did) {
+        const key = String(it?.dishName || '').trim().toLowerCase();
+        did = nameToId.get(key) || '';
+      }
+      if (!did) continue;
+      const qty = Math.max(0, Math.floor(Number(it?.quantity) || 0));
+      const add = qty > 0 ? qty : 1;
+      counts.set(did, (counts.get(did) || 0) + add);
+    }
+  }
+  return counts;
+}
+
+function attachWeeklyStatsToDishes(dishes: any[], orders: any[]): any[] {
+  const counts = aggregateWeeklyDishUnitSales(dishes, orders);
+  let maxC = 0;
+  for (const d of dishes) {
+    const c = counts.get(String(d.id)) || 0;
+    if (c > maxC) maxC = c;
+  }
+  return dishes.map((d) => {
+    const wc = counts.get(String(d.id)) || 0;
+    const rel = maxC > 0 ? Math.min(100, Math.round((wc / maxC) * 100)) : wc > 0 ? 100 : 0;
+    const rawManual = d?.likesPercent ?? d?.likeRating;
+    const manualNum = Number(rawManual);
+    const hasManual = Number.isFinite(manualNum) && manualNum >= 0 && manualNum <= 100;
+    return {
+      ...d,
+      weeklyOrderCount: wc,
+      weeklyPopularityScore: rel,
+      likesPercent: hasManual ? Math.round(manualNum) : rel,
+      likesPercentDerived: !hasManual,
+    };
+  });
 }
 
 // ==================== RESTORANLAR ====================
@@ -460,7 +535,9 @@ app.get('/restaurants/:restaurantId/dishes', async (c) => {
       return c.json({ success: true, data: [] });
     }
     const dishes = await listDishesForRestaurant(resolved.id);
-    return c.json({ success: true, data: dishes });
+    const orders = await listRestaurantOrders(resolved.id);
+    const enriched = attachWeeklyStatsToDishes(dishes, orders);
+    return c.json({ success: true, data: enriched });
   } catch (error) {
     console.error('Taomlarni olishda xato:', error);
     return c.json({ success: false, error: String(error) }, 500);
@@ -721,10 +798,7 @@ app.post('/orders/restaurant', async (c) => {
     ).trim();
     if (deliveryZoneId) {
       const zone = await kv.get(`delivery-zone:${deliveryZoneId}`);
-      const evZ = businessHours.evaluateHourStrings(
-        businessHours.collectHourStringsFromRecord(zone as Record<string, unknown>),
-        new Date(),
-      );
+      const evZ = businessHours.evaluateMerchantHours(zone as Record<string, unknown>, new Date());
       if (!evZ.allowed) {
         return c.json(
           {
@@ -738,10 +812,7 @@ app.post('/orders/restaurant', async (c) => {
       }
     }
 
-    const evR = businessHours.evaluateHourStrings(
-      businessHours.collectHourStringsFromRecord(restaurant as Record<string, unknown>),
-      new Date(),
-    );
+    const evR = businessHours.evaluateMerchantHours(restaurant as Record<string, unknown>, new Date());
     if (!evR.allowed) {
       return c.json(
         {
@@ -1175,6 +1246,7 @@ app.post('/restaurants/:restaurantId/rooms', async (c) => {
       return c.json({ success: false, error: 'Pulik xona uchun narx (so‘m) kiriting' }, 400);
     }
     const roomId = `dining_room:${restaurantId}:${Date.now()}`;
+    const bookingUnavailableRanges = sanitizeBookingUnavailableRanges(body?.bookingUnavailableRanges);
     const room = {
       id: roomId,
       restaurantId,
@@ -1188,6 +1260,7 @@ app.post('/restaurants/:restaurantId/rooms', async (c) => {
       priceUzs,
       sortOrder: Math.floor(Number(body?.sortOrder) || 0),
       isActive: body?.isActive !== false,
+      ...(bookingUnavailableRanges.length > 0 ? { bookingUnavailableRanges } : {}),
       createdAt: new Date().toISOString(),
     };
     await kv.set(roomId, room);
@@ -1241,6 +1314,11 @@ app.put('/dining-rooms/:id', async (c) => {
     if (isPaidRoom && priceUzs <= 0) {
       return c.json({ success: false, error: 'Pulik xona uchun narx (so‘m) kiriting' }, 400);
     }
+    let bookingUnavailableRanges = (existing as any).bookingUnavailableRanges as unknown;
+    if (body?.bookingUnavailableRanges !== undefined) {
+      const sanitized = sanitizeBookingUnavailableRanges(body.bookingUnavailableRanges);
+      bookingUnavailableRanges = sanitized.length > 0 ? sanitized : [];
+    }
     const updated = {
       ...existing,
       name,
@@ -1254,6 +1332,11 @@ app.put('/dining-rooms/:id', async (c) => {
       sortOrder:
         body?.sortOrder != null ? Math.floor(Number(body.sortOrder) || 0) : existing.sortOrder ?? 0,
       isActive: body?.isActive !== undefined ? Boolean(body.isActive) : existing.isActive !== false,
+      ...(Array.isArray(bookingUnavailableRanges) && bookingUnavailableRanges.length > 0
+        ? { bookingUnavailableRanges }
+        : body?.bookingUnavailableRanges !== undefined
+          ? { bookingUnavailableRanges: [] }
+          : {}),
       updatedAt: new Date().toISOString(),
     };
     await kv.set(id, updated);
@@ -1287,6 +1370,24 @@ app.get('/restaurants/:restaurantId/table-bookings', async (c) => {
       return c.json({ success: true, data: [] });
     }
     const list = await listTableBookingsForRestaurant(resolved.id);
+    const pub =
+      c.req.query('public') === '1' ||
+      String(c.req.query('public') || '').toLowerCase() === 'true';
+    if (pub) {
+      const data = list.map((b: any) => {
+        const st = String(b?.status || 'pending').toLowerCase();
+        return {
+          id: String(b?.id || ''),
+          roomId: String(b?.roomId || ''),
+          roomName: String(b?.roomName || ''),
+          bookingDate: String(b?.bookingDate || ''),
+          bookingTime: normalizeBookingTimeSlot(b?.bookingTime),
+          partySize: Math.max(1, Math.floor(Number(b?.partySize) || 1)),
+          status: st,
+        };
+      });
+      return c.json({ success: true, data });
+    }
     return c.json({ success: true, data: list });
   } catch (error) {
     console.error('Bronlarni olishda xato:', error);

@@ -14,8 +14,15 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { getEffectiveProductStockQuantity } from '../utils/cartStock';
 import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { useAuth } from '../context/AuthContext';
 import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
 import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
+import {
+  postRecoEvents,
+  fetchPersonalizedProducts,
+  cartRecoPayload,
+} from '../utils/recommendationsClient';
+import { evaluateMerchantHours } from '../utils/businessHoursClient';
 
 /** API: `GET /shops` — `rating`, `reviewCount` (barcha mahsulot sharhlari yig‘indisi) */
 function shopRatingFromApi(shop: { rating?: unknown; reviewCount?: unknown } | null | undefined): {
@@ -61,6 +68,7 @@ export default function OnlineShops({
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict, setLocation } = useLocation();
   const { query: headerSearch } = useHeaderSearchOptional();
+  const { accessToken } = useAuth();
   const isDark = theme === 'dark';
 
   const [shops, setShops] = useState<any[]>([]);
@@ -71,6 +79,10 @@ export default function OnlineShops({
   // Products state
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+  const [recoProducts, setRecoProducts] = useState<any[]>([]);
+  const [recoLoading, setRecoLoading] = useState(false);
+  /** Ish vaqti (Toshkent) — tugma holati yangilansin */
+  const [hoursUiTick, setHoursUiTick] = useState(0);
   
   // Product detail modal state
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -190,6 +202,51 @@ export default function OnlineShops({
     void loadShops();
     void loadAllProducts();
   });
+
+  useEffect(() => {
+    if (activeTab !== 'products' || !selectedRegion || !selectedDistrict) {
+      setRecoProducts([]);
+      return;
+    }
+    let cancelled = false;
+    setRecoLoading(true);
+    void fetchPersonalizedProducts(accessToken, {
+      region: selectedRegion,
+      district: selectedDistrict,
+      limit: 18,
+    })
+      .then((list) => {
+        if (!cancelled) {
+          setRecoProducts(
+            (list as any[]).map((p: any) => ({
+              ...p,
+              stockQuantity: getEffectiveProductStockQuantity(p),
+            })),
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRecoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, selectedRegion, selectedDistrict, accessToken, catalogRefreshKey]);
+
+  useEffect(() => {
+    if (activeTab !== 'products') return;
+    const q = normalizeHeaderSearch(headerSearch);
+    if (!q) return;
+    const t = window.setTimeout(() => {
+      void postRecoEvents([{ type: 'search', query: q }], accessToken);
+    }, 900);
+    return () => window.clearTimeout(t);
+  }, [headerSearch, activeTab, accessToken]);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setHoursUiTick((x) => x + 1), 30000);
+    return () => window.clearInterval(id);
+  }, []);
 
   // Handle filter change
   const handleRegionChange = (regionId: string) => {
@@ -627,6 +684,68 @@ export default function OnlineShops({
         ) : (
           /* Products Tab */
           <>
+            {selectedRegion && selectedDistrict && (recoLoading || recoProducts.length > 0) && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Star className="w-5 h-5 shrink-0" style={{ color: accentColor.color }} />
+                    <h2 className="text-lg font-bold truncate">Sizga mos</h2>
+                  </div>
+                  {recoLoading ? (
+                    <Loader2 className="w-5 h-5 animate-spin shrink-0" style={{ color: accentColor.color }} />
+                  ) : null}
+                </div>
+                <div
+                  className="flex gap-3 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x snap-mandatory"
+                  style={{ WebkitOverflowScrolling: 'touch' }}
+                >
+                  {recoProducts.map((product: any) => (
+                    <button
+                      key={`reco-${product.id}`}
+                      type="button"
+                      onClick={() => setSelectedProduct(product)}
+                      className="snap-start shrink-0 w-[140px] sm:w-[160px] rounded-2xl overflow-hidden text-left transition-transform active:scale-[0.98]"
+                      style={{
+                        background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
+                        border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+                      }}
+                    >
+                      <div className="relative h-28 bg-black/5">
+                        {product.image ? (
+                          <img
+                            src={product.image}
+                            alt={product.name}
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Package className="w-10 h-10" style={{ color: accentColor.color, opacity: 0.35 }} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-2.5">
+                        <p className="text-[11px] line-clamp-1 mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                          {product.shopName || product.category || ''}
+                        </p>
+                        <p
+                          className="text-xs font-semibold line-clamp-2 leading-snug mb-1.5 min-h-[2.25rem]"
+                          style={{ color: isDark ? '#fff' : '#111827' }}
+                        >
+                          {product.name}
+                        </p>
+                        <p className="text-xs font-bold" style={{ color: accentColor.color }}>
+                          {Number(product.price || 0).toLocaleString('uz-UZ')} so'm
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Barcha mahsulotlar</h2>
               <span className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
@@ -864,27 +983,69 @@ export default function OnlineShops({
                         )}
                       </div>
 
-                      {/* Action Button */}
-                      <button
-                        onClick={(e) => {
-                          e.stopPropagation();
-                          if (product.stockQuantity > 0) {
-                            handleOpenVariantMenu(product);
-                          }
-                        }}
-                        className="w-full py-2 md:py-3 rounded-lg md:rounded-xl text-xs sm:text-sm md:text-base font-medium transition-all active:scale-95 flex items-center justify-center gap-2"
-                        style={{ 
-                          background: product.stockQuantity > 0 ? accentColor.color : isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                          color: product.stockQuantity > 0 ? '#ffffff' : isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
-                          cursor: product.stockQuantity > 0 ? 'pointer' : 'not-allowed'
-                        }}
-                        disabled={product.stockQuantity === 0}
-                      >
-                        <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                        </svg>
-                        {product.stockQuantity > 0 ? 'Savatga' : 'Tugagan'}
-                      </button>
+                      {/* Action Button — ish vaqti tashqarida: yopiq, tugmada faqat soat */}
+                      {(() => {
+                        void hoursUiTick;
+                        const merchant = shops.find((s: any) => String(s?.id) === String(product.shopId));
+                        const hoursEv = evaluateMerchantHours(
+                          merchant as Record<string, unknown> | null | undefined,
+                        );
+                        const stockOk = product.stockQuantity > 0;
+                        const closedByHours = stockOk && !hoursEv.allowed;
+                        const canOpenVariant = stockOk && hoursEv.allowed;
+                        return (
+                          <>
+                            {closedByHours && hoursEv.label ? (
+                              <p
+                                className="text-xs mb-1 text-center"
+                                style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
+                              >
+                                Yopiq {hoursEv.label}
+                              </p>
+                            ) : null}
+                            <button
+                              type="button"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (canOpenVariant) handleOpenVariantMenu(product);
+                              }}
+                              className="w-full py-2 md:py-3 rounded-lg md:rounded-xl text-xs sm:text-sm md:text-base font-medium transition-all active:scale-95 flex items-center justify-center gap-2"
+                              style={{
+                                background: canOpenVariant
+                                  ? accentColor.color
+                                  : isDark
+                                    ? 'rgba(255, 255, 255, 0.1)'
+                                    : 'rgba(0, 0, 0, 0.1)',
+                                color: canOpenVariant
+                                  ? '#ffffff'
+                                  : isDark
+                                    ? 'rgba(255, 255, 255, 0.5)'
+                                    : 'rgba(0, 0, 0, 0.5)',
+                                cursor: canOpenVariant ? 'pointer' : 'not-allowed',
+                              }}
+                              disabled={!stockOk || closedByHours}
+                            >
+                              {!stockOk ? (
+                                <>
+                                  <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                                  </svg>
+                                  Tugagan
+                                </>
+                              ) : closedByHours ? (
+                                <Clock className="w-4 h-4 sm:w-5 sm:h-5" aria-label="Yopiq" />
+                              ) : (
+                                <>
+                                  <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                                  </svg>
+                                  Savatga
+                                </>
+                              )}
+                            </button>
+                          </>
+                        );
+                      })()}
                     </div>
                   </div>
                 ))}
@@ -916,10 +1077,16 @@ export default function OnlineShops({
           product={selectedProduct}
           onClose={() => setSelectedProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
+            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken);
             onAddToCart?.(product, quantity, variantId, variantName);
             setSelectedProduct(null);
           }}
-          source="shop"
+          source={selectedProduct?.source === 'market' ? 'market' : 'shop'}
+          merchantHoursRecord={
+            selectedProduct?.source === 'market'
+              ? null
+              : (shops.find((s: any) => String(s?.id) === String(selectedProduct?.shopId)) ?? null)
+          }
         />
       )}
 
@@ -929,10 +1096,16 @@ export default function OnlineShops({
           product={variantMenuProduct}
           onClose={() => setVariantMenuProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
+            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken);
             onAddToCart?.(product, quantity, variantId, variantName);
             setVariantMenuProduct(null);
           }}
-          source="shop"
+          source={variantMenuProduct?.source === 'market' ? 'market' : 'shop'}
+          merchantHoursRecord={
+            variantMenuProduct?.source === 'market'
+              ? null
+              : (shops.find((s: any) => String(s?.id) === String(variantMenuProduct?.shopId)) ?? null)
+          }
         />
       )}
 
@@ -1100,6 +1273,7 @@ function ShopDetailModal({
   onAddToCart?: (product: any, quantity: number, variantId?: string, variantName?: string) => void;
 }) {
   const { theme, accentColor } = useTheme();
+  const { accessToken } = useAuth();
   const isDark = theme === 'dark';
   const [products, setProducts] = useState<any[]>([]);
   const [isLoading, setIsLoading] = useState(true);
@@ -1110,6 +1284,12 @@ function ShopDetailModal({
   
   // Variant selection menu state
   const [variantMenuProduct, setVariantMenuProduct] = useState<any>(null);
+  const [shopHoursUiTick, setShopHoursUiTick] = useState(0);
+
+  useEffect(() => {
+    const id = window.setInterval(() => setShopHoursUiTick((x) => x + 1), 30000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const loadProducts = useCallback(async () => {
     const sid = shop?.id;
@@ -1557,27 +1737,66 @@ function ShopDetailModal({
                           )}
                         </div>
 
-                        {/* Action Button */}
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            if (product.stockQuantity > 0) {
-                              handleOpenVariantMenu(product);
-                            }
-                          }}
-                          className="w-full py-2 md:py-3 rounded-lg md:rounded-xl text-xs sm:text-sm md:text-base font-medium transition-all active:scale-95 flex items-center justify-center gap-2"
-                          style={{ 
-                            background: product.stockQuantity > 0 ? accentColor.color : isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                            color: product.stockQuantity > 0 ? '#ffffff' : isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)',
-                            cursor: product.stockQuantity > 0 ? 'pointer' : 'not-allowed'
-                          }}
-                          disabled={product.stockQuantity === 0}
-                        >
-                          <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                          </svg>
-                          {product.stockQuantity > 0 ? 'Savatga' : 'Tugagan'}
-                        </button>
+                        {/* Action Button — do'kon ish vaqti tashqarida */}
+                        {(() => {
+                          void shopHoursUiTick;
+                          const hoursEv = evaluateMerchantHours(shop as Record<string, unknown> | null | undefined);
+                          const stockOk = product.stockQuantity > 0;
+                          const closedByHours = stockOk && !hoursEv.allowed;
+                          const canOpenVariant = stockOk && hoursEv.allowed;
+                          return (
+                            <>
+                              {closedByHours && hoursEv.label ? (
+                                <p
+                                  className="text-xs mb-1 text-center"
+                                  style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
+                                >
+                                  Yopiq {hoursEv.label}
+                                </p>
+                              ) : null}
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (canOpenVariant) handleOpenVariantMenu(product);
+                                }}
+                                className="w-full py-2 md:py-3 rounded-lg md:rounded-xl text-xs sm:text-sm md:text-base font-medium transition-all active:scale-95 flex items-center justify-center gap-2"
+                                style={{
+                                  background: canOpenVariant
+                                    ? accentColor.color
+                                    : isDark
+                                      ? 'rgba(255, 255, 255, 0.1)'
+                                      : 'rgba(0, 0, 0, 0.1)',
+                                  color: canOpenVariant
+                                    ? '#ffffff'
+                                    : isDark
+                                      ? 'rgba(255, 255, 255, 0.5)'
+                                      : 'rgba(0, 0, 0, 0.5)',
+                                  cursor: canOpenVariant ? 'pointer' : 'not-allowed',
+                                }}
+                                disabled={!stockOk || closedByHours}
+                              >
+                                {!stockOk ? (
+                                  <>
+                                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                                    </svg>
+                                    Tugagan
+                                  </>
+                                ) : closedByHours ? (
+                                  <Clock className="w-4 h-4 sm:w-5 sm:h-5" aria-label="Yopiq" />
+                                ) : (
+                                  <>
+                                    <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                                    </svg>
+                                    Savatga
+                                  </>
+                                )}
+                              </button>
+                            </>
+                          );
+                        })()}
                       </div>
                     </div>
                   )})}
@@ -1865,10 +2084,12 @@ function ShopDetailModal({
           product={selectedProduct}
           onClose={() => setSelectedProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
+            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken);
             onAddToCart?.(product, quantity, variantId, variantName);
             setSelectedProduct(null);
           }}
-          source="shop"
+          source={selectedProduct?.source === 'market' ? 'market' : 'shop'}
+          merchantHoursRecord={selectedProduct?.source === 'market' ? null : shop}
         />
       )}
 
@@ -1878,10 +2099,12 @@ function ShopDetailModal({
           product={variantMenuProduct}
           onClose={() => setVariantMenuProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
+            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken);
             onAddToCart?.(product, quantity, variantId, variantName);
             setVariantMenuProduct(null);
           }}
-          source="shop"
+          source={variantMenuProduct?.source === 'market' ? 'market' : 'shop'}
+          merchantHoursRecord={variantMenuProduct?.source === 'market' ? null : shop}
         />
       )}
     </div>

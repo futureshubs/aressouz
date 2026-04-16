@@ -158,7 +158,7 @@ export default defineConfig(({ mode }) => {
           if (/\/node_modules\/scheduler\//.test(id)) return;
           // Avoid circular chunk graphs: keep large deps in vendor except a few leaf chunks.
           if (id.includes('lucide-react')) return 'icons';
-          if (id.includes('sonner')) return 'toast';
+          /** `sonner` ni alohida `toast` chunk qilmaslik: build "toast <-> vendor" tsikli → prod da `Cannot set properties of undefined (setting 'Children')` */
           if (id.includes('html5-qrcode')) return 'qr';
           if (id.includes('html2canvas')) return 'canvas';
           return 'vendor';

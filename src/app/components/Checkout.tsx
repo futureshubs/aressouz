@@ -38,11 +38,11 @@ import {
 import type { RentalCartItem } from '../context/RentalCartContext';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { reverseGeocodeDisplayLine } from '../utils/geolocationDetect';
+import { PAYMENT_LOGO_FRAME_SKEW_DEG } from './payment/PaymentMethodLogoFrame';
 import { CheckoutMapPickerModal } from './CheckoutMapPickerModal';
 import { CheckoutOrderSuccessAnimation } from './CheckoutOrderSuccessAnimation';
 import {
-  collectHourStringsFromRecord,
-  evaluateHourStrings,
+  evaluateMerchantHours,
   formatCountdownParts,
   secondsUntilIso,
 } from '../utils/businessHours';
@@ -162,6 +162,8 @@ function CheckoutPaymentMethodCard({
   const showComingSoon = method.id === 'uzum_nasiya' && !uzumNasiyaEnabled;
   const [logoFailed, setLogoFailed] = useState(false);
   const logoSlot = method.logoSlot ?? 'light';
+  /** Payme biroz kuchroq qiyraladi */
+  const logoFrameSkewDeg = method.id === 'payme' ? PAYMENT_LOGO_FRAME_SKEW_DEG * 1.35 : PAYMENT_LOGO_FRAME_SKEW_DEG;
 
   /** Faqat logo — oq «pill» fon yo‘q; Click SVG light temada oq yozuv uchun juda ixcham qora fon */
   const logoBoxSurface =
@@ -177,7 +179,7 @@ function CheckoutPaymentMethodCard({
       aria-label={method.label}
       aria-pressed={selected}
       onClick={onSelect}
-      className="group relative w-full overflow-hidden rounded-2xl border text-left transition-all duration-200 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      className="group relative w-full overflow-visible rounded-2xl border text-left transition-all duration-200 active:scale-[0.99] focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
       style={{
         borderColor: selected
           ? `${method.color}88`
@@ -213,8 +215,8 @@ function CheckoutPaymentMethodCard({
       <div className="relative flex items-center gap-4 p-4 sm:gap-5 sm:p-[1.125rem]">
         <div
           className="relative flex aspect-square h-[4.25rem] w-[4.25rem] shrink-0 items-center justify-center overflow-visible rounded-2xl ring-0 sm:h-[4.75rem] sm:w-[4.75rem]"
-          style={
-            logoBoxSurface
+          style={{
+            ...(logoBoxSurface
               ? logoBoxSurface
               : {
                   background: `linear-gradient(145deg, ${method.color}45, ${method.color}18)`,
@@ -223,31 +225,41 @@ function CheckoutPaymentMethodCard({
               inset 0 1px 0 rgba(255,255,255,0.35),
               0 6px 18px ${method.color}35
             `,
-                }
-          }
+                }),
+            transform: `skewX(${logoFrameSkewDeg}deg)`,
+            transformOrigin: 'center',
+          }}
         >
-          {method.logoSrc && !logoFailed ? (
-            <img
-              src={method.logoSrc}
-              alt=""
-              className="h-full w-full object-contain object-center p-0 sm:p-0.5"
-              style={{
-                filter: 'none',
-              }}
-              draggable={false}
-              decoding="async"
-              loading="lazy"
-              onError={() => setLogoFailed(true)}
-            />
-          ) : (
-            <Icon
-              className="h-9 w-9 sm:h-10 sm:w-10"
-              style={{
-                color: '#fff',
-                filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.2))',
-              }}
-            />
-          )}
+          <div
+            className="flex h-full w-full items-center justify-center"
+            style={{
+              transform: `skewX(${-logoFrameSkewDeg}deg)`,
+              transformOrigin: 'center',
+            }}
+          >
+            {method.logoSrc && !logoFailed ? (
+              <img
+                src={method.logoSrc}
+                alt=""
+                className="h-full w-full object-contain object-center p-0 sm:p-0.5"
+                style={{
+                  filter: 'none',
+                }}
+                draggable={false}
+                decoding="async"
+                loading="lazy"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <Icon
+                className="h-9 w-9 sm:h-10 sm:w-10"
+                style={{
+                  color: '#fff',
+                  filter: 'drop-shadow(0 2px 6px rgba(0,0,0,0.2))',
+                }}
+              />
+            )}
+          </div>
         </div>
 
         <div className="min-w-0 flex-1 py-0.5">
@@ -837,10 +849,10 @@ export default function Checkout({
         scheduleLabel: null as string | null,
       };
     }
-    const layers: Array<{ label: string; ev: ReturnType<typeof evaluateHourStrings> }> = [];
+    const layers: Array<{ label: string; ev: ReturnType<typeof evaluateMerchantHours> }> = [];
     layers.push({
       label: 'Yetkazib berish zonasi',
-      ev: evaluateHourStrings(collectHourStringsFromRecord(selectedZone as Record<string, unknown>), ref),
+      ev: evaluateMerchantHours(selectedZone as Record<string, unknown>, ref),
     });
     if (hasMarketCartLines) {
       const { food, shop } = partitionCheckoutCart(cartItems);
@@ -861,7 +873,7 @@ export default function Checkout({
         }
         layers.push({
           label: 'Do‘kon',
-          ev: evaluateHourStrings(collectHourStringsFromRecord(rec as Record<string, unknown>), ref),
+          ev: evaluateMerchantHours(rec as Record<string, unknown>, ref),
         });
       }
       const seenR = new Set<string>();
@@ -881,7 +893,7 @@ export default function Checkout({
         }
         layers.push({
           label: 'Restoran',
-          ev: evaluateHourStrings(collectHourStringsFromRecord(rec as Record<string, unknown>), ref),
+          ev: evaluateMerchantHours(rec as Record<string, unknown>, ref),
         });
       }
     }
@@ -904,7 +916,7 @@ export default function Checkout({
     } else {
       setBusinessHoursModalMessage(
         checkoutBusinessGate.blockingLabel
-          ? `${checkoutBusinessGate.blockingLabel} hozir buyurtma qabul qilmaydi.${checkoutBusinessGate.scheduleLabel ? ` Ish vaqti: ${checkoutBusinessGate.scheduleLabel} (O‘zbekiston vaqti).` : ''} Quyida ochilishgacha qolgan vaqt.`
+          ? `${checkoutBusinessGate.blockingLabel} hozir buyurtma qabul qilmaydi.${checkoutBusinessGate.scheduleLabel ? ` Ish vaqti: ${checkoutBusinessGate.scheduleLabel} (joylashgan hudud bo‘yicha).` : ''} Quyida ochilishgacha qolgan vaqt.`
           : 'Hozir ish vaqti emas.',
       );
     }

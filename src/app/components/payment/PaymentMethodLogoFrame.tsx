@@ -9,6 +9,9 @@ function withAlpha(hex: string, alpha: number): string {
   return `rgba(${r},${g},${b},${alpha})`;
 }
 
+/** Ramka parallelogram — logo/ikonka counter-skew bilan tekis qoladi */
+export const PAYMENT_LOGO_FRAME_SKEW_DEG = -6;
+
 type PaymentMethodLogoFrameProps = {
   brandColor: string;
   isDark: boolean;
@@ -23,6 +26,10 @@ type PaymentMethodLogoFrameProps = {
   embedInRow?: boolean;
   /** Bir xil kvadrat ichida logo (checkout / modallar) */
   square?: boolean;
+  /** false bo‘lsa klassik to‘g‘ri burchak */
+  skewFrame?: boolean;
+  /** skewFrame true bo‘lsa: standart o‘rniga shu burchak (daraja), masalan Payme uchun kattaroq */
+  skewDeg?: number;
   /**
    * square bo‘lganda ichki fon: dark = oq yozuvli brend (masalan Click SVG),
    * light = rangli/yorqin ikonka (Payme, Atmos).
@@ -42,6 +49,8 @@ export function PaymentMethodLogoFrame({
   embedInRow = false,
   square = false,
   squareSlotTone = 'light',
+  skewFrame = true,
+  skewDeg: skewDegProp,
 }: PaymentMethodLogoFrameProps) {
   const border = withAlpha(brandColor, isDark ? 0.55 : 0.42);
   const glow = withAlpha(brandColor, isDark ? 0.32 : 0.18);
@@ -91,6 +100,14 @@ export function PaymentMethodLogoFrame({
           boxSizing: 'border-box' as const,
         };
 
+  const skew = skewFrame
+    ? typeof skewDegProp === 'number' && Number.isFinite(skewDegProp)
+      ? skewDegProp
+      : PAYMENT_LOGO_FRAME_SKEW_DEG
+    : 0;
+  const outerTransform = skew ? `skewX(${skew}deg)` : undefined;
+  const innerTransform = skew ? `skewX(${-skew}deg)` : undefined;
+
   return (
     <div
       className={`inline-flex shrink-0 items-stretch ${embedInRow ? 'h-full min-h-[52px] self-stretch' : ''} ${className}`}
@@ -113,9 +130,18 @@ export function PaymentMethodLogoFrame({
           0 2px 8px rgba(0,0,0,0.06),
           inset 0 1px 0 ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(255,255,255,0.9)'}
         `,
+        transform: outerTransform,
+        transformOrigin: 'center',
       }}
     >
-      <div className="flex items-center justify-center leading-none" style={innerBoxStyle}>
+      <div
+        className="flex items-center justify-center leading-none"
+        style={{
+          ...innerBoxStyle,
+          transform: innerTransform,
+          transformOrigin: 'center',
+        }}
+      >
         {children}
       </div>
     </div>

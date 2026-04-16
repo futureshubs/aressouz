@@ -90,6 +90,7 @@ import {
 } from "./middlewares/edge-rate-limits.ts";
 import { registerHealthRoutes } from "./routes/health.ts";
 import { registerPublicReadRoutes } from "./routes/public-read.ts";
+import { registerRecommendationRoutes } from "./routes/recommendations-routes.ts";
 import { registerClickPaymentRoutes } from "./routes/payment-mounts.ts";
 import { registerAtmosPaymentRoutes } from "./routes/atmos-public-routes.ts";
 
@@ -163,6 +164,7 @@ registerHttpRedactedLogging(app, { DEBUG_HTTP, VERBOSE_SERVER_LOG });
 registerOptionsHandler(app, { DEBUG_HTTP });
 registerHealthRoutes(app);
 registerPublicReadRoutes(app);
+registerRecommendationRoutes(app);
 
 // ==================== HELPER FUNCTIONS ====================
 
@@ -18532,10 +18534,7 @@ async function assertBusinessHoursForStandardOrder(args: {
   const zid = args.deliveryZoneId != null ? String(args.deliveryZoneId).trim() : '';
   if (zid) {
     const zone = await kv.get(`delivery-zone:${zid}`);
-    const ev = businessHours.evaluateHourStrings(
-      businessHours.collectHourStringsFromRecord(zone as Record<string, unknown>),
-      ref,
-    );
+    const ev = businessHours.evaluateMerchantHours(zone as Record<string, unknown>, ref);
     if (!ev.allowed) {
       return {
         error: `Yetkazib berish zonasi hozir ochiq emas${ev.label ? ` (ish vaqti: ${ev.label})` : ''}.`,
@@ -18547,10 +18546,7 @@ async function assertBusinessHoursForStandardOrder(args: {
     const sid = businessHours.normalizeShopKey(String(args.shopId));
     if (sid) {
       const shop = await kv.get(`shop:${sid}`);
-      const ev = businessHours.evaluateHourStrings(
-        businessHours.collectHourStringsFromRecord(shop as Record<string, unknown>),
-        ref,
-      );
+      const ev = businessHours.evaluateMerchantHours(shop as Record<string, unknown>, ref);
       if (!ev.allowed) {
         return {
           error: `Do‘kon hozir buyurtma qabul qilmaydi${ev.label ? ` (ish vaqti: ${ev.label})` : ''}.`,
@@ -18563,10 +18559,7 @@ async function assertBusinessHoursForStandardOrder(args: {
     const rid = String(args.restaurantId).trim();
     const key = rid.startsWith('restaurant:') ? rid : `restaurant:${rid}`;
     const restaurant = await kv.get(key);
-    const ev = businessHours.evaluateHourStrings(
-      businessHours.collectHourStringsFromRecord(restaurant as Record<string, unknown>),
-      ref,
-    );
+    const ev = businessHours.evaluateMerchantHours(restaurant as Record<string, unknown>, ref);
     if (!ev.allowed) {
       return {
         error: `Restoran hozir buyurtma qabul qilmaydi${ev.label ? ` (ish vaqti: ${ev.label})` : ''}.`,
