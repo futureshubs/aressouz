@@ -109,6 +109,8 @@ type CourierOrder = {
   branchName?: string;
   branchAddress?: string;
   branchCoordinates?: { lat: number; lng: number } | null;
+  /** Do'kon/restoran olib ketish (matn) */
+  pickupAddress?: string;
   customerLocation?: { lat: number; lng: number } | null;
   courierAssignedAt?: string;
   assignedBagId?: string | null;
@@ -1282,7 +1284,7 @@ export default function CourierDashboard() {
       const lat = Number(b?.lat);
       const lng = Number(b?.lng);
       if (!b || !Number.isFinite(lat) || !Number.isFinite(lng)) {
-        toast.error('Filial lokatsiyasi topilmadi');
+        toast.error('Olib ketish nuqtasi (GPS) topilmadi — do‘kon/restoran koordinatalari yoki filial lokatsiyasi sozlangansini tekshiring.');
         return;
       }
       end = [lat, lng];
@@ -1301,7 +1303,10 @@ export default function CourierDashboard() {
         JSON.stringify({
           start,
           end,
-          label: type === 'pickup' ? order.branchName || 'Filial' : order.customerName || 'Mijoz',
+          label:
+            type === 'pickup'
+              ? order.pickupAddress || order.shopName || order.restaurantName || order.branchName || 'Olib ketish'
+              : order.customerName || 'Mijoz',
         }),
       );
     } catch {

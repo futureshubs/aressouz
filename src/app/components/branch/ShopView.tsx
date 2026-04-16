@@ -20,6 +20,7 @@ import {
   AlertTriangle,
   XCircle,
   Loader2,
+  Navigation,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
@@ -1247,6 +1248,8 @@ function AddShopModal({
     // Do'kon uchun to'lov QR rasm (kassa tasdiqlashda ishlatiladi)
     paymentQrImage: '',
     telegramChatId: '', // Telegram chat ID for order notifications
+    pickupLat: '',
+    pickupLng: '',
   });
 
   const [serviceInput, setServiceInput] = useState('');
@@ -1274,6 +1277,18 @@ function AddShopModal({
         banner: editingShop.banner || '',
         paymentQrImage: editingShop.paymentQrImage || '',
         telegramChatId: String(editingShop.telegramChatId ?? '').trim(),
+        pickupLat: (() => {
+          const c = editingShop.coordinates;
+          if (Array.isArray(c) && c.length >= 2) return String(c[0] ?? '');
+          if (c && typeof c === 'object') return String((c as { lat?: unknown }).lat ?? (c as { latitude?: unknown }).latitude ?? '');
+          return '';
+        })(),
+        pickupLng: (() => {
+          const c = editingShop.coordinates;
+          if (Array.isArray(c) && c.length >= 2) return String(c[1] ?? '');
+          if (c && typeof c === 'object') return String((c as { lng?: unknown }).lng ?? (c as { longitude?: unknown }).longitude ?? '');
+          return '';
+        })(),
       });
     }
     setServiceInput('');
@@ -1429,6 +1444,17 @@ function AddShopModal({
       return;
     }
 
+    const la = parseFloat(String(formData.pickupLat).replace(',', '.'));
+    const ln = parseFloat(String(formData.pickupLng).replace(',', '.'));
+    const pickupCoords =
+      Number.isFinite(la) && Number.isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180
+        ? { lat: la, lng: ln }
+        : null;
+    if (!isEdit && !pickupCoords) {
+      toast.error('Mahsulotni olib ketish joyi: kenglik va uzunlik kiriting (kuryer xaritasi uchun).');
+      return;
+    }
+
     setIsSubmitting(true);
 
     try {
@@ -1451,6 +1477,9 @@ function AddShopModal({
           paymentQrImage: formData.paymentQrImage || '',
           telegramChatId: String(formData.telegramChatId ?? '').trim(),
         };
+        if (pickupCoords) {
+          updateBody.coordinates = pickupCoords;
+        }
         if (formData.password.trim()) {
           updateBody.password = formData.password;
         }
@@ -1474,6 +1503,7 @@ function AddShopModal({
           toast.error(error.error || 'Xatolik yuz berdi');
         }
       } else {
+        const { pickupLat: _plt, pickupLng: _plg, ...shopFields } = formData;
         const response = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops`,
           {
@@ -1482,8 +1512,9 @@ function AddShopModal({
               'Content-Type': 'application/json',
             }),
             body: JSON.stringify({
-              ...formData,
+              ...shopFields,
               branchId,
+              coordinates: pickupCoords,
             }),
           }
         );
@@ -1673,6 +1704,77 @@ function AddShopModal({
                   <option key={district.id} value={district.id}>{district.name}</option>
                 ))}
               </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-2 flex items-center gap-2">
+              <Navigation className="w-4 h-4 shrink-0" />
+              Mahsulotni olib ketish joyi (GPS) *
+            </label>
+            <p className="text-xs mb-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+              Kuryer xaritada shu nuqtaga yo‘l oladi.
+            </p>
+            <div className="flex flex-wrap gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => {
+                  if (!navigator.geolocation) {
+                    toast.error('Brauzer lokatsiyani qo‘llab-quvvatlamaydi');
+                    return;
+                  }
+                  navigator.geolocation.getCurrentPosition(
+                    (pos) => {
+                      setFormData((prev) => ({
+                        ...prev,
+                        pickupLat: String(pos.coords.latitude.toFixed(6)),
+                        pickupLng: String(pos.coords.longitude.toFixed(6)),
+                      }));
+                      toast.success('Nuqta olindi');
+                    },
+                    () => toast.error('Joylashuv rad etildi yoki vaqt tugadi'),
+                    { enableHighAccuracy: true, timeout: 15000 },
+                  );
+                }}
+                className="px-3 py-2 rounded-xl text-sm font-medium"
+                style={{ background: `${accentColor.color}22`, color: accentColor.color }}
+              >
+                Mening joyim
+              </button>
+            </div>
+            <div className="grid grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-medium mb-1">Kenglik (lat)</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={formData.pickupLat}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, pickupLat: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-xl border"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f9fafb',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                  }}
+                  placeholder="41.3…"
+                  required={!isEdit}
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-medium mb-1">Uzunlik (lng)</label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={formData.pickupLng}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, pickupLng: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-xl border"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f9fafb',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                  }}
+                  placeholder="69.2…"
+                  required={!isEdit}
+                />
+              </div>
             </div>
           </div>
 

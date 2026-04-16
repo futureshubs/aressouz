@@ -17,6 +17,8 @@ type MapOrder = {
   branchCoordinates?: { lat?: unknown; lng?: unknown } | null;
   branchName?: string;
   branchAddress?: string;
+  /** Do'kon/restoran olib ketish tavsifi (server) */
+  pickupAddress?: string;
   orderType?: string;
   merchantName?: string;
 };
@@ -541,7 +543,7 @@ export default function CourierLiveMap({
             <p style="font-weight: 700; margin: 0 0 4px 0; color: ${pv.bg};">${pv.kindUz}</p>
             <p style="margin: 0 0 4px 0; font-size: 12px;">${formatOrderNumber(order.orderNumber, order.id)}</p>
             <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 600;">${order.branchName || 'Filial'}</p>
-            <p style="margin: 0; font-size: 12px; color: #666;">${order.branchAddress || 'Manzil kiritilmagan'}</p>
+            <p style="margin: 0; font-size: 12px; color: #666;">${order.pickupAddress || order.branchAddress || 'Manzil kiritilmagan'}</p>
             ${order.merchantName ? `<p style="margin: 6px 0 0 0; font-size: 11px; color: #666;">${order.merchantName}</p>` : ''}
             ${pNudgeNote}
           </div>
@@ -622,7 +624,7 @@ export default function CourierLiveMap({
             <p style="font-weight: 700; margin: 0 0 4px 0; color: ${pv.bg};">Aktiv · ${pv.kindUz}</p>
             <p style="margin: 0 0 4px 0; font-size: 12px;">${formatOrderNumber(activeOrder.orderNumber, activeOrder.id)}</p>
             <p style="margin: 0 0 4px 0; font-size: 12px; font-weight: 600;">${activeOrder.branchName || 'Filial'}</p>
-            <p style="margin: 0; font-size: 12px; color: #666;">${activeOrder.branchAddress || 'Manzil kiritilmagan'}</p>
+            <p style="margin: 0; font-size: 12px; color: #666;">${activeOrder.pickupAddress || activeOrder.branchAddress || 'Manzil kiritilmagan'}</p>
             ${activeOrder.merchantName ? `<p style="margin: 6px 0 0 0; font-size: 11px; color: #666;">${activeOrder.merchantName}</p>` : ''}
             ${pNudgeNote}
           </div>

@@ -1,6 +1,6 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
-import { X, Upload, Image as ImageIcon, Send, Store, Phone, Clock, MapPin, DollarSign, Truck, FileText, Loader2 } from 'lucide-react';
+import { X, Upload, Image as ImageIcon, Send, Store, Phone, Clock, MapPin, DollarSign, Truck, FileText, Loader2, Navigation } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { regions, getDistrictsByRegionId } from '../data/regions';
@@ -38,6 +38,9 @@ type RestaurantFormState = {
   telegramChatId: string;
   login: string;
   password: string;
+  /** Kuryer xaritasi — mahsulotni olib ketish nuqtasi */
+  pickupLat: string;
+  pickupLng: string;
 };
 
 function emptyRestaurantForm(): RestaurantFormState {
@@ -61,6 +64,8 @@ function emptyRestaurantForm(): RestaurantFormState {
     telegramChatId: '',
     login: '',
     password: '',
+    pickupLat: '',
+    pickupLng: '',
   };
 }
 
@@ -73,6 +78,17 @@ function restaurantRecordToForm(r: Record<string, unknown> | null | undefined): 
   const distName = String(r.district ?? regionObj.districts[0]?.name ?? '');
   const typeRaw = String(r.type ?? RESTAURANT_TYPES[0]);
   const typeVal = RESTAURANT_TYPES.includes(typeRaw) ? typeRaw : RESTAURANT_TYPES[0];
+  const cr = r.coordinates as unknown;
+  let pickupLat = '';
+  let pickupLng = '';
+  if (Array.isArray(cr) && cr.length >= 2) {
+    pickupLat = String(cr[0] ?? '');
+    pickupLng = String(cr[1] ?? '');
+  } else if (cr && typeof cr === 'object') {
+    const o = cr as Record<string, unknown>;
+    pickupLat = String(o.lat ?? o.latitude ?? '');
+    pickupLng = String(o.lng ?? o.longitude ?? '');
+  }
   return {
     name: String(r.name ?? ''),
     logo: String(r.logo ?? ''),
@@ -93,6 +109,8 @@ function restaurantRecordToForm(r: Record<string, unknown> | null | undefined): 
     telegramChatId: String(r.telegramChatId ?? ''),
     login: String(r.login ?? ''),
     password: '',
+    pickupLat,
+    pickupLng,
   };
 }
 
@@ -175,6 +193,13 @@ export function AddRestaurantModal({
       return;
     }
 
+    const la = parseFloat(String(formData.pickupLat).replace(',', '.'));
+    const ln = parseFloat(String(formData.pickupLng).replace(',', '.'));
+    if (!Number.isFinite(la) || !Number.isFinite(ln) || Math.abs(la) > 90 || Math.abs(ln) > 180) {
+      toast.error('Mahsulotni olib ketish joyi: kenglik va uzunlikni kiriting (kuryer xaritasi uchun).');
+      return;
+    }
+
     const contact = {
       ...formData.contact,
       workHours: formData.workTime || formData.contact.workHours,
@@ -202,6 +227,7 @@ export function AddRestaurantModal({
       district: formData.district,
       telegramChatId: formData.telegramChatId,
       login: formData.login,
+      coordinates: { lat: la, lng: ln },
     };
     if (branchPayload) basePayload.branchId = branchPayload;
 
@@ -669,6 +695,71 @@ export function AddRestaurantModal({
                 }}
                 placeholder="To'liq manzil"
               />
+            </div>
+
+            <div>
+              <label className="block text-sm font-bold mb-2 flex items-center gap-2">
+                <Navigation className="w-4 h-4" />
+                Mahsulotni olib ketish joyi (GPS) *
+              </label>
+              <p className="text-xs mb-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                Kuryer xaritada shu nuqtaga yo‘l oladi. «Mening joyim» yoki qo‘lda kenglik / uzunlik.
+              </p>
+              <div className="flex flex-wrap gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    if (!navigator.geolocation) {
+                      toast.error('Brauzer lokatsiyani qo‘llab-quvvatlamaydi');
+                      return;
+                    }
+                    navigator.geolocation.getCurrentPosition(
+                      (pos) => {
+                        setFormData((prev) => ({
+                          ...prev,
+                          pickupLat: String(pos.coords.latitude.toFixed(6)),
+                          pickupLng: String(pos.coords.longitude.toFixed(6)),
+                        }));
+                        toast.success('Nuqta olindi');
+                      },
+                      () => toast.error('Joylashuv rad etildi yoki vaqt tugadi'),
+                      { enableHighAccuracy: true, timeout: 15000 },
+                    );
+                  }}
+                  className="px-3 py-2 rounded-xl text-sm font-medium"
+                  style={{ background: `${accentColor.color}22`, color: accentColor.color }}
+                >
+                  Mening joyim
+                </button>
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={formData.pickupLat}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, pickupLat: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-xl"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+                  }}
+                  placeholder="Kenglik (lat)"
+                  required
+                />
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={formData.pickupLng}
+                  onChange={(e) => setFormData((prev) => ({ ...prev, pickupLng: e.target.value }))}
+                  className="w-full px-4 py-3 rounded-xl"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
+                    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
+                  }}
+                  placeholder="Uzunlik (lng)"
+                  required
+                />
+              </div>
             </div>
 
             {/* Delivery Settings */}

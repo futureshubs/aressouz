@@ -11,6 +11,33 @@ import * as telegram from './telegram.tsx';
 
 const app = new Hono();
 
+/** Kuryer «olib ketish joyi» — {lat,lng}, [lat,lng] yoki latitude/longitude */
+function normalizeMerchantCoords(body: Record<string, unknown> | null | undefined): { lat: number; lng: number } | null {
+  if (!body) return null;
+  const c = body.coordinates;
+  if (Array.isArray(c) && c.length >= 2) {
+    const lat = Number(c[0]);
+    const lng = Number(c[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      return { lat, lng };
+    }
+  }
+  if (c && typeof c === 'object') {
+    const o = c as Record<string, unknown>;
+    const lat = Number(o.lat ?? o.latitude);
+    const lng = Number(o.lng ?? o.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      return { lat, lng };
+    }
+  }
+  const la = Number(body.latitude ?? body.lat);
+  const ln = Number(body.longitude ?? body.lng);
+  if (Number.isFinite(la) && Number.isFinite(ln) && Math.abs(la) <= 90 && Math.abs(ln) <= 180) {
+    return { lat: la, lng: ln };
+  }
+  return null;
+}
+
 function collectDishLikeHttpUrls(obj: unknown): Set<string> {
   const urls = new Set<string>();
   const add = (v: unknown) => {
@@ -375,6 +402,7 @@ app.post('/restaurants', async (c) => {
   try {
     const body = await c.req.json();
     const restaurantId = `restaurant:${Date.now()}`;
+    const bodyRec = body as Record<string, unknown>;
     
     const restaurant = {
       id: restaurantId,
@@ -388,6 +416,7 @@ app.post('/restaurants', async (c) => {
         phone: body.contact.phone,
         workHours: body.contact.workHours
       },
+      coordinates: normalizeMerchantCoords(bodyRec),
       branchId: body.branchId || '',
       // Restoran uchun to'lov QR rasm (kassa tasdiqlashda ishlatiladi)
       paymentQrImage: body.paymentQrImage || '',

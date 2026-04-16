@@ -10551,6 +10551,27 @@ const resolveOrderCustomerLocation = async (order: any) => {
   return null;
 };
 
+/** Do'kon/restoran/filial — {lat,lng}, [lat,lng] yoki latitude/longitude */
+const normalizePickupPointCoords = (input: unknown): { lat: number; lng: number } | null => {
+  if (input == null || input === '') return null;
+  if (Array.isArray(input) && input.length >= 2) {
+    const lat = Number(input[0]);
+    const lng = Number(input[1]);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      return { lat, lng };
+    }
+  }
+  if (typeof input === 'object' && input !== null) {
+    const o = input as Record<string, unknown>;
+    const lat = Number(o.lat ?? o.latitude);
+    const lng = Number(o.lng ?? o.longitude);
+    if (Number.isFinite(lat) && Number.isFinite(lng) && Math.abs(lat) <= 90 && Math.abs(lng) <= 180) {
+      return { lat, lng };
+    }
+  }
+  return null;
+};
+
 const buildCourierVisibleOrder = async (
   order: any,
   options?: {
@@ -10564,21 +10585,49 @@ const buildCourierVisibleOrder = async (
   const ot = String(order.orderType || "").toLowerCase().trim();
   let restaurantName = String(order.restaurantName || "").trim();
   let shopName = String(order.shopName || "").trim();
+  let shopRecord: any = null;
+  let restaurantRecord: any = null;
   try {
-    if (!restaurantName && (ot === "food" || ot === "restaurant") && order.restaurantId) {
+    if ((ot === "food" || ot === "restaurant") && order.restaurantId) {
       const rk = String(order.restaurantId).startsWith("restaurant:")
         ? String(order.restaurantId)
         : `restaurant:${order.restaurantId}`;
-      const r = await kv.get(rk);
-      restaurantName = String(r?.name || "").trim();
+      restaurantRecord = await kv.get(rk);
+      if (!restaurantName) restaurantName = String(restaurantRecord?.name || "").trim();
     }
-    if (!shopName && ot === "shop" && order.shopId) {
+    if (ot === "shop" && order.shopId) {
       const sk = String(order.shopId).startsWith("shop:") ? String(order.shopId) : `shop:${order.shopId}`;
-      const s = await kv.get(sk);
-      shopName = String(s?.name || "").trim();
+      shopRecord = await kv.get(sk);
+      if (!shopName) shopName = String(shopRecord?.name || "").trim();
     }
   } catch {
     // ignore
+  }
+
+  const branchPoint =
+    normalizePickupPointCoords(order.branchCoordinates) ||
+    normalizePickupPointCoords(branch?.coordinates);
+  const merchantPoint =
+    ot === "shop"
+      ? normalizePickupPointCoords(shopRecord?.coordinates)
+      : ot === "food" || ot === "restaurant"
+        ? normalizePickupPointCoords(restaurantRecord?.coordinates)
+        : null;
+  const pickupPoint = merchantPoint || branchPoint;
+
+  let pickupAddress = String(order.pickupAddress || "").trim();
+  if (merchantPoint && (ot === "shop" || ot === "food" || ot === "restaurant")) {
+    const mName = (ot === "shop" ? shopName : restaurantName) || (ot === "shop" ? "Do'kon" : "Restoran");
+    const mAddr =
+      ot === "shop"
+        ? String(shopRecord?.address || "").trim()
+        : String((restaurantRecord?.contact as { address?: string } | undefined)?.address || "").trim();
+    const coordTxt = `${merchantPoint.lat.toFixed(5)}, ${merchantPoint.lng.toFixed(5)}`;
+    pickupAddress = `${ot === "shop" ? "Do'kon" : "Restoran"} (${mName})${mAddr ? ` — ${mAddr}` : ""} — ${coordTxt}`;
+  } else if (pickupPoint && !pickupAddress) {
+    const bn = String(order.branchName || branch?.branchName || branch?.name || "Filial").trim();
+    const ba = String(branch?.address || "").trim();
+    pickupAddress = `${bn}${ba ? ` — ${ba}` : ""} (${pickupPoint.lat.toFixed(5)}, ${pickupPoint.lng.toFixed(5)})`;
   }
 
   const deliveryPrice =
@@ -10615,7 +10664,9 @@ const buildCourierVisibleOrder = async (
     customerLocation,
     branchName: order.branchName || branch?.branchName || branch?.name || "Filial",
     branchAddress: branch?.address || "",
-    branchCoordinates: order.branchCoordinates || branch?.coordinates || null,
+    /** Kuryer xaritasi / yo‘l: avvalo do‘kon/restoran, bo‘lmasa filial */
+    branchCoordinates: pickupPoint,
+    pickupAddress: pickupAddress || undefined,
     deliveryPrice,
     finalTotal,
     restaurantName: restaurantName || undefined,
@@ -13584,6 +13635,11 @@ app.post("/make-server-27d0d16c/shops", async (c) => {
       logo: shopData.logo || '',
       banner: shopData.banner || '',
       telegramChatId: String(shopData.telegramChatId ?? shopData.telegram_chat_id ?? '').trim(),
+      coordinates:
+        normalizePickupPointCoords(shopData.coordinates) ??
+        (Number.isFinite(Number(shopData.latitude)) && Number.isFinite(Number(shopData.longitude))
+          ? { lat: Number(shopData.latitude), lng: Number(shopData.longitude) }
+          : null),
       productsCount: 0,
       deleted: false,
       createdAt: new Date().toISOString(),
