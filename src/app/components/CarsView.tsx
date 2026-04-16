@@ -14,7 +14,7 @@ import { BannerCarousel } from './BannerCarousel';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { CarGridSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -90,7 +90,7 @@ interface CarsViewProps {
 export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsViewProps) {
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict } = useLocation();
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const { isAuthenticated, user, session, setIsAuthOpen } = useAuth();
   const [activeTab, setActiveTab] = useState<'cars' | 'categories'>('cars');
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
@@ -246,27 +246,34 @@ export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsVi
 
   // Filter cars for display
   const filteredCars = useMemo(() => {
-    return cars.filter((car) => {
+    const base = cars.filter((car) => {
       if (selectedCategory && car.category_id !== selectedCategory) return false;
       if (selectedRegion && car.region_id !== selectedRegion) return false;
       if (selectedDistrict && car.district_id !== selectedDistrict) return false;
-      if (normalizeHeaderSearch(headerSearch)) {
-        const ok = matchesHeaderSearch(headerSearch, [
-          car.name,
-          car.brand,
-          car.model,
-          car.description,
-          car.location,
-          car.owner,
-          car.fuel_type,
-          car.transmission,
-          car.color,
-          String(car.year),
-          ...(car.features ?? []),
-        ]);
-        if (!ok) return false;
-      }
       return true;
+    });
+    if (!normalizeHeaderSearch(headerSearch)) return base;
+    const q = headerSearch;
+    const parts = (car: (typeof cars)[number]) => [
+      car.name,
+      car.brand,
+      car.model,
+      car.description,
+      car.location,
+      car.owner,
+      car.fuel_type,
+      car.transmission,
+      car.color,
+      String(car.year),
+      ...(car.features ?? []),
+    ];
+    const matched = base.filter((car) => matchesHeaderSearch(q, parts(car), { vertical: 'vehicle' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, {
+      vertical: 'vehicle',
+      getMeta: (row) => {
+        const c = row as { price?: number };
+        return { price: Number(c.price) || undefined };
+      },
     });
   }, [cars, selectedCategory, selectedRegion, selectedDistrict, headerSearch]);
 

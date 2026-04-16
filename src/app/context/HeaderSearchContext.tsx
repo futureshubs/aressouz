@@ -1,7 +1,10 @@
 import { createContext, useContext, type ReactNode } from 'react';
 
 export type HeaderSearchValue = {
+  /** Input bilan sinxron (darhol) */
   query: string;
+  /** Ro‘yxat filtri / ranking (~140ms debounce) */
+  effectiveQuery: string;
   setQuery: (q: string) => void;
 };
 
@@ -26,5 +29,5 @@ export function useHeaderSearch(): HeaderSearchValue {
 }
 
 export function useHeaderSearchOptional(): HeaderSearchValue {
-  return useContext(HeaderSearchContext) ?? { query: '', setQuery: () => {} };
+  return useContext(HeaderSearchContext) ?? { query: '', effectiveQuery: '', setQuery: () => {} };
 }

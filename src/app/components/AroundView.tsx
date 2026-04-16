@@ -14,7 +14,7 @@ import { calculateDistance, formatDistance, getUserLocation } from '../utils/dis
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 
 interface AroundViewProps {
   platform: Platform;
@@ -23,7 +23,7 @@ interface AroundViewProps {
 export const AroundView = memo(function AroundView({ platform }: AroundViewProps) {
   const { theme, accentColor } = useTheme();
   const { selectedRegion: headerRegion, selectedDistrict: headerDistrict } = useLocation();
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const [activeTab, setActiveTab] = useState<'around' | 'map' | 'catalog'>('around');
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
@@ -57,19 +57,20 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
 
   const searchFilteredPlaces = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredPlaces;
-    return filteredPlaces.filter((place) =>
-      matchesHeaderSearch(headerSearch, [
-        place.name,
-        place.category,
-        place.address,
-        place.description,
-        place.phone,
-        place.location,
-        place.region,
-        place.district,
-        ...(place.services ?? []),
-      ]),
-    );
+    const q = headerSearch;
+    const parts = (place: Place) => [
+      place.name,
+      place.category,
+      place.address,
+      place.description,
+      place.phone,
+      place.location,
+      place.region,
+      place.district,
+      ...(place.services ?? []),
+    ];
+    const matched = filteredPlaces.filter((place) => matchesHeaderSearch(q, parts(place), { vertical: 'place' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'place' });
   }, [filteredPlaces, headerSearch]);
 
   filteredPlacesLenRef.current = searchFilteredPlaces.length;

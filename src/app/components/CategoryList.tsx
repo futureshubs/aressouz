@@ -3,7 +3,7 @@ import { ChevronLeft, ChevronRight } from 'lucide-react';
 import { Category } from '../data/categories';
 import { useTheme } from '../context/ThemeContext';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 
 interface CategoryListProps {
   catalogName: string;
@@ -14,12 +14,15 @@ interface CategoryListProps {
 
 export function CategoryList({ catalogName, categories, onCategorySelect, onBack }: CategoryListProps) {
   const { theme, accentColor } = useTheme();
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
 
   const visibleCategories = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return categories;
-    return categories.filter((c) => matchesHeaderSearch(headerSearch, [c.name, catalogName]));
+    const q = headerSearch;
+    const parts = (c: Category) => [c.name, catalogName];
+    const matched = categories.filter((c) => matchesHeaderSearch(q, parts(c), { vertical: 'general' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'general' });
   }, [categories, catalogName, headerSearch]);
 
   return (

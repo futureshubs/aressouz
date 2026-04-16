@@ -56,7 +56,8 @@ import {
 import { devLog } from './utils/devLog';
 import { captureReferralFromUrlToSession } from './utils/bonusReferralDeepLink';
 import { HeaderSearchProvider } from './context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from './utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from './utils/headerSearchMatch';
+import { readHeaderSearchFromSession, writeHeaderSearchToSession } from './utils/headerSearchStorage';
 
 const MAIN_ACTIVE_TAB_KEY = 'aresso:mainActiveTab';
 
@@ -293,7 +294,13 @@ export default function AppContent() {
   const { selectedRegion, selectedDistrict } = useLocation();
   const { cartItems: rentalLineItems, clearCart: clearRentalCart } = useRentalCart();
   const [cartItems, setCartItems] = useState<CartItem[]>([]);
-  const [headerSearchQuery, setHeaderSearchQuery] = useState('');
+  const initialHeaderSearch = readHeaderSearchFromSession();
+  const [headerSearchQuery, setHeaderSearchQueryState] = useState(initialHeaderSearch);
+  const [headerSearchEffectiveQuery, setHeaderSearchEffectiveQuery] = useState(initialHeaderSearch);
+  const setHeaderSearchQuery = useCallback((q: string) => {
+    setHeaderSearchQueryState(q);
+    writeHeaderSearchToSession(q);
+  }, []);
   const [profileOrderCategoryPreset, setProfileOrderCategoryPreset] = useState<
     undefined | 'all' | 'market' | 'shop' | 'rent' | 'food' | 'auction'
   >(undefined);
@@ -301,8 +308,14 @@ export default function AppContent() {
   const activeTab = parsed.tab;
 
   useEffect(() => {
-    setHeaderSearchQuery('');
-  }, [activeTab]);
+    const q = headerSearchQuery;
+    if (!q.trim()) {
+      setHeaderSearchEffectiveQuery('');
+      return;
+    }
+    const id = window.setTimeout(() => setHeaderSearchEffectiveQuery(q), 140);
+    return () => window.clearTimeout(id);
+  }, [headerSearchQuery]);
 
   const isCartOpen = parsed.cart;
   const isProfileOpen = parsed.profile;
@@ -913,26 +926,41 @@ export default function AppContent() {
   const selectedCategory = selectedCatalog?.categories.find(c => c.id === selectedCategoryId);
 
   const searchFilteredProducts = useMemo(() => {
-    if (!normalizeHeaderSearch(headerSearchQuery)) return filteredProducts;
-    return filteredProducts.filter((p) =>
-      matchesHeaderSearch(headerSearchQuery, [
-        p.name,
-        p.description,
-        p.recommendation,
-        p.branchName,
-        p.sku,
-        p.barcode,
-        selectedCatalog?.name,
-        selectedCategory?.name,
-        ...(p.variants?.flatMap((v) => [v.name, v.sku, v.barcode]) ?? []),
-        ...(p.specs?.flatMap((s) => [s.name, s.value]) ?? []),
-      ]),
-    );
-  }, [filteredProducts, headerSearchQuery, selectedCatalog, selectedCategory]);
+    if (!normalizeHeaderSearch(headerSearchEffectiveQuery)) return filteredProducts;
+    const q = headerSearchEffectiveQuery;
+    const parts = (p: (typeof filteredProducts)[number]) => [
+      p.name,
+      p.description,
+      p.recommendation,
+      p.branchName,
+      p.sku,
+      p.barcode,
+      selectedCatalog?.name,
+      selectedCategory?.name,
+      ...(p.variants?.flatMap((v) => [v.name, v.sku, v.barcode]) ?? []),
+      ...(p.specs?.flatMap((s) => [s.name, s.value]) ?? []),
+    ];
+    const matched = filteredProducts.filter((p) => matchesHeaderSearch(q, parts(p), { vertical: 'product' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, {
+      vertical: 'product',
+      getMeta: (p) => {
+        const x = p as Product;
+        return {
+          price: x.price,
+          rating: x.rating,
+          stock: x.stockCount,
+        };
+      },
+    });
+  }, [filteredProducts, headerSearchEffectiveQuery, selectedCatalog, selectedCategory]);
 
   const headerSearchApi = useMemo(
-    () => ({ query: headerSearchQuery, setQuery: setHeaderSearchQuery }),
-    [headerSearchQuery],
+    () => ({
+      query: headerSearchQuery,
+      effectiveQuery: headerSearchEffectiveQuery,
+      setQuery: setHeaderSearchQuery,
+    }),
+    [headerSearchQuery, headerSearchEffectiveQuery],
   );
 
   const cartCount = cartItems.reduce((sum, item) => sum + item.quantity, 0);
@@ -1034,11 +1062,11 @@ export default function AppContent() {
   const marketplaceProductGridSource = marketProductsLoading ? [] : searchFilteredProducts;
   const marketplaceProductRevealKey = useMemo(
     () =>
-      `${refreshKey}-${branchProducts.length}-${headerSearchQuery}:${selectedCatalogId ?? ''}:${selectedCategoryId ?? ''}`,
+      `${refreshKey}-${branchProducts.length}-${headerSearchEffectiveQuery}:${selectedCatalogId ?? ''}:${selectedCategoryId ?? ''}`,
     [
       refreshKey,
       branchProducts.length,
-      headerSearchQuery,
+      headerSearchEffectiveQuery,
       selectedCatalogId,
       selectedCategoryId,
     ],

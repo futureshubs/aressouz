@@ -3,7 +3,7 @@ import { ChevronRight } from 'lucide-react';
 import { Catalog } from '../data/categories';
 import { useTheme } from '../context/ThemeContext';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 
 interface CatalogListProps {
   catalogs: Catalog[];
@@ -12,14 +12,15 @@ interface CatalogListProps {
 
 export function CatalogList({ catalogs, onCatalogSelect }: CatalogListProps) {
   const { theme, accentColor } = useTheme();
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
 
   const visibleCatalogs = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return catalogs;
-    return catalogs.filter((c) =>
-      matchesHeaderSearch(headerSearch, [c.name, ...c.categories.map((cat) => cat.name)]),
-    );
+    const q = headerSearch;
+    const parts = (c: Catalog) => [c.name, ...c.categories.map((cat) => cat.name)];
+    const matched = catalogs.filter((c) => matchesHeaderSearch(q, parts(c), { vertical: 'general' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'general' });
   }, [catalogs, headerSearch]);
 
   return (

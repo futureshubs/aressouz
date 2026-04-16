@@ -7,7 +7,7 @@ import { PropertyDetailModal } from './PropertyDetailModal';
 import { propertyCategories, properties, Property, PropertyCategory } from '../data/properties';
 import { Home, FolderOpen } from 'lucide-react';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 
 interface PropertiesViewProps {
   platform: Platform;
@@ -15,7 +15,7 @@ interface PropertiesViewProps {
 
 export function PropertiesView({ platform }: PropertiesViewProps) {
   const { theme, accentColor } = useTheme();
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
   
   const [viewMode, setViewMode] = useState<'properties' | 'categories'>('properties');
@@ -40,23 +40,33 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
 
   const visibleCategories = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return propertyCategories;
-    return propertyCategories.filter((c) => matchesHeaderSearch(headerSearch, [c.name, c.description]));
+    const q = headerSearch;
+    const parts = (c: PropertyCategory) => [c.name, c.description];
+    const matched = propertyCategories.filter((c) => matchesHeaderSearch(q, parts(c), { vertical: 'property' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'property' });
   }, [headerSearch]);
 
   const searchFilteredProperties = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredProperties;
-    return filteredProperties.filter((p) =>
-      matchesHeaderSearch(headerSearch, [
-        p.title,
-        p.description,
-        p.location,
-        p.district,
-        p.ownerName,
-        p.phone,
-        String(p.price),
-        ...(p.features ?? []),
-      ]),
-    );
+    const q = headerSearch;
+    const parts = (p: Property) => [
+      p.title,
+      p.description,
+      p.location,
+      p.district,
+      p.ownerName,
+      p.phone,
+      String(p.price),
+      ...(p.features ?? []),
+    ];
+    const matched = filteredProperties.filter((p) => matchesHeaderSearch(q, parts(p), { vertical: 'property' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, {
+      vertical: 'property',
+      getMeta: (p) => {
+        const x = p as Property;
+        return { price: Number(x.price) || undefined, publishedAt: x.publishedDate };
+      },
+    });
   }, [filteredProperties, headerSearch]);
 
   const isAndroid = platform === 'android';

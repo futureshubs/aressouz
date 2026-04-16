@@ -19,7 +19,7 @@ import { matchesSelectedLocation } from '../utils/locationMatching';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -161,7 +161,7 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
   const { theme, accentColor } = useTheme();
   const { user, session } = useAuth();
   const { selectedRegion, selectedDistrict } = useLocation();
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
   
   const [activeView, setActiveView] = useState<'services' | 'categories' | 'portfolios'>('services');
@@ -218,24 +218,26 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
 
   const searchFilteredCategories = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredCategories;
-    return filteredCategories.filter((c) =>
-      matchesHeaderSearch(headerSearch, [c.name, c.description, selectedCatalog?.name]),
-    );
+    const q = headerSearch;
+    const parts = (c: (typeof filteredCategories)[number]) => [c.name, c.description, selectedCatalog?.name];
+    const matched = filteredCategories.filter((c) => matchesHeaderSearch(q, parts(c), { vertical: 'general' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'general' });
   }, [filteredCategories, headerSearch, selectedCatalog]);
 
   const searchFilteredServices = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredServices;
-    return filteredServices.filter((s) =>
-      matchesHeaderSearch(headerSearch, [
-        s.name,
-        s.description,
-        s.profession,
-        s.location,
-        s.phone,
-        ...(s.skills ?? []),
-        ...(s.languages ?? []),
-      ]),
-    );
+    const q = headerSearch;
+    const parts = (s: (typeof filteredServices)[number]) => [
+      s.name,
+      s.description,
+      s.profession,
+      s.location,
+      s.phone,
+      ...(s.skills ?? []),
+      ...(s.languages ?? []),
+    ];
+    const matched = filteredServices.filter((s) => matchesHeaderSearch(q, parts(s), { vertical: 'general' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'general' });
   }, [filteredServices, headerSearch]);
 
   const handleCatalogSelect = (catalogId: string) => {

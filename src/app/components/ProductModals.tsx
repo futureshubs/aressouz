@@ -49,7 +49,17 @@ export function ProductDetailModal({
   useEffect(() => {
     if (!product?.id) return;
     const row = product as Record<string, unknown>;
+    const start = Date.now();
     void postRecoEvents([productToRecoPayload(row)], accessToken);
+    return () => {
+      const ms = Date.now() - start;
+      if (ms >= 3500) {
+        void postRecoEvents(
+          [{ ...productToRecoPayload(row), type: 'dwell', dwellMs: ms }],
+          accessToken,
+        );
+      }
+    };
   }, [product?.id, accessToken]);
 
   const readVariantSoldTotal = (v: Record<string, unknown> | null | undefined): number => {

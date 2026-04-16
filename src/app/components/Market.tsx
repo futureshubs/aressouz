@@ -9,7 +9,7 @@ import { regions } from '../data/regions';
 import { ProductCard } from './ProductCard';
 import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
 
 interface Product {
@@ -61,7 +61,7 @@ interface Branch {
 export default function Market() {
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict } = useLocation();
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
 
   const [branches, setBranches] = useState<Branch[]>([]);
@@ -291,30 +291,38 @@ export default function Market() {
 
   const searchFilteredProducts = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return products;
-    return products.filter((p) =>
-      matchesHeaderSearch(headerSearch, [
-        p.name,
-        p.description,
-        p.recommendation,
-        p.branchName,
-        p.sku,
-        p.barcode,
-        ...(p.variants?.map((v) => v.name) ?? []),
-      ]),
-    );
+    const q = headerSearch;
+    const parts = (p: (typeof products)[number]) => [
+      p.name,
+      p.description,
+      p.recommendation,
+      p.branchName,
+      p.sku,
+      p.barcode,
+      ...(p.variants?.map((v) => v.name) ?? []),
+    ];
+    const matched = products.filter((p) => matchesHeaderSearch(q, parts(p), { vertical: 'product' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, {
+      vertical: 'product',
+      getMeta: (p) => {
+        const x = p as Product;
+        return { price: x.price, rating: x.rating, stock: x.stockCount };
+      },
+    });
   }, [products, headerSearch]);
 
   const searchFilteredBranches = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredBranches;
-    return filteredBranches.filter((b) =>
-      matchesHeaderSearch(headerSearch, [
-        b.branchName,
-        b.managerName,
-        b.phone,
-        getLocationName(b.regionId, b.districtId),
-      ]),
-    );
-  }, [filteredBranches, headerSearch]);
+    const q = headerSearch;
+    const parts = (b: (typeof filteredBranches)[number]) => [
+      b.branchName,
+      b.managerName,
+      b.phone,
+      getLocationName(b.regionId, b.districtId),
+    ];
+    const matched = filteredBranches.filter((b) => matchesHeaderSearch(q, parts(b), { vertical: 'branch' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'branch' });
+  }, [filteredBranches, headerSearch, regions]);
 
   const marketGridSource = isLoading || isLoadingProducts ? [] : searchFilteredProducts;
   const marketRevealKey = useMemo(
@@ -329,15 +337,22 @@ export default function Market() {
 
   const searchFilteredBranchProducts = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return branchProducts;
-    return branchProducts.filter((p) =>
-      matchesHeaderSearch(headerSearch, [
-        p.name,
-        p.description,
-        p.sku,
-        p.barcode,
-        ...(p.variants?.map((v) => v.name) ?? []),
-      ]),
-    );
+    const q = headerSearch;
+    const parts = (p: (typeof branchProducts)[number]) => [
+      p.name,
+      p.description,
+      p.sku,
+      p.barcode,
+      ...(p.variants?.map((v) => v.name) ?? []),
+    ];
+    const matched = branchProducts.filter((p) => matchesHeaderSearch(q, parts(p), { vertical: 'product' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, {
+      vertical: 'product',
+      getMeta: (p) => {
+        const x = p as Product;
+        return { price: x.price, rating: x.rating, stock: x.stockCount };
+      },
+    });
   }, [branchProducts, headerSearch]);
 
   const branchGridSource =

@@ -32,7 +32,7 @@ import { getMaxOrderableUnits } from '../utils/cartStock';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductCardSkeleton, ProductGridSkeleton, ShopListSkeleton, SkeletonBox } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 import {
   diningRoomCapacityRange,
   diningRoomImageList,
@@ -166,7 +166,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const [dishDetailRoomsLoading, setDishDetailRoomsLoading] = useState(false);
   const [dishDetailRoomId, setDishDetailRoomId] = useState('');
   const [selectedDish, setSelectedDish] = useState<Dish | null>(null);
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const [loading, setLoading] = useState(true);
   /** Restoranlar bo‘yicha hali tugamagan taom so‘rovlari (progressive yuklash) */
   const [dishFetchesRemaining, setDishFetchesRemaining] = useState(0);
@@ -515,23 +515,31 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
 
   const filteredDishes = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return allDishes;
-    return allDishes.filter((d) =>
-      matchesHeaderSearch(headerSearch, [
-        d.name,
-        d.description,
-        Array.isArray(d.ingredients) ? d.ingredients.join(' ') : '',
-        getRestaurantName(d.restaurantId),
-        d.weight,
-        String(d.kcal || ''),
-      ]),
-    );
+    const q = headerSearch;
+    const parts = (d: (typeof allDishes)[number]) => [
+      d.name,
+      d.description,
+      Array.isArray(d.ingredients) ? d.ingredients.join(' ') : '',
+      getRestaurantName(d.restaurantId),
+      d.weight,
+      String(d.kcal || ''),
+    ];
+    const matched = allDishes.filter((d) => matchesHeaderSearch(q, parts(d), { vertical: 'food' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'food' });
   }, [allDishes, headerSearch, restaurants]);
 
   const filteredRestaurants = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return restaurants;
-    return restaurants.filter((r) =>
-      matchesHeaderSearch(headerSearch, [r.name, r.type, r.description, r.contact?.address, r.contact?.phone]),
-    );
+    const q = headerSearch;
+    const parts = (r: (typeof restaurants)[number]) => [
+      r.name,
+      r.type,
+      r.description,
+      r.contact?.address,
+      r.contact?.phone,
+    ];
+    const matched = restaurants.filter((r) => matchesHeaderSearch(q, parts(r), { vertical: 'food' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'food' });
   }, [restaurants, headerSearch]);
 
   const dishModalRestaurant = useMemo(() => {
@@ -576,15 +584,16 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     if (!selectedRestaurant) return [];
     const base = allDishes.filter((d) => d.restaurantId === selectedRestaurant.id);
     if (!normalizeHeaderSearch(headerSearch)) return base;
-    return base.filter((d) =>
-      matchesHeaderSearch(headerSearch, [
-        d.name,
-        d.description,
-        Array.isArray(d.ingredients) ? d.ingredients.join(' ') : '',
-        d.weight,
-        String(d.kcal || ''),
-      ]),
-    );
+    const q = headerSearch;
+    const parts = (d: (typeof allDishes)[number]) => [
+      d.name,
+      d.description,
+      Array.isArray(d.ingredients) ? d.ingredients.join(' ') : '',
+      d.weight,
+      String(d.kcal || ''),
+    ];
+    const matched = base.filter((d) => matchesHeaderSearch(q, parts(d), { vertical: 'food' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'food' });
   }, [selectedRestaurant, allDishes, headerSearch]);
 
   useEffect(() => {

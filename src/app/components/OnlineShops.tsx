@@ -15,12 +15,18 @@ import { getEffectiveProductStockQuantity } from '../utils/cartStock';
 import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { useAuth } from '../context/AuthContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import {
+  matchesHeaderSearch,
+  normalizeHeaderSearch,
+  sortAllByHeaderSearchRelevance,
+} from '../utils/headerSearchMatch';
 import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
 import {
   postRecoEvents,
   fetchPersonalizedProducts,
+  fetchRecommendationFeed,
   cartRecoPayload,
+  productToRecoPayload,
 } from '../utils/recommendationsClient';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
 
@@ -67,7 +73,7 @@ export default function OnlineShops({
 }) {
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict, setLocation } = useLocation();
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const { accessToken } = useAuth();
   const isDark = theme === 'dark';
 
@@ -81,6 +87,12 @@ export default function OnlineShops({
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   const [recoProducts, setRecoProducts] = useState<any[]>([]);
   const [recoLoading, setRecoLoading] = useState(false);
+  const [recoRefreshTick, setRecoRefreshTick] = useState(0);
+  const [feedTrending, setFeedTrending] = useState<any[]>([]);
+  const [feedTrendingLoading, setFeedTrendingLoading] = useState(false);
+  const bumpReco = useCallback(() => {
+    setRecoRefreshTick((t) => t + 1);
+  }, []);
   /** Ish vaqti (Toshkent) — tugma holati yangilansin */
   const [hoursUiTick, setHoursUiTick] = useState(0);
   
@@ -231,17 +243,49 @@ export default function OnlineShops({
     return () => {
       cancelled = true;
     };
-  }, [activeTab, selectedRegion, selectedDistrict, accessToken, catalogRefreshKey]);
+  }, [activeTab, selectedRegion, selectedDistrict, accessToken, catalogRefreshKey, recoRefreshTick]);
+
+  useEffect(() => {
+    if (activeTab !== 'products' || !selectedRegion || !selectedDistrict) {
+      setFeedTrending([]);
+      return;
+    }
+    let cancelled = false;
+    setFeedTrendingLoading(true);
+    void fetchRecommendationFeed(accessToken, {
+      region: selectedRegion,
+      district: selectedDistrict,
+      sections: ['trending'],
+      perSection: 12,
+    })
+      .then(({ sections }) => {
+        if (cancelled) return;
+        const t = sections.trending_today;
+        const arr = Array.isArray(t) ? (t as any[]) : [];
+        setFeedTrending(
+          arr.map((p) => ({
+            ...p,
+            stockQuantity: getEffectiveProductStockQuantity(p),
+          })),
+        );
+      })
+      .finally(() => {
+        if (!cancelled) setFeedTrendingLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeTab, selectedRegion, selectedDistrict, accessToken, catalogRefreshKey, recoRefreshTick]);
 
   useEffect(() => {
     if (activeTab !== 'products') return;
     const q = normalizeHeaderSearch(headerSearch);
     if (!q) return;
     const t = window.setTimeout(() => {
-      void postRecoEvents([{ type: 'search', query: q }], accessToken);
-    }, 900);
+      void postRecoEvents([{ type: 'search', query: q }], accessToken).finally(() => bumpReco());
+    }, 520);
     return () => window.clearTimeout(t);
-  }, [headerSearch, activeTab, accessToken]);
+  }, [headerSearch, activeTab, accessToken, bumpReco]);
 
   useEffect(() => {
     const id = window.setInterval(() => setHoursUiTick((x) => x + 1), 30000);
@@ -285,36 +329,49 @@ export default function OnlineShops({
 
   const searchFilteredShops = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredShops;
-    return filteredShops.filter((s: Record<string, unknown>) =>
-      matchesHeaderSearch(headerSearch, [
-        s.name,
-        s.shopName,
-        s.description,
-        s.address,
-        s.region,
-        s.district,
-        s.phone,
-      ]),
-    );
+    const q = headerSearch;
+    const parts = (s: Record<string, unknown>) => [
+      s.name,
+      s.shopName,
+      s.description,
+      s.address,
+      s.region,
+      s.district,
+      s.phone,
+    ];
+    const matched = filteredShops.filter((s) => matchesHeaderSearch(q, parts(s), { vertical: 'general' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'general' });
   }, [filteredShops, headerSearch]);
 
+  const productSearchParts = useCallback((p: Record<string, unknown>) => {
+    const sid = p.shopId != null ? String(p.shopId) : '';
+    const shopName = sid ? shopNameById.get(sid) : '';
+    return [
+      p.name,
+      p.description,
+      p.category,
+      (p as { categoryName?: string }).categoryName,
+      p.sku,
+      p.barcode,
+      shopName,
+      ...(Array.isArray(p.variants)
+        ? (p.variants as { name?: string }[]).flatMap((v) => [v.name])
+        : []),
+    ];
+  }, [shopNameById]);
+
+  /** Qidiruvda: barcha mahsulotlar qoladi, eng moslari va shu tipdagilar tepada */
   const searchFilteredProducts = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredProducts;
-    return filteredProducts.filter((p: Record<string, unknown>) => {
-      const sid = p.shopId != null ? String(p.shopId) : '';
-      const shopName = sid ? shopNameById.get(sid) : '';
-      return matchesHeaderSearch(headerSearch, [
-        p.name,
-        p.description,
-        p.sku,
-        p.barcode,
-        shopName,
-        ...(Array.isArray(p.variants)
-          ? (p.variants as { name?: string }[]).flatMap((v) => [v.name])
-          : []),
-      ]);
+    const q = headerSearch;
+    return sortAllByHeaderSearchRelevance(filteredProducts, q, productSearchParts, {
+      vertical: 'product',
+      getMeta: (p) => {
+        const x = p as { price?: number; rating?: number; stockCount?: number };
+        return { price: x.price, rating: x.rating, stock: x.stockCount };
+      },
     });
-  }, [filteredProducts, headerSearch, shopNameById]);
+  }, [filteredProducts, headerSearch, productSearchParts]);
 
   const onlineShopsProductGridSource =
     activeTab !== 'products' || isLoadingProducts ? [] : searchFilteredProducts;
@@ -341,9 +398,16 @@ export default function OnlineShops({
     }
   }, [selectedShop, filteredShopIds]);
 
-  // Get product count for a shop
+  // Do‘kon kartasida: qidiruv bo‘yicha shu do‘konda mos mahsulot soni
   const getShopProductCount = (shopId: string) => {
-    return searchFilteredProducts.filter((product) => product.shopId === shopId).length;
+    if (!normalizeHeaderSearch(headerSearch)) {
+      return filteredProducts.filter((product) => product.shopId === shopId).length;
+    }
+    const q = headerSearch;
+    return filteredProducts.filter(
+      (product) =>
+        product.shopId === shopId && matchesHeaderSearch(q, productSearchParts(product), { vertical: 'product' }),
+    ).length;
   };
 
   // Get region and district names for display
@@ -382,6 +446,17 @@ export default function OnlineShops({
     
     setVariantMenuProduct(productWithDefaultVariant);
   };
+
+  const openProductWithReco = useCallback(
+    (product: any) => {
+      const row = product as Record<string, unknown>;
+      void postRecoEvents([{ ...productToRecoPayload(row), type: 'click' }], accessToken).finally(() => {
+        bumpReco();
+      });
+      setSelectedProduct(product);
+    },
+    [accessToken, bumpReco],
+  );
 
   // 🔐 Long press handlers for delete functionality
   const handlePressStart = (product: any) => {
@@ -703,7 +778,69 @@ export default function OnlineShops({
                     <button
                       key={`reco-${product.id}`}
                       type="button"
-                      onClick={() => setSelectedProduct(product)}
+                      onClick={() => openProductWithReco(product)}
+                      className="snap-start shrink-0 w-[140px] sm:w-[160px] rounded-2xl overflow-hidden text-left transition-transform active:scale-[0.98]"
+                      style={{
+                        background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
+                        border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+                      }}
+                    >
+                      <div className="relative h-28 bg-black/5">
+                        {product.image ? (
+                          <img
+                            src={product.image}
+                            alt={product.name}
+                            loading="lazy"
+                            decoding="async"
+                            className="w-full h-full object-cover"
+                          />
+                        ) : (
+                          <div className="w-full h-full flex items-center justify-center">
+                            <Package className="w-10 h-10" style={{ color: accentColor.color, opacity: 0.35 }} />
+                          </div>
+                        )}
+                      </div>
+                      <div className="p-2.5">
+                        <p className="text-[11px] line-clamp-1 mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                          {product.shopName || product.category || ''}
+                        </p>
+                        <p
+                          className="text-xs font-semibold line-clamp-2 leading-snug mb-1.5 min-h-[2.25rem]"
+                          style={{ color: isDark ? '#fff' : '#111827' }}
+                        >
+                          {product.name}
+                        </p>
+                        <p className="text-xs font-bold" style={{ color: accentColor.color }}>
+                          {Number(product.price || 0).toLocaleString('uz-UZ')} so'm
+                        </p>
+                      </div>
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedRegion && selectedDistrict && (feedTrendingLoading || feedTrending.length > 0) && (
+              <div className="mb-6">
+                <div className="flex items-center justify-between gap-2 mb-3">
+                  <div className="flex items-center gap-2 min-w-0">
+                    <Truck className="w-5 h-5 shrink-0" style={{ color: accentColor.color }} />
+                    <h2 className="text-lg font-bold truncate">Bugun trendda</h2>
+                  </div>
+                  {feedTrendingLoading ? (
+                    <Loader2 className="w-5 h-5 animate-spin shrink-0" style={{ color: accentColor.color }} />
+                  ) : null}
+                </div>
+                <div
+                  className="flex gap-3 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x snap-mandatory"
+                  style={{ WebkitOverflowScrolling: 'touch' }}
+                >
+                  {feedTrending.map((product: any) => (
+                    <button
+                      key={`trend-${product.id}`}
+                      type="button"
+                      onClick={() => openProductWithReco(product)}
                       className="snap-start shrink-0 w-[140px] sm:w-[160px] rounded-2xl overflow-hidden text-left transition-transform active:scale-[0.98]"
                       style={{
                         background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
@@ -774,7 +911,7 @@ export default function OnlineShops({
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
                 {progressiveOnlineShopProducts.map((product: any) => (
                   <div
-                    key={product.id}
+                    key={`${String(product.shopId ?? '')}-${String(product.id ?? '')}`}
                     className="rounded-xl md:rounded-2xl overflow-hidden transition-all hover:scale-[1.02] active:scale-95 group cursor-pointer relative"
                     style={{
                       background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
@@ -783,7 +920,7 @@ export default function OnlineShops({
                         ? `0 0 0 3px ${accentColor.color}40` 
                         : '0 2px 8px rgba(0, 0, 0, 0.04)',
                     }}
-                    onClick={() => setSelectedProduct(product)}
+                    onClick={() => openProductWithReco(product)}
                     onMouseDown={() => handlePressStart(product)}
                     onMouseUp={handlePressEnd}
                     onMouseLeave={handlePressEnd}
@@ -1068,6 +1205,7 @@ export default function OnlineShops({
           shop={selectedShop}
           onClose={() => setSelectedShop(null)}
           onAddToCart={onAddToCart}
+          onRecoActivity={bumpReco}
         />
       )}
 
@@ -1077,7 +1215,9 @@ export default function OnlineShops({
           product={selectedProduct}
           onClose={() => setSelectedProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
-            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken);
+            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken).finally(() =>
+              bumpReco(),
+            );
             onAddToCart?.(product, quantity, variantId, variantName);
             setSelectedProduct(null);
           }}
@@ -1096,7 +1236,9 @@ export default function OnlineShops({
           product={variantMenuProduct}
           onClose={() => setVariantMenuProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
-            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken);
+            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken).finally(() =>
+              bumpReco(),
+            );
             onAddToCart?.(product, quantity, variantId, variantName);
             setVariantMenuProduct(null);
           }}
@@ -1267,10 +1409,12 @@ function ShopDetailModal({
   shop,
   onClose,
   onAddToCart,
+  onRecoActivity,
 }: {
   shop: any;
   onClose: () => void;
   onAddToCart?: (product: any, quantity: number, variantId?: string, variantName?: string) => void;
+  onRecoActivity?: () => void;
 }) {
   const { theme, accentColor } = useTheme();
   const { accessToken } = useAuth();
@@ -1372,6 +1516,16 @@ function ShopDetailModal({
     };
     setVariantMenuProduct(productWithDefaultVariant);
   };
+
+  const openShopProductReco = useCallback(
+    (product: any) => {
+      void postRecoEvents([{ ...productToRecoPayload(product as Record<string, unknown>), type: 'click' }], accessToken).finally(
+        () => onRecoActivity?.(),
+      );
+      setSelectedProduct(product);
+    },
+    [accessToken, onRecoActivity],
+  );
 
   return (
     <div 
@@ -1541,7 +1695,7 @@ function ShopDetailModal({
                         border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
                         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
                       }}
-                      onClick={() => setSelectedProduct(product)}
+                      onClick={() => openShopProductReco(product)}
                     >
                       {/* Image Container with Badges */}
                       <div className="relative">
@@ -2084,7 +2238,9 @@ function ShopDetailModal({
           product={selectedProduct}
           onClose={() => setSelectedProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
-            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken);
+            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken).finally(() =>
+              onRecoActivity?.(),
+            );
             onAddToCart?.(product, quantity, variantId, variantName);
             setSelectedProduct(null);
           }}
@@ -2099,7 +2255,9 @@ function ShopDetailModal({
           product={variantMenuProduct}
           onClose={() => setVariantMenuProduct(null)}
           onAddToCart={(product, quantity, variantId, variantName) => {
-            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken);
+            void postRecoEvents([cartRecoPayload(product as Record<string, unknown>)], accessToken).finally(() =>
+              onRecoActivity?.(),
+            );
             onAddToCart?.(product, quantity, variantId, variantName);
             setVariantMenuProduct(null);
           }}

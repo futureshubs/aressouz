@@ -1,21 +1,94 @@
-/** Bo'sh bo'lmagan so'zlar barchasi matnda (katta-kichik farqsiz) uchraydimi */
+import {
+  compareMarketplaceRank,
+  normalizeHeaderSearch as normalizeHeaderSearchImpl,
+  scoreMarketplaceSearchLegacy,
+  type MarketplaceSearchOptions,
+  type RankableItemMeta,
+} from './marketplaceSearch';
+
+export type HeaderSearchSortOptions = MarketplaceSearchOptions & {
+  /** Rejting, zaxira, narx — mavjud bo‘lsa skorga qo‘shiladi */
+  getMeta?: (item: unknown) => RankableItemMeta | undefined;
+};
+
 export function normalizeHeaderSearch(q: string): string {
-  return String(q || '')
-    .trim()
-    .toLowerCase()
-    .replace(/\s+/g, ' ');
+  return normalizeHeaderSearchImpl(q);
 }
 
 export function matchesHeaderSearch(
   query: string,
-  parts: Array<string | number | undefined | null | false>,
+  parts: Array<string | number | undefined | false | null>,
+  opts?: MarketplaceSearchOptions,
 ): boolean {
-  const n = normalizeHeaderSearch(query);
+  const n = normalizeHeaderSearchImpl(query);
   if (!n) return true;
-  const blob = parts
-    .filter((x) => x != null && x !== false && String(x).trim() !== '')
-    .map((x) => String(x).toLowerCase())
-    .join(' \u0001 ');
-  const words = n.split(' ').filter(Boolean);
-  return words.every((w) => blob.includes(w));
+  return scoreMarketplaceSearchLegacy(query, parts, opts).matches;
+}
+
+/** @deprecated Yangi kodda scoreMarketplaceSearchLegacy ishlating */
+export function headerSearchRelevanceScore(
+  query: string,
+  parts: Array<string | number | undefined | false | null | undefined>,
+  opts?: MarketplaceSearchOptions & { meta?: RankableItemMeta },
+): number {
+  return scoreMarketplaceSearchLegacy(query, parts, opts).score;
+}
+
+export function sortByHeaderSearchRelevance<T>(
+  items: readonly T[],
+  query: string,
+  getParts: (item: T) => Array<string | number | undefined | false | null | undefined>,
+  opts?: HeaderSearchSortOptions,
+): T[] {
+  const n = normalizeHeaderSearchImpl(query);
+  if (!n) return [...items];
+  return [...items].sort((a, b) => {
+    const ra = scoreMarketplaceSearchLegacy(query, getParts(a), {
+      vertical: opts?.vertical,
+      meta: opts?.getMeta?.(a),
+    });
+    const rb = scoreMarketplaceSearchLegacy(query, getParts(b), {
+      vertical: opts?.vertical,
+      meta: opts?.getMeta?.(b),
+    });
+    const c = compareMarketplaceRank(ra, rb);
+    if (c !== 0) return c;
+    const ida = String((a as { id?: unknown }).id ?? '');
+    const idb = String((b as { id?: unknown }).id ?? '');
+    return ida.localeCompare(idb);
+  });
+}
+
+/**
+ * Ro‘yxatni qisqartirmaydi: mos kelganlar va yuqori skorliqlar tepada,
+ * mos kelmayotganlar pastda (do‘kon / katta katalog ro‘yxatlari uchun).
+ */
+export function sortAllByHeaderSearchRelevance<T>(
+  items: readonly T[],
+  query: string,
+  getParts: (item: T) => Array<string | number | undefined | false | null | undefined>,
+  opts?: HeaderSearchSortOptions,
+): T[] {
+  const n = normalizeHeaderSearchImpl(query);
+  if (!n) return [...items];
+  const scoreFor = (item: T) =>
+    scoreMarketplaceSearchLegacy(query, getParts(item), {
+      vertical: opts?.vertical,
+      meta: opts?.getMeta?.(item),
+    });
+  return [...items].sort((a, b) => {
+    const ra = scoreFor(a);
+    const rb = scoreFor(b);
+    if (ra.matches !== rb.matches) return ra.matches ? -1 : 1;
+    if (!ra.matches && !rb.matches) {
+      const ida = String((a as { id?: unknown }).id ?? '');
+      const idb = String((b as { id?: unknown }).id ?? '');
+      return ida.localeCompare(idb);
+    }
+    const c = compareMarketplaceRank(ra, rb);
+    if (c !== 0) return c;
+    const ida = String((a as { id?: unknown }).id ?? '');
+    const idb = String((b as { id?: unknown }).id ?? '');
+    return ida.localeCompare(idb);
+  });
 }

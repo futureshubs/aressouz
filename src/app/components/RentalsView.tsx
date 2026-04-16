@@ -14,7 +14,7 @@ import { BannerCarousel } from './BannerCarousel';
 import { matchesSelectedLocation } from '../utils/locationMatching';
 import { ProductGridSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 
 interface RentalsViewProps {
   platform: Platform;
@@ -23,7 +23,7 @@ interface RentalsViewProps {
 export function RentalsView({ platform }: RentalsViewProps) {
   const { theme, accentColor } = useTheme();
   const { selectedRegion: selectedRegionId, selectedDistrict: selectedDistrictId } = useLocation();
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
   
   const [activeView, setActiveView] = useState<'products' | 'catalog'>('products');
@@ -182,48 +182,68 @@ export function RentalsView({ platform }: RentalsViewProps) {
 
   const searchFilteredCategories = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredCategories;
-    return filteredCategories.filter((c) =>
-      matchesHeaderSearch(headerSearch, [c.name, selectedCatalog?.name]),
-    );
+    const q = headerSearch;
+    const parts = (c: (typeof filteredCategories)[number]) => [c.name, selectedCatalog?.name];
+    const matched = filteredCategories.filter((c) => matchesHeaderSearch(q, parts(c), { vertical: 'rental' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'rental' });
   }, [filteredCategories, headerSearch, selectedCatalog]);
 
   const searchFinalCatalogProducts = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return finalCatalogProducts;
-    return finalCatalogProducts.filter((product: Record<string, unknown>) =>
-      matchesHeaderSearch(headerSearch, [
-        product.name,
-        product.description,
-        product.location,
-        product.region,
-        product.district,
-        ...(Array.isArray(product.features) ? product.features : []).map(String),
-      ]),
+    const q = headerSearch;
+    const parts = (product: Record<string, unknown>) => [
+      product.name,
+      product.description,
+      product.location,
+      product.region,
+      product.district,
+      ...(Array.isArray(product.features) ? product.features : []).map(String),
+    ];
+    const matched = finalCatalogProducts.filter((product) =>
+      matchesHeaderSearch(q, parts(product), { vertical: 'rental' }),
     );
+    return sortByHeaderSearchRelevance(matched, q, parts, {
+      vertical: 'rental',
+      getMeta: (row) => {
+        const x = row as { price?: number; created_at?: string };
+        return { price: Number(x.price) || undefined, createdAt: x.created_at };
+      },
+    });
   }, [finalCatalogProducts, headerSearch]);
 
   const searchFilteredBackendProducts = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredBackendProducts;
-    return filteredBackendProducts.filter((product: Record<string, unknown>) =>
-      matchesHeaderSearch(headerSearch, [
-        product.name,
-        product.description,
-        product.location,
-        product.region,
-        product.district,
-        ...(Array.isArray(product.features) ? product.features : []).map(String),
-      ]),
+    const q = headerSearch;
+    const parts = (product: Record<string, unknown>) => [
+      product.name,
+      product.description,
+      product.location,
+      product.region,
+      product.district,
+      ...(Array.isArray(product.features) ? product.features : []).map(String),
+    ];
+    const matched = filteredBackendProducts.filter((product) =>
+      matchesHeaderSearch(q, parts(product), { vertical: 'rental' }),
     );
+    return sortByHeaderSearchRelevance(matched, q, parts, {
+      vertical: 'rental',
+      getMeta: (row) => {
+        const x = row as { price?: number; created_at?: string };
+        return { price: Number(x.price) || undefined, createdAt: x.created_at };
+      },
+    });
   }, [filteredBackendProducts, headerSearch]);
 
   const visibleRentalCatalogs = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return rentalCatalogs;
-    return rentalCatalogs.filter((c) =>
-      matchesHeaderSearch(headerSearch, [
-        c.name,
-        ...rentalCategories.filter((cat) => cat.catalogId === c.id).map((cat) => cat.name),
-      ]),
-    );
-  }, [headerSearch]);
+    const q = headerSearch;
+    const parts = (c: (typeof rentalCatalogs)[number]) => [
+      c.name,
+      ...rentalCategories.filter((cat) => cat.catalogId === c.id).map((cat) => cat.name),
+    ];
+    const matched = rentalCatalogs.filter((c) => matchesHeaderSearch(q, parts(c), { vertical: 'rental' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'rental' });
+  }, [headerSearch, rentalCatalogs, rentalCategories]);
 
   return (
     <div className="min-h-screen pb-[max(5.5rem,calc(4.5rem+env(safe-area-inset-bottom)))]">

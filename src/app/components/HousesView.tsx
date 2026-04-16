@@ -16,7 +16,7 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton } from './skeletons';
 import { regions as allRegions } from '../data/regions';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
-import { matchesHeaderSearch, normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -24,7 +24,7 @@ export function HousesView() {
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict } = useLocation();
   const { isAuthenticated, user, session, setIsAuthOpen } = useAuth();
-  const { query: headerSearch } = useHeaderSearchOptional();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
   
   const [activeView, setActiveView] = useState<'houses' | 'categories'>('houses');
@@ -195,40 +195,45 @@ export function HousesView() {
 
   const searchFilteredHousesAll = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return houses;
-    return houses.filter((h) =>
-      matchesHeaderSearch(headerSearch, [
-        h.title,
-        h.description,
-        h.address,
-        h.region,
-        h.district,
-        String(h.price),
-        h.ownerName,
-        h.ownerPhone,
-        ...(h.features ?? []),
-      ]),
-    );
+    const q = headerSearch;
+    const parts = (h: (typeof houses)[number]) => [
+      h.title,
+      h.description,
+      h.address,
+      h.region,
+      h.district,
+      String(h.price),
+      h.ownerName,
+      h.ownerPhone,
+      ...(h.features ?? []),
+    ];
+    const matched = houses.filter((h) => matchesHeaderSearch(q, parts(h), { vertical: 'rental' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'rental' });
   }, [houses, headerSearch]);
 
   const searchFilteredHouses = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredHouses;
-    return filteredHouses.filter((h) =>
-      matchesHeaderSearch(headerSearch, [
-        h.title,
-        h.description,
-        h.address,
-        h.region,
-        h.district,
-        String(h.price),
-        h.ownerName,
-        ...(h.features ?? []),
-      ]),
-    );
+    const q = headerSearch;
+    const parts = (h: (typeof filteredHouses)[number]) => [
+      h.title,
+      h.description,
+      h.address,
+      h.region,
+      h.district,
+      String(h.price),
+      h.ownerName,
+      ...(h.features ?? []),
+    ];
+    const matched = filteredHouses.filter((h) => matchesHeaderSearch(q, parts(h), { vertical: 'rental' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'rental' });
   }, [filteredHouses, headerSearch]);
 
   const visibleHouseCategories = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return categoriesWithCounts;
-    return categoriesWithCounts.filter((c) => matchesHeaderSearch(headerSearch, [c.name]));
+    const q = headerSearch;
+    const parts = (c: (typeof categoriesWithCounts)[number]) => [c.name];
+    const matched = categoriesWithCounts.filter((c) => matchesHeaderSearch(q, parts(c), { vertical: 'rental' }));
+    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'rental' });
   }, [categoriesWithCounts, headerSearch]);
 
   const selectedCategory = houseCategories.find(c => c.id === selectedCategoryId);
