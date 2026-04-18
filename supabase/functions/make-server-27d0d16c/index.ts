@@ -11854,10 +11854,16 @@ app.post("/make-server-27d0d16c/staff/login", async (c) => {
       expiresAt,
     });
 
+    const branchPayload = {
+      ...sanitizeBranchSessionPayload(branchRecord),
+      id: branchRecord?.id || branchId,
+      branchId,
+    };
+
     return c.json({
       success: true,
       role,
-      branch: sanitizeBranchSessionPayload(branchRecord),
+      branch: branchPayload,
       branchToken,
       staff: {
         id: staff.id,
@@ -16680,8 +16686,17 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
     if (!branchId) {
       return c.json({ success: false, error: 'branchId kerak' }, 400);
     }
-    if (branchAuth.branchId && normalizeBranchId(branchAuth.branchId) !== branchIdNormalized) {
-      return c.json({ success: false, error: 'Ruxsat yo‘q' }, 403);
+    const authBranchNorm = normalizeBranchId(String(branchAuth.branchId || ""));
+    const bRec = (branchAuth as { branch?: { id?: string; branchId?: string } }).branch;
+    const authFromBranchRecordNorm = normalizeBranchId(
+      String(bRec?.id || bRec?.branchId || ""),
+    );
+    const branchMatchesQuery =
+      !authBranchNorm ||
+      authBranchNorm === branchIdNormalized ||
+      (authFromBranchRecordNorm && authFromBranchRecordNorm === branchIdNormalized);
+    if (!branchMatchesQuery) {
+      return c.json({ success: false, error: 'Ruxsat yo‘q (filial mos emas)' }, 403);
     }
 
     let rangeDays = dateRange === '30days' ? 30 : dateRange === '90days' ? 90 : 7;

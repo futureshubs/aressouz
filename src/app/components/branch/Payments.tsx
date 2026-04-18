@@ -250,6 +250,10 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
   const loadPayments = useCallback(
     async ({ silent = false }: { silent?: boolean } = {}) => {
       try {
+        if (!String(branchId || '').trim()) {
+          if (!silent) toast.error('Filial tanlanmagan — qayta kiring');
+          return;
+        }
         if (!silent) setIsLoading(true);
 
         const snap = filterSnapshotRef.current;
@@ -279,24 +283,53 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           },
         });
 
+        let data: { success?: boolean; payments?: Payment[]; stats?: PaymentStats | null; error?: string; message?: string } =
+          {};
+        try {
+          data = await response.json();
+        } catch {
+          data = {};
+        }
+
         if (!response.ok) {
           setPayments([]);
           setStats(null);
-          console.error('❌ Payments API response not ok:', response.status, response.statusText);
-          if (!silent) toast.error('To‘lovlarni yuklashda xatolik');
+          const detail = String(data.error || data.message || '').trim();
+          console.error('❌ Payments API:', response.status, detail || response.statusText);
+          if (!silent) {
+            toast.error(
+              detail
+                ? `To‘lovlar: ${detail}`
+                : response.status === 401 || response.status === 403
+                  ? 'Kirish muddati tugagan yoki ruxsat yo‘q — qayta kiring'
+                  : `To‘lovlar yuklanmadi (${response.status})`,
+            );
+          }
           return;
         }
 
-        const data = await response.json();
+        if (!data.success) {
+          setPayments([]);
+          setStats(null);
+          const detail = String(data.error || data.message || '').trim();
+          if (!silent) toast.error(detail ? `To‘lovlar: ${detail}` : 'To‘lovlar javobi noto‘g‘ri');
+          return;
+        }
+
         if (data.success) {
           let list: Payment[] = Array.isArray(data.payments) ? data.payments : [];
           if (variant === 'cashier') list = dedupePaymentsByOrderId(list);
           setPayments(list);
-          setStats(data.stats);
+          setStats(data.stats ?? null);
         }
       } catch (error) {
         console.error('❌ Error loading payments:', error);
-        if (!silent) toast.error("To'lovlarni yuklashda xatolik");
+        if (!silent) {
+          const msg = error instanceof TypeError && String(error.message).includes('fetch')
+            ? 'Serverga ulanib bo‘lmadi (tarmoq yoki CORS). aresso.app ALLOWED_ORIGINS da bo‘lishi kerak.'
+            : "To'lovlarni yuklashda xatolik";
+          toast.error(msg);
+        }
       } finally {
         if (!silent) setIsLoading(false);
       }

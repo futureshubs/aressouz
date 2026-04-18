@@ -75,7 +75,13 @@ export default function StaffDashboard() {
 
   const role = session?.role as StaffRole | undefined;
   const effectiveRole: StaffRole | 'support' = role === 'operator' ? 'support' : role;
-  const branchId = (branchSession?.id || branchSession?.branchId || branchSession?.branch_id) as string | undefined;
+  /** branchSession.id ba’zan bo‘sh (eski KV yozuvlari); staffSession.branchId zaxira. */
+  const branchId = (
+    branchSession?.id ||
+    branchSession?.branchId ||
+    branchSession?.branch_id ||
+    session?.branchId
+  ) as string | undefined;
 
   useEffect(() => {
     if (role === 'accountant') navigate('/bogalter/dashboard');
