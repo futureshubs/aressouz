@@ -59,11 +59,29 @@ export const mdel = async (keys: string[]): Promise<void> => {
   }
 };
 
-// Search for key-value pairs by prefix.
+const KV_PREFIX_PAGE_SIZE = 1000;
+
+// Search for key-value pairs by prefix (sahifalab — default 1000 qator limiti).
 export const getByPrefix = async (prefix: string): Promise<any[]> => {
-  const { data, error } = await supabase().from("kv_store_27d0d16c").select("key, value").like("key", prefix + "%");
-  if (error) {
-    throw new Error(error.message);
+  const likePattern = `${prefix}%`;
+  const values: any[] = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await supabase()
+      .from("kv_store_27d0d16c")
+      .select("key, value")
+      .like("key", likePattern)
+      .order("key", { ascending: true })
+      .range(offset, offset + KV_PREFIX_PAGE_SIZE - 1);
+    if (error) {
+      throw new Error(error.message);
+    }
+    const batch = data ?? [];
+    for (const d of batch) {
+      values.push(d.value);
+    }
+    if (batch.length < KV_PREFIX_PAGE_SIZE) break;
+    offset += KV_PREFIX_PAGE_SIZE;
   }
-  return data?.map((d) => d.value) ?? [];
+  return values;
 };

@@ -5,15 +5,24 @@ export function getOrderKeys(orderId: string): string[] {
   const raw = String(orderId || "").trim();
   if (!raw) return [];
 
+  const keys = new Set<string>();
+
   if (raw.startsWith("order:market:")) {
     const stripped = raw.slice("order:market:".length);
-    return [raw, `order:${stripped}`];
-  }
-  if (raw.startsWith("order:")) {
+    keys.add(raw);
+    keys.add(`order:${stripped}`);
+  } else if (raw.startsWith("order:")) {
     const stripped = raw.slice("order:".length);
-    return [raw, `order:market:${stripped}`];
+    keys.add(raw);
+    keys.add(`order:market:${stripped}`);
+    /** Eski taom/market: `kv.set(\`order:${order.id}\`, ...)` — id allaqachon `order:...` */
+    keys.add(`order:${raw}`);
+  } else {
+    keys.add(`order:${raw}`);
+    keys.add(`order:market:${raw}`);
   }
-  return [`order:${raw}`, `order:market:${raw}`];
+
+  return Array.from(keys).filter(Boolean);
 }
 
 export async function getOrderRecord(
@@ -41,28 +50,38 @@ export async function markKvOrderPaidFromGateway(
   const o = record.order as Record<string, unknown>;
   const nowIso = new Date().toISOString();
   const legacyId = String(o.id ?? orderId);
-  const prevPaid = ["paid", "completed", "success"].includes(
-    String(o.paymentStatus || "").toLowerCase().trim(),
-  );
-  const statusHistory = Array.isArray(o.statusHistory) ? [...(o.statusHistory as unknown[])] : [];
-  if (!prevPaid) {
-    statusHistory.push({
-      status: o.status,
-      timestamp: nowIso,
-      note: "Onlayn to‘lov tasdiqlandi (Payme/Click)",
-    });
+
+  const keysToWrite = new Set<string>([...getOrderKeys(legacyId), String(record.key)]);
+  const mirror = String((o as { foodOrderMirrorKey?: string }).foodOrderMirrorKey || "").trim();
+  if (mirror) keysToWrite.add(mirror);
+
+  for (const key of keysToWrite) {
+    const existingRaw = await kv.get(key);
+    if (!existingRaw || typeof existingRaw !== "object") continue;
+    const eo = existingRaw as Record<string, unknown>;
+    const eoPrevPaid = ["paid", "completed", "success"].includes(
+      String(eo.paymentStatus || "").toLowerCase().trim(),
+    );
+    const sh = Array.isArray(eo.statusHistory) ? [...(eo.statusHistory as unknown[])] : [];
+    if (!eoPrevPaid) {
+      sh.push({
+        status: eo.status,
+        timestamp: nowIso,
+        note: "Onlayn to‘lov tasdiqlandi (Payme/Click)",
+      });
+    }
+    const merged = {
+      ...eo,
+      paymentStatus: "paid",
+      paymentCompletedAt: nowIso,
+      paymentRequiresVerification: false,
+      updatedAt: nowIso,
+      ...(extras.paymeReceiptId ? { paymeReceiptId: extras.paymeReceiptId } : {}),
+      ...(extras.clickTransId != null ? { clickTransId: extras.clickTransId } : {}),
+      statusHistory: sh,
+    };
+    await kv.set(key, merged);
   }
-  const updatedOrder = {
-    ...record.order,
-    paymentStatus: "paid",
-    paymentCompletedAt: nowIso,
-    paymentRequiresVerification: false,
-    updatedAt: nowIso,
-    ...(extras.paymeReceiptId ? { paymeReceiptId: extras.paymeReceiptId } : {}),
-    ...(extras.clickTransId != null ? { clickTransId: extras.clickTransId } : {}),
-    statusHistory,
-  };
-  await kv.set(record.key, updatedOrder);
 
   try {
     const txKey = `transaction:${legacyId}`;

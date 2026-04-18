@@ -34,7 +34,7 @@ import {
   resolveClickIsTestForInvoice,
 } from "./payment-kv-utils.ts";
 import { paycomCallOptsForReceiptIdWithKv } from "./lib/paycom-receipt-helpers.ts";
-import { getOrderRecord } from "./services/order-kv-lookup.ts";
+import { getOrderRecord, getOrderKeys } from "./services/order-kv-lookup.ts";
 import { registerPaymeReceiptRoutes } from "./routes/payme-receipt-routes.ts";
 
 import preparersRoutes from "./preparers.tsx";
@@ -306,6 +306,16 @@ function normalizeListingImageUrls(raw: unknown, max = 10): string[] {
   return out;
 }
 
+/** Katalog filtri: viloyat/tuman nomi apostrof / bo'shliq / NFC farqida yiqilmasin. */
+function normHouseCatalogLocation(raw: unknown): string {
+  return String(raw ?? "")
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[''`ʻʼ]/g, "")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /**
  * `house:` / `car:` ba'zan `listing:userId:id` bilan sinxron bo'lmay qoladi — katalogda noto'g'ri / eski rasm.
  * Profil `listing:` dan o'qiydi. Katalog javobida listingdagi `images` ustuvor qilinadi.
@@ -333,8 +343,7 @@ async function mergeCatalogRowImagesFromListing(row: any): Promise<any> {
 
 /** Bitta telefon bo‘yicha bepul e’lonlar soni; undan keyin har biri uchun LISTING_FEE_UZS. */
 const FREE_LISTINGS_PER_PHONE = 2;
-/** Vaqtincha test: prodga chiqarishdan oldin 10_000 ga qaytaring. */
-const LISTING_FEE_UZS = 1_000;
+const LISTING_FEE_UZS = 10_000;
 
 /**
  * Profil (`listing:`), katalog (`house:` / `car:`) va yashirin yo‘llar (`POST /houses`, `/cars`)
@@ -5270,17 +5279,30 @@ app.put("/make-server-27d0d16c/listings/:id", async (c) => {
     // Save updated listing
     await kv.set(`listing:${auth.userId}:${listingId}`, updatedListing);
 
-    // Katalog `GET /houses` `house:` dan o‘qiydi — tahrirdan keyin rasmlar mos bo‘lishi uchun sinxronlash
+    // Katalog `GET /houses` `house:` dan o‘qiydi — profildan tahrir viloyat/tuman va boshqalar ham mos tursin
     try {
       const houseRow: any = await kv.get(`house:${listingId}`);
-      if (houseRow && typeof houseRow === "object" && Array.isArray(updatedListing.images)) {
-        const imgs = updatedListing.images as string[];
-        await kv.set(`house:${listingId}`, {
-          ...houseRow,
-          images: imgs,
-          image: imgs[0] || houseRow.image,
-          updatedAt: updatedListing.updatedAt,
-        });
+      const isHouse =
+        houseRow &&
+        typeof houseRow === "object" &&
+        (String((existingListing as { type?: string }).type || "") === "house" ||
+          String((houseRow as { type?: string }).type || "") === "house");
+      if (isHouse) {
+        const protect = new Set(["id", "userId", "createdAt"]);
+        const next: Record<string, unknown> = { ...houseRow };
+        for (const [k, v] of Object.entries(updatedListing)) {
+          if (protect.has(k)) continue;
+          if (v !== undefined) next[k] = v;
+        }
+        next.id = listingId;
+        next.userId = auth.userId;
+        next.updatedAt = updatedListing.updatedAt;
+        if (Array.isArray(updatedListing.images)) {
+          const imgs = normalizeListingImageUrls(updatedListing.images, 10);
+          next.images = imgs;
+          next.image = imgs[0] || (houseRow as { image?: string }).image;
+        }
+        await kv.set(`house:${listingId}`, next);
       }
     } catch (syncErr) {
       console.warn("[listings PUT] house: sinxronlash:", syncErr);
@@ -6600,11 +6622,13 @@ app.get("/make-server-27d0d16c/houses", async (c) => {
       return true;
     });
     
-    // Optimized filtering - single pass (case-insensitive)
+    const regionNorm = region ? normHouseCatalogLocation(region) : "";
+    const districtNorm = district ? normHouseCatalogLocation(district) : "";
+
     const filteredHouses = uniqueHouses.filter((h: any) => {
       if (!h) return false;
-      if (region && (!h.region || h.region.toLowerCase() !== region.toLowerCase())) return false;
-      if (district && (!h.district || h.district.toLowerCase() !== district.toLowerCase())) return false;
+      if (regionNorm && normHouseCatalogLocation(h.region) !== regionNorm) return false;
+      if (districtNorm && normHouseCatalogLocation(h.district) !== districtNorm) return false;
       if (category && h.categoryId !== category) return false;
       return true;
     });
@@ -6811,15 +6835,20 @@ app.get("/make-server-27d0d16c/cars", async (c) => {
     const category = c.req.query('category');
     
     let allCars = await kv.getByPrefix('car:');
-    
-    // Filter by region
-    if (region) {
-      allCars = allCars.filter((car: any) => car.region === region);
+
+    const carRegionNorm = region ? normHouseCatalogLocation(region) : "";
+    const carDistrictNorm = district ? normHouseCatalogLocation(district) : "";
+
+    if (carRegionNorm) {
+      allCars = allCars.filter(
+        (car: any) => normHouseCatalogLocation(car.region) === carRegionNorm,
+      );
     }
-    
-    // Filter by district
-    if (district) {
-      allCars = allCars.filter((car: any) => car.district === district);
+
+    if (carDistrictNorm) {
+      allCars = allCars.filter(
+        (car: any) => normHouseCatalogLocation(car.district) === carDistrictNorm,
+      );
     }
     
     // Filter by category
@@ -10928,6 +10957,37 @@ async function resolvePostgresBranchId(branchAuth: {
     return null;
   }
   return data?.id ? String(data.id) : null;
+}
+
+/** Sessiya `branchId` (KV kaliti) va buyurtma `branchId` (UUID) farq qilishi mumkin — barcha ekvivalentlarni to‘plash. */
+async function collectBranchIdsForOrderFilter(branchAuth: {
+  branchId: string;
+  relationalBranchId?: string;
+}): Promise<Set<string>> {
+  const s = new Set<string>();
+  const bid = String(branchAuth.branchId || "").trim();
+  const rid = String(branchAuth.relationalBranchId || "").trim();
+  if (bid) s.add(bid);
+  if (rid) s.add(rid);
+  const pg = await resolvePostgresBranchId(branchAuth);
+  if (pg) s.add(pg);
+
+  const addLegacyKeyForUuid = async (uuid: string) => {
+    if (!uuid || !POSTGRES_BRANCH_UUID_RE.test(uuid)) return;
+    const { data, error } = await supabase
+      .from("branches")
+      .select("legacy_kv_key")
+      .eq("id", uuid)
+      .maybeSingle();
+    if (error || !data?.legacy_kv_key) return;
+    const lk = String(data.legacy_kv_key).trim();
+    if (lk) s.add(lk);
+  };
+
+  await addLegacyKeyForUuid(bid);
+  if (rid && rid !== bid) await addLegacyKeyForUuid(rid);
+
+  return s;
 }
 
 const sanitizeBranchSessionPayload = (branch: any) => ({
@@ -16415,7 +16475,11 @@ app.post("/make-server-27d0d16c/orders/:orderId/confirm-receipt", async (c) => {
 
     const nowIso = new Date().toISOString();
     const inferredBranchId = orderRecord.order.branchId || (await inferOrderBranchId(orderRecord.order));
-    if (branchAuth.branchId && inferredBranchId && String(branchAuth.branchId) !== String(inferredBranchId)) {
+    if (
+      branchAuth.branchId &&
+      inferredBranchId &&
+      normalizeBranchId(branchAuth.branchId) !== normalizeBranchId(String(inferredBranchId))
+    ) {
       return c.json({ success: false, error: 'Ruxsat yo‘q' }, 403);
     }
 
@@ -16438,7 +16502,30 @@ app.post("/make-server-27d0d16c/orders/:orderId/confirm-receipt", async (c) => {
       ],
     };
 
-    await kv.set(orderRecord.key, updatedOrder);
+    /** Bir xil buyurtma `order:id` va `order:market:id` da bo‘lsa — ikkalasiga ham yoziladi (payments ro‘yxati ikkalasini ham o‘qiydi). */
+    let persistedPrimary: any = updatedOrder;
+    for (const key of getOrderKeys(orderId)) {
+      const existingRaw = await kv.get(key);
+      if (!existingRaw || typeof existingRaw !== 'object') continue;
+      const eo = existingRaw as Record<string, unknown>;
+      const merged = {
+        ...eo,
+        ...(existingRootShopId || !normalizedShopForOrder ? {} : { shopId: normalizedShopForOrder }),
+        paymentStatus: 'paid',
+        paymentCompletedAt: nowIso,
+        paymentReceiptImageUrl: receiptImageUrl,
+        receiptUrl: receiptImageUrl,
+        paymentConfirmedAt: nowIso,
+        paymentRequiresVerification: false,
+        updatedAt: nowIso,
+        statusHistory: [
+          ...(Array.isArray(eo.statusHistory) ? (eo.statusHistory as unknown[]) : []),
+          { status: eo.status, timestamp: nowIso, note: 'Kassa QR/to\'lov chekini tasdiqladi' },
+        ],
+      };
+      await kv.set(key, merged);
+      if (key === orderRecord.key) persistedPrimary = merged;
+    }
     
     // Keep Postgres marketplace `v2` in sync (payment becomes "paid" after receipt confirmation)
     await syncRelationalOrderFromLegacy({
@@ -16560,7 +16647,7 @@ app.post("/make-server-27d0d16c/orders/:orderId/confirm-receipt", async (c) => {
       console.error('Telegram receipt photo send error:', tgErr);
     }
 
-    return c.json({ success: true, order: updatedOrder });
+    return c.json({ success: true, order: persistedPrimary });
   } catch (error: any) {
     console.error('Confirm receipt error:', error);
     return c.json({ error: 'Chekni tasdiqlashda xatolik' }, 500);
@@ -16583,6 +16670,9 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
     const status = String(c.req.query('status') || '').trim(); // completed|pending|processing|failed|refunded|cancelled
     const method = String(c.req.query('method') || '').trim(); // cash|card|click|payme|uzum|apelsin
     const dateRange = String(c.req.query('dateRange') || '7days').trim(); // 7days|30days|90days
+    const cashierMode =
+      String(c.req.query('cashier') || '').trim() === '1' ||
+      String(c.req.query('cashier') || '').trim().toLowerCase() === 'true';
     const debugMode =
       String(c.req.query('debug') || '').trim() === '1' ||
       String(c.req.query('debug') || '').trim().toLowerCase() === 'true';
@@ -16594,7 +16684,9 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
       return c.json({ success: false, error: 'Ruxsat yo‘q' }, 403);
     }
 
-    const rangeDays = dateRange === '30days' ? 30 : dateRange === '90days' ? 90 : 7;
+    let rangeDays = dateRange === '30days' ? 30 : dateRange === '90days' ? 90 : 7;
+    // Kassa navbati uchun tarix oynasini qisqartiramiz — kamroq buyurtmada og‘ir filial/QR tekshiruvi.
+    if (cashierMode) rangeDays = Math.min(rangeDays, 30);
     const startTs = Date.now() - rangeDays * 24 * 60 * 60 * 1000;
 
 
@@ -16621,6 +16713,16 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
       }
       const orderType = String(order.orderType || '').toLowerCase().trim();
       let candidateRestaurantId = extractRestaurantIdFromOrder(order);
+
+      const { createdAt, createdTs } = resolveCreatedTimestamp(order);
+      if (!createdTs) {
+        bumpDrop('no_created_ts', String(order.id || 'unknown'));
+        continue;
+      }
+      if (createdTs < startTs) {
+        bumpDrop('too_old', `${String(order.id || 'unknown')}|${new Date(createdTs).toISOString()}`);
+        continue;
+      }
 
       let inferredBranchId = order.branchId || (await inferOrderBranchId(order));
       if (!inferredBranchId) {
@@ -16658,16 +16760,6 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
         bumpDrop('branch_mismatch', `${String(order.id || 'unknown')}|${normalizedInferred}`);
         continue;
         }
-      }
-
-      const { createdAt, createdTs } = resolveCreatedTimestamp(order);
-      if (!createdTs) {
-        bumpDrop('no_created_ts', String(order.id || 'unknown'));
-        continue;
-      }
-      if (createdTs < startTs) {
-        bumpDrop('too_old', `${String(order.id || 'unknown')}|${new Date(createdTs).toISOString()}`);
-        continue;
       }
 
       const uiStatus = mapOrderToPaymentUIStatus(order);
@@ -16828,63 +16920,66 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
     // Sort newest first
     filtered.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    const totalTransactions = filtered.length;
-    const completed = filtered.filter((x: any) => x.status === 'completed');
-    const refunded = filtered.filter((x: any) => x.status === 'refunded');
+    let stats: any = null;
+    if (!cashierMode) {
+      const totalTransactions = filtered.length;
+      const completed = filtered.filter((x: any) => x.status === 'completed');
+      const refunded = filtered.filter((x: any) => x.status === 'refunded');
 
-    const totalRevenue = completed.reduce((sum: number, x: any) => sum + (Number(x.amount) || 0), 0);
-    const averageTransactionValue = totalTransactions ? totalRevenue / totalTransactions : 0;
-    const successRate = totalTransactions ? (completed.length / totalTransactions) * 100 : 0;
-    const refundRate = totalTransactions ? (refunded.length / totalTransactions) * 100 : 0;
+      const totalRevenue = completed.reduce((sum: number, x: any) => sum + (Number(x.amount) || 0), 0);
+      const averageTransactionValue = totalTransactions ? totalRevenue / totalTransactions : 0;
+      const successRate = totalTransactions ? (completed.length / totalTransactions) * 100 : 0;
+      const refundRate = totalTransactions ? (refunded.length / totalTransactions) * 100 : 0;
 
-    const methodAgg = new Map<string, { method: string; count: number; amount: number }>();
-    for (const x of filtered) {
-      const key = x.method || 'cash';
-      const prev = methodAgg.get(key) || { method: key, count: 0, amount: 0 };
-      prev.count += 1;
-      if (x.status === 'completed') prev.amount += Number(x.amount) || 0;
-      methodAgg.set(key, prev);
+      const methodAgg = new Map<string, { method: string; count: number; amount: number }>();
+      for (const x of filtered) {
+        const key = x.method || 'cash';
+        const prev = methodAgg.get(key) || { method: key, count: 0, amount: 0 };
+        prev.count += 1;
+        if (x.status === 'completed') prev.amount += Number(x.amount) || 0;
+        methodAgg.set(key, prev);
+      }
+
+      const paymentMethods = Array.from(methodAgg.values()).map((m) => ({
+        method: m.method,
+        count: m.count,
+        amount: m.amount,
+        percentage: totalTransactions ? (m.count / totalTransactions) * 100 : 0,
+      }));
+
+      const dayMap = new Map<string, { date: string; amount: number; transactions: number }>();
+      const monthMap = new Map<string, { month: string; amount: number; transactions: number }>();
+
+      for (const x of filtered) {
+        if (x.status !== 'completed') continue;
+        const d = new Date(x.createdAt);
+        const day = d.toISOString().slice(0, 10);
+        const month = d.toISOString().slice(0, 7); // YYYY-MM
+        const prevDay = dayMap.get(day) || { date: day, amount: 0, transactions: 0 };
+        prevDay.amount += Number(x.amount) || 0;
+        prevDay.transactions += 1;
+        dayMap.set(day, prevDay);
+
+        const prevMonth = monthMap.get(month) || { month, amount: 0, transactions: 0 };
+        prevMonth.amount += Number(x.amount) || 0;
+        prevMonth.transactions += 1;
+        monthMap.set(month, prevMonth);
+      }
+
+      const dailyRevenue = Array.from(dayMap.values()).sort((a, b) => a.date < b.date ? -1 : 1);
+      const monthlyRevenue = Array.from(monthMap.values()).sort((a, b) => a.month < b.month ? -1 : 1);
+
+      stats = {
+        totalRevenue,
+        totalTransactions,
+        averageTransactionValue,
+        successRate: Math.round(successRate * 10) / 10,
+        refundRate: Math.round(refundRate * 10) / 10,
+        paymentMethods,
+        dailyRevenue,
+        monthlyRevenue,
+      };
     }
-
-    const paymentMethods = Array.from(methodAgg.values()).map((m) => ({
-      method: m.method,
-      count: m.count,
-      amount: m.amount,
-      percentage: totalTransactions ? (m.count / totalTransactions) * 100 : 0,
-    }));
-
-    const dayMap = new Map<string, { date: string; amount: number; transactions: number }>();
-    const monthMap = new Map<string, { month: string; amount: number; transactions: number }>();
-
-    for (const x of filtered) {
-      if (x.status !== 'completed') continue;
-      const d = new Date(x.createdAt);
-      const day = d.toISOString().slice(0, 10);
-      const month = d.toISOString().slice(0, 7); // YYYY-MM
-      const prevDay = dayMap.get(day) || { date: day, amount: 0, transactions: 0 };
-      prevDay.amount += Number(x.amount) || 0;
-      prevDay.transactions += 1;
-      dayMap.set(day, prevDay);
-
-      const prevMonth = monthMap.get(month) || { month, amount: 0, transactions: 0 };
-      prevMonth.amount += Number(x.amount) || 0;
-      prevMonth.transactions += 1;
-      monthMap.set(month, prevMonth);
-    }
-
-    const dailyRevenue = Array.from(dayMap.values()).sort((a, b) => a.date < b.date ? -1 : 1);
-    const monthlyRevenue = Array.from(monthMap.values()).sort((a, b) => a.month < b.month ? -1 : 1);
-
-    const stats = {
-      totalRevenue,
-      totalTransactions,
-      averageTransactionValue,
-      successRate: Math.round(successRate * 10) / 10,
-      refundRate: Math.round(refundRate * 10) / 10,
-      paymentMethods,
-      dailyRevenue,
-      monthlyRevenue,
-    };
 
     return c.json({
       success: true,
@@ -18540,6 +18635,165 @@ app.get("/make-server-27d0d16c/public/order-review/:token", async (c) => {
 
 // ==================== ORDERS ROUTES ====================
 
+/** Bir xil `id` li `order:` / `order:market:` yozuvlari — yangilangan / qaytarish kutilayotganini ustun qoldiramiz. */
+function dedupeKvOrdersByLegacyIdPreferRefund(orders: any[]): any[] {
+  const byId = new Map<string, any>();
+  const rank = (o: any) => {
+    const st = String(o?.status || '').toLowerCase().trim();
+    let r = 0;
+    if (st === 'cancelled' || st === 'canceled' || st === 'rejected') r += 100;
+    if (kvRefundPendingActive(o?.refundPending)) r += 50;
+    else if (legacyOnlineCancelNeedsCashierRefund(o as Record<string, any>)) r += 45;
+    /** Kassa tasdiqidan keyin takror KV nusxalari: yopilgan yozuv ustun — keyin qualifiesForBranchRefundQueue chiqarib tashlaydi */
+    if (o?.refundResolvedAt) r += 220;
+    const ps = String(o?.paymentStatus || '').toLowerCase();
+    if (ps === 'paid' || ps === 'completed' || ps === 'success') r += 5;
+    if (ps === 'refunded') r += 8;
+    const t = new Date(o?.updatedAt || o?.createdAt || 0).getTime();
+    return { r, t: Number.isFinite(t) ? t : 0 };
+  };
+  for (const o of orders) {
+    const id = String(o?.id ?? '').trim();
+    if (!id) continue;
+    const prev = byId.get(id);
+    if (!prev) {
+      byId.set(id, o);
+      continue;
+    }
+    const a = rank(prev);
+    const b = rank(o);
+    if (b.r !== a.r) {
+      byId.set(id, b.r > a.r ? o : prev);
+      continue;
+    }
+    byId.set(id, b.t >= a.t ? o : prev);
+  }
+  return Array.from(byId.values());
+}
+
+/** KV / JSON seriyalizatsiyasida ba'zan string yoki 1 sifatida kelishi mumkin */
+function kvRefundPendingActive(v: unknown): boolean {
+  return v === true || v === 'true' || v === 1;
+}
+
+/** Filial «Mijozga qaytarish» navbati: market / do‘kon / taom (food yoki restaurant) */
+function isBranchRefundQueueOrderType(orderType: unknown): boolean {
+  const ot = String(orderType || '').toLowerCase();
+  return ot === 'market' || ot === 'shop' || ot === 'food' || ot === 'restaurant';
+}
+
+/** Restoran panel «rad etish» ham kassa qaytarish zanjirida bekor bilan bir xil */
+function isRefundQueueTerminalStatus(stRaw: unknown): boolean {
+  const st = String(stRaw || '').toLowerCase().trim();
+  return st === 'cancelled' || st === 'canceled' || st === 'rejected';
+}
+
+/** Taom buyurtmasida `branchId` bo‘sh bo‘lsa — restoran yozuvidan (kassa filtri uchun) */
+async function enrichBranchIdFromRestaurantIfEmpty(
+  o: Record<string, any>,
+): Promise<Record<string, any>> {
+  const bid = String(o.branchId ?? '').trim();
+  if (bid) return o;
+  const rid = String(o.restaurantId ?? '').trim();
+  if (!rid) return o;
+  let rec: any = await kv.get(rid);
+  if (!rec || typeof rec !== 'object') {
+    const p = rid.startsWith('restaurant:') ? rid : `restaurant:${rid}`;
+    rec = await kv.get(p);
+  }
+  if (!rec || typeof rec !== 'object') return o;
+  const rb = String(rec.branchId ?? rec.branchID ?? rec.branch_id ?? '').trim();
+  if (!rb) return o;
+  return { ...o, branchId: rb };
+}
+
+/**
+ * Eski KV: bekor qilingan, onlayn to‘langan, lekin `refundPending` qo‘yilmagan — kassa navbatida ko‘rsatish.
+ * Naqd (filial zanjiri) buyurtmalar chiqarilmaydi.
+ *
+ * Admin qatori: to‘lov holati `pending` qolgan, lekin Payme/Click id yoki paidAt bor.
+ */
+function orderRowPaidForRefundContext(o: Record<string, any>): boolean {
+  const ps = String(o.paymentStatus ?? '').toLowerCase();
+  if (ps === 'refunded' || ps === 'failed') return false;
+  if (ps === 'paid') return true;
+  if (isPaidLikeStatus(o.paymentStatus)) return true;
+  const payObj = o.payment && typeof o.payment === 'object' ? (o.payment as any) : null;
+  if (payObj && isPaidLikeStatus(payObj.status)) return true;
+  if (
+    o.paidAt ||
+    o.paid_at ||
+    o.paymentCompletedAt ||
+    o.payment_completed_at ||
+    o.paymentVerifiedAt ||
+    o.payment_verified_at
+  ) {
+    return true;
+  }
+  if (
+    o.paymeReceiptId ||
+    o.clickTransId ||
+    o.payme_receipt_id ||
+    o.click_trans_id ||
+    o.transactionId ||
+    o.externalPaymentId ||
+    o.paycomTransactionId
+  ) {
+    return true;
+  }
+  return false;
+}
+
+function legacyOnlineCancelNeedsCashierRefund(o: Record<string, any>): boolean {
+  const st = String(o.status || '').toLowerCase();
+  if (!isRefundQueueTerminalStatus(st)) return false;
+  if (o.refundResolvedAt) return false;
+  if (!isBranchRefundQueueOrderType(o.orderType ?? o.type)) return false;
+
+  const ps = String(o.paymentStatus ?? '').toLowerCase();
+  if (ps === 'refunded') return false;
+  if (kvRefundPendingActive(o.refundPending)) return false;
+
+  if (!orderRowPaidForRefundContext(o)) return false;
+
+  const pmRaw = o.paymentMethod ?? o.payment_method;
+  if (isCashLikePaymentMethodRaw(pmRaw)) return false;
+
+  const pmLower = String(pmRaw || '').toLowerCase().trim();
+  const looksOnlinePaid =
+    ONLINE_PAYMENT_METHODS.has(pmLower) ||
+    ['uzum', 'humo', 'stripe', 'apple', 'google', 'paycom', 'payme', 'click', 'atmos'].some(
+      (x) => pmLower.includes(x),
+    ) ||
+    pmLower === 'qr' ||
+    pmLower === 'qrcode' ||
+    pmLower.includes('qr') ||
+    pmLower === 'online' ||
+    pmLower === 'card' ||
+    Boolean(o.paymentRequiresVerification);
+
+  if (looksOnlinePaid) return true;
+  if (o.paymeReceiptId || o.clickTransId || o.payme_receipt_id || o.click_trans_id) {
+    return true;
+  }
+  return false;
+}
+
+/** Admin-normalize qilingan qator yoki xom KV — kassa qaytarish ro‘yxatiga tushadimi */
+function qualifiesForBranchRefundQueue(normalizedRow: Record<string, any>): boolean {
+  const st = String(normalizedRow.status || '').toLowerCase();
+  if (!isRefundQueueTerminalStatus(st)) return false;
+  if (normalizedRow.refundResolvedAt) return false;
+  if (!isBranchRefundQueueOrderType(normalizedRow.orderType)) return false;
+
+  const ps = String(normalizedRow.paymentStatus ?? '').toLowerCase();
+  if (ps === 'refunded') return false;
+
+  if (kvRefundPendingActive(normalizedRow.refundPending)) return true;
+
+  return legacyOnlineCancelNeedsCashierRefund(normalizedRow);
+}
+
 // Get all orders
 app.get("/make-server-27d0d16c/orders", async (c) => {
   try {
@@ -18557,6 +18811,7 @@ app.get("/make-server-27d0d16c/orders", async (c) => {
     if (userAuth.success && userAuth.userId && !branchId) {
       const uid = String(userAuth.userId).trim();
       orders = orders.filter((order: any) => String(order?.userId || '').trim() === uid);
+      orders = dedupeKvOrdersByLegacyIdPreferRefund(orders);
     }
     if (branchId) {
       orders = orders.filter((order: any) => order.branchId === branchId);
@@ -19484,29 +19739,26 @@ app.get('/make-server-27d0d16c/orders/branch', async (c) => {
     const requestedBranchId = c.req.query('branchId')
       ? String(c.req.query('branchId')).trim()
       : '';
-    if (requestedBranchId && requestedBranchId !== branchAuth.branchId) {
+    const branchIdsForOrders = await collectBranchIdsForOrderFilter(branchAuth);
+    if (requestedBranchId && !branchIdsForOrders.has(requestedBranchId)) {
       return c.json({ error: "Filialga ruxsat yo'q" }, 403);
     }
 
-    const branchId = branchAuth.branchId;
     const type = (c.req.query('type') || 'all') ? String(c.req.query('type')).trim() : 'all';
     const refundQueue = String(c.req.query('refundQueue') || '').trim() === '1';
 
     const rows = await kv.getByPrefixWithKeys('order:');
     let orders = rows
       .map(({ key, value }) => normalizeOrderRowForAdmin(value, key))
-      .filter((o): o is NonNullable<typeof o> => o != null)
-      .filter((o: any) => o.branchId === branchId);
+      .filter((o): o is NonNullable<typeof o> => o != null);
+    orders = await Promise.all(
+      orders.map((row) => enrichBranchIdFromRestaurantIfEmpty(row as Record<string, any>)),
+    );
+    orders = orders.filter((o: any) => branchIdsForOrders.has(String(o.branchId ?? '').trim()));
 
     if (refundQueue) {
-      orders = orders.filter((o: any) => {
-        const st = String(o.status || '').toLowerCase();
-        if (st !== 'cancelled' && st !== 'canceled') return false;
-        if (o.refundPending !== true) return false;
-        if (o.refundResolvedAt) return false;
-        const ot = String(o.orderType || '').toLowerCase();
-        return ot === 'market' || ot === 'shop' || ot === 'food';
-      });
+      orders = dedupeKvOrdersByLegacyIdPreferRefund(orders);
+      orders = orders.filter((o: any) => qualifiesForBranchRefundQueue(o));
     } else {
       const orderTypeMap: Record<string, string> = {
         all: '',
@@ -19787,7 +20039,8 @@ app.post('/make-server-27d0d16c/orders/:orderId/cancel-by-branch', async (c) => 
     }
 
     const o = record.order as Record<string, any>;
-    if (String(o.branchId || '') !== String(branchAuth.branchId || '')) {
+    const allowedBranchIds = await collectBranchIdsForOrderFilter(branchAuth);
+    if (!allowedBranchIds.has(String(o.branchId || '').trim())) {
       return c.json({ error: "Bu filial uchun ruxsat yo'q" }, 403);
     }
 
@@ -19844,44 +20097,59 @@ app.post('/make-server-27d0d16c/orders/:orderId/cancel-by-branch', async (c) => 
 
     const now = new Date().toISOString();
     const refundPending = paidLike;
-    const updated = {
-      ...o,
-      status: 'cancelled',
-      inventoryRestoredOnCancel: true,
-      refundPending,
-      cancelledByBranchAt: now,
-      cancellationSource: 'branch',
-      updatedAt: now,
-      statusHistory: [
-        ...(Array.isArray(o.statusHistory) ? o.statusHistory : []),
-        {
-          status: 'cancelled',
-          timestamp: now,
-          note: refundPending
-            ? "Filial bekor qildi — onlayn to‘lov qaytarishini tekshiring"
-            : "Filial bekor qildi (naqd)",
-        },
-      ],
-    };
+    const cancelNote = refundPending
+      ? "Filial bekor qildi — onlayn to‘lov qaytarishini tekshiring"
+      : "Filial bekor qildi (naqd)";
 
-    await kv.set(record.key, updated);
-    await syncFoodOrderMirrorKv(updated);
-    await applyOrderCancelOneDayLineCooldown(updated);
+    let primaryUpdated: Record<string, any> | null = null;
+    for (const key of getOrderKeys(orderId)) {
+      const existingRaw = await kv.get(key);
+      if (!existingRaw || typeof existingRaw !== 'object') continue;
+      const ex = existingRaw as Record<string, any>;
+      if (!allowedBranchIds.has(String(ex.branchId || '').trim())) continue;
+      const hist = Array.isArray(ex.statusHistory) ? [...ex.statusHistory] : [];
+      const merged = {
+        ...ex,
+        status: 'cancelled',
+        inventoryRestoredOnCancel: true,
+        refundPending,
+        cancelledByBranchAt: now,
+        cancellationSource: 'branch',
+        updatedAt: now,
+        statusHistory: [
+          ...hist,
+          {
+            status: 'cancelled',
+            timestamp: now,
+            note: cancelNote,
+          },
+        ],
+      };
+      await kv.set(key, merged);
+      if (key === record.key) primaryUpdated = merged;
+    }
+
+    if (!primaryUpdated) {
+      return c.json({ error: 'Buyurtma KV da yangilanmadi' }, 500);
+    }
+
+    await syncFoodOrderMirrorKv(primaryUpdated);
+    await applyOrderCancelOneDayLineCooldown(primaryUpdated);
 
     try {
       await syncRelationalOrderFromLegacy({
-        legacyOrderId: String(updated.id ?? orderId),
+        legacyOrderId: String(primaryUpdated.id ?? orderId),
         kvStatus: 'cancelled',
-        kvPaymentStatus: String(updated.paymentStatus || 'pending'),
+        kvPaymentStatus: String(primaryUpdated.paymentStatus || 'pending'),
         paymentRequiresVerification: Boolean(
-          updated.paymentRequiresVerification ?? o.paymentRequiresVerification,
+          primaryUpdated.paymentRequiresVerification ?? o.paymentRequiresVerification,
         ),
       });
     } catch (e) {
       console.warn('[cancel-by-branch] v2 sync:', e);
     }
 
-    return c.json({ success: true, order: updated, refundPending });
+    return c.json({ success: true, order: primaryUpdated, refundPending });
   } catch (error: any) {
     console.error('cancel-by-branch error:', error);
     return c.json({ error: error?.message || 'Xatolik' }, 500);
@@ -19910,66 +20178,93 @@ app.post(
         return c.json({ error: 'Buyurtma topilmadi' }, 404);
       }
 
-      const o = record.order as Record<string, any>;
-      if (String(o.branchId || '') !== String(branchAuth.branchId || '')) {
+      const rawOrder = record.order as Record<string, any>;
+      const o = await enrichBranchIdFromRestaurantIfEmpty(rawOrder);
+      const allowedRefundBranchIds = await collectBranchIdsForOrderFilter(branchAuth);
+      if (!allowedRefundBranchIds.has(String(o.branchId || '').trim())) {
         return c.json({ error: "Bu filial uchun ruxsat yo'q" }, 403);
       }
 
       const st = String(o.status || '').toLowerCase();
-      if (st !== 'cancelled' && st !== 'canceled') {
+      if (!isRefundQueueTerminalStatus(st)) {
         return c.json({ error: 'Faqat bekor qilingan buyurtma uchun' }, 400);
       }
-      if (o.refundPending !== true) {
+      if (o.refundResolvedAt) {
+        return c.json({ error: 'Qaytarish allaqachon tasdiqlangan' }, 400);
+      }
+      const canConfirmRefund =
+        kvRefundPendingActive(o.refundPending) || legacyOnlineCancelNeedsCashierRefund(o);
+      if (!canConfirmRefund) {
         return c.json(
           { error: 'Qaytarish navbatida emas yoki allaqachon yopilgan' },
           400,
         );
-      }
-      if (o.refundResolvedAt) {
-        return c.json({ error: 'Qaytarish allaqachon tasdiqlangan' }, 400);
       }
 
       const body = await c.req.json().catch(() => ({}));
       const note = String(body.note || '').trim();
 
       const now = new Date().toISOString();
-      const updated = {
-        ...o,
-        refundPending: false,
-        refundResolvedAt: now,
-        refundResolvedBy: 'cashier',
-        ...(note ? { refundCashierNote: note } : {}),
-        paymentStatus: 'refunded',
-        refundedAt: o.refundedAt || now,
-        updatedAt: now,
-        statusHistory: [
-          ...(Array.isArray(o.statusHistory) ? o.statusHistory : []),
-          {
-            status: 'cancelled',
-            timestamp: now,
-            note: note
-              ? `Kassa: to‘lov qaytarildi — ${note}`
-              : 'Kassa: mijozga to‘lov qaytarildi (tasdiq)',
-          },
-        ],
-      };
+      const histNote = note
+        ? `Kassa: to‘lov qaytarildi — ${note}`
+        : 'Kassa: mijozga to‘lov qaytarildi (tasdiq)';
 
-      await kv.set(record.key, updated);
-      await syncFoodOrderMirrorKv(updated);
+      let primaryUpdated: Record<string, any> | null = null;
+      for (const key of getOrderKeys(orderId)) {
+        const existingRaw = await kv.get(key);
+        if (!existingRaw || typeof existingRaw !== 'object') continue;
+        let ex = existingRaw as Record<string, any>;
+        ex = await enrichBranchIdFromRestaurantIfEmpty(ex);
+        if (!allowedRefundBranchIds.has(String(ex.branchId || '').trim())) continue;
+        const stx = String(ex.status || '').toLowerCase();
+        if (!isRefundQueueTerminalStatus(stx)) continue;
+        const exCanRefund =
+          kvRefundPendingActive(ex.refundPending) || legacyOnlineCancelNeedsCashierRefund(ex);
+        if (!exCanRefund) continue;
+        const merged = {
+          ...ex,
+          refundPending: false,
+          refundResolvedAt: now,
+          refundResolvedBy: 'cashier',
+          ...(note ? { refundCashierNote: note } : {}),
+          paymentStatus: 'refunded',
+          refundedAt: ex.refundedAt || now,
+          updatedAt: now,
+          statusHistory: [
+            ...(Array.isArray(ex.statusHistory) ? ex.statusHistory : []),
+            {
+              status: 'cancelled',
+              timestamp: now,
+              note: histNote,
+            },
+          ],
+        };
+        await kv.set(key, merged);
+        primaryUpdated = merged;
+      }
+
+      if (!primaryUpdated) {
+        return c.json(
+          { error: 'KV da qaytarishni yangilab bo‘lmadi (takror kalit yoki holat mos emas)' },
+          400,
+        );
+      }
+
+      await syncFoodOrderMirrorKv(primaryUpdated);
       try {
         await syncRelationalOrderFromLegacy({
-          legacyOrderId: String(updated.id ?? orderId),
+          legacyOrderId: String(primaryUpdated.id ?? orderId),
           kvStatus: 'cancelled',
           kvPaymentStatus: 'refunded',
           paymentRequiresVerification: Boolean(
-            updated.paymentRequiresVerification ?? o.paymentRequiresVerification,
+            primaryUpdated.paymentRequiresVerification ?? o.paymentRequiresVerification,
           ),
         });
       } catch (e) {
         console.warn('[confirm-refund-cashier] v2 sync:', e);
       }
 
-      return c.json({ success: true, order: updated });
+      return c.json({ success: true, order: primaryUpdated });
     } catch (error: any) {
       console.error('confirm-refund-by-cashier error:', error);
       return c.json({ error: error?.message || 'Xatolik' }, 500);

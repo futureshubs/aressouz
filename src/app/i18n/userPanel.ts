@@ -71,11 +71,12 @@ const UZ: Record<string, string> = {
   'settings.help.body':
     'Ko‘p so‘raladigan savollar:\n\n1) Buyurtma qayerda?\n- Buyurtmalar bo‘limidan statusni ko‘ring.\n\n2) To‘lov muammo bo‘lsa?\n- Support chat yoki aloqa orqali yozing.\n\n3) Qaytarish/refund?\n- Supportga murojaat qiling.',
   'settings.contact.body':
-    'Email: {email}\nTelegram: {telegram}\nTelefon: {phone}\n\nIsh vaqti: 09:00 - 22:00',
+    'Email: {email}\nTelegram: {telegram}\nTelefon: {phone}\n\nIsh vaqti: {hours}',
+  'settings.contact.workHoursLine': '08:00 dan 23:00 gacha',
   'settings.share.title': 'ARESSO - Zamonaviy Online Do‘kon',
   'settings.share.text':
     'ARESSO ilovasini sinab ko‘ring! Market, Do‘kon, Taomlar, Ijara va Auktsion — hammasi bir joyda.',
-  'settings.workHours': 'Ish vaqti: 09:00 - 22:00',
+  'settings.workHours': 'Ish vaqti: 08:00 dan 23:00 gacha',
 
   'profile.loginTitle': 'Profilga kirish',
   'profile.loginSubtitle': "Profilingizni ko'rish uchun tizimga kiring",
@@ -123,6 +124,11 @@ const UZ: Record<string, string> = {
   'profile.order.active': 'Faol',
   'profile.order.completed': 'Yakunlangan',
   'profile.order.cancelled': 'Bekor qilingan',
+  'profile.order.refundPendingBadge': 'Qaytarish kutilmoqda',
+  'profile.order.refundDoneBadge': 'Pul qaytarildi',
+  'profile.refundYourDetails': 'Buyurtma / qaytarish',
+  'profile.refundDetailHint':
+    'Filial to‘lovni Click, Payme yoki boshqa usulda qaytaradi. Savollar bo‘lsa filial bilan bog‘laning.',
   'profile.pay.paid': 'To‘langan',
   'profile.pay.pending': 'To‘lov kutilmoqda',
   'profile.pay.failed': 'To‘lov muvaffaqiyatsiz',
@@ -333,11 +339,12 @@ const RU: Record<string, string> = {
   'settings.help.body':
     'Частые вопросы:\n\n1) Где заказ?\n- Смотрите статус в разделе «Заказы».\n\n2) Проблема с оплатой?\n- Напишите в чат поддержки или в контакты.\n\n3) Возврат?\n- Обратитесь в поддержку.',
   'settings.contact.body':
-    'Email: {email}\nTelegram: {telegram}\nТелефон: {phone}\n\nЧасы работы: 09:00 - 22:00',
+    'Email: {email}\nTelegram: {telegram}\nТелефон: {phone}\n\nЧасы работы: {hours}',
+  'settings.contact.workHoursLine': 'с 08:00 до 23:00',
   'settings.share.title': 'ARESSO — онлайн-маркетплейс',
   'settings.share.text':
     'Попробуйте ARESSO! Маркет, магазин, еда, аренда и аукцион — всё в одном месте.',
-  'settings.workHours': 'Часы работы: 09:00 - 22:00',
+  'settings.workHours': 'Часы работы: с 08:00 до 23:00',
 
   'profile.loginTitle': 'Вход в профиль',
   'profile.loginSubtitle': 'Войдите, чтобы видеть свой профиль',
@@ -385,6 +392,11 @@ const RU: Record<string, string> = {
   'profile.order.active': 'Активный',
   'profile.order.completed': 'Завершён',
   'profile.order.cancelled': 'Отменён',
+  'profile.order.refundPendingBadge': 'Ожидается возврат',
+  'profile.order.refundDoneBadge': 'Возврат выполнен',
+  'profile.refundYourDetails': 'Заказ / возврат',
+  'profile.refundDetailHint':
+    'Филиал вернёт оплату через Click, Payme или другой способ. По вопросам свяжитесь с филиалом.',
   'profile.pay.paid': 'Оплачено',
   'profile.pay.pending': 'Ожидает оплаты',
   'profile.pay.failed': 'Ошибка оплаты',
@@ -595,11 +607,12 @@ const EN: Record<string, string> = {
   'settings.help.body':
     'FAQ:\n\n1) Where is my order?\n- Check status under Orders.\n\n2) Payment issue?\n- Use support chat or contact us.\n\n3) Refunds?\n- Contact support.',
   'settings.contact.body':
-    'Email: {email}\nTelegram: {telegram}\nPhone: {phone}\n\nHours: 09:00 - 22:00',
+    'Email: {email}\nTelegram: {telegram}\nPhone: {phone}\n\nHours: {hours}',
+  'settings.contact.workHoursLine': '08:00 – 23:00',
   'settings.share.title': 'ARESSO — online marketplace',
   'settings.share.text':
     'Try ARESSO — market, shop, food, rentals and auction in one place.',
-  'settings.workHours': 'Hours: 09:00 - 22:00',
+  'settings.workHours': 'Hours: 08:00 – 23:00',
 
   'profile.loginTitle': 'Sign in to profile',
   'profile.loginSubtitle': 'Sign in to view your profile',
@@ -647,6 +660,11 @@ const EN: Record<string, string> = {
   'profile.order.active': 'Active',
   'profile.order.completed': 'Completed',
   'profile.order.cancelled': 'Cancelled',
+  'profile.order.refundPendingBadge': 'Refund pending',
+  'profile.order.refundDoneBadge': 'Refunded',
+  'profile.refundYourDetails': 'Order / refund',
+  'profile.refundDetailHint':
+    'The branch refunds via Click, Payme, or your payment method. Contact the branch with questions.',
   'profile.pay.paid': 'Paid',
   'profile.pay.pending': 'Payment pending',
   'profile.pay.failed': 'Payment failed',
@@ -842,12 +860,25 @@ export function profileCategoryLabel(lang: Language, categoryKey: string): strin
 
 export function profileOrderBadgeLabel(
   lang: Language,
-  order: { orderStatus?: string; awaitingCustomerReceipt?: boolean },
+  order: {
+    orderStatus?: string;
+    awaitingCustomerReceipt?: boolean;
+    refundPending?: boolean;
+    paymentStatus?: string;
+    payment_status?: string;
+  },
 ): string {
   if (order.awaitingCustomerReceipt) return userPanelT(lang, 'profile.order.awaitingReceipt');
   const os = String(order.orderStatus || '');
+  const pay = String(order.paymentStatus || order.payment_status || '').toLowerCase();
   if (os === 'completed') return userPanelT(lang, 'profile.order.completed');
-  if (os === 'cancelled') return userPanelT(lang, 'profile.order.cancelled');
+  if (os === 'cancelled') {
+    if (order.refundPending === true && pay !== 'refunded') {
+      return userPanelT(lang, 'profile.order.refundPendingBadge');
+    }
+    if (pay === 'refunded') return userPanelT(lang, 'profile.order.refundDoneBadge');
+    return userPanelT(lang, 'profile.order.cancelled');
+  }
   return userPanelT(lang, 'profile.order.active');
 }
 

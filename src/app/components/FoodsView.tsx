@@ -55,6 +55,12 @@ const FOODS_MODAL_LEFT_INSET = 'max(1rem, var(--app-safe-left, env(safe-area-ins
 const FOODS_MODAL_RIGHT_INSET = 'max(1rem, var(--app-safe-right, env(safe-area-inset-right, 0px)))';
 const FOODS_MODAL_SECOND_ROW_TOP = 'calc(5rem + var(--app-safe-top, env(safe-area-inset-top, 0px)))';
 
+/** Bosh ekranda va scroll bilan asta ochiladigan taomlar (bir vaqtda emas) */
+const FOODS_DISH_UI_INITIAL = 10;
+const FOODS_DISH_UI_STEP = 10;
+const FOODS_MENU_UI_INITIAL = 10;
+const FOODS_MENU_UI_STEP = 10;
+
 interface Restaurant {
   id: string;
   branchId?: string;
@@ -171,6 +177,13 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   /** Restoranlar bo‘yicha hali tugamagan taom so‘rovlari (progressive yuklash) */
   const [dishFetchesRemaining, setDishFetchesRemaining] = useState(0);
   const dishLoadGenRef = useRef(0);
+  const [visibleDishCount, setVisibleDishCount] = useState(FOODS_DISH_UI_INITIAL);
+  const [visibleMenuDishCount, setVisibleMenuDishCount] = useState(FOODS_MENU_UI_INITIAL);
+  const dishesScrollSentinelRef = useRef<HTMLDivElement | null>(null);
+  const menuDishesScrollSentinelRef = useRef<HTMLDivElement | null>(null);
+  const restaurantModalScrollRef = useRef<HTMLDivElement | null>(null);
+  const dishScrollGateRef = useRef(false);
+  const menuDishScrollGateRef = useRef(false);
 
   const [selectedVariant, setSelectedVariant] = useState<any>(null);
   const [selectedAddons, setSelectedAddons] = useState<{ name: string; quantity: number }[]>([]);
@@ -596,6 +609,79 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'food' });
   }, [selectedRestaurant, allDishes, headerSearch]);
 
+  const visibleDishes = useMemo(
+    () => filteredDishes.slice(0, visibleDishCount),
+    [filteredDishes, visibleDishCount],
+  );
+  const hasMoreDishes = visibleDishCount < filteredDishes.length;
+
+  const visibleMenuDishes = useMemo(
+    () => selectedRestaurantDishes.slice(0, visibleMenuDishCount),
+    [selectedRestaurantDishes, visibleMenuDishCount],
+  );
+  const hasMoreMenuDishes = visibleMenuDishCount < selectedRestaurantDishes.length;
+
+  useEffect(() => {
+    setVisibleDishCount(FOODS_DISH_UI_INITIAL);
+    dishScrollGateRef.current = false;
+  }, [selectedRegion, selectedDistrict, headerSearch, activeTab]);
+
+  useEffect(() => {
+    setVisibleDishCount((c) => Math.min(c, filteredDishes.length));
+  }, [filteredDishes.length]);
+
+  useEffect(() => {
+    setVisibleMenuDishCount(FOODS_MENU_UI_INITIAL);
+    menuDishScrollGateRef.current = false;
+  }, [selectedRestaurant?.id]);
+
+  useEffect(() => {
+    setVisibleMenuDishCount((c) => Math.min(c, selectedRestaurantDishes.length));
+  }, [selectedRestaurantDishes.length]);
+
+  useEffect(() => {
+    if (activeTab !== 'dishes' || loading) return;
+    if (!hasMoreDishes) return;
+    const el = dishesScrollSentinelRef.current;
+    if (!el) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        if (dishScrollGateRef.current) return;
+        dishScrollGateRef.current = true;
+        setVisibleDishCount((c) => Math.min(c + FOODS_DISH_UI_STEP, filteredDishes.length));
+        window.setTimeout(() => {
+          dishScrollGateRef.current = false;
+        }, 220);
+      },
+      { root: null, rootMargin: '280px 0px 0px 0px', threshold: 0 },
+    );
+    obs.observe(el);
+    return () => obs.disconnect();
+  }, [activeTab, loading, hasMoreDishes, visibleDishCount, filteredDishes.length]);
+
+  useEffect(() => {
+    if (!selectedRestaurant?.id) return;
+    if (!hasMoreMenuDishes) return;
+    const root = restaurantModalScrollRef.current;
+    const target = menuDishesScrollSentinelRef.current;
+    if (!root || !target) return;
+    const obs = new IntersectionObserver(
+      (entries) => {
+        if (!entries.some((e) => e.isIntersecting)) return;
+        if (menuDishScrollGateRef.current) return;
+        menuDishScrollGateRef.current = true;
+        setVisibleMenuDishCount((c) => Math.min(c + FOODS_MENU_UI_STEP, selectedRestaurantDishes.length));
+        window.setTimeout(() => {
+          menuDishScrollGateRef.current = false;
+        }, 220);
+      },
+      { root, rootMargin: '240px 0px 0px 0px', threshold: 0 },
+    );
+    obs.observe(target);
+    return () => obs.disconnect();
+  }, [selectedRestaurant?.id, hasMoreMenuDishes, visibleMenuDishCount, selectedRestaurantDishes.length]);
+
   useEffect(() => {
     if (selectedRestaurant && !restaurants.some(restaurant => restaurant.id === selectedRestaurant.id)) {
       setSelectedRestaurant(null);
@@ -728,7 +814,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     >
       {/* Food Banners - Only show if location selected */}
       {selectedRegionName && selectedDistrictName && (
-        <div className="px-4 pt-6 pb-2">
+        <div className="px-3 pt-3 pb-2 sm:px-4 sm:pt-6">
           <BannerCarousel 
             category="foods" 
             region={selectedRegionName} 
@@ -738,11 +824,11 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       )}
 
       {/* Tabs */}
-      <div className="px-4 pt-6 pb-4">
-        <div className="flex gap-3">
+      <div className="px-3 pt-3 pb-3 sm:px-4 sm:pt-6 sm:pb-4">
+        <div className="flex gap-2 sm:gap-3">
           <button
             onClick={() => setActiveTab('dishes')}
-            className="flex-1 py-4 rounded-3xl font-bold text-base transition-all flex items-center justify-center gap-2"
+            className="flex-1 py-3 rounded-2xl text-sm font-bold sm:py-4 sm:rounded-3xl sm:text-base transition-all flex items-center justify-center gap-1.5 sm:gap-2"
             style={{
               background: activeTab === 'dishes' ? accentColor.color : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#ffffff'),
               color: activeTab === 'dishes' ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'),
@@ -754,7 +840,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           </button>
           <button
             onClick={() => setActiveTab('restaurants')}
-            className="flex-1 py-4 rounded-3xl font-bold text-base transition-all flex items-center justify-center gap-2"
+            className="flex-1 py-3 rounded-2xl text-sm font-bold sm:py-4 sm:rounded-3xl sm:text-base transition-all flex items-center justify-center gap-1.5 sm:gap-2"
             style={{
               background: activeTab === 'restaurants' ? accentColor.color : (isDark ? 'rgba(255, 255, 255, 0.1)' : '#ffffff'),
               color: activeTab === 'restaurants' ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'),
@@ -768,12 +854,12 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       </div>
 
       {/* Header */}
-      <div className="px-4 pb-4 flex items-center justify-between">
-        <div>
-          <h1 className="text-2xl font-bold mb-1">
+      <div className="px-3 pb-2 flex items-center justify-between sm:px-4 sm:pb-4">
+        <div className="min-w-0">
+          <h1 className="text-xl font-bold mb-0.5 sm:mb-1 sm:text-2xl">
             {activeTab === 'dishes' ? 'Barcha taomlar' : 'Restoranlar'}
           </h1>
-          <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
+          <p className="text-xs sm:text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
             {activeTab === 'dishes' 
               ? `${filteredDishes.length} ta` 
               : `${filteredRestaurants.length} ta`}
@@ -782,7 +868,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       </div>
 
       <p
-        className="text-xs px-4 -mt-2 mb-4"
+        className="text-[11px] leading-snug px-3 -mt-1 mb-3 line-clamp-2 sm:line-clamp-none sm:px-4 sm:-mt-2 sm:mb-4 sm:text-xs"
         style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.45)' }}
       >
         Qidiruv — sahifa tepasidagi maydon orqali (taom nomi, restoran, tavsif).
@@ -804,18 +890,18 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
         <>
           {/* DISHES TAB */}
           {activeTab === 'dishes' && (
-            <div className="px-4">
+            <div className="px-4 pb-2">
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 lg:grid-cols-5">
-                {filteredDishes.map((dish) => {
-                  const restaurant = restaurants.find(r => r.id === dish.restaurantId);
+                {visibleDishes.map((dish, dishIdx) => {
                   return (
                     <div
                       key={dish.id}
                       onClick={() => handleDishClick(dish)}
-                      className="rounded-3xl overflow-hidden cursor-pointer transition-all active:scale-95"
+                      className="foods-catalog-card-in rounded-3xl overflow-hidden cursor-pointer transition-all active:scale-95"
                       style={{
                         background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                        boxShadow: isDark ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.08)'
+                        boxShadow: isDark ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.08)',
+                        animationDelay: `${Math.min(dishIdx % FOODS_DISH_UI_STEP, 11) * 52}ms`,
                       }}
                     >
                       {/* Image */}
@@ -870,37 +956,46 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     />
                   ))}
               </div>
+              <div ref={dishesScrollSentinelRef} className="h-1 w-full shrink-0" aria-hidden />
+              {hasMoreDishes && (
+                <div
+                  className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 lg:grid-cols-5"
+                  aria-hidden
+                >
+                  <ProductCardSkeleton isDark={isDark} imageClassName="aspect-square" />
+                  <ProductCardSkeleton isDark={isDark} imageClassName="aspect-square" />
+                </div>
+              )}
             </div>
           )}
 
           {/* RESTAURANTS TAB */}
           {activeTab === 'restaurants' && (
-            <div className="px-4 space-y-4">
+            <div className="space-y-3 px-3 sm:space-y-4 sm:px-4">
               {filteredRestaurants.map(restaurant => (
                 <div
                   key={restaurant.id}
                   onClick={() => handleRestaurantClick(restaurant)}
-                  className="rounded-3xl overflow-hidden cursor-pointer transition-all active:scale-98"
+                  className="rounded-2xl overflow-hidden cursor-pointer transition-all active:scale-[0.99] sm:rounded-3xl sm:active:scale-[0.98]"
                   style={{
                     background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
                     boxShadow: isDark ? 'none' : '0 2px 12px rgba(0, 0, 0, 0.08)'
                   }}
                 >
-                  <div className="flex gap-4 p-4">
-                    {/* Logo */}
-                    <div className="relative flex-shrink-0">
-                      <div className="w-32 h-32 rounded-2xl overflow-hidden bg-black/5">
-                        {restaurant.banner && (
-                          <img src={restaurant.logo} alt="" className="w-full h-full object-cover" />
+                  <div className="flex gap-2.5 p-3 min-w-0 sm:gap-4 sm:p-4">
+                    {/* Logo — mobil uchun kichikroq, matn ustuni kengroq */}
+                    <div className="relative shrink-0">
+                      <div className="h-20 w-20 overflow-hidden rounded-xl bg-black/5 sm:h-28 sm:w-28 sm:rounded-2xl md:h-32 md:w-32">
+                        {(restaurant.logo || restaurant.banner) && (
+                          <img
+                            src={restaurant.logo || restaurant.banner}
+                            alt=""
+                            className="h-full w-full object-cover"
+                          />
                         )}
                       </div>
-                      {restaurant.logo && (
-                        <div className="absolute -bottom-2 -right-2 w-16 h-16 rounded-xl overflow-hidden border-4 hidden" style={{ borderColor: isDark ? '#000' : '#fff' }}>
-                          <img src={restaurant.logo} alt="" className="w-full h-full object-cover" />
-                        </div>
-                      )}
-                      <div 
-                        className="absolute top-2 left-2 px-2 py-1 rounded-lg text-xs font-bold"
+                      <div
+                        className="absolute left-1 top-1 rounded-md px-1.5 py-0.5 text-[10px] font-bold sm:left-2 sm:top-2 sm:rounded-lg sm:px-2 sm:py-1 sm:text-xs"
                         style={{
                           background: restaurant.isActive ? accentColor.color : 'rgba(107,114,128,0.9)',
                           color: '#fff',
@@ -911,63 +1006,44 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     </div>
 
                     {/* Info */}
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-start justify-between mb-2">
-                        <h3 className="font-bold text-lg">{restaurant.name}</h3>
-                        <div
-                          className="flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-bold"
-                          style={{ background: `${accentColor.color}20`, color: accentColor.color }}
-                        >
-                          <TrendingUp className="w-3 h-3" />
-                          {typeof restaurant.totalOrders === 'number' && restaurant.totalOrders >= 0
-                            ? `${restaurant.totalOrders} buyurtma`
-                            : '—'}
-                        </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="mb-1.5 sm:mb-2">
+                        <h3 className="line-clamp-2 text-sm font-bold leading-tight sm:text-base md:text-lg">
+                          {restaurant.name}
+                        </h3>
                       </div>
-                      
-                      <div 
-                        className="inline-block px-3 py-1 rounded-lg text-xs font-medium mb-3"
+
+                      <div
+                        className="mb-2 inline-block max-w-full truncate rounded-md px-2 py-0.5 text-[11px] font-medium sm:mb-3 sm:rounded-lg sm:px-3 sm:py-1 sm:text-xs"
                         style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
                       >
                         {restaurant.type}
                       </div>
 
-                      <div className="flex flex-wrap gap-2 mb-3 hidden">
-                        {['Italian', 'Pizza', 'Pasta'].map((tag, idx) => (
-                          <span 
-                            key={idx}
-                            className="px-2 py-1 rounded-lg text-xs"
-                            style={{ background: `${accentColor.color}15`, color: accentColor.color }}
-                          >
-                            {tag}
-                          </span>
-                        ))}
-                      </div>
-
-                      <div className="flex items-center gap-4 text-sm mb-3">
-                        <div className="flex items-center gap-1">
-                          <TrendingUp className="w-4 h-4" style={{ color: accentColor.color }} />
+                      <div className="mb-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] sm:mb-3 sm:gap-x-4 sm:text-sm">
+                        <div className="flex min-w-0 items-center gap-1">
+                          <TrendingUp className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" style={{ color: accentColor.color }} />
                           <span>
                             {typeof restaurant.totalOrders === 'number' && restaurant.totalOrders >= 0
                               ? `${restaurant.totalOrders} buyurtma`
                               : '—'}
                           </span>
                         </div>
-                        <div className="flex items-center gap-1">
-                          <Clock className="w-4 h-4" style={{ color: accentColor.color }} />
-                          <span>{restaurant.deliveryTime}</span>
+                        <div className="flex min-w-0 items-center gap-1">
+                          <Clock className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" style={{ color: accentColor.color }} />
+                          <span className="truncate">{restaurant.deliveryTime}</span>
                         </div>
                       </div>
 
-                      <div className="flex gap-2 text-xs">
-                        <div 
-                          className="px-3 py-1.5 rounded-lg"
+                      <div className="mb-2 flex flex-wrap gap-1.5 text-[10px] sm:gap-2 sm:text-xs">
+                        <div
+                          className="rounded-md px-2 py-1 sm:rounded-lg sm:px-3 sm:py-1.5"
                           style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)' }}
                         >
                           ⚡ Tez yetkazish
                         </div>
-                        <div 
-                          className="px-3 py-1.5 rounded-lg"
+                        <div
+                          className="rounded-md px-2 py-1 sm:rounded-lg sm:px-3 sm:py-1.5"
                           style={{ background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)' }}
                         >
                           ✓ Halol
@@ -975,11 +1051,12 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                       </div>
 
                       <button
-                        className="w-full mt-3 py-3 rounded-2xl font-bold text-sm flex items-center justify-center gap-2"
+                        type="button"
+                        className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl py-2.5 text-xs font-bold sm:mt-3 sm:gap-2 sm:rounded-2xl sm:py-3 sm:text-sm"
                         style={{ background: accentColor.color, color: '#fff' }}
                       >
                         OCHISH
-                        <ChevronRight className="w-4 h-4" />
+                        <ChevronRight className="h-3.5 w-3.5 sm:h-4 sm:w-4" />
                       </button>
                     </div>
                   </div>
@@ -999,6 +1076,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           />
           
           <div 
+            ref={restaurantModalScrollRef}
             className="fixed inset-0 app-safe-pad z-[101] overflow-y-auto"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1283,17 +1361,18 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 <div className="px-4 pb-6">
                   <h3 className="text-xl font-bold mb-4">Menyu ({selectedRestaurantDishes.length} ta taom)</h3>
                   <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 lg:grid-cols-5">
-                    {selectedRestaurantDishes.map(dish => (
+                    {visibleMenuDishes.map((dish, menuIdx) => (
                       <div
                         key={dish.id}
                         onClick={() => {
                           setSelectedRestaurant(null);
                           handleDishClick(dish);
                         }}
-                        className="rounded-3xl overflow-hidden cursor-pointer transition-all active:scale-95"
+                        className="foods-catalog-card-in rounded-3xl overflow-hidden cursor-pointer transition-all active:scale-95"
                         style={{
                           background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                          boxShadow: isDark ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.08)'
+                          boxShadow: isDark ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.08)',
+                          animationDelay: `${Math.min(menuIdx % FOODS_MENU_UI_STEP, 11) * 52}ms`,
                         }}
                       >
                         <div className="w-full aspect-square bg-black/10 relative">
@@ -1332,6 +1411,16 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                       </div>
                     ))}
                   </div>
+                  <div ref={menuDishesScrollSentinelRef} className="h-1 w-full" aria-hidden />
+                  {hasMoreMenuDishes && (
+                    <div
+                      className="mt-3 grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 lg:grid-cols-5"
+                      aria-hidden
+                    >
+                      <ProductCardSkeleton isDark={isDark} imageClassName="aspect-square" />
+                      <ProductCardSkeleton isDark={isDark} imageClassName="aspect-square" />
+                    </div>
+                  )}
                 </div>
               </div>
             </div>
@@ -1686,19 +1775,25 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
         </>
       )}
 
-      {/* DISH DETAIL MODAL */}
+      {/* DISH DETAIL MODAL — katta ekranda markaziy modal, mobil to‘liq ekran */}
       {selectedDish && (
-        <>
-          <div 
-            className="fixed inset-0 app-safe-pad bg-black z-[100]"
-            onClick={() => setSelectedDish(null)}
+        <div
+          className="fixed inset-0 app-safe-pad z-[100] overflow-hidden flex items-stretch sm:items-center sm:justify-center sm:p-4"
+          onClick={() => setSelectedDish(null)}
+        >
+          <div
+            className="absolute inset-0 z-0 hidden sm:block bg-black/90 backdrop-blur-sm"
+            aria-hidden
           />
-          
-          <div 
-            className="fixed inset-0 app-safe-pad z-[101] overflow-y-auto"
+          <div
+            className="relative z-[1] flex flex-col min-h-0 w-full h-dvh max-h-dvh overflow-hidden sm:h-auto sm:max-h-[90vh] sm:max-w-lg md:max-w-2xl lg:max-w-3xl sm:rounded-3xl sm:flex-none sm:shadow-2xl"
+            style={{
+              background: isDark ? '#0a0a0a' : '#ffffff',
+            }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="min-h-screen" style={{ background: isDark ? '#000' : '#fff' }}>
+            <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
+            <div className="min-h-0" style={{ background: isDark ? '#000000' : '#ffffff' }}>
               {/* Image Header */}
               <div className="relative h-96">
                 {selectedDish.images[currentImageIndex] && (
@@ -1807,7 +1902,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
               </div>
 
               {/* Content */}
-              <div className="px-4 py-6 pb-32">
+              <div className="px-4 py-6 pb-6 sm:pb-6">
                 {/* Restaurant Badge */}
                 {(() => {
                   const restaurant = restaurants.find(r => r.id === selectedDish.restaurantId);
@@ -1850,6 +1945,9 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                   const ings = Array.isArray(selectedDish.ingredients) ? selectedDish.ingredients : [];
                   const cal = Number(selectedDish.calories || selectedDish.kcal || 0);
                   const w = String(selectedDish.weight || '').trim();
+                  const ING_PREVIEW_MAX = 8;
+                  const ingPreview = ings.slice(0, ING_PREVIEW_MAX);
+                  const ingExtra = Math.max(0, ings.length - ING_PREVIEW_MAX);
                   if (!desc && !ings.length && !w && !(cal > 0)) {
                     return (
                       <div
@@ -1864,8 +1962,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                           Taom haqida va tarkibi
                         </h3>
                         <p className="text-sm leading-relaxed" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.6)' }}>
-                          Ushbu taom uchun batafsil tavsif va tarkib hozircha kiritilmagan. Restoran bilan bog‘laning yoki
-                          boshqa taomni tanlang.
+                          Tavsif va tarkib kiritilmagan.
                         </p>
                       </div>
                     );
@@ -1883,24 +1980,26 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                         Taom haqida va tarkibi
                       </h3>
                       {desc ? (
-                        <div className="mb-4">
-                          <p className="mb-1 text-xs font-semibold uppercase tracking-wide opacity-70">Tavsif</p>
-                          <p
-                            className="whitespace-pre-wrap break-words text-sm leading-relaxed sm:text-[15px]"
-                            style={{ color: isDark ? 'rgba(255, 255, 255, 0.9)' : 'rgba(17, 24, 39, 0.92)' }}
-                          >
-                            {selectedDish.description}
-                          </p>
-                        </div>
+                        <p
+                          className="mb-3 line-clamp-4 break-words text-sm leading-relaxed sm:text-[15px]"
+                          style={{ color: isDark ? 'rgba(255, 255, 255, 0.9)' : 'rgba(17, 24, 39, 0.92)' }}
+                          title={desc.length > 220 ? desc : undefined}
+                        >
+                          {desc}
+                        </p>
                       ) : null}
                       {w || cal > 0 ? (
                         <p
-                          className="mb-4 text-sm leading-relaxed"
+                          className="mb-3 text-sm leading-snug"
                           style={{ color: isDark ? 'rgba(255,255,255,0.78)' : 'rgba(17,24,39,0.8)' }}
                         >
-                          {w ? <span className="font-semibold">Og‘irlik / hajm: </span> : null}
-                          {w ? <span>{w}</span> : null}
-                          {w && cal > 0 ? <span className="mx-2 text-white/40">·</span> : null}
+                          {w ? (
+                            <>
+                              <span className="font-semibold">Hajm: </span>
+                              <span>{w}</span>
+                            </>
+                          ) : null}
+                          {w && cal > 0 ? <span className="mx-2 opacity-40">·</span> : null}
                           {cal > 0 ? (
                             <>
                               <span className="font-semibold">Energiya: </span>
@@ -1909,39 +2008,32 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                           ) : null}
                         </p>
                       ) : null}
-                      {ings.length > 0 ? (
-                        <div className="mb-2">
-                          <p className="mb-2 text-xs font-semibold uppercase tracking-wide opacity-70">Asosiy tarkib</p>
-                          <ol
-                            className="mb-3 list-decimal space-y-2.5 pl-5 text-sm leading-relaxed sm:text-[15px]"
-                            style={{ color: isDark ? 'rgba(255,255,255,0.92)' : 'rgba(17,24,39,0.92)' }}
-                          >
-                            {ings.map((ingredient, idx) => (
-                              <li key={idx} className="break-words pl-0.5 marker:font-semibold">
-                                {ingredient}
-                              </li>
-                            ))}
-                          </ol>
-                          <p className="mb-2 text-xs opacity-70">Qisqa ko‘rinish:</p>
-                          <div className="flex flex-wrap gap-2">
-                            {ings.map((ingredient, idx) => (
-                              <span
-                                key={`chip-${idx}`}
-                                className="rounded-xl px-3 py-1.5 text-xs font-medium sm:text-sm"
-                                style={{
-                                  background: `${accentColor.color}18`,
-                                  color: accentColor.color,
-                                }}
-                              >
-                                {ingredient}
-                              </span>
-                            ))}
-                          </div>
+                      {ingPreview.length > 0 ? (
+                        <div className="flex flex-wrap gap-2">
+                          {ingPreview.map((ingredient, idx) => (
+                            <span
+                              key={`chip-${idx}`}
+                              className="rounded-xl px-3 py-1.5 text-xs font-medium sm:text-sm"
+                              style={{
+                                background: `${accentColor.color}18`,
+                                color: accentColor.color,
+                              }}
+                            >
+                              {ingredient}
+                            </span>
+                          ))}
+                          {ingExtra > 0 ? (
+                            <span
+                              className="rounded-xl px-3 py-1.5 text-xs font-medium opacity-80"
+                              style={{
+                                background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                                color: isDark ? 'rgba(255,255,255,0.75)' : 'rgba(17,24,39,0.75)',
+                              }}
+                            >
+                              +{ingExtra}
+                            </span>
+                          ) : null}
                         </div>
-                      ) : desc ? (
-                        <p className="text-xs leading-snug opacity-75" style={{ color: isDark ? '#fff' : '#111' }}>
-                          Alohida tarkib qatori restoran tomonidan kiritilmagan — batafsil ma’lumot yuqoridagi tavsifda.
-                        </p>
                       ) : null}
                     </div>
                   );
@@ -2305,13 +2397,15 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 )}
 
               </div>
+            </div>
+            </div>
 
               {/* Bottom Bar */}
               <div 
-                className="fixed bottom-0 left-0 right-0 p-4"
+                className="shrink-0 p-4 pb-[max(1rem,var(--app-safe-bottom,0px))] border-t"
                 style={{ 
-                  background: isDark ? '#000' : '#fff',
-                  borderTop: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`
+                  background: isDark ? '#0a0a0a' : '#ffffff',
+                  borderColor: isDark ? '#1f1f1f' : '#e5e7eb',
                 }}
               >
                 {restaurantClosedByHours && dishModalHoursEv.label ? (
@@ -2453,9 +2547,8 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                   </div>
                 )}
               </div>
-            </div>
           </div>
-        </>
+        </div>
       )}
     </div>
   );

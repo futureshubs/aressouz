@@ -11,7 +11,17 @@ const RESTAURANT_TYPES = [
   'Italia taomlari',
   'Xitoy taomlari',
   'Yapon taomlari',
-  'Boshqa'
+  'Koreya taomlari',
+  'Hind taomlari',
+  'Evropa taomlari',
+  'Osiyo taomlari',
+  'Grill va BBQ',
+  'Nonushta',
+  'Salqin ichimliklar',
+  'Issiq ichimliklar',
+  'Shirinliklar',
+  'Kafe',
+  'Boshqa',
 ];
 
 interface AddRestaurantModalProps {

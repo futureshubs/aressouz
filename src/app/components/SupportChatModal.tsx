@@ -15,9 +15,9 @@ export function SupportChatModal({ isOpen, onClose }: SupportChatModalProps) {
 
   if (!isOpen) return null;
 
-  const telegramHandle = '@aresso_support';
-  const telegramUrl = 'https://t.me/aresso_support';
-  const phone = '+998901234567';
+  const telegramHandle = '@myAresso';
+  const telegramUrl = 'https://t.me/myAresso';
+  const phone = '+998332363636';
 
   return (
     <div className="fixed inset-0 app-safe-pad z-[60] flex items-end sm:items-center justify-center">

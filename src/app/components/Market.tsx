@@ -83,7 +83,7 @@ export default function Market() {
     }
   }, [selectedRegion, selectedDistrict, branches.length]);
 
-  const loadBranches = async () => {
+  const loadBranches = async (silent?: boolean) => {
     try {
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branches`,
@@ -111,7 +111,7 @@ export default function Market() {
       }
     } catch (error) {
       console.error('Error loading branches:', error);
-      toast.error('Filiallar yuklanmadi');
+      if (!silent) toast.error('Filiallar yuklanmadi');
     } finally {
       setIsLoading(false);
     }
@@ -266,8 +266,8 @@ export default function Market() {
     }
   };
 
-  useVisibilityRefetch(() => {
-    void loadBranches();
+  useVisibilityRefetch((detail) => {
+    void loadBranches(detail?.silent);
   });
 
   const getLocationName = (regionId: string, districtId?: string) => {

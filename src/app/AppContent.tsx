@@ -1,4 +1,14 @@
-import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from 'react';
+import {
+  useState,
+  useEffect,
+  useLayoutEffect,
+  useCallback,
+  useMemo,
+  useRef,
+  lazy,
+  Suspense,
+  type ReactNode,
+} from 'react';
 import { X } from 'lucide-react';
 import { Header } from './components/Header';
 import { ViewToggle } from './components/ViewToggle';
@@ -8,22 +18,25 @@ import { ProductDetailModal } from './components/ProductDetailModal';
 import { CatalogList } from './components/CatalogList';
 import { CategoryList } from './components/CategoryList';
 import { Cart } from './components/Cart';
-import ProfileView from './components/ProfileView';
 import { MarketOrdersPreview } from './components/MarketOrdersPreview';
-import { ShopView } from './components/ShopView';
-import OnlineShops from './components/OnlineShops';
-import Market from './components/Market';
-import FoodsView from './components/FoodsView';
-import { AroundView } from './components/AroundView';
-import { CarsView } from './components/CarsView';
-import { RentalsView } from './components/RentalsView';
-import { ServicesView } from './components/ServicesView';
-import { PropertiesView } from './components/PropertiesView';
-import { HousesView } from './components/HousesView';
-import { CommunityView } from './components/CommunityView';
+/** Ikkinchi darajali bo‘limlar alohida chunk — birinchi yuklash (market) yengilroq */
+const OnlineShops = lazy(() => import('./components/OnlineShops'));
+const Market = lazy(() => import('./components/Market'));
+const FoodsView = lazy(() => import('./components/FoodsView'));
+const AroundView = lazy(() => import('./components/AroundView').then((m) => ({ default: m.AroundView })));
+const CarsView = lazy(() => import('./components/CarsView').then((m) => ({ default: m.CarsView })));
+const RentalsView = lazy(() => import('./components/RentalsView').then((m) => ({ default: m.RentalsView })));
+const ServicesView = lazy(() => import('./components/ServicesView').then((m) => ({ default: m.ServicesView })));
+const PropertiesView = lazy(() => import('./components/PropertiesView').then((m) => ({ default: m.PropertiesView })));
+const HousesView = lazy(() => import('./components/HousesView').then((m) => ({ default: m.HousesView })));
+const CommunityView = lazy(() => import('./components/CommunityView').then((m) => ({ default: m.CommunityView })));
+const AuctionView = lazy(() => import('./components/AuctionView').then((m) => ({ default: m.AuctionView })));
+const ProfileView = lazy(() => import('./components/ProfileView'));
+const Bonus = lazy(() => import('./pages/Bonus'));
+const CarPage = lazy(() => import('./pages/Car'));
+const Checkout = lazy(() => import('./components/Checkout'));
 import { CommunityBackgroundNotifier } from './components/CommunityBackgroundNotifier';
 import { SMSAuthModal } from './components/SMSAuthModal';
-import { AuctionView } from './components/AuctionView';
 import { BannerCarousel } from './components/BannerCarousel';
 import { catalogs } from './data/categories';
 import { useTheme } from './context/ThemeContext';
@@ -31,19 +44,16 @@ import { useAuth } from './context/AuthContext';
 import { useLocation } from './context/LocationContext';
 import { useRentalCart } from './context/RentalCartContext';
 import { CheckoutFlowProvider } from './context/CheckoutFlowContext';
-import Bonus from './pages/Bonus';
-import CarPage from './pages/Car';
 import { projectId, publicAnonKey } from '../../utils/supabase/info';
 import { toast } from 'sonner';
 import { canAddQuantity, canSetQuantity, getRegularCartStockIssues, getRentalCartStockIssues } from './utils/cartStock';
 import { deriveCheckoutOrderType } from './utils/checkoutOrderType';
 import { isBranchProductStorageId } from './utils/submitRegularCartOrderQuick';
-import { useVisibilityRefetch } from './utils/visibilityRefetch';
+import { useVisibilityRefetch, type VisibilityRefetchDetail } from './utils/visibilityRefetch';
 import { TestBackend } from './test-backend';
 import ProductionApiService from '../services/productionApi';
 import { SupportChatWidget } from './components/SupportChatWidget';
 import { SiteFooter } from './components/SiteFooter';
-import Checkout from './components/Checkout';
 import { RentalTermsConsentModal } from './components/RentalTermsConsentModal';
 import { useMarketplaceNativeCartBadge } from './hooks/useMarketplaceNativeCartBadge';
 import { useProgressiveListReveal } from './hooks/useProgressiveListReveal';
@@ -51,6 +61,7 @@ import { useMainAppNavigation } from './hooks/useMainAppNavigation';
 import { MAIN_APP_QUERY, patchSearchParams } from './utils/mainAppSearchParams';
 import {
   ProductGridSkeleton,
+  RouteChunkSkeleton,
   SectionHeaderSkeleton,
 } from './components/skeletons';
 import { devLog } from './utils/devLog';
@@ -60,6 +71,10 @@ import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance
 import { readHeaderSearchFromSession, writeHeaderSearchToSession } from './utils/headerSearchStorage';
 
 const MAIN_ACTIVE_TAB_KEY = 'aresso:mainActiveTab';
+
+function TabSuspense({ children }: { children: ReactNode }) {
+  return <Suspense fallback={<RouteChunkSkeleton />}>{children}</Suspense>;
+}
 
 function readStoredMainActiveTab(): string {
   if (typeof sessionStorage === 'undefined') return 'market';
@@ -379,14 +394,11 @@ export default function AppContent() {
   const [refreshKey, setRefreshKey] = useState(0); // Force refresh trigger
   const [isLoadingBranches, setIsLoadingBranches] = useState(true);
   const [isLoadingProducts, setIsLoadingProducts] = useState(true);
+  const visibilityFetchOptsRef = useRef<VisibilityRefetchDetail>({});
 
-  const activeTabRef = useRef(activeTab);
-  activeTabRef.current = activeTab;
-
-  /** Faqat bozor / do‘kon — filial mahsulotlari shu yerda; boshqa tablarda visibility qaytganda qayta yuklamaymiz */
-  useVisibilityRefetch(() => {
-    const t = activeTabRef.current;
-    if (t !== 'market' && t !== 'dokon') return;
+  /** Global poll + tab qaytishi: filial mahsulotlari doimiy yangilanadi (F5 shart emas) */
+  useVisibilityRefetch((detail) => {
+    visibilityFetchOptsRef.current = detail ?? {};
     setRefreshKey((k) => k + 1);
   });
 
@@ -468,8 +480,9 @@ export default function AppContent() {
   // Load branches from Supabase
   useEffect(() => {
     const loadBranches = async () => {
+      const silent = Boolean(visibilityFetchOptsRef.current?.silent);
       try {
-        setIsLoadingBranches(true);
+        if (!silent) setIsLoadingBranches(true);
         devLog('📡 Fetching branches from Production API...');
         
         const response = await ProductionApiService.getBranches();
@@ -486,7 +499,7 @@ export default function AppContent() {
         }
       } catch (error) {
         console.error('❌ Error loading branches:', error);
-        toast.error('Filiallar yuklanmadi');
+        if (!silent) toast.error('Filiallar yuklanmadi');
         
         // Fallback to localStorage
         const storedBranches = localStorage.getItem('branches');
@@ -505,6 +518,7 @@ export default function AppContent() {
   // Load products from Supabase by user location
   useEffect(() => {
     const loadProducts = async () => {
+      const silent = Boolean(visibilityFetchOptsRef.current?.silent);
       // devLog('🔍 Loading products for:', { selectedRegion, selectedDistrict, branchCount: branches.length });
       
       if (!selectedRegion || !selectedDistrict || branches.length === 0) {
@@ -529,7 +543,7 @@ export default function AppContent() {
       }
 
       try {
-        setIsLoadingProducts(true);
+        if (!silent) setIsLoadingProducts(true);
         // devLog('📡 Fetching products from Supabase...');
         // devLog('🔗 URL:', `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch-products`);
         
@@ -1365,45 +1379,51 @@ export default function AppContent() {
               </button>
             </div>
             <div className="min-h-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-y-contain touch-pan-y min-w-0 [-webkit-overflow-scrolling:touch]">
-              <ProfileView
-                initialOrderCategory={profileOrderCategoryPreset}
-                onOpenBonus={() => {
-                  setProfileOrderCategoryPreset(undefined);
-                  pushPatch({ tab: 'bonus', profile: null });
-                }}
-              />
+              <TabSuspense>
+                <ProfileView
+                  initialOrderCategory={profileOrderCategoryPreset}
+                  onOpenBonus={() => {
+                    setProfileOrderCategoryPreset(undefined);
+                    pushPatch({ tab: 'bonus', profile: null });
+                  }}
+                />
+              </TabSuspense>
             </div>
           </div>
         )}
 
         {/* Do'kon Tab */}
         {activeTab === 'dokon' && !isProfileOpen && (
-          <OnlineShops 
-            initialTab="products"
-            catalogRefreshKey={refreshKey}
-            onAddToCart={(product, quantity, variantId, variantName) => {
-              handleAddToCart(
-                { ...product, source: 'shop' },
-                quantity,
-                variantId,
-                variantName,
-              );
-              // Open cart automatically after adding
-              setTimeout(() => {
-                pushPatch({ cart: '1' });
-              }, 300);
-            }} 
-          />
+          <TabSuspense>
+            <OnlineShops
+              initialTab="products"
+              catalogRefreshKey={refreshKey}
+              onAddToCart={(product, quantity, variantId, variantName) => {
+                handleAddToCart(
+                  { ...product, source: 'shop' },
+                  quantity,
+                  variantId,
+                  variantName,
+                );
+                setTimeout(() => {
+                  pushPatch({ cart: '1' });
+                }, 300);
+              }}
+            />
+          </TabSuspense>
         )}
 
         {/* Market Tab - Oziq-ovqat mahsulotlari */}
         {activeTab === 'market-oziq' && !isProfileOpen && (
-          <Market />
+          <TabSuspense>
+            <Market />
+          </TabSuspense>
         )}
 
         {/* Taomlar Tab */}
         {activeTab === 'taomlar' && !isProfileOpen && (
-          <FoodsView 
+          <TabSuspense>
+            <FoodsView
             platform={platform}
             onAddToCart={(dish, quantity, variant, additionalProducts, diningRoom) => {
               // Calculate prices - ENSURE NUMBERS, NOT STRINGS!
@@ -1502,17 +1522,21 @@ export default function AppContent() {
                 pushPatch({ cart: '1' });
               }, 300);
             }}
-          />
+            />
+          </TabSuspense>
         )}
 
         {/* Atrof Tab */}
         {activeTab === 'atrof' && !isProfileOpen && (
-          <AroundView platform={platform} />
+          <TabSuspense>
+            <AroundView platform={platform} />
+          </TabSuspense>
         )}
 
         {/* Mashinalar Tab */}
         {activeTab === 'mashinalar' && !isProfileOpen && (
-          <CarsView 
+          <TabSuspense>
+            <CarsView
             platform={platform}
             onAddToCart={(car) => {
               const carAsProduct = {
@@ -1527,43 +1551,57 @@ export default function AppContent() {
               };
               handleAddToCart(carAsProduct);
             }}
-          />
+            />
+          </TabSuspense>
         )}
 
         {/* Ijara Tab */}
         {activeTab === 'ijara' && !isProfileOpen && (
-          <RentalsView platform={platform} />
+          <TabSuspense>
+            <RentalsView platform={platform} />
+          </TabSuspense>
         )}
 
         {/* Xizmatlar Tab */}
         {activeTab === 'xizmatlar' && !isProfileOpen && (
-          <ServicesView />
+          <TabSuspense>
+            <ServicesView />
+          </TabSuspense>
         )}
 
         {/* Xonalar Tab */}
         {activeTab === 'xonalar' && !isProfileOpen && (
-          <PropertiesView />
+          <TabSuspense>
+            <PropertiesView />
+          </TabSuspense>
         )}
 
         {/* Mening Uy Tab */}
         {activeTab === 'mening-uyim' && !isProfileOpen && (
-          <HousesView />
+          <TabSuspense>
+            <HousesView />
+          </TabSuspense>
         )}
 
         {/* Bonus Tab - Full Screen */}
         {activeTab === 'bonus' && !isProfileOpen && (
-          <Bonus onClose={() => goBack()} />
+          <TabSuspense>
+            <Bonus onClose={() => goBack()} />
+          </TabSuspense>
         )}
 
         {activeTab === 'community' && !isProfileOpen && (
           <div className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
-            <CommunityView onBack={() => goBack()} />
+            <TabSuspense>
+              <CommunityView onBack={() => goBack()} />
+            </TabSuspense>
           </div>
         )}
 
         {/* Auction Tab - Full Screen */}
         {activeTab === 'auksion' && !isProfileOpen && (
-          <AuctionView 
+          <TabSuspense>
+            <AuctionView
             onClose={() => goBack()}
             cartCount={cartItems.reduce((sum, item) => sum + item.quantity, 0)}
             onCartClick={() => pushPatch({ cart: '1' })}
@@ -1573,12 +1611,15 @@ export default function AppContent() {
             }}
             activeTab={activeTab}
             onTabChange={goTab}
-          />
+            />
+          </TabSuspense>
         )}
 
         {/* Moshina Tab - Full Screen */}
         {activeTab === 'moshina' && !isProfileOpen && (
-          <CarPage onClose={() => goBack()} />
+          <TabSuspense>
+            <CarPage onClose={() => goBack()} />
+          </TabSuspense>
         )}
 
         {/* Other tabs - Coming Soon */}
@@ -1741,21 +1782,23 @@ export default function AppContent() {
       />
 
       {flowCheckoutOpen && (
-        <Checkout
-          cartItems={cartItems as any[]}
-          totalAmount={checkoutFlowCartSubtotal}
-          orderType={checkoutOrderTypeDerived}
-          rentalLineItems={rentalLineItems.length > 0 ? rentalLineItems : undefined}
-          rentalTermsPreAccepted={rentalLineItems.length > 0}
-          onClose={() => goBack()}
-          onOrderSuccess={() => {
-            setCartItems([]);
-            setRefreshKey((k) => k + 1);
-          }}
-          onRentalSuccess={() => {
-            clearRentalCart();
-          }}
-        />
+        <TabSuspense>
+          <Checkout
+            cartItems={cartItems as any[]}
+            totalAmount={checkoutFlowCartSubtotal}
+            orderType={checkoutOrderTypeDerived}
+            rentalLineItems={rentalLineItems.length > 0 ? rentalLineItems : undefined}
+            rentalTermsPreAccepted={rentalLineItems.length > 0}
+            onClose={() => goBack()}
+            onOrderSuccess={() => {
+              setCartItems([]);
+              setRefreshKey((k) => k + 1);
+            }}
+            onRentalSuccess={() => {
+              clearRentalCart();
+            }}
+          />
+        </TabSuspense>
       )}
     </div>
     </HeaderSearchProvider>

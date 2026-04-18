@@ -32,7 +32,7 @@ function AtmosBrandMark({ isDark }: { isDark: boolean }) {
           <img
             src="/payments/checkout-atmos-square.png?v=1"
             alt="Atmos"
-            className="block h-full w-full object-contain object-center"
+            className="block h-full w-full rounded-2xl object-contain object-center"
             decoding="async"
             onError={() => setBroken(true)}
           />

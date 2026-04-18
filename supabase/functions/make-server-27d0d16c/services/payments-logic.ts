@@ -6,7 +6,7 @@ export const mapMethodToUI = (raw: unknown): string => {
   if (m === "cash") return "cash";
   if (m === "card") return "card";
   if (m === "qr" || m === "qrcode") return "qr";
-  if (m === "click") return "click";
+  if (m === "click" || m === "click_card") return "click";
   if (m === "payme") return "payme";
   if (m === "uzum") return "uzum";
   if (m === "apelsin") return "apelsin";
@@ -14,21 +14,82 @@ export const mapMethodToUI = (raw: unknown): string => {
   return "cash";
 };
 
+/** KV / checkout ba’zida `paymentStatus: pending` qoldiradi, lekin tranzaksiya allaqachon muvaffaq. */
+export const isEffectivelyPaidOrder = (order: any): boolean => {
+  const pr = String(order?.paymentStatus || "").toLowerCase().trim();
+  if (["paid", "completed", "success"].includes(pr)) return true;
+  if (order?.paidAt || order?.paymentCompletedAt || order?.paymentVerifiedAt) return true;
+  const payObj = order?.payment && typeof order.payment === "object" ? order.payment : null;
+  const ps = String((payObj as { status?: string })?.status || "").toLowerCase().trim();
+  if (["paid", "completed", "success"].includes(ps)) return true;
+  const pm = String(order?.paymentMethod || "").toLowerCase();
+  const online =
+    pm.includes("click") ||
+    pm.includes("payme") ||
+    pm.includes("atmos") ||
+    pm.includes("uzum") ||
+    pm.includes("humo") ||
+    pm === "qr" ||
+    pm === "qrcode" ||
+    pm === "online";
+  if (
+    online &&
+    (order?.paymeReceiptId ||
+      order?.clickTransId ||
+      order?.payme_receipt_id ||
+      order?.click_trans_id ||
+      order?.transactionId ||
+      order?.paymentTransactionId)
+  ) {
+    return true;
+  }
+  return false;
+};
+
+/**
+ * Taom / do‘kon: mijoz onlayn to‘lagan (`paid`), lekin kassa hali chek rasmini tasdiqlamagan.
+ * Shu paytgacha `/payments?cashier=1` ro‘yxatida `completed` bo‘lsa, kassa QR navbati bo‘sh qoladi.
+ */
+export const merchantOrderNeedsCashierReceipt = (order: any): boolean => {
+  const ot = String(order?.orderType || "").toLowerCase().trim();
+  const isMerchant =
+    ot === "shop" ||
+    ot === "food" ||
+    ot === "restaurant" ||
+    ot.includes("restaurant");
+  if (!isMerchant) return false;
+
+  const pm = String(order?.paymentMethod || "").toLowerCase().trim();
+  if (!pm || pm === "cash" || pm === "naqd") return false;
+
+  if (!isEffectivelyPaidOrder(order)) return false;
+
+  const receipt = String(order?.receiptUrl || order?.paymentReceiptImageUrl || "").trim();
+  if (receipt) return false;
+
+  return true;
+};
+
 export const mapOrderToPaymentUIStatus = (order: any): string => {
   const paymentRaw = String(order?.paymentStatus || "").toLowerCase().trim();
   const orderRaw = resolveOrderOperationalStatus(order);
+  const needsCashierReceipt = merchantOrderNeedsCashierReceipt(order);
 
   if (paymentRaw === "failed" || paymentRaw === "error") return "failed";
   if (paymentRaw === "refunded" || paymentRaw === "returned") return "refunded";
   if (paymentRaw === "cancelled" || paymentRaw === "canceled") return "cancelled";
 
-  if (
+  const effectivelyPaid =
     paymentRaw === "paid" ||
     paymentRaw === "completed" ||
     paymentRaw === "success" ||
-    orderRaw === "delivered" ||
-    orderRaw === "completed"
-  ) {
+    isEffectivelyPaidOrder(order);
+
+  if (effectivelyPaid && !needsCashierReceipt) {
+    return "completed";
+  }
+
+  if ((orderRaw === "delivered" || orderRaw === "completed") && !needsCashierReceipt) {
     return "completed";
   }
 
@@ -43,7 +104,15 @@ export const mapOrderToPaymentUIStatus = (order: any): string => {
   ) {
     return "processing";
   }
-  if (["cancelled", "canceled"].includes(orderRaw)) return "cancelled";
+  if (["cancelled", "canceled", "rejected"].includes(orderRaw)) return "cancelled";
+
+  if (
+    needsCashierReceipt &&
+    orderRaw &&
+    !["pending", "new"].includes(orderRaw)
+  ) {
+    return "processing";
+  }
   return "pending";
 };
 

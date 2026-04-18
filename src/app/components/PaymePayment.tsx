@@ -5,24 +5,19 @@ import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/su
 import { toast } from 'sonner';
 import { ExternalLink, Check, X, Loader2 } from 'lucide-react';
 import { openExternalUrl } from '../utils/openExternalUrl';
-import {
-  PAYMENT_LOGO_FRAME_SKEW_DEG,
-  PaymentMethodLogoFrame,
-} from './payment/PaymentMethodLogoFrame';
+import { PaymentMethodLogoFrame } from './payment/PaymentMethodLogoFrame';
 
 const edgePaymeBase = import.meta.env.DEV ? DEV_API_BASE_URL : API_BASE_URL;
+
+function transientPaymeHttpStatus(status: number): boolean {
+  return status === 502 || status === 503 || status === 504;
+}
 
 function PaymeBrandMark({ isDark }: { isDark: boolean }) {
   const [broken, setBroken] = useState(false);
   return (
     <div className="flex justify-center">
-      <PaymentMethodLogoFrame
-        brandColor="#00AACB"
-        isDark={isDark}
-        square
-        squareSlotTone="light"
-        skewDeg={PAYMENT_LOGO_FRAME_SKEW_DEG * 1.35}
-      >
+      <PaymentMethodLogoFrame brandColor="#00AACB" isDark={isDark} square>
         {broken ? (
           <svg width="88" height="28" viewBox="0 0 88 28" fill="none" aria-hidden>
             <path
@@ -35,9 +30,9 @@ function PaymeBrandMark({ isDark }: { isDark: boolean }) {
           </svg>
         ) : (
           <img
-            src="/payments/payme-official.png?v=2"
+            src="/payments/payme-official.png?v=4"
             alt="Payme"
-            className="block h-full w-full object-contain object-center"
+            className="block h-full w-full rounded-2xl object-contain object-center"
             decoding="async"
             onError={() => setBroken(true)}
           />
@@ -124,22 +119,30 @@ export default function PaymePayment({
           ? import.meta.env.VITE_PAYME_RETURN_URL.trim()
           : '';
 
-      const response = await fetch(`${edgePaymeBase}/payme/create-receipt`, {
-        method: 'POST',
-        headers: {
-          Authorization: `Bearer ${publicAnonKey}`,
-          'Content-Type': 'application/json',
-        },
-        body: JSON.stringify({
-          amount,
-          orderId,
-          items: itemsRef.current,
-          phone,
-          ...(returnUrl ? { returnUrl } : {}),
-        }),
-      });
+      const createBody = {
+        amount,
+        orderId,
+        items: itemsRef.current,
+        phone,
+        ...(returnUrl ? { returnUrl } : {}),
+      };
+      const postCreate = () =>
+        fetch(`${edgePaymeBase}/payme/create-receipt`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${publicAnonKey}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify(createBody),
+        });
 
-      const data = await response.json();
+      let response = await postCreate();
+      if (transientPaymeHttpStatus(response.status)) {
+        await new Promise((r) => setTimeout(r, 900));
+        response = await postCreate();
+      }
+
+      const data = await response.json().catch(() => ({}));
 
       if (token !== createResponseTokenRef.current) return;
 

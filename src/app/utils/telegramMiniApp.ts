@@ -25,9 +25,12 @@ export function initTelegramMiniAppViewport(): void {
   const apply = () => {
     const si = (tg.safeAreaInset as Inset) || {};
     const ci = (tg.contentSafeAreaInset as Inset) || {};
-    const rawTop = Math.max(Number(si.top) || 0, 0) + Math.max(Number(ci.top) || 0, 0);
-    /** Inset 0 bo‘lsa ham ichki header / yopish tugmasi ostida qolmasin (Telegram WebView) */
-    const top = rawTop > 0 ? Math.max(rawTop, 44) : 48;
+    const mergedTop = Math.max(Number(si.top) || 0, 0) + Math.max(Number(ci.top) || 0, 0);
+    /**
+     * Telegram yuqori «Yopish / Закрыть» qatori WebView ustida — Web ichidagi X bilan ustma-ust tushmasin.
+     * Inset 0 bo‘lsa ham minimal ~56px.
+     */
+    const top = Math.max(mergedTop, 56);
     const bottom = Math.max(Number(si.bottom) || 0, 0) + Math.max(Number(ci.bottom) || 0, 0);
     const left = Math.max(Number(si.left) || 0, 0) + Math.max(Number(ci.left) || 0, 0);
     const right = Math.max(Number(si.right) || 0, 0) + Math.max(Number(ci.right) || 0, 0);

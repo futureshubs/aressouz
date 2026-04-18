@@ -366,6 +366,23 @@ type RpcResult<T> =
   | { success: true; result: T }
   | { success: false; error: string; raw?: unknown };
 
+function paycomSleep(ms: number): Promise<void> {
+  return new Promise((r) => setTimeout(r, ms));
+}
+
+/** Paycom / CDN vaqtincha HTML (504) yoki JSON o‘rniga sahifa qaytarganda qayta uriniladi. */
+function paycomHttpIsTransientGateway(status: number): boolean {
+  return status === 502 || status === 503 || status === 504 || status === 520 || status === 522 || status === 524;
+}
+
+function formatPaycomNonJsonError(httpStatus: number, textPreview: string): string {
+  const base = `Paycom javob JSON emas (${httpStatus}): ${textPreview}`;
+  if (paycomHttpIsTransientGateway(httpStatus)) {
+    return `${base}\n\nPayme tomonda vaqtinchalik yuklanish yoki tarmoq kechikishi (gateway timeout). «Qayta urinish» yoki 1–2 daqiqa kutib qayta urinib ko‘ring.`;
+  }
+  return base;
+}
+
 function augmentPaycomUserError(msg: string): string {
   const m = msg.toLowerCase();
   if (
@@ -384,8 +401,19 @@ function augmentPaycomUserError(msg: string): string {
   ) {
     return `${msg} — Payme: ID кассы (PAYCOM_REGISTER_ID) va kalit bir xil muhitda bo‘lsin (test+test yoki prod+prod). PAYCOM_USE_TEST ni tekshiring.`;
   }
+  if (
+    m.includes('504') ||
+    m.includes('502') ||
+    m.includes('503') ||
+    m.includes('gateway timeout') ||
+    m.includes('json emas')
+  ) {
+    return `${msg}\n\nAgar xato takrorlansa: Payme / Paycom serveri band — birozdan keyin qayta urinib ko‘ring.`;
+  }
   return msg;
 }
+
+const PAYCOM_RPC_MAX_ATTEMPTS = 3;
 
 async function makePaymeRequest<T = unknown>(
   method: string,
@@ -405,97 +433,130 @@ async function makePaymeRequest<T = unknown>(
   }
 
   const url = paycomApiUrlForMode(useTest);
-  const id = nextRpcId();
-  const body = { jsonrpc: '2.0' as const, id, method, params };
-
   const xAuth = `${auth.registerId}:${auth.secret}`;
   const orderRef =
     params.account && typeof params.account === "object" && params.account !== null &&
       "order_id" in params.account
       ? String((params.account as { order_id?: unknown }).order_id ?? "")
       : "";
-  const t0 = Date.now();
-  const reqShort = {
+  const reqShortBase = {
     method,
     useTest,
     order_id: orderRef || undefined,
     registerIdTail: auth.registerId.length > 4 ? `…${auth.registerId.slice(-4)}` : "?",
   };
-  if (paycomHttpDebug()) {
-    paycomTrace("rpc.request", { ...reqShort, ...sanitizePaycomRpcParamsForLog(method, params) });
-  } else {
-    console.log(`[paycom] rpc → ${method}`, reqShort);
-  }
+  const t0All = Date.now();
 
-  try {
-    const res = await fetch(url, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'X-Auth': xAuth,
-        'Cache-Control': 'no-cache',
-      },
-      body: JSON.stringify(body),
-    });
-
-    const text = await res.text();
-    let json: any;
-    try {
-      json = JSON.parse(text);
-    } catch {
-      paycomTrace("rpc.error", {
-        method,
-        ms: Date.now() - t0,
-        http: res.status,
-        parseError: true,
-      });
-      return {
-        success: false,
-        error: `Paycom javob JSON emas (${res.status}): ${text.slice(0, 200)}`,
-        raw: text,
-      };
+  for (let attempt = 1; attempt <= PAYCOM_RPC_MAX_ATTEMPTS; attempt++) {
+    const id = nextRpcId();
+    const body = { jsonrpc: '2.0' as const, id, method, params };
+    const t0 = Date.now();
+    if (paycomHttpDebug()) {
+      paycomTrace("rpc.request", { ...reqShortBase, ...sanitizePaycomRpcParamsForLog(method, params), attempt });
+    } else {
+      console.log(`[paycom] rpc → ${method}`, { ...reqShortBase, attempt });
     }
 
-    if (json.error != null) {
-      const msg =
-        typeof json.error === 'string'
-          ? json.error
-          : json.error.message || json.error.msg || JSON.stringify(json.error);
+    try {
+      const res = await fetch(url, {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Auth": xAuth,
+          "Cache-Control": "no-cache",
+        },
+        body: JSON.stringify(body),
+      });
+
+      const text = await res.text();
+      let json: unknown;
+      try {
+        json = JSON.parse(text);
+      } catch {
+        const transient = paycomHttpIsTransientGateway(res.status);
+        paycomTrace("rpc.error", {
+          method,
+          ms: Date.now() - t0,
+          http: res.status,
+          parseError: true,
+          attempt,
+          willRetry: transient && attempt < PAYCOM_RPC_MAX_ATTEMPTS,
+        });
+        if (transient && attempt < PAYCOM_RPC_MAX_ATTEMPTS) {
+          await paycomSleep(350 * attempt + Math.floor(Math.random() * 250));
+          continue;
+        }
+        return {
+          success: false,
+          error: formatPaycomNonJsonError(res.status, text.slice(0, 200)),
+          raw: text,
+        };
+      }
+
+      const j = json as Record<string, unknown>;
+
+      if (j.error != null) {
+        const msg =
+          typeof j.error === "string"
+            ? j.error
+            : (j.error as { message?: string; msg?: string }).message ||
+              (j.error as { msg?: string }).msg ||
+              JSON.stringify(j.error);
+        paycomTrace("rpc.response", {
+          method,
+          ms: Date.now() - t0,
+          ok: false,
+          order_id: orderRef || undefined,
+          errPreview: String(msg).slice(0, 120),
+          attempt,
+        });
+        return { success: false, error: augmentPaycomUserError(String(msg)), raw: json };
+      }
+
+      const r = j?.result as Record<string, unknown> | undefined;
+      const rec = r?.receipt;
+      const idFromResult =
+        (rec && typeof rec === "object" && rec !== null
+          ? (rec as { _id?: unknown; id?: unknown })._id ?? (rec as { id?: unknown }).id
+          : undefined) ??
+        r?._id ??
+        r?.id;
+      const idFromParams = params.id != null ? String(params.id) : "";
+      const traceId = idFromResult != null && idFromResult !== ""
+        ? String(idFromResult)
+        : idFromParams;
+      const traceState = typeof r?.state === "number" ? r.state : undefined;
       paycomTrace("rpc.response", {
         method,
         ms: Date.now() - t0,
-        ok: false,
+        ok: true,
         order_id: orderRef || undefined,
-        errPreview: String(msg).slice(0, 120),
+        receiptId: traceId ? `${String(traceId).slice(0, 8)}…` : undefined,
+        state: traceState,
+        attempt,
       });
-      return { success: false, error: augmentPaycomUserError(String(msg)), raw: json };
+      return { success: true, result: j.result as T };
+    } catch (e) {
+      const netMsg = e instanceof Error ? e.message : String(e);
+      paycomTrace("rpc.error", {
+        method,
+        ms: Date.now() - t0,
+        network: netMsg,
+        attempt,
+        willRetry: attempt < PAYCOM_RPC_MAX_ATTEMPTS,
+      });
+      if (attempt < PAYCOM_RPC_MAX_ATTEMPTS) {
+        await paycomSleep(400 * attempt + Math.floor(Math.random() * 200));
+        continue;
+      }
+      return { success: false, error: `Tarmoq xatosi: ${netMsg}` };
     }
-
-    const r = json?.result;
-    const idFromResult = r?.receipt?._id ?? r?.receipt?.id ?? r?.id;
-    const idFromParams = params.id != null ? String(params.id) : "";
-    const traceId = idFromResult != null && idFromResult !== ""
-      ? String(idFromResult)
-      : idFromParams;
-    const traceState = typeof r?.state === "number" ? r.state : undefined;
-    paycomTrace("rpc.response", {
-      method,
-      ms: Date.now() - t0,
-      ok: true,
-      order_id: orderRef || undefined,
-      receiptId: traceId ? `${traceId.slice(0, 8)}…` : undefined,
-      /** receipts.check / receipts.get(id) — natijada state bo‘lishi mumkin */
-      state: traceState,
-    });
-    return { success: true, result: json.result as T };
-  } catch (e) {
-    paycomTrace("rpc.error", {
-      method,
-      ms: Date.now() - t0,
-      network: e instanceof Error ? e.message : String(e),
-    });
-    return { success: false, error: `Tarmoq xatosi: ${e instanceof Error ? e.message : String(e)}` };
   }
+
+  return {
+    success: false,
+    error: `Paycom: ${method} — ${PAYCOM_RPC_MAX_ATTEMPTS} marta urinishdan keyin ham javob bo‘lmadi (vaqt: ${Date.now() - t0All} ms).`,
+  };
 }
 
 /** Telefon: 998XXXXXXXXX (raqamlar) */

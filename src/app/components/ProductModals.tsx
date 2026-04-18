@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, type MouseEvent } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useFavorites } from '../context/FavoritesContext';
@@ -104,6 +104,8 @@ export function ProductDetailModal({
   const currentStockQuantity = currentVariant.stockQuantity;
   const shopClosedByHours =
     source === 'shop' && currentStockQuantity > 0 && !hoursEv.allowed;
+  const stockCount = currentStockQuantity;
+  const totalPrice = currentPrice * quantity;
 
   const images = currentImages.filter(
     (u: unknown) => typeof u === 'string' && String(u).trim().length > 0,
@@ -196,6 +198,41 @@ export function ProductDetailModal({
     }
   };
 
+  const handleFirstSavatgaTap = () => {
+    if (shopClosedByHours) {
+      toast.error(
+        hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq",
+      );
+      return;
+    }
+    if (stockCount <= 0) return;
+    setQuantity(1);
+    toast.success(`1 ta tanlandi — pastdagi «Savatga qo'shish» tugmasini bosing`);
+  };
+
+  const handleFooterDecrement = () => {
+    if (quantity > 1) {
+      setQuantity(quantity - 1);
+    } else if (quantity === 1) {
+      setQuantity(0);
+      toast.info(`${product.name} savatdan olib tashlandi`);
+    }
+  };
+
+  const handleFooterIncrement = () => {
+    if (shopClosedByHours) {
+      toast.error(
+        hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq",
+      );
+      return;
+    }
+    if (quantity < stockCount) {
+      setQuantity(quantity + 1);
+    } else {
+      toast.error(`Omborda faqat ${stockCount} dona mavjud`);
+    }
+  };
+
   /** Orqa sahifa scroll bilan ikki marta scroll bo‘lmasin */
   useEffect(() => {
     const html = document.documentElement;
@@ -210,16 +247,47 @@ export function ProductDetailModal({
     };
   }, []);
 
+  /** Do‘kon: katta ekranda markaziy modal; mobil — to‘liq ekran (market ProductDetailModal bilan yaqin) */
+  const shopShell = source === 'shop';
+
   return (
     <div
-      className="fixed inset-0 app-safe-pad z-[100] flex flex-col min-h-0 h-dvh max-h-dvh overflow-hidden"
-      style={{ background: isDark ? '#000000' : '#ffffff' }}
+      className={`fixed inset-0 app-safe-pad z-[100] overflow-hidden ${
+        shopShell
+          ? 'flex items-stretch sm:items-center sm:justify-center sm:p-4'
+          : 'flex flex-col min-h-0 h-dvh max-h-dvh'
+      }`}
+      style={shopShell ? undefined : { background: isDark ? '#000000' : '#ffffff' }}
+      onClick={shopShell ? onClose : undefined}
     >
+      {shopShell ? (
+        <div
+          className="absolute inset-0 z-0 hidden sm:block bg-black/90 backdrop-blur-sm"
+          aria-hidden
+        />
+      ) : null}
+      <div
+        className={
+          shopShell
+            ? 'relative z-[1] flex flex-col min-h-0 w-full flex-1 h-dvh max-h-[calc(100dvh-var(--app-safe-top)-var(--app-safe-bottom))] overflow-hidden sm:h-auto sm:max-h-[90vh] sm:max-w-lg md:max-w-2xl lg:max-w-3xl sm:rounded-3xl sm:flex-none sm:shadow-2xl'
+            : 'flex flex-col min-h-0 flex-1 overflow-hidden'
+        }
+        style={{
+          background: shopShell
+            ? isDark
+              ? '#0a0a0a'
+              : '#ffffff'
+            : isDark
+              ? '#000000'
+              : '#ffffff',
+        }}
+        onClick={shopShell ? (e: MouseEvent<HTMLDivElement>) => e.stopPropagation() : undefined}
+      >
       {/* Header */}
       <div 
         className="shrink-0 z-20 px-4 py-3 flex items-center justify-between backdrop-blur-xl"
         style={{
-          paddingTop: 'max(0.75rem, var(--app-safe-top, 0px))',
+          /* app-safe-pad tashqarida — bu yerda safe-top takrorlanmasin (Telefon / Telegram tepada ikki marta bo‘shliq) */
           background: isDark ? 'rgba(0, 0, 0, 0.9)' : 'rgba(255, 255, 255, 0.9)',
           borderBottom: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'}`,
         }}
@@ -833,244 +901,276 @@ export function ProductDetailModal({
       </div>
       </div>
 
-      {/* Pastki panel — flex ichida, alohida scroll yo‘q */}
-      <div 
-        className="shrink-0 px-4 pt-4 space-y-3 border-t backdrop-blur-xl z-10 pb-[max(1rem,var(--app-safe-bottom,0px))]"
-        style={{ 
-          background: isDark ? 'rgba(0, 0, 0, 0.95)' : 'rgba(255, 255, 255, 0.95)',
-          borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+      {/* Pastki panel — Market (ProductDetailModal) bilan bir xil */}
+      <div
+        className="shrink-0 p-3 sm:p-4 border-t z-10 pb-[max(0.75rem,var(--app-safe-bottom,0px))]"
+        style={{
+          background: isDark ? '#0a0a0a' : '#ffffff',
+          borderColor: isDark ? '#1f1f1f' : '#e5e7eb',
         }}
       >
-        {/* Stock Badge - Hidden */}
-        {shopClosedByHours && hoursEv.label && (
-          <p
-            className="text-xs text-center pb-1"
-            style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
-          >
-            Yopiq — ish vaqti: {hoursEv.label}
-          </p>
-        )}
-        {false && currentStockQuantity !== undefined && currentStockQuantity > 0 && (
-          <div 
-            className="px-3 py-1.5 rounded-xl flex items-center justify-between text-sm font-medium"
-            style={{ 
-              background: currentStockQuantity > 10 
-                ? (isDark ? 'rgba(16, 185, 129, 0.1)' : 'rgba(16, 185, 129, 0.1)')
-                : (isDark ? 'rgba(245, 158, 11, 0.1)' : 'rgba(245, 158, 11, 0.1)'),
-              color: currentStockQuantity > 10 ? '#10b981' : '#f59e0b'
-            }}
-          >
-            <span>Omborda: {currentStockQuantity} dona</span>
-            {quantity > 0 && (
-              <span style={{ color: accentColor.color }}>
-                Jami: {(currentPrice * quantity).toLocaleString()} so'm
-              </span>
-            )}
-          </div>
-        )}
+        <div className="max-w-lg mx-auto">
+          {shopClosedByHours && hoursEv.label && (
+            <p
+              className="text-xs text-center mb-3"
+              style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
+            >
+              Yopiq — ish vaqti: {hoursEv.label}
+            </p>
+          )}
 
-        {/* Product Action */}
-        <div 
-          className="rounded-2xl p-4 transition-all"
-          style={{
-            background: isDark 
-              ? 'linear-gradient(145deg, rgba(30, 30, 30, 0.6), rgba(20, 20, 20, 0.8))'
-              : 'linear-gradient(145deg, rgba(255, 255, 255, 0.98), rgba(250, 250, 250, 0.95))',
-            border: quantity > 0
-              ? `1.5px solid ${accentColor.color}`
-              : (isDark 
-                  ? '1px solid rgba(255, 255, 255, 0.1)' 
-                  : '1px solid rgba(0, 0, 0, 0.1)'),
-            boxShadow: quantity > 0
-              ? `0 4px 16px ${accentColor.color}40`
-              : '0 2px 8px rgba(0, 0, 0, 0.1)',
-            opacity: currentStockQuantity === 0 ? 0.6 : 1,
-          }}
-        >
-          <div className="flex items-center justify-between">
-            {/* Left side - Name and Price */}
-            <div className="flex-1">
-              <div className="flex items-baseline gap-2 mb-1">
-                <span 
-                  className="text-lg font-bold"
+          {stockCount === 0 && (
+            <div
+              className="mb-3 p-2 sm:p-2.5 rounded-lg text-center"
+              style={{
+                background: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                border: '1px solid rgba(239, 68, 68, 0.4)',
+              }}
+            >
+              <p
+                className="text-[10px] sm:text-xs font-semibold"
+                style={{ color: '#ef4444' }}
+              >
+                ❌ Omborda mahsulot qolmagan
+              </p>
+            </div>
+          )}
+
+          {stockCount > 0 && quantity > 0 && (
+            <div
+              className="mb-3 px-3 py-1.5 rounded-xl flex items-center justify-between text-sm font-medium"
+              style={{
+                background:
+                  stockCount > 10
+                    ? isDark
+                      ? 'rgba(16, 185, 129, 0.1)'
+                      : 'rgba(16, 185, 129, 0.1)'
+                    : isDark
+                      ? 'rgba(245, 158, 11, 0.1)'
+                      : 'rgba(245, 158, 11, 0.1)',
+                color: stockCount > 10 ? '#10b981' : '#f59e0b',
+              }}
+            >
+              <span>Omborda: {stockCount} dona</span>
+              <span style={{ color: accentColor.color }}>
+                Jami: {totalPrice.toLocaleString('uz-UZ')} so'm
+              </span>
+            </div>
+          )}
+
+          {quantity === 0 ? (
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <p
+                  className="text-[10px] sm:text-xs font-semibold mb-0.5 sm:mb-1"
+                  style={{
+                    color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)',
+                  }}
+                >
+                  Narx:
+                </p>
+                <p
+                  className="text-lg sm:text-2xl font-bold"
                   style={{ color: accentColor.color }}
                 >
                   {currentPrice.toLocaleString('uz-UZ')} so'm
-                </span>
-                {currentOldPrice && currentOldPrice > currentPrice && (
-                  <span 
-                    className="text-xs line-through"
-                    style={{ color: isDark ? 'rgba(255, 255, 255, 0.3)' : 'rgba(0, 0, 0, 0.3)' }}
-                  >
-                    {currentOldPrice.toLocaleString('uz-UZ')}
-                  </span>
-                )}
+                </p>
               </div>
-            </div>
 
-            {/* Right side - Quantity or Add Button */}
-            {quantity > 0 ? (
-              <div 
-                className="flex items-center gap-3 px-3 py-2 rounded-xl"
-                style={{
-                  background: isDark 
-                    ? 'rgba(0, 0, 0, 0.3)'
-                    : 'rgba(0, 0, 0, 0.05)',
-                  border: isDark 
-                    ? '1px solid rgba(255, 255, 255, 0.1)'
-                    : '1px solid rgba(0, 0, 0, 0.1)',
-                }}
-              >
-                <button
-                  onClick={() => {
-                    const newQuantity = Math.max(0, quantity - 1);
-                    setQuantity(newQuantity);
-                    if (newQuantity === 0) {
-                      toast.info(`${product.name} savatdan olib tashlandi`);
-                    }
-                  }}
-                  className="p-1 rounded-lg transition-all active:scale-90"
-                  style={{
-                    background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                  }}
-                >
-                  <Minus className="size-4" style={{ color: isDark ? '#ffffff' : '#111827' }} strokeWidth={2.5} />
-                </button>
-                
-                <span 
-                  className="text-lg font-bold w-8 text-center"
-                  style={{ color: isDark ? '#ffffff' : '#111827' }}
-                >
-                  {quantity}
-                </span>
-                
-                <button
-                  onClick={() => {
-                    if (quantity < currentStockQuantity) {
-                      setQuantity(quantity + 1);
-                    } else {
-                      toast.error(`Omborda faqat ${currentStockQuantity} dona mavjud`);
-                    }
-                  }}
-                  disabled={quantity >= currentStockQuantity || shopClosedByHours}
-                  className="p-1 rounded-lg transition-all active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
-                  style={{
-                    backgroundImage:
-                      quantity >= currentStockQuantity || shopClosedByHours ? 'none' : accentColor.gradient,
-                    background:
-                      quantity >= currentStockQuantity || shopClosedByHours
-                        ? isDark
-                          ? '#333333'
-                          : '#d1d5db'
-                        : undefined,
-                  }}
-                >
-                  <Plus 
-                    className="size-4" 
-                    style={{
-                      color:
-                        quantity >= currentStockQuantity || shopClosedByHours
-                          ? isDark
-                            ? '#666666'
-                            : '#9ca3af'
-                          : '#ffffff',
-                    }} 
-                    strokeWidth={2.5} 
-                  />
-                </button>
-              </div>
-            ) : (
               <button
-                onClick={() => {
-                  if (currentStockQuantity > 0 && !shopClosedByHours) {
-                    setQuantity(1);
-                  }
-                }}
-                disabled={currentStockQuantity === 0 || shopClosedByHours}
-                className="px-5 py-2.5 rounded-xl font-bold transition-all active:scale-95 flex items-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                type="button"
+                onClick={handleFirstSavatgaTap}
+                disabled={stockCount === 0 || shopClosedByHours}
+                className="px-5 sm:px-8 py-3 sm:py-3.5 rounded-lg sm:rounded-xl font-bold text-white transition-all active:scale-95 flex items-center gap-1.5 sm:gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                 style={{
-                  backgroundImage:
-                    currentStockQuantity === 0 || shopClosedByHours ? 'none' : accentColor.gradient,
                   background:
-                    currentStockQuantity === 0 || shopClosedByHours
+                    stockCount === 0 || shopClosedByHours
                       ? isDark
                         ? '#666666'
                         : '#9ca3af'
-                      : undefined,
-                  color: '#ffffff',
+                      : accentColor.color,
                   boxShadow:
-                    currentStockQuantity === 0 || shopClosedByHours
+                    stockCount === 0 || shopClosedByHours
                       ? 'none'
-                      : `0 4px 12px ${accentColor.color}66`,
+                      : `0 8px 24px ${accentColor.color}40`,
                 }}
               >
                 {shopClosedByHours ? (
-                  <Clock className="size-4" strokeWidth={2.5} aria-label="Yopiq" />
+                  <Clock className="size-4 sm:size-5" strokeWidth={2} aria-label="Yopiq" />
                 ) : (
                   <>
-                    <ShoppingCart className="size-4" strokeWidth={2.5} />
-                    <span>{currentStockQuantity === 0 ? 'Tugagan' : 'Savatga'}</span>
+                    <ShoppingCart className="size-4 sm:size-5" strokeWidth={2} />
+                    <span className="text-sm sm:text-base">
+                      {stockCount === 0 ? 'Tugagan' : 'Savatga'}
+                    </span>
                   </>
                 )}
               </button>
-            )}
-          </div>
-        </div>
+            </div>
+          ) : (
+            <>
+              {quantity === stockCount && stockCount > 0 && (
+                <div
+                  className="mb-2 sm:mb-3 p-2 sm:p-2.5 rounded-lg text-center"
+                  style={{
+                    background: isDark ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.08)',
+                    border: '1px solid rgba(16, 185, 129, 0.35)',
+                  }}
+                >
+                  <p
+                    className="text-[10px] sm:text-xs font-semibold"
+                    style={{ color: '#10b981' }}
+                  >
+                    Omborda {stockCount} ta — barchasini tanladingiz
+                  </p>
+                </div>
+              )}
+              {quantity > stockCount && stockCount >= 0 && (
+                <div
+                  className="mb-2 sm:mb-3 p-2 sm:p-2.5 rounded-lg text-center"
+                  style={{
+                    background: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.1)',
+                    border: '1px solid rgba(239, 68, 68, 0.4)',
+                  }}
+                >
+                  <p
+                    className="text-[10px] sm:text-xs font-semibold"
+                    style={{ color: '#ef4444' }}
+                  >
+                    Miqdor ombordan oshib ketdi (max. {stockCount} ta)
+                  </p>
+                </div>
+              )}
 
-        {/* Final Add to Cart Button - only show when quantity > 0 */}
-        {quantity > 0 && (
-          <button
-            onClick={() => {
-              console.log('🛒 Savatga qo\'shish bosildi:', {
-                product: product.name,
-                quantity,
-                variantId: currentVariant.variantId,
-                variantLabel: currentVariant.label,
-                price: currentPrice
-              });
-              
-              if (shopClosedByHours) {
-                toast.error(
-                  hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq",
-                );
-                return;
-              }
-              if (quantity > 0) {
-                onAddToCart(product, quantity, currentVariant.variantId, currentVariant.label);
-                notifyCartAdded(quantity, {
-                  name: `${product.name} · ${currentVariant.label}`,
-                });
-                console.log('✅ Savatga qo\'shildi!');
-                setQuantity(0); // Reset quantity after adding to cart
-                onClose(); // Close modal
-              } else {
-                toast.error('Miqdorni tanlang!', { duration: 2000 });
-                console.log('❌ Quantity = 0, qo\'shilmadi');
-              }
-            }}
-            disabled={quantity === 0 || shopClosedByHours}
-            className="w-full py-4 rounded-2xl font-bold text-lg transition-all active:scale-95 flex items-center justify-center gap-3 disabled:opacity-50 disabled:cursor-not-allowed"
-            style={{ 
-              background: quantity > 0 && !shopClosedByHours ? accentColor.color : '#666666',
-              color: '#ffffff',
-              boxShadow: quantity > 0 && !shopClosedByHours ? `0 6px 20px ${accentColor.color}66` : 'none'
-            }}
-          >
-            {shopClosedByHours ? (
-              <Clock className="w-6 h-6" aria-label="Yopiq" />
-            ) : (
-              <>
-                <ShoppingCart className="w-6 h-6" />
-                <span>
-                  {quantity === 0 
-                    ? 'Miqdorni tanlang' 
-                    : `Savatga qo'shish - ${(currentPrice * quantity).toLocaleString()} so'm`
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <p
+                    className="text-[10px] sm:text-xs font-semibold mb-0.5 sm:mb-1"
+                    style={{
+                      color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)',
+                    }}
+                  >
+                    Jami:
+                  </p>
+                  <p
+                    className="text-lg sm:text-2xl font-bold"
+                    style={{ color: accentColor.color }}
+                  >
+                    {totalPrice.toLocaleString('uz-UZ')} so'm
+                  </p>
+                </div>
+
+                <div className="flex items-center gap-2 sm:gap-3">
+                  <button
+                    type="button"
+                    onClick={handleFooterDecrement}
+                    className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition-all active:scale-90"
+                    style={{
+                      background: isDark ? '#1a1a1a' : '#f3f4f6',
+                    }}
+                  >
+                    <Minus
+                      className="size-5 sm:size-6"
+                      style={{ color: isDark ? '#ffffff' : '#111827' }}
+                      strokeWidth={2.5}
+                    />
+                  </button>
+
+                  <div
+                    className="min-w-[60px] sm:min-w-[70px] px-4 py-3 sm:py-3.5 rounded-xl flex items-center justify-center"
+                    style={{
+                      background: isDark ? '#111111' : '#f9fafb',
+                      border: isDark ? '1px solid #1f1f1f' : '1px solid #e5e7eb',
+                    }}
+                  >
+                    <span
+                      className="text-lg sm:text-xl font-bold"
+                      style={{ color: isDark ? '#ffffff' : '#111827' }}
+                    >
+                      {quantity}
+                    </span>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleFooterIncrement}
+                    disabled={quantity >= stockCount || shopClosedByHours}
+                    className="w-11 h-11 sm:w-12 sm:h-12 rounded-xl flex items-center justify-center transition-all active:scale-90 disabled:opacity-40 disabled:cursor-not-allowed"
+                    style={{
+                      background:
+                        quantity >= stockCount || shopClosedByHours
+                          ? isDark
+                            ? '#333333'
+                            : '#d1d5db'
+                          : accentColor.color,
+                      boxShadow:
+                        quantity >= stockCount || shopClosedByHours
+                          ? 'none'
+                          : `0 8px 24px ${accentColor.color}40`,
+                    }}
+                  >
+                    <Plus
+                      className="size-5 sm:size-6"
+                      style={{
+                        color:
+                          quantity >= stockCount || shopClosedByHours
+                            ? isDark
+                              ? '#666666'
+                              : '#9ca3af'
+                            : '#ffffff',
+                      }}
+                      strokeWidth={2.5}
+                    />
+                  </button>
+                </div>
+              </div>
+
+              <button
+                type="button"
+                onClick={() => {
+                  if (shopClosedByHours) {
+                    toast.error(
+                      hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq",
+                    );
+                    return;
                   }
-                </span>
-              </>
-            )}
-          </button>
-        )}
+                  if (quantity <= 0) {
+                    toast.error('Miqdorni tanlang!', { duration: 2000 });
+                    return;
+                  }
+                  onAddToCart(product, quantity, currentVariant.variantId, currentVariant.label);
+                  notifyCartAdded(quantity, {
+                    name: `${product.name} · ${currentVariant.label}`,
+                  });
+                  setQuantity(0);
+                  onClose();
+                }}
+                disabled={quantity === 0 || shopClosedByHours}
+                className="w-full mt-3 sm:mt-4 py-3 sm:py-3.5 rounded-lg sm:rounded-xl font-bold text-white transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+                style={{
+                  background:
+                    quantity > 0 && !shopClosedByHours ? accentColor.color : '#666666',
+                  boxShadow:
+                    quantity > 0 && !shopClosedByHours
+                      ? `0 8px 24px ${accentColor.color}40`
+                      : 'none',
+                }}
+              >
+                {shopClosedByHours ? (
+                  <Clock className="size-5 sm:size-6" aria-label="Yopiq" />
+                ) : (
+                  <>
+                    <ShoppingCart className="size-5 sm:size-6" strokeWidth={2} />
+                    <span className="text-sm sm:text-base">
+                      Savatga qo'shish - {totalPrice.toLocaleString('uz-UZ')} so'm
+                    </span>
+                  </>
+                )}
+              </button>
+            </>
+          )}
+        </div>
+      </div>
       </div>
     </div>
   );

@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import {
   ShoppingCart,
   XCircle,
@@ -18,7 +18,7 @@ import { toast } from 'sonner';
 import { useTheme } from '../../context/ThemeContext';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
-import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
+import { useVisibilityRefetch, type VisibilityRefetchDetail } from '../../utils/visibilityRefetch';
 import { sortOrdersNewestFirst } from '../../utils/sortOrdersNewestFirst';
 import { tryResolveImageFromBranchCatalog } from '../../utils/branchCatalogProductImage';
 import { isShopProductCartLine } from '../../utils/submitRegularCartOrderQuick';
@@ -137,7 +137,15 @@ function pickKvLineImageUrl(it: Record<string, unknown>): string | null {
 function lineDisplayTitle(it: Record<string, unknown>): string {
   const pr = it.product && typeof it.product === 'object' ? (it.product as Record<string, unknown>) : null;
   return (
-    String(it.name ?? it.title ?? it.productName ?? pr?.name ?? 'Mahsulot').trim() || 'Mahsulot'
+    String(
+      it.dishName ??
+        it.dishTitle ??
+        it.name ??
+        it.title ??
+        it.productName ??
+        pr?.name ??
+        'Mahsulot',
+    ).trim() || 'Mahsulot'
   );
 }
 
@@ -145,7 +153,15 @@ function lineVariantSubtitle(it: Record<string, unknown>): string {
   const vd = it.variantDetails && typeof it.variantDetails === 'object' ? (it.variantDetails as Record<string, unknown>) : null;
   const vr = it.variant && typeof it.variant === 'object' ? (it.variant as Record<string, unknown>) : null;
   const parts = [
-    String(it.variantName ?? it.selectedVariantName ?? vd?.name ?? vr?.name ?? it.size ?? '').trim(),
+    String(
+      it.variantName ??
+        it.selectedVariantName ??
+        it.dishVariantName ??
+        vd?.name ??
+        vr?.name ??
+        it.size ??
+        '',
+    ).trim(),
   ].filter(Boolean);
   return parts.join(' · ');
 }
@@ -337,7 +353,11 @@ export function PendingCashMarketBranchPanel({
   const [releasingOrderId, setReleasingOrderId] = useState<string | null>(null);
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
   const [visibilityTick, setVisibilityTick] = useState(0);
-  useVisibilityRefetch(() => setVisibilityTick((t) => t + 1));
+  const visibilityOptsRef = useRef<VisibilityRefetchDetail>({});
+  useVisibilityRefetch((detail) => {
+    visibilityOptsRef.current = detail ?? {};
+    setVisibilityTick((t) => t + 1);
+  });
 
   const loadPendingCashMarketOrders = useCallback(async () => {
     const token = getStoredBranchToken();
@@ -346,8 +366,9 @@ export function PendingCashMarketBranchPanel({
       setCancelledCashMarketOrders([]);
       return;
     }
+    const silent = Boolean(visibilityOptsRef.current?.silent);
     try {
-      setLoadingCashPending(true);
+      if (!silent) setLoadingCashPending(true);
       const params = new URLSearchParams({ type: 'all' });
       params.set('branchToken', token);
       const res = await fetch(

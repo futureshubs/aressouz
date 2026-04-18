@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import {
   Loader2,
@@ -16,7 +16,7 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../../utils/supabase/info';
 import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
-import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
+import { useVisibilityRefetch, type VisibilityRefetchDetail } from '../../utils/visibilityRefetch';
 import { PendingOrderLineCard } from './PendingCashMarketBranchPanel';
 import { toast } from 'sonner';
 import { sortOrdersNewestFirst } from '../../utils/sortOrdersNewestFirst';
@@ -41,9 +41,31 @@ const paymentMethodLabel = (m: string) => {
 const orderTypeBadge = (orderType: string) => {
   const t = String(orderType || '').toLowerCase();
   if (t === 'shop') return 'Do‘kon';
-  if (t === 'food') return 'Taom';
+  if (t === 'food' || t === 'restaurant') return 'Taom';
   return 'Market';
 };
+
+function pickCashierCustomerName(ord: Record<string, unknown>): string {
+  const cust = ord.customer && typeof ord.customer === 'object' ? (ord.customer as { name?: string }) : null;
+  const candidates = [
+    ord.customerName,
+    ord.customer_name,
+    ord.name,
+    cust?.name,
+    ord.recipientName,
+    ord.recipient_name,
+    ord.contactName,
+    ord.buyerName,
+  ]
+    .map((x) => String(x ?? '').trim())
+    .filter(Boolean);
+  const placeholder = (s: string) => {
+    const t = s.toLowerCase();
+    return t === 'ghost' || t === 'anonymous' || t === 'guest' || t === 'mehmon' || t === 'noma\'lum';
+  };
+  const ok = candidates.find((s) => !placeholder(s));
+  return ok || '—';
+}
 
 function formatWhen(iso: string | undefined | null): string {
   if (!iso) return '—';
@@ -91,7 +113,11 @@ export function BranchRefundsPanel({ variant = 'branch' }: BranchRefundsPanelPro
   const [loading, setLoading] = useState(false);
   const [tick, setTick] = useState(0);
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
-  useVisibilityRefetch(() => setTick((t) => t + 1));
+  const visibilityOptsRef = useRef<VisibilityRefetchDetail>({});
+  useVisibilityRefetch((detail) => {
+    visibilityOptsRef.current = detail ?? {};
+    setTick((t) => t + 1);
+  });
 
   const load = useCallback(async () => {
     const token = getStoredBranchToken();
@@ -99,8 +125,9 @@ export function BranchRefundsPanel({ variant = 'branch' }: BranchRefundsPanelPro
       setRows([]);
       return;
     }
+    const silent = Boolean(visibilityOptsRef.current?.silent);
     try {
-      setLoading(true);
+      if (!silent) setLoading(true);
       const params = new URLSearchParams({ refundQueue: '1' });
       params.set('branchToken', token);
       const res = await fetch(`${apiBaseUrl}/orders/branch?${params}`, {
@@ -232,7 +259,10 @@ export function BranchRefundsPanel({ variant = 'branch' }: BranchRefundsPanelPro
           </div>
         ) : null}
         {rows.map((ord) => {
-          const total = Number(ord.finalTotal ?? ord.totalAmount ?? 0);
+          const ordRec = ord as Record<string, unknown>;
+          const total = Number(
+            ord.finalTotal ?? ord.totalAmount ?? ord.totalPrice ?? ord.total ?? 0,
+          );
           const email =
             ord.customerEmail ??
             ord.customer_email ??
@@ -288,7 +318,7 @@ export function BranchRefundsPanel({ variant = 'branch' }: BranchRefundsPanelPro
                 <div
                   className={`grid grid-cols-1 gap-3 ${isCashier ? 'sm:grid-cols-2 lg:grid-cols-3' : 'sm:grid-cols-2'}`}
                 >
-                  {metaRow(User, 'Mijoz ismi', ord.customerName || '—', isDark)}
+                  {metaRow(User, 'Mijoz ismi', pickCashierCustomerName(ordRec), isDark)}
                   {metaRow(Phone, 'Telefon', ord.customerPhone || '—', isDark)}
                   {metaRow(
                     Banknote,

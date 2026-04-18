@@ -82,33 +82,48 @@ function prefixToKeyRegex(prefix: string): string {
   return `^${escaped}`;
 }
 
+/** Supabase select default ~1000 qator — bitta so'rovda qolgan `house:` / `car:` yozuvlari yo'qolmasligi uchun. */
+const KV_PREFIX_PAGE_SIZE = 1000;
+
+async function selectAllRowsByKeyPrefix(
+  prefix: string,
+): Promise<Array<{ key: string; value: any }>> {
+  const supabase = client();
+  const regex = prefixToKeyRegex(prefix);
+  const out: Array<{ key: string; value: any }> = [];
+  let offset = 0;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("kv_store_27d0d16c")
+      .select("key, value")
+      .filter("key", "match", regex)
+      .order("key", { ascending: true })
+      .range(offset, offset + KV_PREFIX_PAGE_SIZE - 1);
+    if (error) {
+      throw new Error(error.message);
+    }
+    const batch = data ?? [];
+    for (const d of batch) {
+      const key = String(d.key ?? "");
+      if (key.startsWith(prefix)) {
+        out.push({ key, value: d.value });
+      }
+    }
+    if (batch.length < KV_PREFIX_PAGE_SIZE) break;
+    offset += KV_PREFIX_PAGE_SIZE;
+  }
+  return out;
+}
+
 // Search for key-value pairs by prefix.
 export const getByPrefix = async (prefix: string): Promise<any[]> => {
-  const supabase = client();
-  const { data, error } = await supabase
-    .from("kv_store_27d0d16c")
-    .select("key, value")
-    .filter("key", "match", prefixToKeyRegex(prefix));
-  if (error) {
-    throw new Error(error.message);
-  }
-  const rows = data?.map((d) => ({ key: d.key as string, value: d.value })) ?? [];
-  return rows.filter((r) => r.key.startsWith(prefix)).map((r) => r.value);
+  const rows = await selectAllRowsByKeyPrefix(prefix);
+  return rows.map((r) => r.value);
 };
 
 /** Prefix bo'yicha key+value (buyurtmada `id` ba'zan faqat KV kalitida bo'lgani uchun) */
 export const getByPrefixWithKeys = async (
   prefix: string,
 ): Promise<Array<{ key: string; value: any }>> => {
-  const supabase = client();
-  const { data, error } = await supabase
-    .from("kv_store_27d0d16c")
-    .select("key, value")
-    .filter("key", "match", prefixToKeyRegex(prefix));
-  if (error) {
-    throw new Error(error.message);
-  }
-  const rows =
-    data?.map((d) => ({ key: d.key as string, value: d.value })) ?? [];
-  return rows.filter((r) => r.key.startsWith(prefix));
+  return selectAllRowsByKeyPrefix(prefix);
 };

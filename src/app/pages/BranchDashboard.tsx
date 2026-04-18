@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { 
@@ -69,7 +69,7 @@ import { CourierBagsPanel } from '../components/branch/CourierBagsPanel';
 import { PickupRacksPanel } from '../components/branch/PickupRacksPanel';
 import { BranchRefundsPanel } from '../components/branch/BranchRefundsPanel';
 import { buildBranchHeaders } from '../utils/requestAuth';
-import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { useVisibilityRefetch, type VisibilityRefetchDetail } from '../utils/visibilityRefetch';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
 import { useBodyScrollLock } from '../utils/useBodyScrollLock';
 
@@ -142,7 +142,11 @@ export default function BranchDashboard() {
   const [currentUserId, setCurrentUserId] = useState<string | null>(null);
   const [branchCourierOptions, setBranchCourierOptions] = useState<Array<{ id: string; name: string; status: string }>>([]);
   const [visibilityReloadTick, setVisibilityReloadTick] = useState(0);
-  useVisibilityRefetch(() => setVisibilityReloadTick((t) => t + 1));
+  const visibilityOptsRef = useRef<VisibilityRefetchDetail>({});
+  useVisibilityRefetch((detail) => {
+    visibilityOptsRef.current = detail ?? {};
+    setVisibilityReloadTick((t) => t + 1);
+  });
 
   useBodyScrollLock(sidebarOpen);
 
@@ -158,6 +162,7 @@ export default function BranchDashboard() {
 
   useEffect(() => {
     const loadBranchInfo = async () => {
+      const silent = Boolean(visibilityOptsRef.current?.silent);
       // Get current user ID from localStorage
       const storedUser = localStorage.getItem('sms_user');
       if (storedUser) {
@@ -242,7 +247,9 @@ export default function BranchDashboard() {
       } catch (error) {
         console.error('❌ Error loading branch info:', error);
         // Fallback to session data
-        toast.error('Ma\'lumotlar yuklanmadi, sessiya ma\'lumotlari ishlatilmoqda');
+        if (!silent) {
+          toast.error('Ma\'lumotlar yuklanmadi, sessiya ma\'lumotlari ishlatilmoqda');
+        }
         setBranchInfo(sessionData);
       } finally {
         setIsLoadingBranch(false);
@@ -254,13 +261,14 @@ export default function BranchDashboard() {
 
   useEffect(() => {
     const loadStats = async () => {
+      const silent = Boolean(visibilityOptsRef.current?.silent);
       if (!branchInfo?.id) {
         setDashboardStats(null);
         return;
       }
 
       try {
-        setIsLoadingStats(true);
+        if (!silent) setIsLoadingStats(true);
         const params = new URLSearchParams({ branchId: branchInfo.id });
         const res = await fetch(
           `${apiBaseUrl}/branch/dashboard/stats?${params.toString()}`,
@@ -269,7 +277,7 @@ export default function BranchDashboard() {
 
         if (res.status === 401 || res.status === 403) {
           localStorage.removeItem('branchSession');
-          toast.error('Sessiya tugadi. Qayta kiring.');
+          if (!silent) toast.error('Sessiya tugadi. Qayta kiring.');
           navigate('/filyal');
           return;
         }

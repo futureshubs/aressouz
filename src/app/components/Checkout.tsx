@@ -124,7 +124,7 @@ const CHECKOUT_PAYMENT_METHODS: CheckoutPayMethodRow[] = [
     tagline: 'Payme ilova yoki QR orqali',
     icon: CreditCard,
     color: '#00AACB',
-    logoSrc: '/payments/payme-official.png?v=2',
+    logoSrc: '/payments/payme-official.png?v=4',
     logoSlot: 'light',
   },
   {
@@ -162,10 +162,9 @@ function CheckoutPaymentMethodCard({
   const showComingSoon = method.id === 'uzum_nasiya' && !uzumNasiyaEnabled;
   const [logoFailed, setLogoFailed] = useState(false);
   const logoSlot = method.logoSlot ?? 'light';
-  /** Payme biroz kuchroq qiyraladi */
-  const logoFrameSkewDeg = method.id === 'payme' ? PAYMENT_LOGO_FRAME_SKEW_DEG * 1.35 : PAYMENT_LOGO_FRAME_SKEW_DEG;
+  const logoFrameSkewDeg = PAYMENT_LOGO_FRAME_SKEW_DEG;
 
-  /** Faqat logo — oq «pill» fon yo‘q; Click SVG light temada oq yozuv uchun juda ixcham qora fon */
+  /** Click = qora tarelka (light tema); qolganlari shaffof tile — Atmos/Payme kabi asset o‘zi fon beradi */
   const logoBoxSurface =
     method.logoSrc && !logoFailed
       ? logoSlot === 'dark' && !isDark
@@ -214,7 +213,7 @@ function CheckoutPaymentMethodCard({
       )}
       <div className="relative flex items-center gap-4 p-4 sm:gap-5 sm:p-[1.125rem]">
         <div
-          className="relative flex aspect-square h-[4.25rem] w-[4.25rem] shrink-0 items-center justify-center overflow-visible rounded-2xl ring-0 sm:h-[4.75rem] sm:w-[4.75rem]"
+          className="relative flex aspect-square h-[4.25rem] w-[4.25rem] shrink-0 items-center justify-center overflow-hidden rounded-2xl ring-0 sm:h-[4.75rem] sm:w-[4.75rem]"
           style={{
             ...(logoBoxSurface
               ? logoBoxSurface
@@ -231,7 +230,7 @@ function CheckoutPaymentMethodCard({
           }}
         >
           <div
-            className="flex h-full w-full items-center justify-center"
+            className="flex h-full w-full items-center justify-center overflow-hidden rounded-2xl"
             style={{
               transform: `skewX(${-logoFrameSkewDeg}deg)`,
               transformOrigin: 'center',
@@ -241,7 +240,7 @@ function CheckoutPaymentMethodCard({
               <img
                 src={method.logoSrc}
                 alt=""
-                className="h-full w-full object-contain object-center p-0 sm:p-0.5"
+                className="h-full w-full rounded-2xl object-contain object-center p-0 sm:p-0.5"
                 style={{
                   filter: 'none',
                 }}

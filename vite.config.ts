@@ -156,6 +156,13 @@ export default defineConfig(({ mode }) => {
           if (/\/node_modules\/react\//.test(id)) return;
           if (/\/node_modules\/react-dom\//.test(id)) return;
           if (/\/node_modules\/scheduler\//.test(id)) return;
+          if (id.includes('@mui')) return 'mui';
+          if (id.includes('recharts')) return 'charts';
+          if (id.includes('leaflet') || id.includes('react-leaflet')) return 'maps';
+          if (id.includes('swiper')) return 'swiper';
+          if (id.includes('/motion') || id.includes('framer-motion')) return 'motion';
+          if (id.includes('@supabase')) return 'supabase';
+          if (id.includes('embla-carousel')) return 'carousel';
           // Avoid circular chunk graphs: keep large deps in vendor except a few leaf chunks.
           if (id.includes('lucide-react')) return 'icons';
           /** `sonner` ni alohida `toast` chunk qilmaslik: build "toast <-> vendor" tsikli → prod da `Cannot set properties of undefined (setting 'Children')` */

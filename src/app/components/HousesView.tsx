@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
 import { useAuth } from '../context/AuthContext';
-import { Home, LayoutGrid, ArrowLeft, Plus, Edit2, Trash2, Loader2 } from 'lucide-react';
+import { Home, LayoutGrid, ArrowLeft, Plus, Edit2, Trash2 } from 'lucide-react';
 import { houseCategories, House } from '../data/houses';
 import { ListingCard } from './ListingCard';
 import { houseToListingCardModel } from '../utils/listingDisplay';
@@ -325,14 +325,12 @@ export function HousesView() {
             Barcha uylar
           </h2>
           {loading ? (
-            <div className="flex flex-col items-center gap-4">
-              <Loader2 className="w-8 h-8 animate-spin shrink-0" style={{ color: accentColor.color }} aria-hidden />
-              <ProductGridSkeleton
-                isDark={isDark}
-                count={12}
-                gridClassName="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3"
-              />
-            </div>
+            <ProductGridSkeleton
+              isDark={isDark}
+              count={12}
+              imageClassName="aspect-[4/3]"
+              gridClassName="w-full grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3 [grid-auto-rows:min-content]"
+            />
           ) : houses.length === 0 ? (
             <div className="text-center py-12">
               <Home

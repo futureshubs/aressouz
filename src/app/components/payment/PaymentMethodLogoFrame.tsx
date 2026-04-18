@@ -28,11 +28,11 @@ type PaymentMethodLogoFrameProps = {
   square?: boolean;
   /** false bo‘lsa klassik to‘g‘ri burchak */
   skewFrame?: boolean;
-  /** skewFrame true bo‘lsa: standart o‘rniga shu burchak (daraja), masalan Payme uchun kattaroq */
+  /** skewFrame true bo‘lsa: standart o‘rniga boshqa burchak (daraja) */
   skewDeg?: number;
   /**
    * square bo‘lganda ichki fon: dark = oq yozuvli brend (masalan Click SVG),
-   * light = rangli/yorqin ikonka (Payme, Atmos).
+   * light = shaffof (boshqa logotiplar).
    */
   squareSlotTone?: 'light' | 'dark';
 };
@@ -67,12 +67,19 @@ export function PaymentMethodLogoFrame({
           : '0 5px';
   const innerBg =
     softLightBackdrop && isDark ? 'rgba(255,255,255,0.09)' : 'transparent';
-  const innerRadius = embedInRow ? '6px' : softLightBackdrop ? '10px' : '4px';
+  /** Kvadrat tile (checkout / selector): ichki kontent ham naqd logosi kabi yumaloq */
+  const innerRadius = embedInRow
+    ? '6px'
+    : square && !embedInRow
+      ? '0.75rem'
+      : softLightBackdrop
+        ? '10px'
+        : '4px';
 
   const xl = '0.75rem';
   const squareBox = '4.25rem';
 
-  /** Kvadrat ichida oq «karta» fon yo‘q; Click oq yozuvi light temada o‘qilishi uchun qora fon */
+  /** Kvadrat ichida: Click = qora plastinka (light tema) */
   const squareInnerBg =
     squareSlotTone === 'dark' ? (isDark ? 'transparent' : '#0a0a0a') : 'transparent';
 
@@ -87,6 +94,7 @@ export function PaymentMethodLogoFrame({
           padding: innerPad,
           background: squareInnerBg,
           borderRadius: innerRadius,
+          overflow: 'hidden' as const,
           boxSizing: 'border-box' as const,
         }
       : {

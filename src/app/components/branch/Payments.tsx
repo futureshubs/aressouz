@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { 
   CreditCard, 
@@ -111,6 +111,83 @@ interface PaymentStats {
   }>;
 }
 
+/** Bir buyurtma uchun bir nechta payment qatori kelsa — kassada bitta kartochka. Terminal holat (to‘langan) doim ustun. */
+function dedupePaymentsByOrderId(list: Payment[]): Payment[] {
+  const byOrder = new Map<string, Payment>();
+  const statusRank = (x: Payment) => {
+    const s = String(x.status || '').toLowerCase().trim();
+    if (s === 'completed') return 50;
+    if (s === 'refunded') return 40;
+    if (s === 'failed' || s === 'cancelled') return 30;
+    if (s === 'processing') return 20;
+    if (s === 'pending') return 10;
+    return 0;
+  };
+  const rowTs = (x: Payment) => new Date(x.updatedAt || x.createdAt || 0).getTime();
+  for (const p of list) {
+    const oid = String(p.orderId || '').trim();
+    if (!oid) continue;
+    const prev = byOrder.get(oid);
+    if (!prev) {
+      byOrder.set(oid, p);
+      continue;
+    }
+    const rp = statusRank(prev);
+    const r = statusRank(p);
+    if (r > rp) {
+      byOrder.set(oid, p);
+      continue;
+    }
+    if (r < rp) continue;
+    const prevReceipt = String(prev.receiptUrl || '').trim();
+    const pReceipt = String(p.receiptUrl || '').trim();
+    if (pReceipt && !prevReceipt) {
+      byOrder.set(oid, p);
+      continue;
+    }
+    if (!pReceipt && prevReceipt) continue;
+    if (rowTs(p) >= rowTs(prev)) byOrder.set(oid, p);
+  }
+  return Array.from(byOrder.values());
+}
+
+function playCashierAlertBeep() {
+  if (typeof window === 'undefined') return;
+  try {
+    const AC =
+      window.AudioContext ||
+      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
+    if (!AC) return;
+    const ctx = new AC();
+    const osc = ctx.createOscillator();
+    const gain = ctx.createGain();
+    osc.connect(gain);
+    gain.connect(ctx.destination);
+    osc.frequency.value = 784;
+    gain.gain.value = 0.065;
+    osc.start();
+    osc.stop(ctx.currentTime + 0.11);
+    osc.onended = () => {
+      void ctx.close();
+    };
+  } catch {
+    /* brauzer ovozni bloklagan bo‘lishi mumkin */
+  }
+}
+
+function showCashierOrderNotification(body: string) {
+  if (typeof window === 'undefined' || !('Notification' in window)) return;
+  if (Notification.permission !== 'granted') return;
+  try {
+    new Notification('Aresso — Berish (kassa)', {
+      body,
+      tag: `cashier-${body.slice(0, 48)}`,
+    });
+  } catch {
+    /* ignore */
+  }
+}
+
 interface PaymentsProps {
   branchId: string;
   branchInfo?: {
@@ -151,75 +228,111 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
   const [cashierReceiptFile, setCashierReceiptFile] = useState<File | null>(null);
   const [cashierReceiptPreview, setCashierReceiptPreview] = useState<string | null>(null);
   const cashierFileInputRef = useRef<HTMLInputElement>(null);
+  const filterSnapshotRef = useRef({
+    dateRange,
+    searchDebounced,
+    statusFilter,
+    methodFilter,
+  });
+  filterSnapshotRef.current = { dateRange, searchDebounced, statusFilter, methodFilter };
+
+  const cashierQueueTrackedRef = useRef<Set<string> | null>(null);
+  const cashierFilterFnsRef = useRef<{
+    isCashierQrQueuePayment: (p: Payment) => boolean;
+    isAwaitingMerchantAcceptance: (p: Payment) => boolean;
+  } | null>(null);
 
   useEffect(() => {
     const t = window.setTimeout(() => setSearchDebounced(searchTerm.trim()), 400);
     return () => window.clearTimeout(t);
   }, [searchTerm]);
 
-  const loadPayments = useCallback(async ({ silent = false }: { silent?: boolean } = {}) => {
-    try {
-      if (!silent) setIsLoading(true);
+  const loadPayments = useCallback(
+    async ({ silent = false }: { silent?: boolean } = {}) => {
+      try {
+        if (!silent) setIsLoading(true);
 
-      const params = new URLSearchParams({
-        branchId,
-        dateRange: variant === 'cashier' ? '30days' : dateRange,
-      });
-      if (variant !== 'cashier') {
-        if (searchDebounced) params.set('search', searchDebounced);
-        if (statusFilter !== 'all') params.set('status', statusFilter);
-        if (methodFilter !== 'all') params.set('method', methodFilter);
-      }
-      const branchToken = getStoredBranchToken();
-      if (branchToken) {
-        params.set('branchToken', branchToken);
-      }
+        const snap = filterSnapshotRef.current;
+        const params = new URLSearchParams({
+          branchId,
+          dateRange: variant === 'cashier' ? '30days' : snap.dateRange,
+        });
+        if (variant === 'cashier') {
+          params.set('cashier', '1');
+        }
+        if (variant !== 'cashier') {
+          if (snap.searchDebounced) params.set('search', snap.searchDebounced);
+          if (snap.statusFilter !== 'all') params.set('status', snap.statusFilter);
+          if (snap.methodFilter !== 'all') params.set('method', snap.methodFilter);
+        }
+        const branchToken = getStoredBranchToken();
+        if (branchToken) {
+          params.set('branchToken', branchToken);
+        }
 
-      const response = await fetch(
-        `${apiBaseUrl}/payments?${params}`,
-        {
+        const response = await fetch(`${apiBaseUrl}/payments?${params}`, {
+          cache: 'no-store',
           headers: {
             ...buildBranchHeaders({ 'Content-Type': 'application/json' }),
+            'Cache-Control': 'no-cache',
+            Pragma: 'no-cache',
           },
+        });
+
+        if (!response.ok) {
+          setPayments([]);
+          setStats(null);
+          console.error('❌ Payments API response not ok:', response.status, response.statusText);
+          if (!silent) toast.error('To‘lovlarni yuklashda xatolik');
+          return;
         }
-      );
 
-      if (!response.ok) {
-        setPayments([]);
-        setStats(null);
-        console.error('❌ Payments API response not ok:', response.status, response.statusText);
-        if (!silent) toast.error('To‘lovlarni yuklashda xatolik');
-        return;
+        const data = await response.json();
+        if (data.success) {
+          let list: Payment[] = Array.isArray(data.payments) ? data.payments : [];
+          if (variant === 'cashier') list = dedupePaymentsByOrderId(list);
+          setPayments(list);
+          setStats(data.stats);
+        }
+      } catch (error) {
+        console.error('❌ Error loading payments:', error);
+        if (!silent) toast.error("To'lovlarni yuklashda xatolik");
+      } finally {
+        if (!silent) setIsLoading(false);
       }
+    },
+    [apiBaseUrl, branchId, variant],
+  );
 
-      const data = await response.json();
-      if (data.success) {
-        setPayments(data.payments);
-        setStats(data.stats);
-      }
-    } catch (error) {
-      console.error('❌ Error loading payments:', error);
-      if (!silent) toast.error('To\'lovlarni yuklashda xatolik');
-    } finally {
-      if (!silent) setIsLoading(false);
-    }
-  }, [apiBaseUrl, branchId, dateRange, methodFilter, searchDebounced, statusFilter, variant]);
-
+  /** Kassa: sahifa almashtirishda qo‘shimcha refetch yo‘q — faqat interval (3 s). */
   useVisibilityRefetch(() => {
+    if (variant === 'cashier') return;
     void loadPayments({ silent: true });
   });
 
-  useEffect(() => {
-    loadPayments();
-  }, [loadPayments]);
+  const fullFiltersKey =
+    variant === 'cashier'
+      ? 'cashier'
+      : `${dateRange}|${searchDebounced}|${statusFilter}|${methodFilter}`;
 
   useEffect(() => {
-    const ms = variant === 'cashier' ? 25000 : 15000;
+    void loadPayments({ silent: false });
+  }, [loadPayments, fullFiltersKey]);
+
+  useEffect(() => {
+    const ms = variant === 'cashier' ? 3000 : 15000;
     const t = window.setInterval(() => {
       void loadPayments({ silent: true });
     }, ms);
     return () => window.clearInterval(t);
   }, [loadPayments, variant]);
+
+  useEffect(() => {
+    if (variant !== 'cashier' || typeof window === 'undefined') return;
+    if (!('Notification' in window)) return;
+    if (Notification.permission !== 'default') return;
+    void Notification.requestPermission().catch(() => {});
+  }, [variant]);
 
   useEffect(() => {
     if (variant !== 'cashier') return;
@@ -296,16 +409,64 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
 
   const canShowCashierMerchantQrForOrder = (p: Payment): boolean => !isAwaitingMerchantAcceptance(p);
 
-  /** Kassa: mijoz QR orqali to‘lashi va chek kutilayotgan buyurtmalar */
+  /** Onlayn to‘lov (Click/Payme/…) + kassa QR — `paymentRequiresVerification` ba’zi yozuvlarda false bo‘lishi mumkin. */
+  const isOnlineMethodNeedingCashierQr = (m: string) =>
+    ['click', 'click_card', 'payme', 'atmos', 'uzum', 'apelsin', 'card', 'online'].includes(m);
+
+  /** Kassa «Berish»: restoran qabulidan keyin chek kutiladi (QR bo‘lmasa ham navbatda turadi). */
+  /** Berish navbati: QR ixtiyoriy; chek majburiy. */
   const isCashierQrQueuePayment = (p: Payment): boolean => {
     if (p.type !== 'payment') return false;
     const st = String(p.status || '').toLowerCase().trim();
     if (st !== 'pending' && st !== 'processing') return false;
-    if (!p.qrImageUrl || p.receiptUrl) return false;
+    if (String(p.receiptUrl || '').trim()) return false;
     if (!canShowCashierMerchantQrForOrder(p)) return false;
     const m = String(p.method || '').toLowerCase().trim();
-    return Boolean(p.paymentRequiresVerification) || m === 'qr';
+    return (
+      Boolean(p.paymentRequiresVerification) ||
+      m === 'qr' ||
+      (isFoodOrShopMerchantOrder(p) && isOnlineMethodNeedingCashierQr(m))
+    );
   };
+
+  const paymentsForCashierUi = useMemo(
+    () => (variant === 'cashier' ? dedupePaymentsByOrderId(payments) : payments),
+    [variant, payments],
+  );
+
+  cashierFilterFnsRef.current = { isCashierQrQueuePayment, isAwaitingMerchantAcceptance };
+
+  useEffect(() => {
+    if (variant !== 'cashier') {
+      cashierQueueTrackedRef.current = null;
+      return;
+    }
+    const fns = cashierFilterFnsRef.current;
+    if (!fns) return;
+    const pay = paymentsForCashierUi;
+    const qr = pay.filter(fns.isCashierQrQueuePayment);
+    const wait = pay.filter(
+      (p) =>
+        p.type === 'payment' &&
+        (p.status === 'pending' || p.status === 'processing') &&
+        fns.isAwaitingMerchantAcceptance(p),
+    );
+    const inQueue = [...qr, ...wait];
+    const next = new Set(inQueue.map((p) => String(p.orderId || '').trim()).filter(Boolean));
+    const prev = cashierQueueTrackedRef.current;
+    cashierQueueTrackedRef.current = next;
+    if (prev == null) return;
+    const newcomers = [...next].filter((id) => !prev.has(id));
+    if (newcomers.length === 0) return;
+    playCashierAlertBeep();
+    const labels = newcomers.map((id) => {
+      const p = inQueue.find((x) => String(x.orderId) === id);
+      return p ? formatOrderNumber(p.orderNumber, p.orderId) : id;
+    });
+    const description = labels.length > 4 ? `${labels.slice(0, 4).join(', ')}…` : labels.join(', ');
+    showCashierOrderNotification(`Yangi: ${description}`);
+    toast.message('Yangi buyurtma — Berish', { description, duration: 6500 });
+  }, [paymentsForCashierUi, variant]);
 
   const getCourierDeliveryFee = (payment: Payment) => Number(payment.metadata?.deliveryFee) || 0;
 
@@ -395,6 +556,13 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
   };
 
   if (isLoading && payments.length === 0) {
+    if (variant === 'cashier') {
+      return (
+        <div className="flex items-center justify-center py-12" aria-hidden>
+          <Loader2 className="w-9 h-9 animate-spin" style={{ color: accentColor.color }} />
+        </div>
+      );
+    }
     return (
       <div className="flex items-center justify-center min-h-[40vh]">
         <div className="text-center" aria-hidden>
@@ -405,13 +573,27 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
   }
 
   if (variant === 'cashier') {
-    const qrQueue = payments.filter(isCashierQrQueuePayment);
-    const waitingMerchant = payments.filter(
+    const qrQueue = paymentsForCashierUi.filter(isCashierQrQueuePayment);
+    const waitingMerchant = paymentsForCashierUi.filter(
       (p) =>
         p.type === 'payment' &&
         (p.status === 'pending' || p.status === 'processing') &&
         isAwaitingMerchantAcceptance(p),
     );
+
+    const cashierConfirmedHistory = [...paymentsForCashierUi]
+      .filter((p) => {
+        if (p.type !== 'payment' || p.status !== 'completed') return false;
+        if (!isFoodOrShopMerchantOrder(p)) return false;
+        /** Faqat kassa chek rasmini yuborgan — `paymentConfirmedAt` ba’zan gateway vaqti bilan aralashadi. */
+        return Boolean(String(p.receiptUrl || '').trim());
+      })
+      .sort((a, b) => {
+        const ta = new Date(a.completedAt || a.updatedAt || a.createdAt || 0).getTime();
+        const tb = new Date(b.completedAt || b.updatedAt || b.createdAt || 0).getTime();
+        return tb - ta;
+      })
+      .slice(0, 50);
 
     const submitCashierReceipt = async () => {
       if (!showDetails || !cashierReceiptFile) {
@@ -450,6 +632,25 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           toast.error(confirmData?.error || 'To‘lovni tasdiqlashda xatolik');
           return;
         }
+        const receiptUrl = uploadData.url;
+        const oid = String(showDetails.orderId);
+        const nowIso = new Date().toISOString();
+        setPayments((prev) =>
+          dedupePaymentsByOrderId(
+            prev.map((p) =>
+              String(p.orderId) === oid
+                ? {
+                    ...p,
+                    status: 'completed',
+                    receiptUrl,
+                    paymentRequiresVerification: false,
+                    completedAt: nowIso,
+                    updatedAt: nowIso,
+                  }
+                : p,
+            ),
+          ),
+        );
         toast.success('To‘lov qabul qilindi');
         setShowDetails(null);
         await loadPayments({ silent: true });
@@ -468,20 +669,24 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           <div>
             <h2 className="text-xl font-bold">To‘lov kutilmoqda</h2>
             <p className="text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
-              Faqat kassa QR va chek talab qilinadigan buyurtmalar
+              Taom / do‘kon onlayn to‘lovi — kassa cheki. QR bo‘lsa pastda chiqadi.
             </p>
           </div>
           <button
             type="button"
-            onClick={() => void loadPayments()}
-            disabled={isLoading}
+            onClick={() => void loadPayments({ silent: payments.length > 0 })}
+            disabled={isLoading && payments.length === 0}
             className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold shrink-0 disabled:opacity-50"
             style={{
               background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
               borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
             }}
           >
-            {isLoading ? <Loader2 className="h-4 w-4 animate-spin" /> : <RefreshCw className="h-4 w-4" />}
+            {isLoading && payments.length === 0 ? (
+              <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <RefreshCw className="h-4 w-4" />
+            )}
             Yangilash
           </button>
         </div>
@@ -516,6 +721,12 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
                   <p className="mt-1 font-semibold" style={{ color: accentColor.color }}>
                     {formatCurrency(getPayableAmount(p))}
                   </p>
+                  {!p.qrImageUrl ? (
+                    <p className="text-xs mt-1 flex items-center gap-1 text-amber-600 dark:text-amber-400">
+                      <AlertCircle className="h-3.5 w-3.5 shrink-0" />
+                      QR rasmi yo‘q — chekni baribir yuklang
+                    </p>
+                  ) : null}
                 </div>
                 <div className="flex flex-col gap-2 sm:items-end">
                   <span
@@ -559,10 +770,73 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           </details>
         ) : null}
 
+        <details
+          open
+          className="rounded-2xl border overflow-hidden"
+          style={{
+            borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+            background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+          }}
+        >
+          <summary className="cursor-pointer list-none px-4 py-3 font-bold flex items-center justify-between gap-2 [&::-webkit-details-marker]:hidden">
+            <span className="flex items-center gap-2">
+              <CheckCircle className="h-5 w-5 shrink-0 text-emerald-500" />
+              Oxirgi tasdiqlangan ({cashierConfirmedHistory.length})
+            </span>
+            <span className="text-xs font-normal opacity-70 max-w-[14rem] sm:max-w-none sm:text-right">
+              So‘nggi 30 kun · chek yuklangan
+            </span>
+          </summary>
+          <div className="border-t px-3 py-3 sm:px-4" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
+            {cashierConfirmedHistory.length === 0 ? (
+              <p className="text-sm text-center py-6 opacity-70">Hozircha tasdiqlangan to‘lov yo‘q</p>
+            ) : (
+              <ul className="max-h-[min(50dvh,420px)] space-y-2 overflow-y-auto overscroll-y-contain pr-1 [-webkit-overflow-scrolling:touch]">
+                {cashierConfirmedHistory.map((p) => {
+                  const when = p.completedAt || p.paymentConfirmedAt || p.updatedAt || p.createdAt;
+                  const receipt = String(p.receiptUrl || '').trim();
+                  return (
+                    <li
+                      key={p.id}
+                      className="flex flex-col gap-2 rounded-xl border px-3 py-2.5 sm:flex-row sm:items-center sm:justify-between"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                      }}
+                    >
+                      <div className="min-w-0 flex-1">
+                        <p className="font-semibold truncate">{formatOrderNumber(p.orderNumber, p.orderId)}</p>
+                        <p className="text-xs truncate opacity-75">
+                          {p.customerName} · {getMethodText(p.method)} · {when ? formatDate(when) : '—'}
+                        </p>
+                        <p className="text-sm font-semibold mt-0.5 tabular-nums" style={{ color: accentColor.color }}>
+                          {formatCurrency(getPayableAmount(p))}
+                        </p>
+                      </div>
+                      <a
+                        href={receipt}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center justify-center gap-1.5 rounded-lg border px-3 py-2 text-xs font-semibold shrink-0"
+                        style={{
+                          borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.12)',
+                          color: accentColor.color,
+                        }}
+                      >
+                        <Receipt className="h-4 w-4" />
+                        Chek
+                      </a>
+                    </li>
+                  );
+                })}
+              </ul>
+            )}
+          </div>
+        </details>
+
         {showDetails &&
           isCashierQrQueuePayment(showDetails) &&
           (showDetails.status === 'pending' || showDetails.status === 'processing') &&
-          Boolean(showDetails.qrImageUrl) &&
           !showDetails.receiptUrl && (
             <div
               className="fixed inset-0 app-safe-pad z-[70] flex items-end justify-center bg-black/55 p-0 sm:items-center sm:p-4"
@@ -631,15 +905,29 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
                       </p>
                     </div>
                   ) : null}
-                  <div className="flex justify-center rounded-2xl border p-3 bg-white/5" style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}>
-                    <img
-                      src={showDetails.qrImageUrl}
-                      alt="To‘lov QR"
-                      className="h-56 w-56 max-w-full object-contain sm:h-64 sm:w-64"
-                      loading="lazy"
-                      decoding="async"
-                    />
-                  </div>
+                  {showDetails.qrImageUrl ? (
+                    <div className="flex justify-center rounded-2xl border p-3 bg-white/5" style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}>
+                      <img
+                        src={showDetails.qrImageUrl}
+                        alt="To‘lov QR"
+                        className="h-56 w-56 max-w-full object-contain sm:h-64 sm:w-64"
+                        loading="lazy"
+                        decoding="async"
+                      />
+                    </div>
+                  ) : (
+                    <p
+                      className="rounded-2xl border p-4 text-center text-sm leading-relaxed"
+                      style={{
+                        borderColor: isDark ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.45)',
+                        background: isDark ? 'rgba(245,158,11,0.08)' : 'rgba(245,158,11,0.06)',
+                        color: isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.75)',
+                      }}
+                    >
+                      Bu filial yoki restoran uchun to‘lov QR hali sozlanmagan. Mijoz to‘lovini tasdiqlovchi{' '}
+                      <strong>chek rasmini</strong> yuklang.
+                    </p>
+                  )}
                   <div>
                     <p className="mb-2 text-sm font-semibold">Chek rasmi (yuklang)</p>
                     <input

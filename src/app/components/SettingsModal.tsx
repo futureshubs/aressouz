@@ -14,7 +14,7 @@ interface SettingsModalProps {
   platform: Platform;
 }
 
-const PRIVACY_SUPPORT_EMAIL = 'support@aressouz.app';
+const PRIVACY_SUPPORT_EMAIL = 'Aresso.uz@gmail.com';
 
 function LegalPolicyRichContent({
   isDark,
@@ -370,9 +370,9 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
   const APP_VERSION = '1.0.0';
   const APP_YEAR = '2026';
   const SUPPORT_EMAIL = PRIVACY_SUPPORT_EMAIL;
-  const SUPPORT_TELEGRAM = '@aresso_support';
-  const SUPPORT_TELEGRAM_URL = 'https://t.me/aresso_support';
-  const SUPPORT_PHONE = '+998901234567';
+  const SUPPORT_TELEGRAM = '@myAresso';
+  const SUPPORT_TELEGRAM_URL = 'https://t.me/myAresso';
+  const SUPPORT_PHONE = '+998332363636';
 
   const openInfo = (title: string, body: string, kind?: 'contact') =>
     setInfoModal(kind ? { title, body, kind } : { title, body });
@@ -402,7 +402,12 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
   const handleContactUs = () => {
     openInfo(
       t('settings.infoContactTitle'),
-      t('settings.contact.body', { email: SUPPORT_EMAIL, telegram: SUPPORT_TELEGRAM, phone: SUPPORT_PHONE }),
+      t('settings.contact.body', {
+        email: SUPPORT_EMAIL,
+        telegram: SUPPORT_TELEGRAM,
+        phone: SUPPORT_PHONE,
+        hours: t('settings.contact.workHoursLine'),
+      }),
       'contact',
     );
   };
@@ -454,19 +459,23 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
     {
       title: t('settings.group.preferences'),
       items: [
-        {
-          icon: theme === 'dark' ? Moon : Sun,
-          label: t('settings.darkMode'),
-          subtitle:
-            themePreference === 'system'
-              ? t('settings.themeFollowsDevice')
-              : themePreference === 'light'
-                ? t('settings.themeAlwaysLight')
-                : t('settings.themeAlwaysDark'),
-          toggle: true,
-          value: theme === 'dark',
-          action: toggleTheme,
-        },
+        ...(isMarketplaceNativeApp()
+          ? [
+              {
+                icon: theme === 'dark' ? Moon : Sun,
+                label: t('settings.darkMode'),
+                subtitle:
+                  themePreference === 'system'
+                    ? t('settings.themeFollowsDevice')
+                    : themePreference === 'light'
+                      ? t('settings.themeAlwaysLight')
+                      : t('settings.themeAlwaysDark'),
+                toggle: true as const,
+                value: theme === 'dark',
+                action: toggleTheme,
+              },
+            ]
+          : []),
         {
           icon: Palette,
           label: t('settings.pickColor'),

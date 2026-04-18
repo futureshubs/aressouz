@@ -205,7 +205,8 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         setListingQuota({
           phoneListingCount: Number(data.phoneListingCount) || 0,
           requiresFeeForNext: !!data.requiresFeeForNext,
-          feeAmountUzs: Number(data.feeAmountUzs) || LISTING_FEE_UZS,
+          /** Narx faqat klient `LISTING_FEE_UZS` va server bilan bir xil bo‘lishi kerak (Edge deploy). */
+          feeAmountUzs: LISTING_FEE_UZS,
           freeLimit: Number(data.freeLimit) || 2,
           remainingFreeSlots: Number(data.remainingFreeSlots) ?? 0,
         });
@@ -587,7 +588,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
 
     if (listingQuota?.requiresFeeForNext && !listingFeeTransactionId?.trim()) {
       go(
-        `Bu telefon bo‘yicha ${listingQuota.freeLimit} tadan ortiq e‘lon uchun avval ${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m to‘lang (Click yoki Payme).`,
+        `Bu telefon bo‘yicha ${listingQuota.freeLimit} tadan ortiq e‘lon uchun avval ${LISTING_FEE_UZS.toLocaleString('uz-UZ')} so‘m to‘lang (Click yoki Payme).`,
         listingFeeBannerRef.current,
       );
       return;
@@ -837,7 +838,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                     <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.7)' }}>
                       Keyingi har bir e&apos;lon:{' '}
                       <strong>
-                        {(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so&apos;m
+                        {LISTING_FEE_UZS.toLocaleString('uz-UZ')} so&apos;m
                       </strong>{' '}
                       (Click yoki Payme). Avval to&apos;lang, keyin turini tanlang va e&apos;lonni yuboring.
                     </p>
@@ -858,7 +859,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                             ? 'Tayyorlanmoqda…'
                             : feePolling
                               ? 'To‘lov kutilmoqda…'
-                              : `${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m — Click`}
+                              : `${LISTING_FEE_UZS.toLocaleString('uz-UZ')} so‘m — Click`}
                         </button>
                         <button
                           type="button"
@@ -873,7 +874,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                             ? 'Tayyorlanmoqda…'
                             : feePolling
                               ? 'To‘lov kutilmoqda…'
-                              : `${(listingQuota.feeAmountUzs || LISTING_FEE_UZS).toLocaleString('uz-UZ')} so‘m — Payme`}
+                              : `${LISTING_FEE_UZS.toLocaleString('uz-UZ')} so‘m — Payme`}
                         </button>
                       </div>
                     )}

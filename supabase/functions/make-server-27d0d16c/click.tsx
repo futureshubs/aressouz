@@ -71,7 +71,12 @@ function clickInvoiceEnvError(): string | null {
   return `Click sozlanmagan. Supabase secrets: ${miss.join(', ')}. Kabinetdagi service/merchant/user ID va maxfiy kalitni kiriting.`;
 }
 
-/** To‘lov sahifasi: prod (`my.click.uz`) standart; test faqat aniq yoqilganda. */
+/**
+ * To‘lov sahifasi: prod (`my.click.uz`) standart.
+ * `create-invoice` / `create-card-invoice` faqat CLICK_* secretlar bilan ishlaydi — KV dagi admin
+ * «test rejim» bayrog‘i prod kalitlarni test.click ga yuborib, sahifani sindirishi mumkin edi.
+ * Shuning uchun secretlar to‘liq bo‘lsa, test domen faqat CLICK_USE_TEST / CLICK_TEST_MODE orqali.
+ */
 async function resolveClickPayBaseUrl(): Promise<string> {
   const envOverride = (Deno.env.get('CLICK_PAY_BASE_URL') || '').trim();
   if (envOverride) return envOverride.replace(/\/$/, '');
@@ -80,6 +85,10 @@ async function resolveClickPayBaseUrl(): Promise<string> {
   }
   if (clickEnvWantsTestMode()) {
     return 'https://test.click.uz/services/pay';
+  }
+  const envCredsComplete = clickMissingEnvKeys().length === 0;
+  if (envCredsComplete) {
+    return 'https://my.click.uz/services/pay';
   }
   try {
     const clickCfg = await kv.get('payment_method:click');
@@ -271,6 +280,7 @@ click.post('/create-invoice', async (c) => {
     });
 
     const payBase = await resolveClickPayBaseUrl();
+    console.log('💳 CLICK pay base:', payBase);
     const paymentUrl = new URL(payBase);
     paymentUrl.searchParams.set('service_id', CLICK_SERVICE_ID);
     paymentUrl.searchParams.set('merchant_id', CLICK_MERCHANT_ID);

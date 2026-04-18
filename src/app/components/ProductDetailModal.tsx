@@ -516,7 +516,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
 
       {/* Modal Content */}
       <div 
-        className="relative w-full sm:max-w-lg md:max-w-2xl lg:max-w-3xl mx-auto flex flex-col h-[95dvh] max-h-[95dvh] sm:h-auto sm:max-h-[90vh] overflow-hidden rounded-t-3xl sm:rounded-3xl min-h-0"
+        className="relative w-full sm:max-w-lg md:max-w-2xl lg:max-w-3xl mx-auto flex flex-col h-[95dvh] max-h-[calc(100dvh-var(--app-safe-top)-var(--app-safe-bottom))] sm:h-auto sm:max-h-[90vh] overflow-hidden rounded-t-3xl sm:rounded-3xl min-h-0"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
         }}

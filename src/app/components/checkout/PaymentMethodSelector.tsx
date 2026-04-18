@@ -17,10 +17,7 @@ import { useVisibilityTick } from '../../utils/visibilityRefetch';
 import { coerceUiPaymentTestMode } from '../../utils/paymentTestMode';
 import { SkeletonBox } from '../skeletons';
 import { openExternalUrlSync } from '../../utils/openExternalUrl';
-import {
-  PAYMENT_LOGO_FRAME_SKEW_DEG,
-  PaymentMethodLogoFrame,
-} from '../payment/PaymentMethodLogoFrame';
+import { PaymentMethodLogoFrame } from '../payment/PaymentMethodLogoFrame';
 
 interface PaymentMethod {
   type: string;
@@ -50,8 +47,6 @@ function SelectorMethodMark({
   const [broken, setBroken] = useState(!logoSrc);
   const softLight =
     type === 'uzumnasiya' || type === 'uzum_nasiya' || type === 'uzum-nasiya';
-  const skewDeg =
-    String(type).toLowerCase() === 'payme' ? PAYMENT_LOGO_FRAME_SKEW_DEG * 1.35 : undefined;
   return (
     <PaymentMethodLogoFrame
       brandColor={color}
@@ -59,7 +54,6 @@ function SelectorMethodMark({
       softLightBackdrop={softLight}
       embedInRow={embedInRow}
       square={!embedInRow}
-      skewDeg={skewDeg}
     >
       {logoSrc && !broken ? (
         <img
@@ -68,7 +62,7 @@ function SelectorMethodMark({
           className={
             embedInRow
               ? 'block max-h-full w-auto max-w-full object-contain object-center'
-              : 'block h-full w-full object-contain object-center'
+              : 'block h-full w-full rounded-2xl object-contain object-center'
           }
           draggable={false}
           decoding="async"
@@ -134,7 +128,7 @@ export default function PaymentMethodSelector({
 
   /** Checkout bilan bir xil yo‘l — ramkali logotip */
   const methodLogoSrc: Record<string, string | undefined> = {
-    payme: '/payments/payme-official.png?v=2',
+    payme: '/payments/payme-official.png?v=4',
     click: '/payments/click-official.svg?v=2',
     atmos: '/payments/checkout-atmos-square.png?v=1',
     uzumnasiya: '/payments/checkout-uzum-nasiya-square.png?v=1',

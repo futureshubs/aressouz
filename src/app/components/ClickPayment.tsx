@@ -3,9 +3,11 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { CreditCard, Loader2, Check, ExternalLink } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { openExternalUrl } from '../utils/openExternalUrl';
 import { PaymentMethodLogoFrame } from './payment/PaymentMethodLogoFrame';
+
+const edgeClickBase = import.meta.env.DEV ? DEV_API_BASE_URL : API_BASE_URL;
 
 const CLICK_BRAND = '#00a650';
 
@@ -25,7 +27,7 @@ function ClickBrandMark({ isDark }: { isDark: boolean }) {
           <img
             src="/payments/click-official.svg?v=2"
             alt="Click"
-            className="block h-full w-full object-contain object-center"
+            className="block h-full w-full rounded-2xl object-contain object-center"
             decoding="async"
             onError={() => setBroken(true)}
           />
@@ -73,23 +75,20 @@ export default function ClickPayment({
         ? '/click/create-card-invoice' 
         : '/click/create-invoice';
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c${endpoint}`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({
-            orderId,
-            amount,
-            phone,
-            description: `Buyurtma #${orderId}`,
-            returnUrl: window.location.origin,
-          }),
-        }
-      );
+      const response = await fetch(`${edgeClickBase}${endpoint}`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          orderId,
+          amount,
+          phone,
+          description: `Buyurtma #${orderId}`,
+          returnUrl: typeof window !== 'undefined' ? window.location.origin : '',
+        }),
+      });
 
       if (!response.ok) {
         const error = await response.json();
@@ -140,14 +139,11 @@ export default function ClickPayment({
     const interval = setInterval(async () => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       try {
-        const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/click/status/${orderId}`,
-          {
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-            },
-          }
-        );
+        const response = await fetch(`${edgeClickBase}/click/status/${orderId}`, {
+          headers: {
+            Authorization: `Bearer ${publicAnonKey}`,
+          },
+        });
 
         if (response.ok) {
           const data = await response.json();
@@ -187,14 +183,11 @@ export default function ClickPayment({
     try {
       console.log('🔍 Checking CLICK payment status for:', orderId);
       
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/click/status/${orderId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-        }
-      );
+      const response = await fetch(`${edgeClickBase}/click/status/${orderId}`, {
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
+        },
+      });
 
       console.log('📡 Status check response:', response.status);
 

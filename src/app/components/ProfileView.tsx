@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
 import {
   User,
   Settings,
@@ -58,7 +58,7 @@ import {
   DialogDescription,
 } from './ui/dialog';
 import type { FavoriteOrderEntry } from '../context/FavoritesContext';
-import { useVisibilityRefetch } from '../utils/visibilityRefetch';
+import { useVisibilityRefetch, type VisibilityRefetchDetail } from '../utils/visibilityRefetch';
 import { ProfileActiveRentalCard, type ProfileActiveRentalOrder } from './rental/ProfileActiveRentalCard';
 import { tryResolveImageFromBranchCatalog } from '../utils/branchCatalogProductImage';
 
@@ -158,7 +158,30 @@ function mergeRelationalAndKvOrder(rel: Record<string, unknown>, kv: Record<stri
     ? (kv.previewLines as ProfileOrderLinePreview[])
     : [];
   const previewLines = mergePreviewLinesWithKv(relLines, kvLines);
-  return { ...kv, ...rel, orderStatus: pickMergedOrderStatus(kv, rel), previewLines };
+  const merged = { ...kv, ...rel, orderStatus: pickMergedOrderStatus(kv, rel), previewLines };
+  const refundPending = merged.refundPending === true || kv.refundPending === true;
+  const payRaw = String(merged.paymentStatus ?? merged.payment_status ?? '').toLowerCase();
+  const payRefunded = payRaw === 'refunded';
+  const os = String(merged.orderStatus || '').toLowerCase();
+  let status = String(merged.status || '');
+  if (os === 'cancelled' || os === 'canceled') {
+    if (refundPending && !payRefunded) {
+      status = 'Bekor qilingan — to‘lov qaytarish kutilmoqda';
+    } else if (payRefunded) {
+      status = 'Bekor qilingan — to‘lov qaytarildi';
+    } else if (!status || status === 'Bekor qilingan') {
+      status = 'Bekor qilingan';
+    }
+  }
+  const customerName = String(merged.customerName || kv.customerName || rel.customerName || '').trim();
+  const customerPhone = String(merged.customerPhone || kv.customerPhone || rel.customerPhone || '').trim();
+  return {
+    ...merged,
+    refundPending,
+    status,
+    ...(customerName ? { customerName } : {}),
+    ...(customerPhone ? { customerPhone } : {}),
+  };
 }
 
 function enrichOrderPreviewLineImages(order: Record<string, unknown>): Record<string, unknown> {
@@ -430,7 +453,16 @@ function getProfileOrderReceiptMeta(order: Record<string, unknown>, lang: Langua
 /** Yetkazilgan / yakunlangan buyurtmada mijoz chekini ko‘rishi */
 function orderEligibleForReceiptView(order: Record<string, unknown>): boolean {
   const st = String(order.orderStatus || '').toLowerCase().trim();
-  if (st === 'cancelled') return false;
+  if (st === 'cancelled') {
+    const refundPending = order.refundPending === true;
+    const pay = String(
+      (order as { paymentStatus?: string }).paymentStatus ||
+        (order as { payment_status?: string }).payment_status ||
+        '',
+    ).toLowerCase();
+    if (refundPending || pay === 'refunded') return true;
+    return false;
+  }
   if (st === 'completed') return true;
   const raw = String((order as { status?: unknown }).status || '').toLowerCase();
   if (raw.includes('bekor') || raw.includes('cancel')) return false;
@@ -690,8 +722,6 @@ function relationalOrderToUi(row: Record<string, unknown>) {
     promoCode: row.promo_code,
     buyer_note: row.buyer_note,
     buyerNote: row.buyer_note,
-    tax_amount: row.tax_amount,
-    discount_amount: row.discount_amount,
     bonus_used_amount: row.bonus_used_amount,
     payment_requires_verification: row.payment_requires_verification,
     source_channel: row.source_channel,
@@ -1301,7 +1331,11 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
   const [myRentals, setMyRentals] = useState<any[]>([]);
   const [myRentalsLoading, setMyRentalsLoading] = useState(false);
   const [profileVisibilityTick, setProfileVisibilityTick] = useState(0);
-  useVisibilityRefetch(() => setProfileVisibilityTick((t) => t + 1));
+  const profileVisibilityOptsRef = useRef<VisibilityRefetchDetail>({});
+  useVisibilityRefetch((detail) => {
+    profileVisibilityOptsRef.current = detail ?? {};
+    setProfileVisibilityTick((t) => t + 1);
+  });
 
   // Get access token
   const accessToken = session?.access_token || '';
@@ -1489,6 +1523,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
 
   const fetchOrders = async () => {
     const token = getValidToken();
+    const silent = Boolean(profileVisibilityOptsRef.current?.silent);
 
     if (!token) {
       setOrdersLoading(false);
@@ -1496,7 +1531,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
       return;
     }
 
-    setOrdersLoading(true);
+    if (!silent) setOrdersLoading(true);
     devLog('🔑 Fetching orders (parallel KV + v2 + ijara):', token.substring(0, 20) + '...');
 
     const headers = {
@@ -1522,7 +1557,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         fetch(`${apiBaseUrl}/v2/orders?limit=50`, { headers }),
       ];
       if (phonePk.length >= 9) {
-        setMyRentalsLoading(true);
+        if (!silent) setMyRentalsLoading(true);
         parallel.push(
           fetch(
             `${apiBaseUrl}/rentals/my-rentals?phone=${encodeURIComponent(phonePk)}`,
@@ -2865,6 +2900,59 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
                         </div>
                       ) : null}
                     </div>
+                    {(() => {
+                      const refundP = orec.refundPending === true;
+                      const paySt = String(orec.paymentStatus ?? orec.payment_status ?? '').toLowerCase();
+                      const showRefundDetails =
+                        refundP ||
+                        (String(order.orderStatus).toLowerCase() === 'cancelled' && paySt === 'refunded');
+                      if (!showRefundDetails) return null;
+                      const ex = getOrderReceiptExtras(orec);
+                      return (
+                        <div
+                          className="mt-2 rounded-xl px-3 py-2.5 text-xs space-y-1"
+                          style={{
+                            background: isDark ? 'rgba(99,102,241,0.12)' : 'rgba(99,102,241,0.08)',
+                            border: isDark
+                              ? '1px solid rgba(165,180,252,0.35)'
+                              : '1px solid rgba(99,102,241,0.25)',
+                          }}
+                          onClick={(e) => e.stopPropagation()}
+                        >
+                          <p className="font-bold" style={{ color: isDark ? '#c7d2fe' : '#4338ca' }}>
+                            {t('profile.refundYourDetails')}
+                          </p>
+                          {ex.customerName ? (
+                            <p style={{ color: isDark ? 'rgba(255,255,255,0.85)' : '#1f2937' }}>
+                              {ex.customerName}
+                            </p>
+                          ) : null}
+                          {ex.customerPhone ? (
+                            <p style={{ color: isDark ? 'rgba(255,255,255,0.75)' : '#374151' }}>
+                              {ex.customerPhone}
+                            </p>
+                          ) : null}
+                          {ex.address ? (
+                            <p
+                              className="whitespace-pre-wrap"
+                              style={{ color: isDark ? 'rgba(255,255,255,0.65)' : '#4b5563' }}
+                            >
+                              {ex.address}
+                            </p>
+                          ) : null}
+                          {(ex.paymentMethod || ex.paymentProviderRaw) ? (
+                            <p style={{ color: isDark ? 'rgba(255,255,255,0.6)' : '#6b7280' }}>
+                              {[ex.paymentMethod, ex.paymentProviderRaw].filter(Boolean).join(' · ')}
+                            </p>
+                          ) : null}
+                          {refundP ? (
+                            <p className="mt-1 font-medium" style={{ color: '#d97706' }}>
+                              {t('profile.refundDetailHint')}
+                            </p>
+                          ) : null}
+                        </div>
+                      );
+                    })()}
                     {order.awaitingCustomerReceipt && !order.relational ? (
                       <div
                         className="mt-3 p-3 rounded-xl space-y-2"

@@ -8,6 +8,7 @@ import {
   validateVariantCommissionsForSave,
 } from './platform-commission.ts';
 import * as telegram from './telegram.tsx';
+import { getOrderKeys } from './services/order-kv-lookup.ts';
 
 const app = new Hono();
 
@@ -252,16 +253,54 @@ function isPaidLikeRestaurant(ps: unknown): boolean {
   return s === 'paid' || s === 'completed' || s === 'success';
 }
 
-/** Taom buyurtmasi: asosiy `order:id` va restoran prefiksini birga yangilash */
+/** Click/Payme: `paymentStatus` hali pending, lekin chek id yoki payment obyekti paid */
+function orderAppearsPaidForRestaurantCancel(order: any): boolean {
+  if (isPaidLikeRestaurant(order?.paymentStatus)) return true;
+  const payObj = order?.payment && typeof order.payment === 'object' ? order.payment : null;
+  if (isPaidLikeRestaurant(payObj?.status)) return true;
+  const ps = String(order?.paymentStatus || '').toLowerCase().trim();
+  if (ps === 'refunded' || ps === 'failed') return false;
+  if (order?.paidAt || order?.paymentCompletedAt || order?.paymentVerifiedAt) return true;
+  const pm = String(order?.paymentMethod || '').toLowerCase();
+  const online =
+    pm.includes('click') ||
+    pm.includes('payme') ||
+    pm.includes('atmos') ||
+    pm.includes('uzum') ||
+    pm.includes('humo') ||
+    pm === 'qr' ||
+    pm === 'qrcode' ||
+    pm === 'online';
+  if (
+    online &&
+    (order?.paymeReceiptId ||
+      order?.clickTransId ||
+      order?.payme_receipt_id ||
+      order?.click_trans_id ||
+      order?.transactionId)
+  ) {
+    return true;
+  }
+  return false;
+}
+
+/** Taom buyurtmasi: barcha mos KV kalitlarida bir xil yozuv (kassa / filial ro‘yxati) */
 async function persistRestaurantOrderWrite(order: any, matchedKey: string): Promise<void> {
-  await kv.set(matchedKey, order);
+  const keys = new Set<string>();
+  if (matchedKey) keys.add(matchedKey);
   const oid = String(order?.id || '').trim();
   if (oid) {
-    await kv.set(`order:${oid}`, order);
+    for (const k of getOrderKeys(oid)) {
+      if (k) keys.add(k);
+    }
+    keys.add(oid);
   }
   const mk = order?.foodOrderMirrorKey;
-  if (typeof mk === 'string' && mk.trim()) {
-    await kv.set(mk.trim(), order);
+  if (typeof mk === 'string' && mk.trim()) keys.add(mk.trim());
+
+  for (const k of keys) {
+    if (!k) continue;
+    await kv.set(k, order);
   }
 }
 
@@ -766,10 +805,10 @@ app.patch('/restaurants/:restaurantId/orders/:orderId/status', async (c) => {
 
     const nowIso = new Date().toISOString();
     const prevSt = String(order.status || '').toLowerCase().trim();
+    const wasTerminal = prevSt === 'cancelled' || prevSt === 'canceled' || prevSt === 'rejected';
+    const terminalNow = nextStatus === 'cancelled' || nextStatus === 'rejected';
     const paidCancel =
-      nextStatus === 'cancelled' &&
-      prevSt !== 'cancelled' &&
-      isPaidLikeRestaurant(order.paymentStatus);
+      terminalNow && !wasTerminal && orderAppearsPaidForRestaurantCancel(order);
     const updated = {
       ...order,
       status: nextStatus,

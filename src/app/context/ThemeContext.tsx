@@ -13,6 +13,7 @@ import { getUserId } from '../utils/userId';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { AUTH_SESSION_CHANGED_EVENT } from '../utils/authSessionEvents';
+import { isMarketplaceNativeApp } from '../utils/marketplaceNativeBridge';
 
 /**
  * Tema: `themePreference` localStorage + serverda (`system` | `light` | `dark`).
@@ -47,6 +48,10 @@ function normalizeThemePreference(value: unknown): ThemePreference | null {
 
 function readThemePreferenceLs(): ThemePreference {
   try {
+    /** Brauzer (PWA): faqat qurilma kun/tun — foydalanuvchi tanlovi yo‘q */
+    if (typeof window !== 'undefined' && !isMarketplaceNativeApp()) {
+      return 'system';
+    }
     const saved = normalizeThemePreference(localStorage.getItem('theme'));
     if (saved) return saved;
   } catch {
@@ -144,6 +149,17 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
 
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>(readThemePreferenceLs);
   const [systemIsDark, setSystemIsDark] = useState<boolean>(readSystemPrefersDark);
+
+  /** Brauzer: majburiy `system` (sozlamalar va serverdagi light/dark e’tiborsiz) */
+  useEffect(() => {
+    if (typeof window === 'undefined' || isMarketplaceNativeApp()) return;
+    setThemePreferenceState('system');
+    try {
+      localStorage.setItem('theme', 'system');
+    } catch {
+      /* ignore */
+    }
+  }, []);
 
   useEffect(() => {
     if (typeof window === 'undefined') return;
@@ -276,7 +292,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             const settings = data.settings;
 
             const serverTheme = normalizeThemePreference(settings?.theme);
-            if (serverTheme) {
+            if (serverTheme && isMarketplaceNativeApp()) {
               setThemePreferenceState(serverTheme);
               localStorage.setItem('theme', serverTheme);
             }
@@ -380,6 +396,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   ]);
 
   const toggleTheme = useCallback(() => {
+    if (typeof window !== 'undefined' && !isMarketplaceNativeApp()) return;
     setThemePreferenceState((prev) => {
       if (prev === 'system') {
         const osDark = readSystemPrefersDark();

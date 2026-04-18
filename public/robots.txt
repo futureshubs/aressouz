@@ -1,0 +1,21 @@
+# https://www.robotstxt.org/robotstxt.html
+User-agent: *
+Allow: /
+
+# Admin / panel yo‘llarini indekslamaslik (xavfsizlik + SEO sifati)
+Disallow: /admin
+Disallow: /filyal
+Disallow: /kuryer
+Disallow: /kassa
+Disallow: /seller
+Disallow: /restaurant
+Disallow: /taom
+Disallow: /xodim
+Disallow: /support
+Disallow: /bogalter
+Disallow: /ijara-panel
+Disallow: /avtokuryer
+Disallow: /tayyorlovchi
+Disallow: /omborchi
+
+Sitemap: /sitemap.xml
