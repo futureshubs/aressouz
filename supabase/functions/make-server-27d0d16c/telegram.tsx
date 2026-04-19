@@ -187,6 +187,8 @@ export async function sendRestaurantTableBookingNotification(p: {
   customerPhone: string;
   bookingDate: string;
   bookingTime: string;
+  /** HH:mm — bron oralig‘ining tugashi */
+  bookingEndTime?: string;
   partySize: number;
   notes?: string;
   /** Xona rasmlari (HTTPS URL) — Telegram serverlari yuklay oladigan ochiq URL */
@@ -206,6 +208,12 @@ export async function sendRestaurantTableBookingNotification(p: {
     p.notes && String(p.notes).trim()
       ? `\n📝 <b>Izoh:</b> ${escapeTelegramHtml(String(p.notes).trim())}`
       : '';
+  const startT = String(p.bookingTime || '').trim();
+  const endT = String(p.bookingEndTime || '').trim();
+  const timeLine =
+    endT && endT !== startT
+      ? `${escapeTelegramHtml(startT)} — ${escapeTelegramHtml(endT)}`
+      : escapeTelegramHtml(startT);
   const message = `🪑 <b>YANGI JOY BRONI</b>
 
 🏪 <b>Restoran:</b> ${escapeTelegramHtml(p.restaurantName)}
@@ -215,7 +223,7 @@ export async function sendRestaurantTableBookingNotification(p: {
 
 🚪 <b>Xona / joy:</b> ${escapeTelegramHtml(p.roomName)}
 📅 <b>Sana:</b> ${escapeTelegramHtml(p.bookingDate)}
-🕐 <b>Vaqt:</b> ${escapeTelegramHtml(p.bookingTime)}
+🕐 <b>Vaqt:</b> ${timeLine}
 👥 <b>Odamlar:</b> ${p.partySize}
 
 ━━━━━━━━━━━━━━━━━━

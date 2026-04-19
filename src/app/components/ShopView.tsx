@@ -102,6 +102,7 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
                 ...p,
                 shopName: shop.name,
                 shopLogo: shop.logo,
+                shopMerchantRecord: shop,
                 stockQuantity: getEffectiveProductStockQuantity(p),
               }));
               allProducts.push(...productsWithShop);
@@ -409,6 +410,10 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
           }}
           source="shop"
           storeName="TechMart Elektronika"
+          merchantHoursRecord={
+            (selectedProduct as { shopMerchantRecord?: Record<string, unknown> | null })?.shopMerchantRecord ??
+            null
+          }
         />
       )}
     </>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
@@ -6,21 +6,25 @@ import { Platform } from '../utils/platform';
 import { rentalCatalogs, rentalCategories, rentalBanners, RentalItem } from '../data/rentals';
 import { RentalCategoryCard } from './RentalCategoryCard';
 import { RentalItemDetailModal } from './RentalItemDetailModal';
-import { LayoutGrid, Package, ArrowLeft, ChevronRight, Loader2 } from 'lucide-react';
+import { LayoutGrid, Package, ArrowLeft, ChevronRight } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { regions as allRegions } from '../data/regions';
 import { BannerCarousel } from './BannerCarousel';
 import { matchesSelectedLocation } from '../utils/locationMatching';
 import { ProductGridSkeleton } from './skeletons';
+import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
+import { CardImageScroll } from './CardImageScroll';
+import { collectProductGalleryImages } from '../utils/cardGalleryImages';
 
 interface RentalsViewProps {
   platform: Platform;
 }
 
 export function RentalsView({ platform }: RentalsViewProps) {
+  const skipRentalOpenAfterGalleryScroll = useRef<Set<string>>(new Set());
   const { theme, accentColor } = useTheme();
   const { selectedRegion: selectedRegionId, selectedDistrict: selectedDistrictId } = useLocation();
   const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
@@ -34,7 +38,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
   
   // Backend state
   const [backendProducts, setBackendProducts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   // Load all rental products from backend
   useEffect(() => {
@@ -245,6 +249,28 @@ export function RentalsView({ platform }: RentalsViewProps) {
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'rental' });
   }, [headerSearch, rentalCatalogs, rentalCategories]);
 
+  const rentalProductsGridSource = loading ? [] : searchFilteredBackendProducts;
+  const rentalProductsRevealKey = useMemo(
+    () => `${headerSearch}-${backendProducts.length}-${selectedRegionId}-${selectedDistrictId}`,
+    [headerSearch, backendProducts.length, selectedRegionId, selectedDistrictId],
+  );
+  const { visibleItems: progressiveRentalProducts, sentinelRef: rentalProductsSentinelRef } =
+    useProgressiveListReveal(rentalProductsGridSource, rentalProductsRevealKey, {
+      batchSize: 10,
+      initialCount: 16,
+    });
+
+  const rentalCategoryGridSource = loading ? [] : searchFinalCatalogProducts;
+  const rentalCategoryRevealKey = useMemo(
+    () => `${selectedCategoryId ?? 'none'}-${headerSearch}-${searchFinalCatalogProducts.length}`,
+    [selectedCategoryId, headerSearch, searchFinalCatalogProducts.length],
+  );
+  const { visibleItems: progressiveRentalCategoryProducts, sentinelRef: rentalCategorySentinelRef } =
+    useProgressiveListReveal(rentalCategoryGridSource, rentalCategoryRevealKey, {
+      batchSize: 10,
+      initialCount: 16,
+    });
+
   return (
     <div className="min-h-screen pb-[max(5.5rem,calc(4.5rem+env(safe-area-inset-bottom)))]">
       {/* Banner - Only show on main view */}
@@ -327,33 +353,30 @@ export function RentalsView({ platform }: RentalsViewProps) {
               Barcha mahsulotlar
             </h2>
             
-            <div className="text-sm font-medium inline-flex items-center gap-1.5" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}>
-              {loading ? (
-                <>
-                  <Loader2 className="size-4 shrink-0 animate-spin" style={{ color: accentColor.color }} />
-                  
-                </>
-              ) : (
-                <>{searchFilteredBackendProducts.length} ta mahsulot</>
-              )}
-            </div>
+            <span
+              className="text-sm font-medium"
+              style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.6)' }}
+            >
+              {searchFilteredBackendProducts.length} ta mahsulot
+            </span>
           </div>
           
           {/* Loading state */}
           {loading ? (
             <ProductGridSkeleton
               isDark={isDark}
-              count={12}
+              count={10}
               gridClassName="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 md:gap-4"
               imageClassName="aspect-[4/3]"
             />
           ) : searchFilteredBackendProducts.length > 0 ? (
             /* Backend products */
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 md:gap-4">
-              {searchFilteredBackendProducts.map((product) => (
+              {progressiveRentalProducts.map((product) => (
                 <div
                   key={product.id}
                   onClick={() => {
+                    if (skipRentalOpenAfterGalleryScroll.current.has(String(product.id))) return;
                     // Create RentalItem from backend product
                     const rentalItem = {
                       id: product.id,
@@ -383,20 +406,49 @@ export function RentalsView({ platform }: RentalsViewProps) {
                   <div 
                     className="rounded-2xl sm:rounded-3xl overflow-hidden border transition-all duration-300 hover:scale-[1.02]"
                     style={{
-                      background: isDark ? 'rgba(0, 0, 0, 0.8)' : '#1a1a1a',
-                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(255, 255, 255, 0.08)',
-                      boxShadow: '0 8px 24px rgba(0, 0, 0, 0.4)',
+                      background: isDark
+                        ? 'rgba(0, 0, 0, 0.8)'
+                        : 'linear-gradient(145deg, #ffffff, #f9fafb)',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
+                      boxShadow: isDark
+                        ? '0 8px 24px rgba(0, 0, 0, 0.4)'
+                        : '0 4px 16px rgba(0, 0, 0, 0.06)',
                     }}
                   >
                     {/* Image with Overlay */}
                     <div className="relative aspect-[4/3] overflow-hidden">
-                      <img
-                        src={product.images && product.images.length > 0 ? product.images[0] : 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800'}
-                        alt={product.name}
-                        loading="lazy"
-                        decoding="async"
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      />
+                      {(() => {
+                        const fallback = 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800';
+                        const listRaw = collectProductGalleryImages({
+                          image: product.images?.[0],
+                          images: product.images,
+                        });
+                        const list = listRaw.length > 0 ? listRaw : [fallback];
+                        if (list.length <= 1) {
+                          return (
+                            <img
+                              src={list[0]}
+                              alt={product.name}
+                              loading="lazy"
+                              decoding="async"
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                            />
+                          );
+                        }
+                        return (
+                          <CardImageScroll
+                            images={list}
+                            alt={product.name}
+                            dotColor={accentColor.color}
+                            onUserInteracted={() => {
+                              const id = String(product.id);
+                              skipRentalOpenAfterGalleryScroll.current.add(id);
+                              window.setTimeout(() => skipRentalOpenAfterGalleryScroll.current.delete(id), 450);
+                            }}
+                            imgClassName="h-full w-full object-cover"
+                          />
+                        );
+                      })()}
 
                       {/* Top Badges */}
                       <div className="absolute top-1.5 sm:top-2 left-1.5 sm:left-2 right-1.5 sm:right-2 flex items-center justify-between gap-1.5">
@@ -465,9 +517,9 @@ export function RentalsView({ platform }: RentalsViewProps) {
                           {product.durations?.daily?.enabled && (
                             <>
                               <div className="text-base sm:text-lg md:text-xl font-bold truncate" style={{ color: accentColor.color }}>
-                                {parseInt(product.durations.daily.price).toLocaleString()} <span className="text-[10px] sm:text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.6)' }}>so'm</span>
+                                {parseInt(product.durations.daily.price).toLocaleString()} <span className="text-[10px] sm:text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>so'm</span>
                               </div>
-                              <div className="text-[10px] sm:text-xs mt-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.6)' }}>
+                              <div className="text-[10px] sm:text-xs mt-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
                                 kunlik
                               </div>
                             </>
@@ -475,9 +527,9 @@ export function RentalsView({ platform }: RentalsViewProps) {
                           {!product.durations?.daily?.enabled && product.durations?.hourly?.enabled && (
                             <>
                               <div className="text-base sm:text-lg md:text-xl font-bold truncate" style={{ color: accentColor.color }}>
-                                {parseInt(product.durations.hourly.price).toLocaleString()} <span className="text-[10px] sm:text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.6)' }}>so'm</span>
+                                {parseInt(product.durations.hourly.price).toLocaleString()} <span className="text-[10px] sm:text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>so'm</span>
                               </div>
-                              <div className="text-[10px] sm:text-xs mt-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.6)' }}>
+                              <div className="text-[10px] sm:text-xs mt-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
                                 soatlik
                               </div>
                             </>
@@ -485,9 +537,9 @@ export function RentalsView({ platform }: RentalsViewProps) {
                           {!product.durations?.daily?.enabled && !product.durations?.hourly?.enabled && product.durations?.weekly?.enabled && (
                             <>
                               <div className="text-base sm:text-lg md:text-xl font-bold truncate" style={{ color: accentColor.color }}>
-                                {parseInt(product.durations.weekly.price).toLocaleString()} <span className="text-[10px] sm:text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.6)' }}>so'm</span>
+                                {parseInt(product.durations.weekly.price).toLocaleString()} <span className="text-[10px] sm:text-xs" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}>so'm</span>
                               </div>
-                              <div className="text-[10px] sm:text-xs mt-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(255,255,255,0.6)' }}>
+                              <div className="text-[10px] sm:text-xs mt-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
                                 haftalik
                               </div>
                             </>
@@ -511,6 +563,13 @@ export function RentalsView({ platform }: RentalsViewProps) {
                   </div>
                 </div>
               ))}
+              {progressiveRentalProducts.length < searchFilteredBackendProducts.length && (
+                <div
+                  ref={rentalProductsSentinelRef}
+                  className="col-span-full h-4 w-full shrink-0"
+                  aria-hidden
+                />
+              )}
             </div>
           ) : (
             /* Empty state */
@@ -715,24 +774,19 @@ export function RentalsView({ platform }: RentalsViewProps) {
           </h2>
           
           {loading ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-center gap-2 py-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
-                <Loader2 className="size-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
-                
-              </div>
-              <ProductGridSkeleton
-                isDark={isDark}
-                count={12}
-                gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4"
-                imageClassName="aspect-square"
-              />
-            </div>
+            <ProductGridSkeleton
+              isDark={isDark}
+              count={10}
+              gridClassName="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4"
+              imageClassName="aspect-square"
+            />
           ) : searchFinalCatalogProducts.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4">
-              {searchFinalCatalogProducts.map((product) => (
+              {progressiveRentalCategoryProducts.map((product) => (
                 <div
                   key={product.id}
                   onClick={() => {
+                    if (skipRentalOpenAfterGalleryScroll.current.has(String(product.id))) return;
                     // Create RentalItem from backend product
                     const rentalItem = {
                       id: product.id,
@@ -771,13 +825,38 @@ export function RentalsView({ platform }: RentalsViewProps) {
                   >
                     {/* Image */}
                     <div className="relative aspect-square overflow-hidden">
-                      <img
-                        src={product.images && product.images.length > 0 ? product.images[0] : 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800'}
-                        alt={product.name}
-                        loading="lazy"
-                        decoding="async"
-                        className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                      />
+                      {(() => {
+                        const fallback = 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800';
+                        const listRaw = collectProductGalleryImages({
+                          image: product.images?.[0],
+                          images: product.images,
+                        });
+                        const list = listRaw.length > 0 ? listRaw : [fallback];
+                        if (list.length <= 1) {
+                          return (
+                            <img
+                              src={list[0]}
+                              alt={product.name}
+                              loading="lazy"
+                              decoding="async"
+                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                            />
+                          );
+                        }
+                        return (
+                          <CardImageScroll
+                            images={list}
+                            alt={product.name}
+                            dotColor={accentColor.color}
+                            onUserInteracted={() => {
+                              const id = String(product.id);
+                              skipRentalOpenAfterGalleryScroll.current.add(id);
+                              window.setTimeout(() => skipRentalOpenAfterGalleryScroll.current.delete(id), 450);
+                            }}
+                            imgClassName="h-full w-full object-cover"
+                          />
+                        );
+                      })()}
                       {product.availableQuantity > 0 && (
                         <div 
                           className="absolute top-2 right-2 px-2 py-1 rounded-full text-xs font-medium"
@@ -820,6 +899,13 @@ export function RentalsView({ platform }: RentalsViewProps) {
                   </div>
                 </div>
               ))}
+              {progressiveRentalCategoryProducts.length < searchFinalCatalogProducts.length && (
+                <div
+                  ref={rentalCategorySentinelRef}
+                  className="col-span-full h-4 w-full shrink-0"
+                  aria-hidden
+                />
+              )}
             </div>
           ) : (
             /* Empty state */

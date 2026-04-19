@@ -1921,7 +1921,10 @@ export default function RestaurantPanel() {
                       >
                         <div className="min-w-0">
                           <p className="font-bold">
-                            {b.roomName} · {b.bookingDate} {b.bookingTime}
+                            {b.roomName} · {b.bookingDate}{' '}
+                            {b.bookingEndTime && String(b.bookingEndTime) !== String(b.bookingTime)
+                              ? `${b.bookingTime}–${b.bookingEndTime}`
+                              : b.bookingTime}
                           </p>
                           <p className="text-sm opacity-80">
                             {b.customerName} — {b.customerPhone} ({b.partySize})

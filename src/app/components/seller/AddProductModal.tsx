@@ -663,13 +663,13 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
                 {/* Images */}
                 <div>
                   <label className="block text-sm font-medium mb-2">Rasmlar (maksimal 5 ta)</label>
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-5 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
                     {variant.images.map((image, imgIndex) => (
                       <div
                         key={imgIndex}
-                        className="relative aspect-square rounded-xl overflow-hidden group"
+                        className="relative aspect-square w-full max-w-[500px] rounded-xl overflow-hidden group bg-zinc-100 dark:bg-zinc-800/90"
                       >
-                        <img src={image} alt="" className="w-full h-full object-cover" />
+                        <img src={image} alt="" className="w-full h-full object-contain" />
                         <button
                           onClick={() => handleRemoveImage(index, imgIndex)}
                           className="absolute top-2 right-2 p-1.5 rounded-lg opacity-0 group-hover:opacity-100 transition-opacity"

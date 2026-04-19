@@ -6,6 +6,8 @@ import { buildRentalPanelHeaders } from '../../utils/requestAuth';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { ImageWithFallback } from '../figma/ImageWithFallback';
+import { CardImageScroll } from '../CardImageScroll';
+import { collectProductGalleryImages } from '../../utils/cardGalleryImages';
 import { regions as allRegions } from '../../data/regions';
 import { rentalCatalogs, rentalCategories } from '../../data/rentals';
 
@@ -556,18 +558,37 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
               }}
             >
               {/* Image */}
-              <div className="aspect-video bg-gray-200 dark:bg-gray-800 relative">
-                {product.images && product.images.length > 0 ? (
-                  <ImageWithFallback
-                    src={product.images[0]}
-                    alt={product.name}
-                    className="w-full h-full object-cover"
-                  />
-                ) : (
-                  <div className="w-full h-full flex items-center justify-center">
-                    <ImageIcon className="w-12 h-12" style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }} />
-                  </div>
-                )}
+              <div className="aspect-video bg-gray-200 dark:bg-gray-800 relative overflow-hidden">
+                {(() => {
+                  const urls = collectProductGalleryImages({
+                    image: product.images?.[0],
+                    images: product.images,
+                  });
+                  if (urls.length === 0) {
+                    return (
+                      <div className="w-full h-full flex items-center justify-center">
+                        <ImageIcon className="w-12 h-12" style={{ color: isDark ? 'rgba(255,255,255,0.2)' : 'rgba(0,0,0,0.2)' }} />
+                      </div>
+                    );
+                  }
+                  if (urls.length === 1) {
+                    return (
+                      <ImageWithFallback
+                        src={urls[0]}
+                        alt={product.name}
+                        className="w-full h-full object-cover"
+                      />
+                    );
+                  }
+                  return (
+                    <CardImageScroll
+                      images={urls}
+                      alt={product.name}
+                      dotColor={accentColor.color}
+                      imgClassName="h-full w-full object-cover"
+                    />
+                  );
+                })()}
                 <div className="absolute top-3 right-3 flex flex-col gap-1 items-end">
                   {(product.requiresAutoCourier ||
                     (Number(product.weightKg) > 10)) && (

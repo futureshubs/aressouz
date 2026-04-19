@@ -1,7 +1,9 @@
-import React, { useMemo } from 'react';
+import React, { useMemo, useRef } from 'react';
 import { Home, Car, Heart, Edit, Trash2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { firstListingImageUrl, listingCategoryShortLabel } from '../utils/listingDisplay';
+import { CardImageScroll } from './CardImageScroll';
+import { collectListingGalleryImages } from '../utils/cardGalleryImages';
 
 interface ListingCardProps {
   listing: any;
@@ -29,6 +31,7 @@ export function ListingCard({
 }: ListingCardProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
+  const blockDetailOpenAfterGalleryScroll = useRef(false);
 
   const coverUrl = useMemo(() => firstListingImageUrl(listing), [
     listing?.id,
@@ -41,6 +44,17 @@ export function ListingCard({
   const categoryLabel = listingCategoryShortLabel(
     String(listing?.categoryId ?? ''),
     String(listing?.type ?? ''),
+  );
+
+  const galleryUrls = useMemo(
+    () => collectListingGalleryImages(listing),
+    [
+      listing?.id,
+      listing?.image,
+      Array.isArray(listing?.images) ? listing.images.join('\u001f') : '',
+      Array.isArray(listing?.photos) ? listing.photos.join('\u001f') : '',
+      Array.isArray(listing?.photoUrls) ? listing.photoUrls.join('\u001f') : '',
+    ],
   );
 
   const promoHouse =
@@ -68,11 +82,27 @@ export function ListingCard({
     >
       {/* Image */}
       <div 
-        onClick={onClick}
+        onClick={() => {
+          if (blockDetailOpenAfterGalleryScroll.current) return;
+          onClick?.();
+        }}
         className={`relative w-full overflow-hidden ${compact ? 'aspect-[4/3]' : 'aspect-square'}`}
         style={{ background: isDark ? '#2a2a2a' : '#f5f5f5' }}
       >
-        {coverUrl ? (
+        {galleryUrls.length > 1 ? (
+          <CardImageScroll
+            images={galleryUrls}
+            alt={listing.title}
+            dotColor={accentColor.color}
+            onUserInteracted={() => {
+              blockDetailOpenAfterGalleryScroll.current = true;
+              window.setTimeout(() => {
+                blockDetailOpenAfterGalleryScroll.current = false;
+              }, 450);
+            }}
+            imgClassName="h-full w-full object-cover"
+          />
+        ) : coverUrl ? (
           <img
             key={`${listing?.id ?? 'x'}-${coverUrl}`}
             src={coverUrl}

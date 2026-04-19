@@ -1,5 +1,5 @@
 import { X, Star, MapPin, Phone, Clock, Truck, Package, ChevronLeft } from 'lucide-react';
-import { memo, useState } from 'react';
+import { memo, useState, useEffect } from 'react';
 import { Restaurant, Food } from '../data/restaurants';
 import { FoodCard } from './FoodCard';
 import { FoodDetailModal } from './FoodDetailModal';
@@ -13,11 +13,18 @@ interface RestaurantDetailModalProps {
   platform: Platform;
 }
 
+const RESTAURANT_DESC_MIN_TOGGLE = 140;
+
 export const RestaurantDetailModal = memo(function RestaurantDetailModal({ restaurant, onClose, onAddToCart, platform }: RestaurantDetailModalProps) {
   const { theme, accentColor } = useTheme();
   const [selectedFood, setSelectedFood] = useState<Food | null>(null);
+  const [descExpanded, setDescExpanded] = useState(false);
   const isIOS = platform === 'ios';
   const isDark = theme === 'dark';
+
+  useEffect(() => {
+    setDescExpanded(false);
+  }, [restaurant.id]);
 
   return (
     <>
@@ -112,12 +119,22 @@ export const RestaurantDetailModal = memo(function RestaurantDetailModal({ resta
           <div className="px-4 py-6 space-y-6">
             {/* Description */}
             <div>
-              <p 
-                className="text-sm leading-relaxed"
+              <p
+                className={`text-sm leading-relaxed ${descExpanded ? '' : 'line-clamp-5'}`}
                 style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.8)' }}
               >
                 {restaurant.description}
               </p>
+              {String(restaurant.description || '').trim().length >= RESTAURANT_DESC_MIN_TOGGLE && (
+                <button
+                  type="button"
+                  onClick={() => setDescExpanded((v) => !v)}
+                  className="mt-2 text-sm font-semibold"
+                  style={{ color: accentColor.color }}
+                >
+                  {descExpanded ? "Yig'ish" : "Batafsil o'qish"}
+                </button>
+              )}
             </div>
 
             {/* Cuisine Tags */}

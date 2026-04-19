@@ -1,7 +1,9 @@
 import { Plus, Star } from 'lucide-react';
-import { memo } from 'react';
+import { memo, useRef } from 'react';
 import { Food } from '../data/restaurants';
 import { useTheme } from '../context/ThemeContext';
+import { CardImageScroll } from './CardImageScroll';
+import { collectProductGalleryImages } from '../utils/cardGalleryImages';
 
 interface FoodCardProps {
   food: Food;
@@ -11,10 +13,19 @@ interface FoodCardProps {
 export const FoodCard = memo(function FoodCard({ food, onFoodClick }: FoodCardProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
+  const blockOpenAfterGalleryScroll = useRef(false);
+  const gallery = collectProductGalleryImages({
+    ...food,
+    images: (food as Food & { images?: string[] }).images,
+  });
+  const imageList = gallery.length > 0 ? gallery : food.image ? [food.image] : [];
 
   return (
     <div
-      onClick={() => onFoodClick(food)}
+      onClick={() => {
+        if (blockOpenAfterGalleryScroll.current) return;
+        onFoodClick(food);
+      }}
       className="group cursor-pointer"
     >
       <div
@@ -48,11 +59,31 @@ export const FoodCard = memo(function FoodCard({ food, onFoodClick }: FoodCardPr
       >
         {/* Image Container */}
         <div className="relative h-36 sm:h-40 md:h-44 overflow-hidden rounded-t-[23px]">
-          <img 
-            src={food.image} 
-            alt={food.name}
-            className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-          />
+          {imageList.length > 1 ? (
+            <CardImageScroll
+              images={imageList}
+              alt={food.name}
+              dotColor={accentColor.color}
+              onUserInteracted={() => {
+                blockOpenAfterGalleryScroll.current = true;
+                window.setTimeout(() => {
+                  blockOpenAfterGalleryScroll.current = false;
+                }, 450);
+              }}
+              imgClassName="h-full w-full object-cover transition-transform duration-500 group-hover:scale-110"
+            />
+          ) : imageList.length === 1 ? (
+            <img 
+              src={imageList[0]} 
+              alt={food.name}
+              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+            />
+          ) : (
+            <div
+              className="h-full w-full flex items-center justify-center"
+              style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}
+            />
+          )}
           
           {/* Dark gradient overlay */}
           <div 

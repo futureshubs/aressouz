@@ -350,9 +350,9 @@ export function ProductDetailModal({
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
-      {/* Image Gallery — kattaroq, konteynerni to‘ldirib ko‘rsatish */}
+      {/* Image Gallery — 500×500 kvadrat, rasm to‘liq (contain) */}
       <div
-        className="relative w-full max-w-2xl mx-auto min-h-[min(42dvh,380px)] max-h-[min(52dvh,480px)] sm:min-h-[min(44dvh,400px)] sm:max-h-[min(50dvh,520px)] aspect-[4/3] sm:aspect-[16/10] bg-black/40 overflow-hidden"
+        className="relative w-full max-w-[500px] aspect-square mx-auto bg-black/30 overflow-hidden rounded-xl sm:rounded-2xl"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -362,7 +362,7 @@ export function ProductDetailModal({
             <img 
               src={images[Math.min(currentImageIndex, images.length - 1)]} 
               alt={product.name}
-              className="w-full h-full object-cover object-center"
+              className="w-full h-full object-contain object-center"
             />
             
             {/* Navigation Arrows */}
@@ -463,7 +463,7 @@ export function ProductDetailModal({
                 <img 
                   src={variant.image} 
                   alt={variant.label}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                 />
                 <div 
                   className="absolute bottom-0.5 left-0.5 right-0.5 text-center py-0.5 rounded-md text-[10px] sm:text-[11px] font-bold truncate px-1"
@@ -1233,7 +1233,7 @@ export function VariantSelectionMenu({
               <img 
                 src={product.image} 
                 alt={product.name}
-                className="w-20 h-20 rounded-xl object-cover"
+                className="w-20 h-20 rounded-xl object-contain bg-zinc-100 dark:bg-zinc-800"
               />
             )}
             <div className="flex-1">

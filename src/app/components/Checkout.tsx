@@ -747,8 +747,11 @@ export default function Checkout({
 
   const [shopDetailsById, setShopDetailsById] = useState<Record<string, any>>({});
   const [restaurantDetailsById, setRestaurantDetailsById] = useState<Record<string, any>>({});
+  /** Ijara: filial KV yozuvi — ish vaqti tekshiruvi */
+  const [branchDetailsById, setBranchDetailsById] = useState<Record<string, any>>({});
   const shopFetchStarted = useRef(new Set<string>());
   const restaurantFetchStarted = useRef(new Set<string>());
+  const branchFetchStarted = useRef(new Set<string>());
 
   const [businessHoursModalOpen, setBusinessHoursModalOpen] = useState(false);
   const [businessHoursModalOpensAt, setBusinessHoursModalOpensAt] = useState<string | null>(null);
@@ -837,6 +840,46 @@ export default function Checkout({
     }
   }, [cartItems, hasMarketCartLines]);
 
+  useEffect(() => {
+    if (!hasRentalLines || !rentalLineItems?.length) return;
+    const ids = [
+      ...new Set(
+        rentalLineItems
+          .map((line) => String(line?.item?.branchId || '').trim())
+          .filter(Boolean),
+      ),
+    ];
+    for (const id of ids) {
+      if (branchFetchStarted.current.has(id)) continue;
+      branchFetchStarted.current.add(id);
+      setBranchDetailsById((p) => (p[id] ? p : { ...p, [id]: { __hoursPending: true } }));
+      void (async () => {
+        try {
+          const res = await fetch(
+            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branches/${encodeURIComponent(id)}`,
+            {
+              headers: {
+                Authorization: `Bearer ${publicAnonKey}`,
+                'Content-Type': 'application/json',
+              },
+            },
+          );
+          const j = await res.json().catch(() => ({}));
+          const br = j?.branch;
+          if (br && typeof br === 'object') {
+            setBranchDetailsById((p) => ({ ...p, [id]: br }));
+          } else {
+            branchFetchStarted.current.delete(id);
+            setBranchDetailsById((p) => ({ ...p, [id]: {} }));
+          }
+        } catch {
+          branchFetchStarted.current.delete(id);
+          setBranchDetailsById((p) => ({ ...p, [id]: {} }));
+        }
+      })();
+    }
+  }, [hasRentalLines, rentalLineItems]);
+
   const checkoutBusinessGate = useMemo(() => {
     const ref = new Date();
     if (!selectedZone) {
@@ -896,6 +939,33 @@ export default function Checkout({
         });
       }
     }
+    if (hasRentalLines && rentalLineItems && rentalLineItems.length > 0) {
+      const seenBranch = new Set<string>();
+      for (const line of rentalLineItems) {
+        const bid = String(line?.item?.branchId || '').trim();
+        if (!bid || seenBranch.has(bid)) continue;
+        seenBranch.add(bid);
+        const rec = branchDetailsById[bid];
+        if (rec && (rec as { __hoursPending?: boolean }).__hoursPending) {
+          return {
+            allowed: false,
+            pending: true,
+            blockingLabel: 'Ijara filiali',
+            opensAt: null,
+            scheduleLabel: null,
+          };
+        }
+        const branchLabel = String(
+          (rec as { branchName?: string })?.branchName ||
+            (rec as { name?: string })?.name ||
+            'Ijara filiali',
+        );
+        layers.push({
+          label: branchLabel,
+          ev: evaluateMerchantHours(rec as Record<string, unknown>, ref),
+        });
+      }
+    }
     const bad = layers.find((l) => !l.ev.allowed);
     return {
       allowed: !bad,
@@ -904,7 +974,16 @@ export default function Checkout({
       opensAt: bad?.ev.nextOpenIso ?? null,
       scheduleLabel: bad?.ev.label ?? null,
     };
-  }, [selectedZone, cartItems, shopDetailsById, restaurantDetailsById, hasMarketCartLines]);
+  }, [
+    selectedZone,
+    cartItems,
+    shopDetailsById,
+    restaurantDetailsById,
+    branchDetailsById,
+    hasMarketCartLines,
+    hasRentalLines,
+    rentalLineItems,
+  ]);
 
   const openBusinessHoursModalFromGate = () => {
     setBusinessHoursModalOpensAt(checkoutBusinessGate.opensAt);
@@ -2429,6 +2508,8 @@ export default function Checkout({
                 disabled={
                   isProcessing ||
                   checkoutPaymentOpen ||
+                  !checkoutBusinessGate.allowed ||
+                  checkoutBusinessGate.pending ||
                   (paymentMethod === 'uzum_nasiya' && !isUzumNasiyaAvailable())
                 }
                 className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"

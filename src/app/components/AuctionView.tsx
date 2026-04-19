@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
@@ -39,6 +39,7 @@ import { ProductGridSkeleton } from './skeletons';
 import { Header } from './Header';
 import { BottomNav } from './BottomNav';
 import { AuctionDetailModal, type AuctionParticipationPayMethod } from './AuctionDetailModal';
+import { CardImageScroll } from './CardImageScroll';
 
 interface AuctionViewProps {
   onClose?: () => void;
@@ -140,6 +141,7 @@ const CATALOGS = [
 const AUCTION_API = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
 export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, activeTab, onTabChange }: AuctionViewProps) {
+  const skipAuctionOpenAfterGalleryScroll = useRef<Set<string>>(new Set());
   const { theme, accentColor } = useTheme();
   const { user, accessToken } = useAuth();
   const isDark = theme === 'dark';
@@ -443,9 +445,10 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
     }
   };
 
+  // Ildizda app-safe-pad + Header ichidagi paddingTop bir xil --app-safe-top ni ikki marta qo‘shardi (Telegram: katta bo‘sh joy).
   return (
     <div
-      className="fixed inset-0 app-safe-pad z-50 flex flex-col h-dvh max-h-dvh min-h-0 overflow-hidden"
+      className="fixed inset-0 z-50 flex flex-col h-dvh max-h-dvh min-h-0 overflow-hidden app-safe-pl app-safe-pr app-safe-pb"
       style={{ background: isDark ? '#000000' : '#f9fafb' }}
     >
       {/* Real System Header */}
@@ -586,7 +589,10 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
                     return (
                       <div
                         key={auction.id}
-                        onClick={() => setSelectedAuction(auction)}
+                        onClick={() => {
+                          if (skipAuctionOpenAfterGalleryScroll.current.has(String(auction.id))) return;
+                          setSelectedAuction(auction);
+                        }}
                         className="rounded-2xl border overflow-hidden cursor-pointer transition-all hover:scale-[1.02] active:scale-[0.98]"
                         style={{
                           background: isDark
@@ -598,12 +604,26 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
                             : '0 4px 20px rgba(0, 0, 0, 0.1)',
                         }}
                       >
-                        <div className="relative w-full aspect-square">
-                          <img
-                            src={auction.images[0]}
-                            alt={auction.name}
-                            className="w-full h-full object-cover"
-                          />
+                        <div className="relative w-full aspect-square overflow-hidden">
+                          {Array.isArray(auction.images) && auction.images.length > 1 ? (
+                            <CardImageScroll
+                              images={auction.images}
+                              alt={auction.name}
+                              dotColor={accentColor.color}
+                              onUserInteracted={() => {
+                                const id = String(auction.id);
+                                skipAuctionOpenAfterGalleryScroll.current.add(id);
+                                window.setTimeout(() => skipAuctionOpenAfterGalleryScroll.current.delete(id), 450);
+                              }}
+                              imgClassName="h-full w-full object-cover"
+                            />
+                          ) : (
+                            <img
+                              src={auction.images[0]}
+                              alt={auction.name}
+                              className="w-full h-full object-cover"
+                            />
+                          )}
                           
                           {isTopAuction && (
                             <div

@@ -40,14 +40,28 @@ import {
 } from '../utils/diningRoomClient';
 import {
   activePublicBookingsForRoomDate,
+  bookingHHMMIntervalTouchesUnavailable,
+  bookingTimeToMinutes,
   diningRoomBookingUnavailableRanges,
+  formatBookingRangeLabel,
+  generateBookingEndSlotOptions,
   generateBookingTimeSlotOptions,
-  isTimeInUnavailableRange,
+  MIN_BOOKING_DURATION_MINUTES,
+  newBookingOverlapsExisting,
   normalizeBookingTimeClient,
   normalizeDishIngredients,
   type PublicBookingSlot,
 } from '../utils/foodBookingUi';
+import {
+  googleMapsUrlForAddressQuery,
+  googleMapsUrlForCoordinates,
+  parseMerchantCoordinates,
+  phoneToTelHref,
+  yandexMapsUrlForCoordinates,
+} from '../utils/restaurantContactLinks';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
+import { useAuth } from '../context/AuthContext';
+import { RestaurantReviewModal, type RestaurantReview } from './RestaurantReviewModal';
 
 /** Restoran/taom modali — Telegram / notch ostida qolmasin */
 const FOODS_MODAL_TOP_OFFSET = 'calc(1.5rem + var(--app-safe-top, env(safe-area-inset-top, 0px)))';
@@ -60,6 +74,8 @@ const FOODS_DISH_UI_INITIAL = 10;
 const FOODS_DISH_UI_STEP = 10;
 const FOODS_MENU_UI_INITIAL = 10;
 const FOODS_MENU_UI_STEP = 10;
+/** Uzun tavsifda «Batafsil o'qish» (taxminan 3–4 qatordan keyin) */
+const FOODS_RESTAURANT_DESC_MIN_TOGGLE = 140;
 
 interface Restaurant {
   id: string;
@@ -79,8 +95,13 @@ interface Restaurant {
     phone: string;
     workHours: string;
   };
+  /** Panelda saqlangan — {lat,lng} yoki [lat,lng] */
+  coordinates?: unknown;
   totalOrders: number;
   isActive: boolean;
+  /** Mijoz baholari (KV) */
+  rating?: number;
+  reviews?: number;
   /** Restoran paneli: mijoz stol band qilishi */
   publicTableBookingEnabled?: boolean;
 }
@@ -108,6 +129,8 @@ interface Dish {
   weight: string;
   additionalProducts: { name: string; price: number }[];
   variants: { name: string; image: string; price: number; prepTime: string }[];
+  /** API: variant bo‘lmasa asosiy narx */
+  price?: number;
   isPopular: boolean;
   isNatural: boolean;
   isActive: boolean;
@@ -142,12 +165,21 @@ interface FoodsViewProps {
 export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict } = useLocation();
+  const { user, setIsAuthOpen } = useAuth();
   const isDark = theme === 'dark';
 
   const [activeTab, setActiveTab] = useState<'dishes' | 'restaurants'>('dishes');
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [allDishes, setAllDishes] = useState<Dish[]>([]);
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
+  const [restaurantDescExpanded, setRestaurantDescExpanded] = useState(false);
+  const [restaurantReviews, setRestaurantReviews] = useState<RestaurantReview[]>([]);
+  const [restaurantReviewsLoading, setRestaurantReviewsLoading] = useState(false);
+  const [restaurantReviewStats, setRestaurantReviewStats] = useState<{ avg: number; count: number }>({
+    avg: 0,
+    count: 0,
+  });
+  const [restaurantReviewModalOpen, setRestaurantReviewModalOpen] = useState(false);
   const [diningRooms, setDiningRooms] = useState<PublicDiningRoom[]>([]);
   const [roomsLoading, setRoomsLoading] = useState(false);
   /** Restoran paneli o‘chirganda mijoz «Joy bron qilish» ko‘rmaydi */
@@ -155,6 +187,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const [bookingRoomId, setBookingRoomId] = useState('');
   const [bookingDate, setBookingDate] = useState('');
   const [bookingTime, setBookingTime] = useState('');
+  const [bookingEndTime, setBookingEndTime] = useState('');
   const [bookingParty, setBookingParty] = useState(2);
   const [bookingName, setBookingName] = useState('');
   const [bookingPhone, setBookingPhone] = useState('');
@@ -216,6 +249,38 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   useEffect(() => {
     if (!bookingModalOpen) setBookingImageLightbox(null);
   }, [bookingModalOpen]);
+
+  /** Joy bron modali: tizimga kirgan bo‘lsa ism va telefon profildan (Checkout bilan mos) */
+  useEffect(() => {
+    if (!bookingModalOpen) return;
+    if (!user) {
+      setBookingName('');
+      setBookingPhone('');
+      return;
+    }
+    const displayName =
+      (user.name && String(user.name).trim()) ||
+      [user.firstName, user.lastName].filter(Boolean).join(' ').trim() ||
+      '';
+    let phone = user.phone || '';
+    if (phone) {
+      phone = phone.replace(/[\s+]/g, '');
+      if (phone.startsWith('998')) {
+        phone = '+' + phone;
+      } else if (!phone.startsWith('+998')) {
+        phone = '+998' + phone;
+      }
+    }
+    setBookingName(displayName);
+    setBookingPhone(phone);
+  }, [
+    bookingModalOpen,
+    user?.id,
+    user?.name,
+    user?.firstName,
+    user?.lastName,
+    user?.phone,
+  ]);
 
   useEffect(() => {
     if (!bookingImageLightbox) return;
@@ -359,7 +424,18 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
 
   const handleDishClick = (dish: Dish) => {
     setSelectedDish(dish);
-    setSelectedVariant(dish.variants[0] || null);
+    const hasVariants = Array.isArray(dish.variants) && dish.variants.length > 0;
+    const fallbackPrice = Number((dish as Dish & { price?: number }).price) || 0;
+    setSelectedVariant(
+      hasVariants
+        ? dish.variants[0]
+        : {
+            name: 'Standart',
+            image: dish.images?.[0] || '',
+            price: fallbackPrice,
+            prepTime: '15-20 daq',
+          },
+    );
     setSelectedAddons([]);
     setQuantity(1);
     setCurrentImageIndex(0);
@@ -418,17 +494,21 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     }
     const ranges = diningRoomBookingUnavailableRanges(brRoom as unknown as Record<string, unknown>);
     const nt = normalizeBookingTimeClient(bookingTime);
-    const taken = new Set(
-      activePublicBookingsForRoomDate(publicBookings, bookingRoomId, bookingDate).map((b) =>
-        normalizeBookingTimeClient(b.bookingTime),
-      ),
-    );
-    if (isTimeInUnavailableRange(nt, ranges)) {
-      toast.error('Tanlangan vaqt restoran tomonidan yopiq (masalan tushlik oralig‘i). Boshqa vaqt tanlang.');
+    const net = normalizeBookingTimeClient(bookingEndTime);
+    if (!net) {
+      toast.error('Tugash vaqtini tanlang');
       return;
     }
-    if (taken.has(nt)) {
-      toast.error('Bu vaqtda xona allaqachon band. Pastdagi ro‘yxatdan bo‘sh slot tanlang.');
+    if (bookingTimeToMinutes(net) <= bookingTimeToMinutes(nt)) {
+      toast.error('Tugash vaqti boshlanishdan keyin bo‘lishi kerak');
+      return;
+    }
+    if (bookingHHMMIntervalTouchesUnavailable(nt, net, ranges)) {
+      toast.error('Tanlangan vaqt oralig‘i restoran tomonidan yopiq. Boshqa slot tanlang.');
+      return;
+    }
+    if (newBookingOverlapsExisting(nt, net, publicBookings, bookingRoomId, bookingDate)) {
+      toast.error('Bu vaqt oralig‘ida xona band. Boshqa vaqt tanlang.');
       return;
     }
     try {
@@ -448,6 +528,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
             customerPhone: bookingPhone.trim(),
             bookingDate,
             bookingTime,
+            bookingEndTime: net,
             partySize: bookingParty,
             notes: bookingNotes.trim(),
           }),
@@ -560,6 +641,22 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     return restaurants.find((r) => r.id === selectedDish.restaurantId) ?? null;
   }, [selectedDish?.restaurantId, restaurants]);
 
+  /** Restoran modali: xarita (Google / koordinata bo‘lsa Yandex) va tel: havolalari */
+  const restaurantDetailContactLinks = useMemo(() => {
+    if (!selectedRestaurant) return null;
+    const coords = parseMerchantCoordinates(selectedRestaurant.coordinates);
+    const address = String(selectedRestaurant.contact?.address ?? '').trim();
+    const phone = String(selectedRestaurant.contact?.phone ?? '').trim();
+    const googleHref =
+      coords != null
+        ? googleMapsUrlForCoordinates(coords.lat, coords.lng)
+        : googleMapsUrlForAddressQuery(address);
+    const yandexHref =
+      coords != null ? yandexMapsUrlForCoordinates(coords.lat, coords.lng) : null;
+    const telHref = phoneToTelHref(phone);
+    return { coords, address, phone, googleHref, yandexHref, telHref };
+  }, [selectedRestaurant]);
+
   const dishModalHoursEv = useMemo(
     () => evaluateMerchantHours(dishModalRestaurant as Record<string, unknown> | null | undefined),
     [dishModalRestaurant, foodHoursTick],
@@ -575,16 +672,32 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const bookingTimeOptions = useMemo(() => {
     const room = diningRooms.find((r) => r.id === bookingRoomId);
     const ranges = diningRoomBookingUnavailableRanges(room as unknown as Record<string, unknown>);
-    const booked = activePublicBookingsForRoomDate(publicBookings, bookingRoomId, bookingDate);
-    const bookedTimes = new Set(booked.map((b) => normalizeBookingTimeClient(b.bookingTime)));
     return generateBookingTimeSlotOptions({
       stepMinutes: 30,
       dayStartHour: 9,
       dayEndHour: 22,
       unavailableRanges: ranges,
-      bookedNormalizedTimes: bookedTimes,
+      existingBookings: publicBookings,
+      roomId: bookingRoomId,
+      bookingDate,
+      minBookingMinutes: MIN_BOOKING_DURATION_MINUTES,
     });
   }, [diningRooms, bookingRoomId, bookingDate, publicBookings]);
+
+  const bookingEndTimeOptions = useMemo(() => {
+    const room = diningRooms.find((r) => r.id === bookingRoomId);
+    const ranges = diningRoomBookingUnavailableRanges(room as unknown as Record<string, unknown>);
+    return generateBookingEndSlotOptions({
+      bookingStart: bookingTime,
+      stepMinutes: 30,
+      dayEndHour: 22,
+      unavailableRanges: ranges,
+      existingBookings: publicBookings,
+      roomId: bookingRoomId,
+      bookingDate,
+      minBookingMinutes: MIN_BOOKING_DURATION_MINUTES,
+    });
+  }, [diningRooms, bookingRoomId, bookingDate, publicBookings, bookingTime]);
 
   useEffect(() => {
     const opts = bookingTimeOptions;
@@ -592,6 +705,19 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     const n = normalizeBookingTimeClient(bookingTime);
     if (!opts.includes(n)) setBookingTime(opts[0]);
   }, [bookingTimeOptions, bookingTime]);
+
+  useEffect(() => {
+    const opts = bookingEndTimeOptions;
+    if (!opts.length) {
+      setBookingEndTime('');
+      return;
+    }
+    setBookingEndTime((prev) => {
+      const p = normalizeBookingTimeClient(prev);
+      if (p && opts.includes(p)) return p;
+      return opts[0];
+    });
+  }, [bookingEndTimeOptions]);
 
   const selectedRestaurantDishes = useMemo(() => {
     if (!selectedRestaurant) return [];
@@ -742,6 +868,46 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   useEffect(() => {
     if (!selectedRestaurant) setBookingModalOpen(false);
   }, [selectedRestaurant]);
+
+  useEffect(() => {
+    setRestaurantDescExpanded(false);
+  }, [selectedRestaurant?.id]);
+
+  useEffect(() => {
+    if (!selectedRestaurant?.id) {
+      setRestaurantReviews([]);
+      setRestaurantReviewStats({ avg: 0, count: 0 });
+      return;
+    }
+    let cancelled = false;
+    setRestaurantReviewsLoading(true);
+    const rid = encodeURIComponent(selectedRestaurant.id);
+    void fetch(
+      `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/reviews`,
+      { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+    )
+      .then((res) => res.json())
+      .then((data: { success?: boolean; reviews?: RestaurantReview[]; reviewCount?: number; averageRating?: number }) => {
+        if (cancelled || !data?.success) return;
+        setRestaurantReviews(Array.isArray(data.reviews) ? data.reviews : []);
+        setRestaurantReviewStats({
+          avg: Number(data.averageRating) || 0,
+          count: typeof data.reviewCount === 'number' ? data.reviewCount : (data.reviews?.length ?? 0),
+        });
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setRestaurantReviews([]);
+          setRestaurantReviewStats({ avg: 0, count: 0 });
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setRestaurantReviewsLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedRestaurant?.id]);
 
   useEffect(() => {
     if (selectedDish && !allDishes.some(dish => dish.id === selectedDish.id)) {
@@ -1112,11 +1278,35 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     )}
                     <div className="flex-1">
                       <h2 className="text-3xl font-bold text-white mb-2">{selectedRestaurant.name}</h2>
-                      <div className="flex items-center gap-3">
+                      <div className="flex items-center gap-3 flex-wrap">
                         <div className="flex items-center gap-1 text-white">
-                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400" />
-                          <span className="font-bold">4.9</span>
-                          <span className="text-sm opacity-70">(2547 sharh)</span>
+                          <Star className="w-4 h-4 fill-yellow-400 text-yellow-400 shrink-0" />
+                          {restaurantReviewsLoading ? (
+                            <span className="text-sm opacity-70">Yuklanmoqda...</span>
+                          ) : (
+                            <>
+                              <span className="font-bold">
+                                {(() => {
+                                  const a =
+                                    restaurantReviewStats.avg > 0
+                                      ? restaurantReviewStats.avg
+                                      : Number(selectedRestaurant.rating) || 0;
+                                  return a > 0 ? a.toFixed(1) : '—';
+                                })()}
+                              </span>
+                              <span className="text-sm opacity-70">
+                                (
+                                {(() => {
+                                  const c =
+                                    restaurantReviewStats.count > 0
+                                      ? restaurantReviewStats.count
+                                      : Number(selectedRestaurant.reviews) || 0;
+                                  return c;
+                                })()}{' '}
+                                sharh)
+                              </span>
+                            </>
+                          )}
                         </div>
                         <div 
                           className="px-3 py-1 rounded-lg text-sm font-bold"
@@ -1135,9 +1325,24 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 {/* Info Section */}
                 <div className="px-4 py-6">
                   {selectedRestaurant.description && (
-                    <p className="mb-4" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                      {selectedRestaurant.description}
-                    </p>
+                    <div className="mb-4">
+                      <p
+                        className={`text-sm leading-relaxed ${restaurantDescExpanded ? '' : 'line-clamp-5'}`}
+                        style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}
+                      >
+                        {selectedRestaurant.description}
+                      </p>
+                      {selectedRestaurant.description.trim().length >= FOODS_RESTAURANT_DESC_MIN_TOGGLE && (
+                        <button
+                          type="button"
+                          onClick={() => setRestaurantDescExpanded((v) => !v)}
+                          className="mt-2 text-sm font-semibold"
+                          style={{ color: accentColor.color }}
+                        >
+                          {restaurantDescExpanded ? "Yig'ish" : "Batafsil o'qish"}
+                        </button>
+                      )}
+                    </div>
                   )}
 
                   {/* Tags */}
@@ -1151,6 +1356,66 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                         {selectedRestaurant.type}
                       </span>
                     </div>
+                  </div>
+
+                  {/* Mijozlar sharhlari */}
+                  <div className="mb-6">
+                    <div className="flex items-center justify-between gap-2 mb-3">
+                      <h3 className="font-bold">Mijozlar sharhlari</h3>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!user) {
+                            setIsAuthOpen(true);
+                            toast.info('Sharh uchun tizimga kiring');
+                            return;
+                          }
+                          setRestaurantReviewModalOpen(true);
+                        }}
+                        className="shrink-0 text-sm font-semibold px-3 py-2 rounded-xl"
+                        style={{ background: `${accentColor.color}22`, color: accentColor.color }}
+                      >
+                        Sharh qoldirish
+                      </button>
+                    </div>
+                    {restaurantReviewsLoading ? (
+                      <p className="text-sm opacity-60">Sharqlar yuklanmoqda...</p>
+                    ) : restaurantReviews.length === 0 ? (
+                      <p className="text-sm opacity-60">Hali sharh yo‘q. Birinchi bo‘lib baholang!</p>
+                    ) : (
+                      <ul className="space-y-3">
+                        {restaurantReviews.map((rv) => (
+                          <li
+                            key={rv.id}
+                            className="p-3 rounded-2xl"
+                            style={{
+                              background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
+                              border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
+                            }}
+                          >
+                            <div className="flex items-start justify-between gap-2 mb-1">
+                              <span className="font-semibold text-sm">{rv.userName}</span>
+                              <div className="flex items-center gap-0.5 shrink-0" aria-label={`${rv.rating} yulduz`}>
+                                {[1, 2, 3, 4, 5].map((s) => (
+                                  <Star
+                                    key={s}
+                                    className="w-3.5 h-3.5"
+                                    fill={s <= rv.rating ? '#fbbf24' : 'transparent'}
+                                    stroke="#fbbf24"
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                            <p
+                              className="text-sm leading-relaxed"
+                              style={{ color: isDark ? 'rgba(255, 255, 255, 0.88)' : 'rgba(0, 0, 0, 0.85)' }}
+                            >
+                              {rv.comment}
+                            </p>
+                          </li>
+                        ))}
+                      </ul>
+                    )}
                   </div>
 
                   {/* Delivery Info */}
@@ -1202,9 +1467,37 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                         >
                           <MapPin className="w-5 h-5" style={{ color: accentColor.color }} />
                         </div>
-                        <div>
+                        <div className="min-w-0 flex-1">
                           <p className="text-xs mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>Manzil</p>
-                          <p className="font-medium">{selectedRestaurant.contact.address}</p>
+                          {restaurantDetailContactLinks ? (
+                            <>
+                              <a
+                                href={restaurantDetailContactLinks.googleHref}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="font-medium break-words underline decoration-dotted underline-offset-2"
+                                style={{ color: accentColor.color }}
+                                onClick={(e) => e.stopPropagation()}
+                              >
+                                {selectedRestaurant.contact.address}
+                              </a>
+                              {restaurantDetailContactLinks.yandexHref ? (
+                                <div className="mt-1 flex flex-wrap gap-x-3 gap-y-0.5 text-[11px] font-semibold">
+                                  <a
+                                    href={restaurantDetailContactLinks.yandexHref}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    style={{ color: accentColor.color }}
+                                    onClick={(e) => e.stopPropagation()}
+                                  >
+                                    Yandex xarita
+                                  </a>
+                                </div>
+                              ) : null}
+                            </>
+                          ) : (
+                            <p className="font-medium">{selectedRestaurant.contact.address}</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
@@ -1214,9 +1507,21 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                         >
                           <Phone className="w-5 h-5" style={{ color: accentColor.color }} />
                         </div>
-                        <div>
+                        <div className="min-w-0 flex-1">
                           <p className="text-xs mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>Telefon</p>
-                          <p className="font-medium">{selectedRestaurant.contact.phone}</p>
+                          {restaurantDetailContactLinks &&
+                          restaurantDetailContactLinks.telHref !== '#' ? (
+                            <a
+                              href={restaurantDetailContactLinks.telHref}
+                              className="font-medium break-all underline decoration-dotted underline-offset-2"
+                              style={{ color: accentColor.color }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              {selectedRestaurant.contact.phone}
+                            </a>
+                          ) : (
+                            <p className="font-medium">{selectedRestaurant.contact.phone}</p>
+                          )}
                         </div>
                       </div>
                       <div className="flex items-center gap-3">
@@ -1326,9 +1631,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                                       todayDateInputMin,
                                     );
                                     if (!slots.length) return null;
-                                    const times = [
-                                      ...new Set(slots.map((s) => normalizeBookingTimeClient(s.bookingTime))),
-                                    ].sort();
+                                    const times = [...new Set(slots.map((s) => formatBookingRangeLabel(s)))].sort();
                                     return (
                                       <p
                                         className="mt-1 text-[10px] font-semibold leading-tight"
@@ -1426,6 +1729,27 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
             </div>
           </div>
 
+          <RestaurantReviewModal
+            isOpen={restaurantReviewModalOpen}
+            onClose={() => setRestaurantReviewModalOpen(false)}
+            restaurantId={selectedRestaurant.id}
+            restaurantName={selectedRestaurant.name}
+            onSuccess={({ review, restaurant }) => {
+              setRestaurantReviews((prev) => [review, ...prev]);
+              const r = restaurant as Restaurant;
+              setRestaurantReviewStats({
+                avg: typeof r.rating === 'number' ? r.rating : 0,
+                count: typeof r.reviews === 'number' ? r.reviews : 0,
+              });
+              setSelectedRestaurant((prev) =>
+                prev && prev.id === r.id ? { ...prev, rating: r.rating, reviews: r.reviews } : prev,
+              );
+              setRestaurants((list) =>
+                list.map((x) => (x.id === r.id ? { ...x, rating: r.rating, reviews: r.reviews } : x)),
+              );
+            }}
+          />
+
           {publicTableBookingEnabled && bookingModalOpen && bookingRoomId ? (
             <>
               <button
@@ -1516,7 +1840,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                   </div>
 
                   <div className="space-y-3">
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
                       <div>
                         <label className="mb-1 flex items-center gap-1 text-xs font-semibold" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
                           <CalendarDays className="h-3.5 w-3.5" />
@@ -1537,7 +1861,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                       </div>
                       <div>
                         <label className="mb-1 block text-xs font-semibold" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
-                          Vaqt (bo‘sh slot)
+                          Boshlanish
                         </label>
                         <select
                           value={normalizeBookingTimeClient(bookingTime)}
@@ -1560,6 +1884,31 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                           )}
                         </select>
                       </div>
+                      <div>
+                        <label className="mb-1 block text-xs font-semibold" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.65)' }}>
+                          Tugash
+                        </label>
+                        <select
+                          value={normalizeBookingTimeClient(bookingEndTime)}
+                          onChange={(e) => setBookingEndTime(e.target.value)}
+                          className="w-full rounded-xl px-3 py-2.5 text-sm outline-none"
+                          style={{
+                            background: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(0,0,0,0.04)',
+                            border: `1px solid ${isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)'}`,
+                            color: isDark ? '#fff' : '#111',
+                          }}
+                        >
+                          {bookingEndTimeOptions.length === 0 ? (
+                            <option value="">—</option>
+                          ) : (
+                            bookingEndTimeOptions.map((t) => (
+                              <option key={t} value={t}>
+                                {t}
+                              </option>
+                            ))
+                          )}
+                        </select>
+                      </div>
                     </div>
                     {(() => {
                       const busy = activePublicBookingsForRoomDate(publicBookings, bookingRoomId, bookingDate);
@@ -1567,7 +1916,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                       const lines = busy
                         .map(
                           (b) =>
-                            `${normalizeBookingTimeClient(b.bookingTime)} (${b.partySize} kishi, ${String(b.status || '').toLowerCase() === 'pending' ? 'tasdiq kutilmoqda' : String(b.status || '')})`,
+                            `${formatBookingRangeLabel(b)} (${b.partySize} kishi, ${String(b.status || '').toLowerCase() === 'pending' ? 'tasdiq kutilmoqda' : String(b.status || '')})`,
                         )
                         .sort();
                       return (
@@ -1786,13 +2135,13 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
             aria-hidden
           />
           <div
-            className="relative z-[1] flex flex-col min-h-0 w-full h-dvh max-h-dvh overflow-hidden sm:h-auto sm:max-h-[90vh] sm:max-w-lg md:max-w-2xl lg:max-w-3xl sm:rounded-3xl sm:flex-none sm:shadow-2xl"
+            className="relative z-[1] grid w-full min-h-0 h-[100dvh] max-h-[100dvh] grid-rows-[minmax(0,1fr)_auto] overflow-hidden sm:h-auto sm:max-h-[90vh] sm:max-w-lg md:max-w-2xl lg:max-w-3xl sm:rounded-3xl sm:shadow-2xl"
             style={{
               background: isDark ? '#0a0a0a' : '#ffffff',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
+            <div className="min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
             <div className="min-h-0" style={{ background: isDark ? '#000000' : '#ffffff' }}>
               {/* Image Header */}
               <div className="relative h-96">
@@ -2350,9 +2699,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                                       todayDateInputMin,
                                     );
                                     if (!slots.length) return null;
-                                    const times = [
-                                      ...new Set(slots.map((s) => normalizeBookingTimeClient(s.bookingTime))),
-                                    ].sort();
+                                    const times = [...new Set(slots.map((s) => formatBookingRangeLabel(s)))].sort();
                                     return (
                                       <p
                                         className="mt-1 text-[10px] font-semibold leading-tight"
@@ -2489,7 +2836,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 </div>
 
                 {/* Addons Summary */}
-                {selectedAddons.length > 0 && (
+                {selectedAddons.length > 0 && selectedVariant ? (
                   <div 
                     className="mt-3 p-3 rounded-xl"
                     style={{ 
@@ -2545,7 +2892,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                       </div>
                     </div>
                   </div>
-                )}
+                ) : null}
               </div>
           </div>
         </div>

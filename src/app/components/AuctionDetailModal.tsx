@@ -115,12 +115,16 @@ export function AuctionDetailModal({
         background: isDark ? '#0a0a0a' : '#ffffff',
       }}
     >
-      {/* Close Button */}
+      {/* Close — fixed: viewport bo‘yicha; app-safe-pad ota paddingini meros olmaydi — safe inset qo‘shiladi */}
       <button
+        type="button"
         onClick={onClose}
-        className="fixed top-4 right-4 z-[70] p-3 rounded-full backdrop-blur-xl transition-all active:scale-95 shadow-2xl"
+        aria-label="Yopish"
+        className="fixed z-[70] p-3 rounded-full backdrop-blur-xl transition-all active:scale-95 shadow-2xl"
         style={{
           background: 'rgba(0, 0, 0, 0.6)',
+          top: 'calc(var(--app-safe-top, env(safe-area-inset-top, 0px)) + 1rem)',
+          right: 'calc(var(--app-safe-right, env(safe-area-inset-right, 0px)) + 1rem)',
         }}
       >
         <X className="w-6 h-6 text-white" />

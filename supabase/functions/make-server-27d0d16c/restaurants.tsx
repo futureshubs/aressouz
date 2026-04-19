@@ -235,6 +235,34 @@ function sanitizeBookingUnavailableRanges(raw: unknown): { from: string; to: str
   return out.slice(0, 8);
 }
 
+const LEGACY_BOOKING_MINUTES = 30;
+
+function bookingMinutesFromSlot(t: unknown): number {
+  const s = normalizeBookingTimeSlot(t);
+  if (!s) return -1;
+  const fa = parseInt(s.slice(0, 2), 10) * 60 + parseInt(s.slice(3, 5), 10);
+  return Number.isFinite(fa) ? fa : -1;
+}
+
+function bookingIntervalFromRecord(b: any): { start: number; end: number } | null {
+  const start = bookingMinutesFromSlot(b?.bookingTime);
+  if (start < 0) return null;
+  let end: number;
+  if (b?.bookingEndTime) {
+    const em = bookingMinutesFromSlot(b.bookingEndTime);
+    end = em <= start ? start + LEGACY_BOOKING_MINUTES : em;
+  } else {
+    end = start + LEGACY_BOOKING_MINUTES;
+  }
+  end = Math.min(24 * 60, end);
+  if (end <= start) return null;
+  return { start, end };
+}
+
+function intervalsOverlapHalfOpenMinutes(a0: number, a1: number, b0: number, b1: number): boolean {
+  return a0 < b1 && b0 < a1;
+}
+
 function mergeOrdersLists(lists: any[][]): any[] {
   const byId = new Map<string, any>();
   for (const list of lists) {
@@ -1450,6 +1478,7 @@ app.get('/restaurants/:restaurantId/table-bookings', async (c) => {
           roomName: String(b?.roomName || ''),
           bookingDate: String(b?.bookingDate || ''),
           bookingTime: normalizeBookingTimeSlot(b?.bookingTime),
+          bookingEndTime: b?.bookingEndTime ? normalizeBookingTimeSlot(b.bookingEndTime) : '',
           partySize: Math.max(1, Math.floor(Number(b?.partySize) || 1)),
           status: st,
         };
@@ -1503,6 +1532,46 @@ app.post('/restaurants/:restaurantId/table-bookings', async (c) => {
     if (!bookingTime) {
       return c.json({ success: false, error: 'Vaqt kiriting' }, 400);
     }
+    const startMin = bookingMinutesFromSlot(bookingTime);
+    if (startMin < 0) {
+      return c.json({ success: false, error: 'Boshlanish vaqti noto‘g‘ri' }, 400);
+    }
+    let bookingEndTimeNorm = normalizeBookingTimeSlot(body?.bookingEndTime ?? '');
+    let endMin: number;
+    if (!bookingEndTimeNorm) {
+      endMin = startMin + LEGACY_BOOKING_MINUTES;
+      bookingEndTimeNorm = `${String(Math.floor(endMin / 60)).padStart(2, '0')}:${String(endMin % 60).padStart(2, '0')}`;
+    } else {
+      endMin = bookingMinutesFromSlot(bookingEndTimeNorm);
+    }
+    if (endMin < 0) {
+      return c.json({ success: false, error: 'Tugash vaqti noto‘g‘ri' }, 400);
+    }
+    if (endMin <= startMin) {
+      return c.json({ success: false, error: 'Tugash vaqti boshlanishdan keyin bo‘lishi kerak' }, 400);
+    }
+    const MIN_BOOKING_SPAN = 30;
+    if (endMin - startMin < MIN_BOOKING_SPAN) {
+      return c.json(
+        { success: false, error: `Bron kamida ${MIN_BOOKING_SPAN} daqiqa bo‘lishi kerak` },
+        400,
+      );
+    }
+    if (endMin > 24 * 60) {
+      return c.json({ success: false, error: 'Noto‘g‘ri tugash vaqti' }, 400);
+    }
+    const roomRanges = sanitizeBookingUnavailableRanges((room as any).bookingUnavailableRanges);
+    for (const r of roomRanges) {
+      const ra = bookingMinutesFromSlot(r.from);
+      const rb = bookingMinutesFromSlot(r.to);
+      if (ra < 0 || rb < 0 || ra >= rb) continue;
+      if (startMin < rb && ra < endMin) {
+        return c.json(
+          { success: false, error: 'Tanlangan vaqt oralig‘i restoran tomonidan yopiq' },
+          400,
+        );
+      }
+    }
     const partySize = Math.min(200, Math.max(1, Math.floor(Number(body?.partySize) || 1)));
     const notes = String(body?.notes ?? '').trim().slice(0, 500);
 
@@ -1530,12 +1599,11 @@ app.post('/restaurants/:restaurantId/table-bookings', async (c) => {
     const existingBookings = await listTableBookingsForRestaurant(restaurantCanonicalId);
     const slotBusy = existingBookings.some((b: any) => {
       const st = String(b?.status || 'pending').toLowerCase();
-      if (st === 'cancelled' || st === 'rejected') return false;
-      return (
-        String(b?.roomId) === roomId &&
-        String(b?.bookingDate) === bookingDate &&
-        normalizeBookingTimeSlot(b?.bookingTime) === bookingTime
-      );
+      if (st === 'cancelled' || st === 'rejected' || st === 'canceled') return false;
+      if (String(b?.roomId) !== roomId || String(b?.bookingDate) !== bookingDate) return false;
+      const ex = bookingIntervalFromRecord(b);
+      if (!ex) return false;
+      return intervalsOverlapHalfOpenMinutes(startMin, endMin, ex.start, ex.end);
     });
     if (slotBusy) {
       return c.json(
@@ -1554,6 +1622,7 @@ app.post('/restaurants/:restaurantId/table-bookings', async (c) => {
       customerPhone,
       bookingDate,
       bookingTime,
+      bookingEndTime: bookingEndTimeNorm,
       partySize,
       notes,
       status: 'pending',
@@ -1580,6 +1649,7 @@ app.post('/restaurants/:restaurantId/table-bookings', async (c) => {
         customerPhone,
         bookingDate,
         bookingTime,
+        bookingEndTime: bookingEndTimeNorm,
         partySize,
         notes,
         roomImageUrls: roomImageUrls.length ? roomImageUrls : undefined,
@@ -1617,6 +1687,105 @@ app.patch('/table-bookings/:id/status', async (c) => {
     return c.json({ success: true, data: updated });
   } catch (error) {
     console.error('Bron statusida xato:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+/** Mijoz sharhlari — KV kalit: `restreviews:<canonicalRestaurantId>:<uuid>` */
+function restaurantReviewKeyPrefix(canonicalRestaurantId: string): string {
+  return `restreviews:${canonicalRestaurantId}:`;
+}
+
+// Restoran sharhlari (o‘qish)
+app.get('/restaurants/:id/reviews', async (c) => {
+  try {
+    const raw = c.req.param('id');
+    const resolved = await resolveRestaurantRecord(raw);
+    if (!resolved) {
+      return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
+    }
+    const { id } = resolved;
+    const prefix = restaurantReviewKeyPrefix(id);
+    const allReviews = await kv.getByPrefix(prefix);
+    const sorted = (Array.isArray(allReviews) ? allReviews : []).sort(
+      (a: any, b: any) =>
+        new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime(),
+    );
+    const reviewCount = sorted.length;
+    const averageRating = reviewCount
+      ? Number(
+          (sorted.reduce((sum: number, r: any) => sum + Number(r?.rating || 0), 0) / reviewCount).toFixed(1),
+        )
+      : 0;
+    return c.json({ success: true, reviews: sorted, reviewCount, averageRating });
+  } catch (error) {
+    console.error('Restoran sharhlari:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+// Restoran sharhi qo‘shish (yulduzcha + matn)
+app.post('/restaurants/:id/reviews', async (c) => {
+  try {
+    const raw = c.req.param('id');
+    const resolved = await resolveRestaurantRecord(raw);
+    if (!resolved) {
+      return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
+    }
+    const { id: restKey, record: restaurant } = resolved;
+    const data = (await c.req.json().catch(() => ({}))) as Record<string, unknown>;
+    const rating = Number(data.rating);
+    const comment = String(data.comment ?? '').trim();
+    const userId = String(data.userId ?? '').trim();
+    const userName = String(data.userName ?? '').trim();
+
+    if (!userId || !userName) {
+      return c.json({ success: false, error: 'Sharh uchun tizimga kiring' }, 401);
+    }
+    if (!comment) {
+      return c.json({ success: false, error: 'Sharh matnini yozing' }, 400);
+    }
+    if (comment.length > 500) {
+      return c.json({ success: false, error: 'Sharh 500 belgidan oshmasligi kerak' }, 400);
+    }
+    if (!Number.isFinite(rating) || rating < 1 || rating > 5) {
+      return c.json({ success: false, error: 'Baho 1 dan 5 gacha bo‘lishi kerak' }, 400);
+    }
+
+    const reviewId = crypto.randomUUID();
+    const review = {
+      id: reviewId,
+      restaurantId: restKey,
+      userId,
+      userName,
+      rating,
+      comment,
+      createdAt: new Date().toISOString(),
+    };
+
+    await kv.set(`${restaurantReviewKeyPrefix(restKey)}${reviewId}`, review);
+
+    const allReviews = await kv.getByPrefix(restaurantReviewKeyPrefix(restKey));
+    const arr = Array.isArray(allReviews) ? allReviews : [];
+    const totalRating = arr.reduce((sum: number, r: any) => sum + Number(r?.rating || 0), 0);
+    const avg = arr.length ? Number((totalRating / arr.length).toFixed(1)) : 0;
+
+    const updated = {
+      ...restaurant,
+      rating: avg,
+      reviews: arr.length,
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(restKey, updated);
+
+    return c.json({
+      success: true,
+      review,
+      restaurant: updated,
+      message: 'Sharh qo‘shildi',
+    });
+  } catch (error) {
+    console.error('Restoran sharhi saqlash:', error);
     return c.json({ success: false, error: String(error) }, 500);
   }
 });

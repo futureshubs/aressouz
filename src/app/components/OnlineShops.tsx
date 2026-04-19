@@ -29,6 +29,8 @@ import {
   productToRecoPayload,
 } from '../utils/recommendationsClient';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
+import { CardImageScroll } from './CardImageScroll';
+import { collectProductGalleryImages } from '../utils/cardGalleryImages';
 
 /** API: `GET /shops` — `rating`, `reviewCount` (barcha mahsulot sharhlari yig‘indisi) */
 function shopRatingFromApi(shop: { rating?: unknown; reviewCount?: unknown } | null | undefined): {
@@ -388,8 +390,9 @@ export default function OnlineShops({
   );
   const { visibleItems: progressiveOnlineShopProducts, sentinelRef: onlineShopGridSentinelRef } =
     useProgressiveListReveal(onlineShopsProductGridSource, onlineShopsRevealKey, {
-      batchSize: 10,
-      initialCount: 16,
+      batchSize: 6,
+      initialCount: 8,
+      rootMargin: '0px 0px 96px 0px',
     });
 
   useEffect(() => {
@@ -456,6 +459,24 @@ export default function OnlineShops({
       setSelectedProduct(product);
     },
     [accessToken, bumpReco],
+  );
+
+  const skipProductOpenAfterGalleryScrollRef = useRef<Set<string>>(new Set());
+  const productTileKey = useCallback((p: any) => `${String(p?.shopId ?? '')}-${String(p?.id ?? '')}`, []);
+  const openProductUnlessGalleryScroll = useCallback(
+    (product: any) => {
+      if (skipProductOpenAfterGalleryScrollRef.current.has(productTileKey(product))) return;
+      openProductWithReco(product);
+    },
+    [openProductWithReco, productTileKey],
+  );
+  const onProductGallerySwipe = useCallback(
+    (product: any) => {
+      const k = productTileKey(product);
+      skipProductOpenAfterGalleryScrollRef.current.add(k);
+      window.setTimeout(() => skipProductOpenAfterGalleryScrollRef.current.delete(k), 450);
+    },
+    [productTileKey],
   );
 
   // 🔐 Long press handlers for delete functionality
@@ -778,7 +799,7 @@ export default function OnlineShops({
                     <button
                       key={`reco-${product.id}`}
                       type="button"
-                      onClick={() => openProductWithReco(product)}
+                      onClick={() => openProductUnlessGalleryScroll(product)}
                       className="snap-start shrink-0 w-[140px] sm:w-[160px] rounded-2xl overflow-hidden text-left transition-transform active:scale-[0.98]"
                       style={{
                         background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
@@ -786,20 +807,38 @@ export default function OnlineShops({
                         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
                       }}
                     >
-                      <div className="relative h-28 bg-black/5">
-                        {product.image ? (
-                          <img
-                            src={product.image}
-                            alt={product.name}
-                            loading="lazy"
-                            decoding="async"
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Package className="w-10 h-10" style={{ color: accentColor.color, opacity: 0.35 }} />
-                          </div>
-                        )}
+                      <div className="relative aspect-square w-full bg-zinc-100 dark:bg-zinc-900/40 overflow-hidden">
+                        {(() => {
+                          const imgs = collectProductGalleryImages(product);
+                          const list = imgs.length > 0 ? imgs : product.image ? [product.image] : [];
+                          if (list.length === 0) {
+                            return (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Package className="w-10 h-10" style={{ color: accentColor.color, opacity: 0.35 }} />
+                              </div>
+                            );
+                          }
+                          if (list.length === 1) {
+                            return (
+                              <img
+                                src={list[0]}
+                                alt={product.name}
+                                loading="lazy"
+                                decoding="async"
+                                className="w-full h-full object-contain"
+                              />
+                            );
+                          }
+                          return (
+                            <CardImageScroll
+                              images={list}
+                              alt={product.name}
+                              dotColor={accentColor.color}
+                              onUserInteracted={() => onProductGallerySwipe(product)}
+                              imgClassName="h-full w-full object-contain"
+                            />
+                          );
+                        })()}
                       </div>
                       <div className="p-2.5">
                         <p className="text-[11px] line-clamp-1 mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
@@ -840,7 +879,7 @@ export default function OnlineShops({
                     <button
                       key={`trend-${product.id}`}
                       type="button"
-                      onClick={() => openProductWithReco(product)}
+                      onClick={() => openProductUnlessGalleryScroll(product)}
                       className="snap-start shrink-0 w-[140px] sm:w-[160px] rounded-2xl overflow-hidden text-left transition-transform active:scale-[0.98]"
                       style={{
                         background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
@@ -848,20 +887,38 @@ export default function OnlineShops({
                         boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
                       }}
                     >
-                      <div className="relative h-28 bg-black/5">
-                        {product.image ? (
-                          <img
-                            src={product.image}
-                            alt={product.name}
-                            loading="lazy"
-                            decoding="async"
-                            className="w-full h-full object-cover"
-                          />
-                        ) : (
-                          <div className="w-full h-full flex items-center justify-center">
-                            <Package className="w-10 h-10" style={{ color: accentColor.color, opacity: 0.35 }} />
-                          </div>
-                        )}
+                      <div className="relative aspect-square w-full bg-zinc-100 dark:bg-zinc-900/40 overflow-hidden">
+                        {(() => {
+                          const imgs = collectProductGalleryImages(product);
+                          const list = imgs.length > 0 ? imgs : product.image ? [product.image] : [];
+                          if (list.length === 0) {
+                            return (
+                              <div className="w-full h-full flex items-center justify-center">
+                                <Package className="w-10 h-10" style={{ color: accentColor.color, opacity: 0.35 }} />
+                              </div>
+                            );
+                          }
+                          if (list.length === 1) {
+                            return (
+                              <img
+                                src={list[0]}
+                                alt={product.name}
+                                loading="lazy"
+                                decoding="async"
+                                className="w-full h-full object-contain"
+                              />
+                            );
+                          }
+                          return (
+                            <CardImageScroll
+                              images={list}
+                              alt={product.name}
+                              dotColor={accentColor.color}
+                              onUserInteracted={() => onProductGallerySwipe(product)}
+                              imgClassName="h-full w-full object-contain"
+                            />
+                          );
+                        })()}
                       </div>
                       <div className="p-2.5">
                         <p className="text-[11px] line-clamp-1 mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
@@ -920,7 +977,7 @@ export default function OnlineShops({
                         ? `0 0 0 3px ${accentColor.color}40` 
                         : '0 2px 8px rgba(0, 0, 0, 0.04)',
                     }}
-                    onClick={() => openProductWithReco(product)}
+                    onClick={() => openProductUnlessGalleryScroll(product)}
                     onMouseDown={() => handlePressStart(product)}
                     onMouseUp={handlePressEnd}
                     onMouseLeave={handlePressEnd}
@@ -929,26 +986,44 @@ export default function OnlineShops({
                     onTouchCancel={handlePressEnd}
                   >
                     {/* Image Container with Badges */}
-                    <div className="relative">
-                      {product.image ? (
-                        <img
-                          src={product.image}
-                          alt={product.name}
-                          loading="lazy"
-                          decoding="async"
-                          className="w-full h-32 sm:h-40 md:h-48 object-cover"
-                        />
-                      ) : (
-                        <div 
-                          className="w-full h-32 sm:h-40 md:h-48 flex items-center justify-center"
-                          style={{ 
-                            background: `linear-gradient(135deg, ${accentColor.color}20, ${accentColor.color}10)`,
-                          }}
-                        >
-                          <Package className="w-12 h-12 sm:w-16 sm:h-16" style={{ color: accentColor.color, opacity: 0.3 }} />
-                        </div>
-                      )}
-                      
+                    <div className="relative aspect-square w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900/40">
+                      {(() => {
+                        const imgs = collectProductGalleryImages(product);
+                        const list = imgs.length > 0 ? imgs : product.image ? [product.image] : [];
+                        if (list.length === 0) {
+                          return (
+                            <div
+                              className="w-full h-full flex items-center justify-center"
+                              style={{
+                                background: `linear-gradient(135deg, ${accentColor.color}20, ${accentColor.color}10)`,
+                              }}
+                            >
+                              <Package className="w-12 h-12 sm:w-16 sm:h-16" style={{ color: accentColor.color, opacity: 0.3 }} />
+                            </div>
+                          );
+                        }
+                        if (list.length === 1) {
+                          return (
+                            <img
+                              src={list[0]}
+                              alt={product.name}
+                              loading="lazy"
+                              decoding="async"
+                              className="w-full h-full object-contain"
+                            />
+                          );
+                        }
+                        return (
+                          <CardImageScroll
+                            images={list}
+                            alt={product.name}
+                            dotColor={accentColor.color}
+                            onUserInteracted={() => onProductGallerySwipe(product)}
+                            imgClassName="h-full w-full object-contain"
+                          />
+                        );
+                      })()}
+
                       {/* Badges */}
                       <div className="absolute top-2 left-2 flex flex-col gap-1">
                         {/* Source Badge (Market or Shop) - Hidden */}
@@ -1473,8 +1548,9 @@ function ShopDetailModal({
   );
   const { visibleItems: progressiveShopModalProducts, sentinelRef: shopModalGridSentinelRef } =
     useProgressiveListReveal(shopModalProductSource, shopModalRevealKey, {
-      batchSize: 10,
-      initialCount: 16,
+      batchSize: 6,
+      initialCount: 8,
+      rootMargin: '0px 0px 96px 0px',
     });
 
   const modalShopRating = useMemo(() => {
@@ -1697,22 +1773,22 @@ function ShopDetailModal({
                       }}
                       onClick={() => openShopProductReco(product)}
                     >
-                      {/* Image Container with Badges */}
-                      <div className="relative">
+                      {/* Image — kvadrat, to‘liq rasm */}
+                      <div className="relative aspect-square w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900/40">
                         {product.image ? (
                           <img
                             src={product.image}
                             alt={product.name}
                             loading="lazy"
                             decoding="async"
-                            className="w-full h-32 sm:h-40 md:h-48 object-cover"
+                            className="w-full h-full object-contain"
                             onError={(e) => {
                               e.currentTarget.style.display = 'none';
                             }}
                           />
                         ) : (
                           <div 
-                            className="w-full h-32 sm:h-40 md:h-48 flex items-center justify-center"
+                            className="w-full h-full flex items-center justify-center"
                             style={{ 
                               background: `linear-gradient(135deg, ${accentColor.color}20, ${accentColor.color}10)`,
                             }}

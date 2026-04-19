@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useRentalCart } from '../context/RentalCartContext';
 import { RentalItem } from '../data/rentals';
@@ -19,6 +19,7 @@ import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { notifyRentalCartAdded } from '../utils/appToast';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
+import { evaluateMerchantHours } from '../utils/businessHoursClient';
 
 interface RentalItemDetailModalProps {
   item: RentalItem;
@@ -51,6 +52,50 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
   const [ratings, setRatings] = useState<any[]>([]);
   const [loadingRatings, setLoadingRatings] = useState(false);
   const visibilityRefetchTick = useVisibilityTick();
+  const [branchHoursRecord, setBranchHoursRecord] = useState<Record<string, unknown> | null>(null);
+  const [branchHoursPending, setBranchHoursPending] = useState(false);
+  const [branchHoursTick, setBranchHoursTick] = useState(0);
+  useEffect(() => {
+    const tid = window.setInterval(() => setBranchHoursTick((x) => x + 1), 30000);
+    return () => window.clearInterval(tid);
+  }, []);
+
+  useEffect(() => {
+    const bid = String((item as { branchId?: string }).branchId || '').trim();
+    if (!isOpen || !bid) {
+      setBranchHoursRecord(null);
+      setBranchHoursPending(false);
+      return;
+    }
+    let cancelled = false;
+    setBranchHoursPending(true);
+    void (async () => {
+      try {
+        const res = await fetch(
+          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branches/${encodeURIComponent(bid)}`,
+          { headers: { Authorization: `Bearer ${publicAnonKey}` } },
+        );
+        const j = await res.json().catch(() => ({}));
+        if (cancelled) return;
+        const br = j?.branch;
+        setBranchHoursRecord(br && typeof br === 'object' ? (br as Record<string, unknown>) : {});
+      } catch {
+        if (!cancelled) setBranchHoursRecord({});
+      } finally {
+        if (!cancelled) setBranchHoursPending(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, item.id, (item as { branchId?: string }).branchId]);
+
+  const hoursEv = useMemo(
+    () => evaluateMerchantHours(branchHoursRecord ?? undefined),
+    [branchHoursRecord, branchHoursTick],
+  );
+  const filialClosedByHours =
+    Boolean((item as { branchId?: string }).branchId) && !branchHoursPending && !hoursEv.allowed;
 
   // Load ratings when modal opens
   useEffect(() => {
@@ -119,6 +164,18 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
       }
       if (!(item as { branchId?: string }).branchId) {
         toast.error('Bu e’lon filialga bog‘lanmagan. Filial ijara mahsulotini qayta saqlang.');
+        return;
+      }
+      if (branchHoursPending) {
+        toast.error('Filial jadvali yuklanmoqda, biroz kuting');
+        return;
+      }
+      if (filialClosedByHours) {
+        toast.error(
+          hoursEv.label
+            ? `Filial hozir yopiq. Ish vaqti: ${hoursEv.label}`
+            : 'Filial hozir buyurtma qabul qilmaydi',
+        );
         return;
       }
       // Add to cart
@@ -612,11 +669,25 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
             <button
               type="button"
               onClick={handleRentNow}
+              disabled={
+                branchHoursPending ||
+                filialClosedByHours ||
+                item.available === false ||
+                (typeof item.available === 'number' && item.available <= 0)
+              }
               className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-bold transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:py-4"
               style={{
-                background: accentColor.color,
+                background:
+                  branchHoursPending || filialClosedByHours
+                    ? isDark
+                      ? '#444'
+                      : '#9ca3af'
+                    : accentColor.color,
                 color: '#ffffff',
-                boxShadow: `0 8px 24px ${accentColor.color}66`,
+                boxShadow:
+                  branchHoursPending || filialClosedByHours
+                    ? 'none'
+                    : `0 8px 24px ${accentColor.color}66`,
               }}
             >
               <ShoppingCart className="size-5 shrink-0" strokeWidth={2.5} />

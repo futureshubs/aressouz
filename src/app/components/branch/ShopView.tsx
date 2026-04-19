@@ -512,13 +512,15 @@ export default function ShopView({ branchId }: ShopViewProps) {
                         borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
                       }}
                     >
-                      {/* Product Image from first variant */}
+                      {/* Product Image — 500×500 kvadrat, to‘liq rasm */}
                       {product.variants?.[0]?.images?.[0] && (
-                        <img 
-                          src={product.variants[0].images[0]} 
-                          alt={product.name}
-                          className="w-full h-48 object-cover"
-                        />
+                        <div className="w-full max-w-[500px] mx-auto aspect-square overflow-hidden bg-zinc-100 dark:bg-zinc-800/80">
+                          <img 
+                            src={product.variants[0].images[0]} 
+                            alt={product.name}
+                            className="w-full h-full object-contain"
+                          />
+                        </div>
                       )}
                       
                       <div className="p-4">

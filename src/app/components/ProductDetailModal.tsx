@@ -1,5 +1,5 @@
 import { X, Plus, Minus, Star, ShoppingCart, Clock, Truck, Shield, Heart, Share2, Calendar, Check, Package, CreditCard, Store, MessageCircle, Gift, RotateCcw, Box, ThumbsUp, ThumbsDown, Send, Image as ImageIcon, User, Wallet, Banknote, Loader2 } from 'lucide-react';
-import { useState, memo, useEffect } from 'react';
+import { useState, memo, useEffect, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { toast } from 'sonner';
@@ -9,6 +9,7 @@ import { buildUserHeaders, buildAdminHeaders, getStoredAdminSessionToken } from 
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { shareTitleTextUrl } from '../utils/marketplaceNativeBridge';
 import { getVariantStockQuantity } from '../utils/cartStock';
+import { evaluateMerchantHours } from '../utils/businessHoursClient';
 
 interface Product {
   id: number;
@@ -53,6 +54,8 @@ interface ProductDetailModalProps {
   onAddToCart: (product: Product, quantity: number, variantId?: string, variantName?: string) => void;
   source?: 'market' | 'shop';
   storeName?: string;
+  /** Do‘kon mahsuloti: API `shop` yozuvi — ish vaqti (workingHours, workTime, …) */
+  merchantHoursRecord?: Record<string, unknown> | null;
   cartItems?: { id: number; selectedVariantId?: string; quantity: number }[]; // Cart tracking
   onUpdateQuantity?: (id: number, quantity: number, variantId?: string) => void;
   onRemoveItem?: (id: number, variantId?: string) => void;
@@ -81,12 +84,18 @@ export const ProductDetailModal = memo(function ProductDetailModal({
   onAddToCart,
   source = 'market',
   storeName,
+  merchantHoursRecord = null,
   cartItems,
   onUpdateQuantity,
   onRemoveItem
 }: ProductDetailModalProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
+  const [hoursUiTick, setHoursUiTick] = useState(0);
+  useEffect(() => {
+    const id = window.setInterval(() => setHoursUiTick((t) => t + 1), 30000);
+    return () => window.clearInterval(id);
+  }, []);
   const [isAdmin, setIsAdmin] = useState(false);
   const visibilityRefetchTick = useVisibilityTick();
 
@@ -384,6 +393,12 @@ export const ProductDetailModal = memo(function ProductDetailModal({
   const stockCount = currentStockCount;
   const soldTotal = (currentVariant as { soldTotal?: number }).soldTotal ?? 0;
 
+  const hoursEv = useMemo(
+    () => evaluateMerchantHours(merchantHoursRecord ?? undefined),
+    [merchantHoursRecord, hoursUiTick],
+  );
+  const shopClosedByHours = source === 'shop' && stockCount > 0 && !hoursEv.allowed;
+
   // Specs - use variant attributes if available, otherwise product specs
   const displaySpecs = currentAttributes.length > 0 ? currentAttributes : (product.specs || []);
 
@@ -437,6 +452,10 @@ export const ProductDetailModal = memo(function ProductDetailModal({
   };
 
   const handleAddToCart = () => {
+    if (shopClosedByHours) {
+      toast.error(hoursEv.label ? `Do‘kon yopiq. Ish vaqti: ${hoursEv.label}` : 'Do‘kon hozir buyurtma qabul qilmaydi');
+      return;
+    }
     // If quantity is 0, set it to 1 (keyingi bosishda pastdagi tugma bilan savatga)
     if (quantity === 0) {
       setQuantity(1);
@@ -625,13 +644,9 @@ export const ProductDetailModal = memo(function ProductDetailModal({
             </div>
           )}
 
-          {/* Main Image */}
+          {/* Main Image — 500×500 kvadrat, rasm to‘liq */}
           <div 
-            className={`relative w-full rounded-xl sm:rounded-2xl overflow-hidden mb-3 sm:mb-4 mx-auto ${
-              source === 'shop'
-                ? 'min-h-[min(42dvh,380px)] max-h-[min(52dvh,480px)] sm:min-h-[min(44dvh,400px)] sm:max-h-[min(50dvh,520px)] aspect-[4/3] sm:aspect-[16/10] max-w-2xl'
-                : 'aspect-[4/3] sm:aspect-video max-w-full'
-            }`}
+            className="relative w-full max-w-[500px] aspect-square rounded-xl sm:rounded-2xl overflow-hidden mb-3 sm:mb-4 mx-auto"
             style={{
               background: isDark ? '#1a1a1a' : '#f9fafb',
             }}
@@ -642,7 +657,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
             <img 
               src={currentImage} 
               alt={product.name}
-              className="w-full h-full object-cover object-center"
+              className="w-full h-full object-contain object-center"
             />
             
             {/* Image Indicators (Dots) - only for shop products with multiple images */}
@@ -685,7 +700,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
                 <img 
                   src={variant.image} 
                   alt={variant.label}
-                  className="w-full h-full object-cover"
+                  className="w-full h-full object-contain"
                 />
                 <div 
                   className="absolute bottom-0.5 sm:bottom-1 left-0.5 sm:left-1 right-0.5 sm:right-1 text-center py-0.5 rounded-md sm:rounded-lg text-[8px] sm:text-[10px] font-bold"
@@ -1492,11 +1507,17 @@ export const ProductDetailModal = memo(function ProductDetailModal({
 
                 <button
                   onClick={handleAddToCart}
-                  disabled={stockCount === 0}
+                  disabled={stockCount === 0 || shopClosedByHours}
                   className="px-5 sm:px-8 py-3 sm:py-3.5 rounded-lg sm:rounded-xl font-bold text-white transition-all active:scale-95 flex items-center gap-1.5 sm:gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
                   style={{
-                    background: stockCount === 0 ? (isDark ? '#666666' : '#9ca3af') : accentColor.color,
-                    boxShadow: stockCount === 0 ? 'none' : `0 8px 24px ${accentColor.color}40`,
+                    background:
+                      stockCount === 0 || shopClosedByHours
+                        ? isDark
+                          ? '#666666'
+                          : '#9ca3af'
+                        : accentColor.color,
+                    boxShadow:
+                      stockCount === 0 || shopClosedByHours ? 'none' : `0 8px 24px ${accentColor.color}40`,
                   }}
                 >
                   <ShoppingCart className="size-4 sm:size-5" strokeWidth={2} />
@@ -1602,16 +1623,25 @@ export const ProductDetailModal = memo(function ProductDetailModal({
                 {/* Final Add to Cart Button - Market section style */}
                 <button
                   onClick={() => {
+                    if (shopClosedByHours) {
+                      toast.error(
+                        hoursEv.label
+                          ? `Do‘kon yopiq. Ish vaqti: ${hoursEv.label}`
+                          : 'Do‘kon hozir buyurtma qabul qilmaydi',
+                      );
+                      return;
+                    }
                     console.log('🛒 Final add to cart clicked:', { product, quantity, variantId: currentVariant.variantId, variantName: currentVariant.label });
                     onAddToCart(product, quantity, currentVariant.variantId, currentVariant.label);
                     notifyCartAdded(quantity, { name: product.name });
                     setQuantity(0); // Reset quantity after adding to cart
                     onClose();
                   }}
-                  className="w-full mt-3 sm:mt-4 py-3 sm:py-3.5 rounded-lg sm:rounded-xl font-bold text-white transition-all active:scale-95 flex items-center justify-center gap-2"
+                  disabled={shopClosedByHours}
+                  className="w-full mt-3 sm:mt-4 py-3 sm:py-3.5 rounded-lg sm:rounded-xl font-bold text-white transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
                   style={{
-                    background: accentColor.color,
-                    boxShadow: `0 8px 24px ${accentColor.color}40`,
+                    background: shopClosedByHours ? (isDark ? '#555' : '#9ca3af') : accentColor.color,
+                    boxShadow: shopClosedByHours ? 'none' : `0 8px 24px ${accentColor.color}40`,
                   }}
                 >
                   <ShoppingCart className="size-5 sm:size-6" strokeWidth={2} />

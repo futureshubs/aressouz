@@ -1,8 +1,10 @@
 import { ShoppingCart, Star, TrendingUp, Package, Heart, Calendar, Tag } from 'lucide-react';
-import { useState, memo } from 'react';
+import { useState, memo, useRef } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { ProductVariantModal } from './ProductVariantModal';
+import { CardImageScroll } from './CardImageScroll';
+import { collectProductGalleryImages } from '../utils/cardGalleryImages';
 
 interface Product {
   id: number;
@@ -10,6 +12,8 @@ interface Product {
   name: string;
   price: number;
   image: string;
+  /** Bir nechta rasm (market / API) */
+  images?: string[];
   categoryId: string;
   catalogId: string;
   rating: number;
@@ -42,6 +46,7 @@ export const ProductCard = memo(function ProductCard({
 }: ProductCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const skipCardOpenRef = useRef(false);
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const { isFavorite, toggleFavorite } = useFavorites();
@@ -49,7 +54,10 @@ export const ProductCard = memo(function ProductCard({
   // Handle variants - if product has variants, use first variant's data
   const hasVariants = product.variants && product.variants.length > 0;
   const firstVariant = hasVariants ? product.variants[0] : null;
+  const galleryImages = collectProductGalleryImages(product);
   const displayImage = hasVariants ? (firstVariant?.images?.[0] || product.image) : product.image;
+  const imageStrip =
+    galleryImages.length > 0 ? galleryImages : displayImage ? [displayImage] : [];
   const displayPrice = hasVariants ? (firstVariant?.price || product.price) : product.price;
   const displayOldPrice = hasVariants && firstVariant?.oldPrice > 0 ? firstVariant.oldPrice : null;
   
@@ -104,7 +112,10 @@ export const ProductCard = memo(function ProductCard({
 
         {/* Main Card with Glass Effect */}
         <div 
-          onClick={() => onProductClick?.(product)}
+          onClick={() => {
+            if (skipCardOpenRef.current) return;
+            onProductClick?.(product);
+          }}
           className="relative rounded-2xl overflow-hidden cursor-pointer"
           style={{
             background: isDark 
@@ -137,31 +148,40 @@ export const ProductCard = memo(function ProductCard({
             />
           )}
 
-          {/* Image Container — do'kon: ixcham; market: kvadrat */}
-          <div
-            className={`relative overflow-hidden bg-gradient-to-br from-zinc-900 to-black ${
-              source === 'shop'
-                ? 'h-28 sm:h-32 md:h-36'
-                : 'aspect-square'
-            }`}
-          >
-            <img
-              src={displayImage}
-              alt={product.name}
-              loading="lazy"
-              decoding="async"
-              className="w-full h-full object-cover transition-all duration-500"
-              style={{
-                transform:
-                  source === 'shop'
-                    ? isHovered
-                      ? 'scale(1.06) rotate(1deg)'
-                      : 'scale(1) rotate(0deg)'
-                    : isHovered
-                      ? 'scale(1.15) rotate(3deg)'
-                      : 'scale(1) rotate(0deg)',
-              }}
-            />
+          {/* Image — kvadrat (1:1), rasm to‘liq ko‘rinsin (contain) */}
+          <div className="relative aspect-square w-full max-w-[500px] mx-auto overflow-hidden bg-gradient-to-br from-zinc-900 to-black">
+            {imageStrip.length > 1 ? (
+              <CardImageScroll
+                images={imageStrip}
+                alt={product.name}
+                dotColor={accentColor.color}
+                onUserInteracted={() => {
+                  skipCardOpenRef.current = true;
+                  window.setTimeout(() => {
+                    skipCardOpenRef.current = false;
+                  }, 400);
+                }}
+                imgClassName="h-full w-full object-contain"
+              />
+            ) : (
+              <img
+                src={displayImage}
+                alt={product.name}
+                loading="lazy"
+                decoding="async"
+                className="w-full h-full object-contain transition-all duration-500"
+                style={{
+                  transform:
+                    source === 'shop'
+                      ? isHovered
+                        ? 'scale(1.06) rotate(1deg)'
+                        : 'scale(1) rotate(0deg)'
+                      : isHovered
+                        ? 'scale(1.15) rotate(3deg)'
+                        : 'scale(1) rotate(0deg)',
+                }}
+              />
+            )}
             
             {/* Multiple Gradient Overlays for Depth */}
             <div 
