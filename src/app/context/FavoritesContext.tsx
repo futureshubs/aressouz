@@ -1,7 +1,7 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
 
 interface Product {
-  id: number;
+  id: string | number;
   name: string;
   price: number;
   image: string;
@@ -38,8 +38,8 @@ interface FavoritesContextType {
   favorites: Product[];
   favoriteOrders: FavoriteOrderEntry[];
   addToFavorites: (product: Product) => void;
-  removeFromFavorites: (productId: number) => void;
-  isFavorite: (productId: number) => boolean;
+  removeFromFavorites: (productId: string | number) => void;
+  isFavorite: (productId: string | number) => boolean;
   toggleFavorite: (product: Product) => void;
   addFavoriteOrder: (order: FavoriteOrderEntry) => void;
   removeFavoriteOrder: (orderId: string) => void;
@@ -87,19 +87,22 @@ export function FavoritesProvider({ children }: { children: ReactNode }) {
 
   const addToFavorites = (product: Product) => {
     setFavorites((prev) => {
-      if (prev.some((p) => p.id === product.id)) {
+      const pid = String(product.id);
+      if (prev.some((p) => String(p.id) === pid)) {
         return prev;
       }
       return [...prev, product];
     });
   };
 
-  const removeFromFavorites = (productId: number) => {
-    setFavorites((prev) => prev.filter((p) => p.id !== productId));
+  const removeFromFavorites = (productId: string | number) => {
+    const pid = String(productId);
+    setFavorites((prev) => prev.filter((p) => String(p.id) !== pid));
   };
 
-  const isFavorite = (productId: number) => {
-    return favorites.some((p) => p.id === productId);
+  const isFavorite = (productId: string | number) => {
+    const pid = String(productId);
+    return favorites.some((p) => String(p.id) === pid);
   };
 
   const toggleFavorite = (product: Product) => {

@@ -62,6 +62,7 @@ import {
 } from '../utils/restaurantContactLinks';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
 import { useAuth } from '../context/AuthContext';
+import { useFavorites } from '../context/FavoritesContext';
 import { RestaurantReviewModal, type RestaurantReview } from './RestaurantReviewModal';
 
 /** Restoran/taom modali — Telegram / notch ostida qolmasin */
@@ -167,6 +168,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const { theme, accentColor } = useTheme();
   const { selectedRegion, selectedDistrict } = useLocation();
   const { user, setIsAuthOpen } = useAuth();
+  const { isFavorite, toggleFavorite } = useFavorites();
   const isDark = theme === 'dark';
 
   const [activeTab, setActiveTab] = useState<'dishes' | 'restaurants'>('dishes');
@@ -624,7 +626,29 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   }, [allDishes, headerSearch, restaurants]);
 
   const filteredRestaurants = useMemo(() => {
-    if (!normalizeHeaderSearch(headerSearch)) return restaurants;
+    if (!normalizeHeaderSearch(headerSearch)) {
+      const list = [...restaurants];
+      list.sort((a, b) => {
+        const aOpen = a.isActive ? 1 : 0;
+        const bOpen = b.isActive ? 1 : 0;
+        if (bOpen !== aOpen) return bOpen - aOpen;
+
+        const ar = typeof a.rating === 'number' ? a.rating : 0;
+        const br = typeof b.rating === 'number' ? b.rating : 0;
+        if (br !== ar) return br - ar;
+
+        const ac = typeof a.reviews === 'number' ? a.reviews : 0;
+        const bc = typeof b.reviews === 'number' ? b.reviews : 0;
+        if (bc !== ac) return bc - ac;
+
+        const ao = typeof a.totalOrders === 'number' ? a.totalOrders : 0;
+        const bo = typeof b.totalOrders === 'number' ? b.totalOrders : 0;
+        if (bo !== ao) return bo - ao;
+
+        return String(a.name || '').localeCompare(String(b.name || ''), 'uz');
+      });
+      return list;
+    }
     const q = headerSearch;
     const parts = (r: (typeof restaurants)[number]) => [
       r.name,
@@ -637,10 +661,69 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'food' });
   }, [restaurants, headerSearch]);
 
+  const storyRestaurants = useMemo(() => {
+    const list = [...filteredRestaurants];
+    return list.slice(0, 24);
+  }, [filteredRestaurants]);
+
   const dishModalRestaurant = useMemo(() => {
     if (!selectedDish?.restaurantId) return null;
     return restaurants.find((r) => r.id === selectedDish.restaurantId) ?? null;
   }, [selectedDish?.restaurantId, restaurants]);
+
+  const dishFavoritePayload = useMemo(() => {
+    if (!selectedDish) return null;
+    const price =
+      (selectedVariant && typeof (selectedVariant as any).price === 'number' ? Number((selectedVariant as any).price) : null) ??
+      (Array.isArray(selectedDish.variants) && selectedDish.variants[0] && typeof selectedDish.variants[0].price === 'number'
+        ? Number(selectedDish.variants[0].price)
+        : 0);
+    const img =
+      (Array.isArray(selectedDish.images) && selectedDish.images[0] ? String(selectedDish.images[0]) : '') ||
+      (selectedVariant && (selectedVariant as any).image ? String((selectedVariant as any).image) : '');
+    return {
+      id: selectedDish.id,
+      name: selectedDish.name,
+      price,
+      image: img,
+      categoryId: 'foods',
+      catalogId: 'foods',
+      rating: 0,
+      description: selectedDish.description,
+      variants: Array.isArray(selectedDish.variants)
+        ? selectedDish.variants.map((v, idx) => ({
+            id: String((v as any)?.id ?? idx),
+            name: String((v as any)?.name ?? ''),
+            image: (v as any)?.image ? String((v as any).image) : undefined,
+            price: Number((v as any)?.price ?? 0),
+          }))
+        : undefined,
+      branchName: dishModalRestaurant?.name,
+      branchId: (selectedDish as any)?.restaurantBranchId ?? dishModalRestaurant?.branchId,
+    };
+  }, [selectedDish, selectedVariant, dishModalRestaurant]);
+
+  const handleDishShare = useCallback(async () => {
+    if (!selectedDish) return;
+    const restaurantName = dishModalRestaurant?.name ? ` — ${dishModalRestaurant.name}` : '';
+    const text = `${selectedDish.name}${restaurantName}`;
+    const url = typeof window !== 'undefined' ? window.location.href : '';
+    try {
+      if (navigator?.share) {
+        await navigator.share({ title: selectedDish.name, text, url });
+        return;
+      }
+    } catch {
+      // fallback below
+    }
+    try {
+      const copyText = url ? `${text}\n${url}` : text;
+      await navigator.clipboard.writeText(copyText);
+      toast.success('Ulashish uchun nusxalandi');
+    } catch {
+      toast.error('Ulashib bo‘lmadi');
+    }
+  }, [selectedDish, dishModalRestaurant]);
 
   /** Restoran modali: xarita (Google / koordinata bo‘lsa Yandex) va tel: havolalari */
   const restaurantDetailContactLinks = useMemo(() => {
@@ -1065,6 +1148,59 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
         Qidiruv — sahifa tepasidagi maydon orqali (taom nomi, restoran, tavsif).
       </p>
 
+      {/* Restoranlar story strip (Restoranlar tabida) */}
+      {!loading && activeTab === 'restaurants' && storyRestaurants.length > 0 && (
+        <div className="px-3 -mt-1 mb-3 sm:px-4 sm:-mt-2 sm:mb-4">
+          <div className="flex gap-3 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch]">
+            {storyRestaurants.map((restaurant) => {
+              const rating = typeof restaurant.rating === 'number' ? restaurant.rating : 0;
+              const reviewCount = typeof restaurant.reviews === 'number' ? restaurant.reviews : 0;
+              const active = Boolean(restaurant.isActive);
+              const ring = active
+                ? `${accentColor.color}cc`
+                : isDark
+                  ? 'rgba(255,255,255,0.25)'
+                  : 'rgba(0,0,0,0.18)';
+              const img = String(restaurant.logo || restaurant.banner || '').trim();
+              return (
+                <button
+                  key={restaurant.id}
+                  type="button"
+                  onClick={() => handleRestaurantClick(restaurant)}
+                  className="shrink-0 w-[72px] text-center"
+                >
+                  <div
+                    className="h-16 w-16 rounded-full mx-auto flex items-center justify-center overflow-hidden"
+                    style={{
+                      background: isDark ? '#111' : '#fff',
+                      border: `2px solid ${ring}`,
+                    }}
+                    aria-label={restaurant.name || 'Restoran'}
+                  >
+                    {img ? (
+                      <img src={img} alt="" className="h-full w-full object-cover" />
+                    ) : (
+                      <Utensils className="h-7 w-7" style={{ color: accentColor.color }} />
+                    )}
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-[11px] font-semibold leading-tight line-clamp-2">{restaurant.name}</div>
+                    {reviewCount > 0 && rating > 0 ? (
+                      <div className="mt-0.5 flex items-center justify-center gap-1 text-[10px]">
+                        <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
+                        <span style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
+                          {Math.round(rating * 10) / 10}
+                        </span>
+                      </div>
+                    ) : null}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
       {loading ? (
         <div className="px-4 pb-8" aria-hidden>
           {activeTab === 'dishes' ? (
@@ -1320,6 +1456,35 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                               : '—'}
                           </span>
                         </div>
+                        {(typeof restaurant.rating === 'number' ? restaurant.rating : 0) > 0 ? (
+                          <div className="flex items-center gap-1">
+                            <div
+                              className="flex items-center gap-0.5 shrink-0"
+                              aria-label={`${Math.round((restaurant.rating || 0) * 10) / 10} yulduz`}
+                            >
+                              {[1, 2, 3, 4, 5].map((s) => {
+                                const r = typeof restaurant.rating === 'number' ? restaurant.rating : 0;
+                                const filled = s <= Math.round(r);
+                                return (
+                                  <Star
+                                    key={s}
+                                    className="h-3.5 w-3.5 sm:h-4 sm:w-4"
+                                    fill={filled ? '#fbbf24' : 'transparent'}
+                                    style={{ color: '#fbbf24' }}
+                                  />
+                                );
+                              })}
+                            </div>
+                            <span className="font-semibold">
+                              {Math.round(((typeof restaurant.rating === 'number' ? restaurant.rating : 0) || 0) * 10) / 10}
+                            </span>
+                            {(typeof restaurant.reviews === 'number' ? restaurant.reviews : 0) > 0 ? (
+                              <span style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
+                                ({restaurant.reviews})
+                              </span>
+                            ) : null}
+                          </div>
+                        ) : null}
                         <div className="flex min-w-0 items-center gap-1">
                           <Clock className="h-3.5 w-3.5 shrink-0 sm:h-4 sm:w-4" style={{ color: accentColor.color }} />
                           <span className="truncate">{restaurant.deliveryTime}</span>
@@ -2258,9 +2423,15 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
             aria-hidden
           />
           <div
-            className="relative z-[1] flex min-h-0 h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden sm:h-auto sm:max-h-[90vh] sm:max-w-lg md:max-w-2xl lg:max-w-3xl sm:rounded-3xl sm:shadow-2xl"
+            className="relative z-[1] flex min-h-0 w-full flex-col overflow-hidden sm:h-auto sm:max-h-[90vh] sm:max-w-lg md:max-w-2xl lg:max-w-3xl sm:rounded-3xl sm:shadow-2xl"
             style={{
               background: isDark ? '#0a0a0a' : '#ffffff',
+              /**
+               * Parent has `app-safe-pad` (top/bottom padding).
+               * If we use `100dvh` here, the bottom bar can be pushed below the visible viewport on phones.
+               */
+              height: 'calc(100dvh - var(--app-safe-top, 0px) - var(--app-safe-bottom, 0px))',
+              maxHeight: 'calc(100dvh - var(--app-safe-top, 0px) - var(--app-safe-bottom, 0px))',
             }}
             onClick={(e) => e.stopPropagation()}
           >
@@ -2287,12 +2458,47 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                   <X className="w-6 h-6 text-white" />
                 </button>
 
+                {/* Share / Favorite */}
+                <div
+                  className="absolute z-10 flex items-center gap-2"
+                  style={{
+                    top: FOODS_MODAL_TOP_OFFSET,
+                    right: FOODS_MODAL_RIGHT_INSET,
+                  }}
+                >
+                  <button
+                    type="button"
+                    onClick={handleDishShare}
+                    className="h-12 w-12 rounded-full flex items-center justify-center"
+                    style={{ background: 'rgba(0, 0, 0, 0.5)' }}
+                    aria-label="Ulashish"
+                  >
+                    <Share2 className="w-6 h-6 text-white" />
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (!dishFavoritePayload) return;
+                      toggleFavorite(dishFavoritePayload as any);
+                    }}
+                    className="h-12 w-12 rounded-full flex items-center justify-center"
+                    style={{ background: 'rgba(0, 0, 0, 0.5)' }}
+                    aria-label="Sevimliga qo‘shish"
+                  >
+                    <Heart
+                      className="w-6 h-6"
+                      style={{ color: isFavorite(String(selectedDish.id)) ? '#f43f5e' : '#ffffff' }}
+                      fill={isFavorite(String(selectedDish.id)) ? '#f43f5e' : 'transparent'}
+                    />
+                  </button>
+                </div>
+
                 {/* Popular Badge */}
                 {selectedDish.isPopular && (
                   <div 
                     className="absolute px-3 py-1.5 rounded-xl text-xs font-bold z-10"
                     style={{
-                      top: FOODS_MODAL_TOP_OFFSET,
+                      top: FOODS_MODAL_SECOND_ROW_TOP,
                       right: FOODS_MODAL_RIGHT_INSET,
                       background: '#fbbf24',
                       color: '#000',
