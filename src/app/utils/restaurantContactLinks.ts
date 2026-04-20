@@ -48,3 +48,15 @@ export function phoneToTelHref(phone: string): string {
   if (/^\d{9}$/.test(s)) return `tel:+998${s}`;
   return `tel:${s}`;
 }
+
+/**
+ * make-server `.../restaurants/:id/...` URL segmenti.
+ * KV kaliti `restaurant:123` bo‘lsa, yo‘lda `123` ishlatiladi — `:` / `%3A` ba’zi proxy yoki marshrutlarda 404 beradi;
+ * server `resolveRestaurantRecord` raqamli IDni `restaurant:` bilan bog‘laydi.
+ */
+export function restaurantIdForRestaurantsApiPath(restaurantId: string): string {
+  let s = String(restaurantId ?? '').trim();
+  if (!s) return '';
+  if (s.startsWith('restaurant:')) s = s.slice('restaurant:'.length);
+  return encodeURIComponent(s);
+}

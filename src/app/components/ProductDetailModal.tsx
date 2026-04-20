@@ -8,6 +8,7 @@ import { projectId } from '/utils/supabase/info';
 import { buildUserHeaders, buildAdminHeaders, getStoredAdminSessionToken } from '../utils/requestAuth';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { shareTitleTextUrl } from '../utils/marketplaceNativeBridge';
+import { MAIN_APP_QUERY } from '../utils/mainAppSearchParams';
 import { getVariantStockQuantity } from '../utils/cartStock';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
 
@@ -54,7 +55,7 @@ interface ProductDetailModalProps {
   onAddToCart: (product: Product, quantity: number, variantId?: string, variantName?: string) => void;
   source?: 'market' | 'shop';
   storeName?: string;
-  /** Do‘kon mahsuloti: API `shop` yozuvi — ish vaqti (workingHours, workTime, …) */
+  /** Do‘kon: shop yozuvi; market: yetkazib berish zonasi (tanlangan hudud bo‘yicha) */
   merchantHoursRecord?: Record<string, unknown> | null;
   cartItems?: { id: number; selectedVariantId?: string; quantity: number }[]; // Cart tracking
   onUpdateQuantity?: (id: number, quantity: number, variantId?: string) => void;
@@ -397,7 +398,9 @@ export const ProductDetailModal = memo(function ProductDetailModal({
     () => evaluateMerchantHours(merchantHoursRecord ?? undefined),
     [merchantHoursRecord, hoursUiTick],
   );
-  const shopClosedByHours = source === 'shop' && stockCount > 0 && !hoursEv.allowed;
+  const shopClosedByHours =
+    stockCount > 0 && !hoursEv.allowed && (source === 'shop' || merchantHoursRecord != null);
+  const isMarketZoneHours = source === 'market' && merchantHoursRecord != null;
 
   // Specs - use variant attributes if available, otherwise product specs
   const displaySpecs = currentAttributes.length > 0 ? currentAttributes : (product.specs || []);
@@ -453,7 +456,15 @@ export const ProductDetailModal = memo(function ProductDetailModal({
 
   const handleAddToCart = () => {
     if (shopClosedByHours) {
-      toast.error(hoursEv.label ? `Do‘kon yopiq. Ish vaqti: ${hoursEv.label}` : 'Do‘kon hozir buyurtma qabul qilmaydi');
+      toast.error(
+        hoursEv.label
+          ? isMarketZoneHours
+            ? `Yetkazib berish zonasi yopiq. Ish vaqti: ${hoursEv.label}`
+            : `Do‘kon yopiq. Ish vaqti: ${hoursEv.label}`
+          : isMarketZoneHours
+            ? 'Yetkazib berish zonasi hozir buyurtma qabul qilmaydi'
+            : 'Do‘kon hozir buyurtma qabul qilmaydi',
+      );
       return;
     }
     // If quantity is 0, set it to 1 (keyingi bosishda pastdagi tugma bilan savatga)
@@ -486,10 +497,14 @@ export const ProductDetailModal = memo(function ProductDetailModal({
   const buildProductShareUrl = () => {
     const base = `${window.location.origin}${window.location.pathname || '/'}`;
     const q = new URLSearchParams();
-    q.set('productId', String(product.id));
-    if (product.catalogId) q.set('catalogId', String(product.catalogId));
+    q.set(MAIN_APP_QUERY.tab, 'market');
+    const key =
+      String((product as { productUuid?: string }).productUuid ?? '').trim() || String(product.id);
+    q.set(MAIN_APP_QUERY.product, key);
+    if (product.catalogId) q.set(MAIN_APP_QUERY.cat, String(product.catalogId));
     const qs = q.toString();
-    return qs ? `${base}${base.includes('?') ? '&' : '?'}${qs}` : base;
+    const sep = base.includes('?') ? '&' : '?';
+    return qs ? `${base}${sep}${qs}` : base;
   };
 
   const handleShareProduct = async () => {
@@ -1442,9 +1457,9 @@ export const ProductDetailModal = memo(function ProductDetailModal({
         </div>
         </div>
 
-        {/* Bottom bar — flex ichida, alohida scroll yo‘q */}
+        {/* Bottom bar — flex ichida, alohida scroll yo‘q; z-20: scroll kontent ustidan */}
         <div 
-          className="shrink-0 p-3 sm:p-4 border-t pb-[max(0.75rem,var(--app-safe-bottom,0px))]"
+          className="relative z-20 shrink-0 border-t p-3 sm:p-4 pb-[max(0.75rem,var(--app-safe-bottom,0px))]"
           onClick={(e) => e.stopPropagation()}
           style={{
             background: isDark ? '#0a0a0a' : '#ffffff',
@@ -1489,8 +1504,8 @@ export const ProductDetailModal = memo(function ProductDetailModal({
             )}
 
             {quantity === 0 ? (
-              <div className="flex items-center justify-between gap-3">
-                <div>
+              <div className="flex min-w-0 flex-col gap-3 min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between">
+                <div className="min-w-0 shrink">
                   <p 
                     className="text-[10px] sm:text-xs font-semibold mb-0.5 sm:mb-1"
                     style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
@@ -1508,7 +1523,7 @@ export const ProductDetailModal = memo(function ProductDetailModal({
                 <button
                   onClick={handleAddToCart}
                   disabled={stockCount === 0 || shopClosedByHours}
-                  className="px-5 sm:px-8 py-3 sm:py-3.5 rounded-lg sm:rounded-xl font-bold text-white transition-all active:scale-95 flex items-center gap-1.5 sm:gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                  className="w-full shrink-0 min-[380px]:w-auto px-5 sm:px-8 py-3 sm:py-3.5 rounded-lg sm:rounded-xl font-bold text-white transition-all active:scale-95 flex items-center justify-center gap-1.5 sm:gap-2 disabled:opacity-40 disabled:cursor-not-allowed min-w-[9rem]"
                   style={{
                     background:
                       stockCount === 0 || shopClosedByHours
@@ -1626,8 +1641,12 @@ export const ProductDetailModal = memo(function ProductDetailModal({
                     if (shopClosedByHours) {
                       toast.error(
                         hoursEv.label
-                          ? `Do‘kon yopiq. Ish vaqti: ${hoursEv.label}`
-                          : 'Do‘kon hozir buyurtma qabul qilmaydi',
+                          ? isMarketZoneHours
+                            ? `Yetkazib berish zonasi yopiq. Ish vaqti: ${hoursEv.label}`
+                            : `Do‘kon yopiq. Ish vaqti: ${hoursEv.label}`
+                          : isMarketZoneHours
+                            ? 'Yetkazib berish zonasi hozir buyurtma qabul qilmaydi'
+                            : 'Do‘kon hozir buyurtma qabul qilmaydi',
                       );
                       return;
                     }

@@ -346,7 +346,8 @@
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
+  /* pan-y faqat vertikal — ichki overflow-x:auto (jadval, karusel) gorizontal surishni yutadi */
+  touch-action: pan-x pan-y;
 }
 
 .app-panel-sidebar-scroll {
@@ -356,7 +357,7 @@
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-y;
+  touch-action: pan-x pan-y;
 }
 
 /* Modal ortidagi sahifa siljimasin */

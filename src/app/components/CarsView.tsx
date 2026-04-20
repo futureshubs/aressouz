@@ -1,5 +1,5 @@
 import { useState, memo, useEffect, useCallback, useMemo } from 'react';
-import { Car as CarIcon, Grid3x3, Plus, Loader2 } from 'lucide-react';
+import { Car as CarIcon, Grid3x3, Plus } from 'lucide-react';
 import { CarCategoryCard } from './CarCategoryCard';
 import { CarItemCard } from './CarItemCard';
 import { CarItemDetailModal } from './CarItemDetailModal';
@@ -99,7 +99,7 @@ export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsVi
   const [regions, setRegions] = useState<Region[]>([]);
   const [selectedCar, setSelectedCar] = useState<Car | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [showAddModal, setShowAddModal] = useState(false);
   const [userData, setUserData] = useState<any>(null);
   const [showLoginNotification, setShowLoginNotification] = useState(false);
@@ -398,11 +398,7 @@ export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsVi
       {activeTab === 'cars' && (
         <div className="px-4 sm:px-6 md:px-8">
           {loading ? (
-            <div className="space-y-3">
-              <div className="flex items-center justify-center gap-2 py-2 text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.6)' : 'rgba(0,0,0,0.55)' }}>
-                <Loader2 className="size-5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
-                
-              </div>
+            <div className="px-0 pb-4">
               <CarGridSkeleton isDark={isDark} count={6} />
             </div>
           ) : filteredCars.length > 0 ? (

@@ -35,6 +35,8 @@ interface ProductCardProps {
   ) => void;
   onProductClick?: (product: Product) => void;
   source?: 'market' | 'shop';
+  /** Market: tanlangan hudud uchun yetkazib berish zonasi (ish vaqti) */
+  merchantHoursRecord?: Record<string, unknown> | null;
 }
 
 export const ProductCard = memo(function ProductCard({
@@ -43,6 +45,7 @@ export const ProductCard = memo(function ProductCard({
   onAddVariantLinesBatch,
   onProductClick,
   source = 'market',
+  merchantHoursRecord = null,
 }: ProductCardProps) {
   const [isHovered, setIsHovered] = useState(false);
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -419,6 +422,7 @@ export const ProductCard = memo(function ProductCard({
           }}
           onAddMultipleLines={onAddVariantLinesBatch}
           source={source}
+          merchantHoursRecord={merchantHoursRecord}
         />
       )}
     </>

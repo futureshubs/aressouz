@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useTheme } from '../context/ThemeContext';
 import { useLocation } from '../context/LocationContext';
@@ -11,6 +11,11 @@ import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
+import { useAuth } from '../context/AuthContext';
+import { MarketplaceRecoCarousels } from './MarketplaceRecoCarousels';
+import { useDeliveryZonesByBranchIds } from '../hooks/useDeliveryZonesByBranchIds';
+import { pickDeliveryZoneForLocation } from '../utils/deliveryZoneForLocation';
+import { evaluateMerchantHours } from '../utils/businessHoursClient';
 
 interface Product {
   id: number;
@@ -60,6 +65,7 @@ interface Branch {
 
 export default function Market() {
   const { theme, accentColor } = useTheme();
+  const { accessToken } = useAuth();
   const { selectedRegion, selectedDistrict } = useLocation();
   const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const isDark = theme === 'dark';
@@ -367,6 +373,69 @@ export default function Market() {
       initialCount: 16,
     });
 
+  const marketBranchIds = useMemo(() => {
+    const a = products.map((p) => String(p.branchId || '').trim()).filter(Boolean);
+    const b = branchProducts.map((p) => String(p.branchId || '').trim()).filter(Boolean);
+    return [...a, ...b];
+  }, [products, branchProducts]);
+  const deliveryZonesByBranch = useDeliveryZonesByBranchIds(marketBranchIds);
+
+  const zoneForUserLocation = useCallback(
+    (product: Product) => {
+      const bid = String(product.branchId || '').trim();
+      if (!bid || !selectedRegion || !selectedDistrict) return null;
+      return pickDeliveryZoneForLocation(deliveryZonesByBranch[bid], selectedRegion, selectedDistrict);
+    },
+    [deliveryZonesByBranch, selectedRegion, selectedDistrict],
+  );
+
+  const marketRecoShopClosed = useCallback(
+    (p: Record<string, unknown>) => {
+      const bid = String(p.branchId ?? '').trim();
+      if (!bid || !selectedRegion || !selectedDistrict) return null;
+      const zone = pickDeliveryZoneForLocation(deliveryZonesByBranch[bid], selectedRegion, selectedDistrict);
+      if (!zone) return null;
+      const ev = evaluateMerchantHours(zone);
+      const stockOk = Number((p as { stockQuantity?: unknown }).stockQuantity) > 0;
+      if (!(stockOk && !ev.allowed)) return null;
+      return { title: 'Buyurtma yopiq', subtitle: ev.label };
+    },
+    [deliveryZonesByBranch, selectedRegion, selectedDistrict],
+  );
+
+  const zoneForSelectedBranchProduct = useCallback(
+    (product: Product) => {
+      if (!selectedBranch) return null;
+      const bid = String(product.branchId || '').trim();
+      if (!bid || bid !== selectedBranch.id) return null;
+      return pickDeliveryZoneForLocation(
+        deliveryZonesByBranch[bid],
+        selectedBranch.regionId,
+        selectedBranch.districtId,
+      );
+    },
+    [deliveryZonesByBranch, selectedBranch],
+  );
+
+  const branchRecoShopClosed = useCallback(
+    (p: Record<string, unknown>) => {
+      if (!selectedBranch) return null;
+      const bid = String(p.branchId ?? '').trim();
+      if (bid !== selectedBranch.id) return null;
+      const zone = pickDeliveryZoneForLocation(
+        deliveryZonesByBranch[bid],
+        selectedBranch.regionId,
+        selectedBranch.districtId,
+      );
+      if (!zone) return null;
+      const ev = evaluateMerchantHours(zone);
+      const stockOk = Number((p as { stockQuantity?: unknown }).stockQuantity) > 0;
+      if (!(stockOk && !ev.allowed)) return null;
+      return { title: 'Buyurtma yopiq', subtitle: ev.label };
+    },
+    [deliveryZonesByBranch, selectedBranch],
+  );
+
   return (
     <div className="min-h-screen" style={{ background: isDark ? '#0a0a0a' : '#f5f5f5' }}>
       {/* Header Banner */}
@@ -422,6 +491,24 @@ export default function Market() {
         {activeTab === 'products' ? (
           /* Products Tab */
           <>
+            {!isLoading &&
+              !isLoadingProducts &&
+              selectedRegion &&
+              selectedDistrict &&
+              searchFilteredProducts.length > 0 && (
+                <MarketplaceRecoCarousels
+                  catalogProducts={searchFilteredProducts as Record<string, unknown>[]}
+                  selectedRegion={selectedRegion}
+                  selectedDistrict={selectedDistrict}
+                  accessToken={accessToken}
+                  accentColor={accentColor}
+                  isDark={isDark}
+                  onProductOpen={() => {}}
+                  refreshKey={`${products.length}-${headerSearch}-${selectedRegion}-${selectedDistrict}`}
+                  shopClosedContent={marketRecoShopClosed}
+                />
+              )}
+
             <div className="flex items-center justify-between mb-4">
               <div>
                 <h2 className="text-lg font-bold text-foreground">Barcha mahsulotlar</h2>
@@ -475,6 +562,7 @@ export default function Market() {
                     product={product}
                     onAddToCart={() => {}}
                     onProductClick={() => {}}
+                    merchantHoursRecord={zoneForUserLocation(product)}
                   />
                 ))}
                 {progressiveMarketSearchProducts.length < searchFilteredProducts.length && (
@@ -612,6 +700,22 @@ export default function Market() {
                 </div>
               )}
 
+              {loadingBranchId !== selectedBranch.id &&
+                branchProducts.length > 0 &&
+                searchFilteredBranchProducts.length > 0 && (
+                  <MarketplaceRecoCarousels
+                    catalogProducts={searchFilteredBranchProducts as Record<string, unknown>[]}
+                    selectedRegion={selectedBranch.regionId}
+                    selectedDistrict={selectedBranch.districtId}
+                    accessToken={accessToken}
+                    accentColor={accentColor}
+                    isDark={isDark}
+                    onProductOpen={() => {}}
+                    refreshKey={`${selectedBranch.id}-${branchProducts.length}-${headerSearch}`}
+                    shopClosedContent={branchRecoShopClosed}
+                  />
+                )}
+
               <h3 className="text-xl font-bold mb-6 mt-8 text-foreground">Mahsulotlar</h3>
               
               {loadingBranchId === selectedBranch.id ? (
@@ -649,6 +753,7 @@ export default function Market() {
                       product={product}
                       onAddToCart={() => {}}
                       onProductClick={() => {}}
+                      merchantHoursRecord={zoneForSelectedBranchProduct(product)}
                     />
                   ))}
                   {progressiveBranchProducts.length < searchFilteredBranchProducts.length && (

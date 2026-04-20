@@ -11,7 +11,7 @@ import { CreatePortfolioModal } from './CreatePortfolioModal';
 import { PortfolioCard } from './PortfolioCard';
 import { ServicePortfolioCard } from './ServicePortfolioCard';
 import { PortfolioDetailModal } from './PortfolioDetailModal';
-import { LayoutGrid, Users, ArrowLeft, Briefcase, Plus, Loader2 } from 'lucide-react';
+import { LayoutGrid, Users, ArrowLeft, Briefcase, Plus } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { BannerCarousel } from './BannerCarousel';
 import { regions as allRegions } from '../data/regions';
@@ -172,7 +172,7 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
   const [isCreatePortfolioOpen, setIsCreatePortfolioOpen] = useState(false);
   const [portfolios, setPortfolios] = useState<any[]>([]);
   const [selectedPortfolio, setSelectedPortfolio] = useState<any>(null);
-  const [loadingPortfolios, setLoadingPortfolios] = useState(false);
+  const [loadingPortfolios, setLoadingPortfolios] = useState(true);
   const [selectedProfession, setSelectedProfession] = useState<string | null>(null);
   const [portfolioToEdit, setPortfolioToEdit] = useState<any>(null);
   const [deletingPortfolioId, setDeletingPortfolioId] = useState<string | null>(null);
@@ -315,6 +315,8 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
         } finally {
           setLoadingPortfolios(false);
         }
+      } else {
+        setLoadingPortfolios(false);
       }
     };
 
@@ -472,9 +474,12 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
           </h2>
           <div className="grid grid-cols-2 gap-3 sm:gap-4 md:gap-5">
             {loadingPortfolios ? (
-              <div className="col-span-full flex flex-col items-center justify-center gap-2 py-8">
-                <Loader2 className="size-6 animate-spin shrink-0" style={{ color: accentColor.color }} />
-                <p className="text-sm font-medium" style={{ color: isDark ? '#ffffff' : '#111827' }}></p>
+              <div className="col-span-full">
+                <ProductGridSkeleton
+                  isDark={isDark}
+                  count={8}
+                  gridClassName="grid grid-cols-2 gap-3 sm:gap-4 md:gap-5"
+                />
               </div>
             ) : portfolios.length > 0 ? (
               portfolios.map((portfolio) => (

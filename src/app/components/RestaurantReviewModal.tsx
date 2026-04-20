@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { restaurantIdForRestaurantsApiPath } from '../utils/restaurantContactLinks';
 
 interface RestaurantReviewModalProps {
   isOpen: boolean;
@@ -79,9 +80,9 @@ export function RestaurantReviewModal({
       setIsSubmitting(true);
       setError('');
 
-      const rid = encodeURIComponent(restaurantId);
+      const pathSeg = restaurantIdForRestaurantsApiPath(restaurantId);
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/reviews`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${pathSeg}/reviews`,
         {
           method: 'POST',
           headers: {
@@ -97,10 +98,27 @@ export function RestaurantReviewModal({
         },
       );
 
-      const data = await response.json();
+      const rawText = await response.text();
+      let data: {
+        success?: boolean;
+        error?: string;
+        review?: RestaurantReview;
+        restaurant?: Record<string, unknown>;
+      } = {};
+      if (rawText.trim()) {
+        try {
+          data = JSON.parse(rawText) as typeof data;
+        } catch {
+          throw new Error(
+            response.status === 404
+              ? 'Sharhlar serveri topilmadi (404). Loyihani yangilang yoki keyinroq urining.'
+              : 'Server javobi noto‘g‘ri (JSON emas).',
+          );
+        }
+      }
 
       if (!response.ok || !data?.success) {
-        throw new Error(data?.error || 'Sharh qo‘shilmadi');
+        throw new Error(data?.error || `Sharh qo‘shilmadi (${response.status})`);
       }
 
       toast.success('Sharh qo‘shildi');

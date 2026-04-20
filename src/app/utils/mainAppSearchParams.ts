@@ -53,16 +53,24 @@ export function parseMainAppSearch(sp: URLSearchParams): MainAppParsedSearch {
   const tab = isValidMainTab(tabRaw) ? tabRaw : 'market';
   const v = sp.get(MAIN_APP_QUERY.view);
   const view: 'products' | 'catalog' = v === 'catalog' ? 'catalog' : 'products';
+  /** Eski ulashish havolalari: ?productId=… — asosiy kalit `product` */
+  const productKey =
+    sp.get(MAIN_APP_QUERY.product)?.trim() ||
+    sp.get('productId')?.trim() ||
+    null;
+  /** Eski: ?catalogId=… — asosiy `cat` */
+  const catalogId =
+    sp.get(MAIN_APP_QUERY.cat)?.trim() || sp.get('catalogId')?.trim() || null;
   return {
     tab,
     cart: sp.get(MAIN_APP_QUERY.cart) === '1',
     profile: sp.get(MAIN_APP_QUERY.profile) === '1',
     checkout: sp.get(MAIN_APP_QUERY.checkout) === '1',
     auth: sp.get(MAIN_APP_QUERY.auth) === '1',
-    productKey: sp.get(MAIN_APP_QUERY.product)?.trim() || null,
+    productKey,
     rterms: sp.get(MAIN_APP_QUERY.rterms) === '1',
     view,
-    catalogId: sp.get(MAIN_APP_QUERY.cat)?.trim() || null,
+    catalogId,
     categoryId: sp.get(MAIN_APP_QUERY.subcat)?.trim() || null,
   };
 }

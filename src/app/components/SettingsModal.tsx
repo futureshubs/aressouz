@@ -767,22 +767,24 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
   if (isIOS) {
     return (
       <>
-      <div 
-        className="fixed inset-0 app-safe-pad z-[60] flex items-end justify-center"
-        onClick={onClose}
-      >
-        {/* Backdrop */}
-        <div 
-          className="absolute inset-0"
+      {/*
+        Orqa fonni alohida button — tashqi div onClick emas: mobil/Telegram’da scroll keyin
+        «ghost» click fonni bosib modalni yopmasin.
+      */}
+      <div className="fixed inset-0 app-safe-pad z-[60] flex items-end justify-center pointer-events-none">
+        <button
+          type="button"
+          className="absolute inset-0 z-0 cursor-default border-0 p-0 pointer-events-auto"
+          aria-label={t('settings.close')}
+          onClick={onClose}
           style={{
             background: isDark ? 'rgba(0, 0, 0, 0.7)' : 'rgba(0, 0, 0, 0.4)',
             backdropFilter: 'blur(10px)',
           }}
         />
 
-        {/* Modal Content */}
-        <div 
-          className="relative w-full max-w-md rounded-t-3xl overflow-hidden"
+        <div
+          className="relative z-10 w-full max-w-md rounded-t-3xl overflow-hidden pointer-events-auto"
           style={{
             background: isDark 
               ? 'linear-gradient(to bottom, rgba(20, 20, 20, 0.98), rgba(10, 10, 10, 0.98))'
@@ -793,6 +795,9 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
               : '0 -8px 24px rgba(0, 0, 0, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.9)',
           }}
           onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="settings-modal-title-ios"
         >
           {/* Header */}
           <div className="sticky top-0 z-10 px-4 py-4 flex items-center justify-between"
@@ -807,12 +812,14 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
             }}
           >
             <h2 
+              id="settings-modal-title-ios"
               className="text-xl font-bold"
               style={{ color: isDark ? '#ffffff' : '#111827' }}
             >
               {t('settings.title')}
             </h2>
             <button 
+              type="button"
               onClick={onClose}
               className="p-2 rounded-xl transition-all active:scale-90"
               style={{
@@ -833,7 +840,10 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
           </div>
 
           {/* Content */}
-          <div className="px-4 py-6 space-y-6 overflow-y-auto" style={{ maxHeight: 'calc(85vh - 80px)' }}>
+          <div
+            className="px-4 py-6 space-y-6 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]"
+            style={{ maxHeight: 'calc(85vh - 80px)' }}
+          >
             {settingsGroups.map((group, groupIndex) => (
               <div key={groupIndex}>
                 <h3 
@@ -974,21 +984,19 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
   // Android Material Design
   return (
     <>
-    <div 
-      className="fixed inset-0 app-safe-pad z-[60] flex items-end justify-center"
-      onClick={onClose}
-    >
-      {/* Backdrop */}
-      <div 
-        className="absolute inset-0"
+    <div className="fixed inset-0 app-safe-pad z-[60] flex items-end justify-center pointer-events-none">
+      <button
+        type="button"
+        className="absolute inset-0 z-0 cursor-default border-0 p-0 pointer-events-auto"
+        aria-label={t('settings.close')}
+        onClick={onClose}
         style={{
           background: isDark ? 'rgba(0, 0, 0, 0.8)' : 'rgba(0, 0, 0, 0.5)',
         }}
       />
 
-      {/* Modal Content */}
       <div 
-        className="relative w-full max-w-md rounded-t-2xl overflow-hidden"
+        className="relative z-10 w-full max-w-md rounded-t-2xl overflow-hidden pointer-events-auto"
         style={{
           background: isDark 
             ? 'linear-gradient(135deg, #1e1e1e, #121212)'
@@ -999,6 +1007,9 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
             : '0 -4px 20px rgba(0, 0, 0, 0.15)',
         }}
         onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="settings-modal-title-android"
       >
         {/* Header */}
         <div className="sticky top-0 z-10 px-4 py-4 flex items-center justify-between"
@@ -1012,12 +1023,14 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
           }}
         >
           <h2 
+            id="settings-modal-title-android"
             className="text-xl font-bold"
             style={{ color: isDark ? '#ffffff' : '#111827' }}
           >
             {t('settings.title')}
           </h2>
           <button 
+            type="button"
             onClick={onClose}
             className="p-2 rounded-xl transition-all active:scale-90"
             style={{
@@ -1035,7 +1048,10 @@ export function SettingsModal({ isOpen, onClose, platform }: SettingsModalProps)
         </div>
 
         {/* Content */}
-        <div className="px-4 py-6 space-y-6 overflow-y-auto" style={{ maxHeight: 'calc(85vh - 80px)' }}>
+        <div
+          className="px-4 py-6 space-y-6 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]"
+          style={{ maxHeight: 'calc(85vh - 80px)' }}
+        >
           {settingsGroups.map((group, groupIndex) => (
             <div key={groupIndex}>
               <h3 

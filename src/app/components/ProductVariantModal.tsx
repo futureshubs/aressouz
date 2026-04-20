@@ -54,6 +54,8 @@ interface ProductVariantModalProps {
     lines: { variantId: string; variantName: string; quantity: number }[],
   ) => void;
   source?: 'market' | 'shop';
+  /** Market: yetkazib berish zonasi yozuvi (`workingHours`); do‘kon: do‘kon KV */
+  merchantHoursRecord?: Record<string, unknown> | null;
 }
 
 export const ProductVariantModal = memo(function ProductVariantModal({ 
@@ -75,8 +77,7 @@ export const ProductVariantModal = memo(function ProductVariantModal({
     () => evaluateMerchantHours(merchantHoursRecord ?? undefined),
     [merchantHoursRecord, hoursUiTick],
   );
-  const shopClosedByHours = source === 'shop' && !hoursEv.allowed;
-  
+
   // Product images gallery - use real variant images
   // Shop products: variants have `images` array and `stock` property
   // Market products: variants have `image` string and `stockCount` property
@@ -131,6 +132,13 @@ export const ProductVariantModal = memo(function ProductVariantModal({
         stockCount: getVariantStockQuantity(null, product),
       }];
 
+  const totalVariantStock = variants.reduce((s, v) => s + Math.max(0, v.stockCount || 0), 0);
+  /** Do‘kon: do‘kon jadvali; market: `merchantHoursRecord` (mas. yetkazish zonasi) berilganda zona jadvali */
+  const shopClosedByHours =
+    totalVariantStock > 0 &&
+    !hoursEv.allowed &&
+    (source === 'shop' || merchantHoursRecord != null);
+
   const [selectedVariant, setSelectedVariant] = useState<string>(variants[0].id);
   const [quantities, setQuantities] = useState<Record<string, number>>({});
 
@@ -167,7 +175,16 @@ export const ProductVariantModal = memo(function ProductVariantModal({
 
   const handleAddVariantToCart = (variantId: string) => {
     if (shopClosedByHours) {
-      toast.error(hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq");
+      const isZone = source === 'market' && merchantHoursRecord != null;
+      toast.error(
+        hoursEv.label
+          ? isZone
+            ? `Yetkazib berish zonasi yopiq (${hoursEv.label})`
+            : `Do'kon yopiq (${hoursEv.label})`
+          : isZone
+            ? 'Yetkazib berish zonasi hozir yopiq'
+            : "Do'kon hozir yopiq",
+      );
       return;
     }
     const variant = variants.find(v => v.id === variantId);
@@ -192,7 +209,16 @@ export const ProductVariantModal = memo(function ProductVariantModal({
 
   const handleFinalAddToCart = () => {
     if (shopClosedByHours) {
-      toast.error(hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq");
+      const isZone = source === 'market' && merchantHoursRecord != null;
+      toast.error(
+        hoursEv.label
+          ? isZone
+            ? `Yetkazib berish zonasi yopiq (${hoursEv.label})`
+            : `Do'kon yopiq (${hoursEv.label})`
+          : isZone
+            ? 'Yetkazib berish zonasi hozir yopiq'
+            : "Do'kon hozir yopiq",
+      );
       return;
     }
     const lines = Object.entries(quantities)

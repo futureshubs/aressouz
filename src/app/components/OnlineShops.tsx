@@ -21,13 +21,8 @@ import {
   sortAllByHeaderSearchRelevance,
 } from '../utils/headerSearchMatch';
 import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
-import {
-  postRecoEvents,
-  fetchPersonalizedProducts,
-  fetchRecommendationFeed,
-  cartRecoPayload,
-  productToRecoPayload,
-} from '../utils/recommendationsClient';
+import { postRecoEvents, cartRecoPayload, productToRecoPayload } from '../utils/recommendationsClient';
+import { MarketplaceRecoCarousels } from './MarketplaceRecoCarousels';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
 import { CardImageScroll } from './CardImageScroll';
 import { collectProductGalleryImages } from '../utils/cardGalleryImages';
@@ -87,11 +82,7 @@ export default function OnlineShops({
   // Products state
   const [allProducts, setAllProducts] = useState<any[]>([]);
   const [isLoadingProducts, setIsLoadingProducts] = useState(false);
-  const [recoProducts, setRecoProducts] = useState<any[]>([]);
-  const [recoLoading, setRecoLoading] = useState(false);
   const [recoRefreshTick, setRecoRefreshTick] = useState(0);
-  const [feedTrending, setFeedTrending] = useState<any[]>([]);
-  const [feedTrendingLoading, setFeedTrendingLoading] = useState(false);
   const bumpReco = useCallback(() => {
     setRecoRefreshTick((t) => t + 1);
   }, []);
@@ -108,18 +99,11 @@ export default function OnlineShops({
   const [filterRegion, setFilterRegion] = useState(selectedRegion);
   const [filterDistrict, setFilterDistrict] = useState(selectedDistrict);
 
-  // 🔐 Delete functionality states
-  const [pressTimer, setPressTimer] = useState<NodeJS.Timeout | null>(null);
-  const [deleteProduct, setDeleteProduct] = useState<any>(null);
-  const [showDeleteModal, setShowDeleteModal] = useState(false);
-  const [pressingProductId, setPressingProductId] = useState<string | null>(null);
-
   // 🔐 Delete functionality states for shops
   const [pressShopTimer, setPressShopTimer] = useState<NodeJS.Timeout | null>(null);
   const [deleteShop, setDeleteShop] = useState<any>(null);
   const [showDeleteShopModal, setShowDeleteShopModal] = useState(false);
   const [pressingShopId, setPressingShopId] = useState<string | null>(null);
-  const [deleteProductBusy, setDeleteProductBusy] = useState(false);
   const [deleteShopBusy, setDeleteShopBusy] = useState(false);
 
   // Convert region ID to name for banners
@@ -216,68 +200,6 @@ export default function OnlineShops({
     void loadShops();
     void loadAllProducts();
   });
-
-  useEffect(() => {
-    if (activeTab !== 'products' || !selectedRegion || !selectedDistrict) {
-      setRecoProducts([]);
-      return;
-    }
-    let cancelled = false;
-    setRecoLoading(true);
-    void fetchPersonalizedProducts(accessToken, {
-      region: selectedRegion,
-      district: selectedDistrict,
-      limit: 18,
-    })
-      .then((list) => {
-        if (!cancelled) {
-          setRecoProducts(
-            (list as any[]).map((p: any) => ({
-              ...p,
-              stockQuantity: getEffectiveProductStockQuantity(p),
-            })),
-          );
-        }
-      })
-      .finally(() => {
-        if (!cancelled) setRecoLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, selectedRegion, selectedDistrict, accessToken, catalogRefreshKey, recoRefreshTick]);
-
-  useEffect(() => {
-    if (activeTab !== 'products' || !selectedRegion || !selectedDistrict) {
-      setFeedTrending([]);
-      return;
-    }
-    let cancelled = false;
-    setFeedTrendingLoading(true);
-    void fetchRecommendationFeed(accessToken, {
-      region: selectedRegion,
-      district: selectedDistrict,
-      sections: ['trending'],
-      perSection: 12,
-    })
-      .then(({ sections }) => {
-        if (cancelled) return;
-        const t = sections.trending_today;
-        const arr = Array.isArray(t) ? (t as any[]) : [];
-        setFeedTrending(
-          arr.map((p) => ({
-            ...p,
-            stockQuantity: getEffectiveProductStockQuantity(p),
-          })),
-        );
-      })
-      .finally(() => {
-        if (!cancelled) setFeedTrendingLoading(false);
-      });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeTab, selectedRegion, selectedDistrict, accessToken, catalogRefreshKey, recoRefreshTick]);
 
   useEffect(() => {
     if (activeTab !== 'products') return;
@@ -479,57 +401,19 @@ export default function OnlineShops({
     [productTileKey],
   );
 
-  // 🔐 Long press handlers for delete functionality
-  const handlePressStart = (product: any) => {
-    setPressingProductId(product.id);
-    const timer = setTimeout(() => {
-      setDeleteProduct(product);
-      setShowDeleteModal(true);
-      setPressingProductId(null);
-    }, 3000); // 3 seconds
-    setPressTimer(timer);
-  };
-
-  const handlePressEnd = () => {
-    if (pressTimer) {
-      clearTimeout(pressTimer);
-      setPressTimer(null);
-    }
-    setPressingProductId(null);
-  };
-
-  // 🔐 Delete product function
-  const handleDeleteProduct = async () => {
-    if (!getStoredAdminSessionToken()) {
-      toast.error('Admin panelda tizimga kiring (sessiya kerak).');
-      return;
-    }
-
-    setDeleteProductBusy(true);
-    try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/products/${deleteProduct.id}`,
-        {
-          method: 'DELETE',
-          headers: buildAdminHeaders(),
-        }
-      );
-
-      if (response.ok) {
-        toast.success('Mahsulot o\'chirildi');
-        setAllProducts(prev => prev.filter(p => p.id !== deleteProduct.id));
-        setShowDeleteModal(false);
-        setDeleteProduct(null);
-      } else {
-        toast.error('Xatolik yuz berdi');
-      }
-    } catch (error) {
-      console.error('Delete error:', error);
-      toast.error('Xatolik yuz berdi');
-    } finally {
-      setDeleteProductBusy(false);
-    }
-  };
+  /** «Sizga mos» / «Bugun trendda» — grid bilan bir xil: do‘kon yopiq + zaxira bor */
+  const shopClosedContent = useCallback(
+    (product: Record<string, unknown>) => {
+      const isMarketProduct = product.source === 'market';
+      if (isMarketProduct) return null;
+      const merchant = shops.find((s: any) => String(s?.id) === String(product.shopId));
+      const hoursEv = evaluateMerchantHours(merchant as Record<string, unknown> | null | undefined);
+      const stockOk = Number(product.stockQuantity) > 0;
+      if (!(stockOk && !hoursEv.allowed)) return null;
+      return { title: 'Buyurtma yopiq', subtitle: hoursEv.label };
+    },
+    [shops],
+  );
 
   // 🔐 Long press handlers for shop delete functionality
   const handleShopPressStart = (shop: any) => {
@@ -780,165 +664,18 @@ export default function OnlineShops({
         ) : (
           /* Products Tab */
           <>
-            {selectedRegion && selectedDistrict && (recoLoading || recoProducts.length > 0) && (
-              <div className="mb-6">
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Star className="w-5 h-5 shrink-0" style={{ color: accentColor.color }} />
-                    <h2 className="text-lg font-bold truncate">Sizga mos</h2>
-                  </div>
-                  {recoLoading ? (
-                    <Loader2 className="w-5 h-5 animate-spin shrink-0" style={{ color: accentColor.color }} />
-                  ) : null}
-                </div>
-                <div
-                  className="flex gap-3 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x snap-mandatory"
-                  style={{ WebkitOverflowScrolling: 'touch' }}
-                >
-                  {recoProducts.map((product: any) => (
-                    <button
-                      key={`reco-${product.id}`}
-                      type="button"
-                      onClick={() => openProductUnlessGalleryScroll(product)}
-                      className="snap-start shrink-0 w-[140px] sm:w-[160px] rounded-2xl overflow-hidden text-left transition-transform active:scale-[0.98]"
-                      style={{
-                        background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
-                        border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
-                      }}
-                    >
-                      <div className="relative aspect-square w-full bg-zinc-100 dark:bg-zinc-900/40 overflow-hidden">
-                        {(() => {
-                          const imgs = collectProductGalleryImages(product);
-                          const list = imgs.length > 0 ? imgs : product.image ? [product.image] : [];
-                          if (list.length === 0) {
-                            return (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <Package className="w-10 h-10" style={{ color: accentColor.color, opacity: 0.35 }} />
-                              </div>
-                            );
-                          }
-                          if (list.length === 1) {
-                            return (
-                              <img
-                                src={list[0]}
-                                alt={product.name}
-                                loading="lazy"
-                                decoding="async"
-                                className="w-full h-full object-contain"
-                              />
-                            );
-                          }
-                          return (
-                            <CardImageScroll
-                              images={list}
-                              alt={product.name}
-                              dotColor={accentColor.color}
-                              onUserInteracted={() => onProductGallerySwipe(product)}
-                              imgClassName="h-full w-full object-contain"
-                            />
-                          );
-                        })()}
-                      </div>
-                      <div className="p-2.5">
-                        <p className="text-[11px] line-clamp-1 mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
-                          {product.shopName || product.category || ''}
-                        </p>
-                        <p
-                          className="text-xs font-semibold line-clamp-2 leading-snug mb-1.5 min-h-[2.25rem]"
-                          style={{ color: isDark ? '#fff' : '#111827' }}
-                        >
-                          {product.name}
-                        </p>
-                        <p className="text-xs font-bold" style={{ color: accentColor.color }}>
-                          {Number(product.price || 0).toLocaleString('uz-UZ')} so'm
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
-            {selectedRegion && selectedDistrict && (feedTrendingLoading || feedTrending.length > 0) && (
-              <div className="mb-6">
-                <div className="flex items-center justify-between gap-2 mb-3">
-                  <div className="flex items-center gap-2 min-w-0">
-                    <Truck className="w-5 h-5 shrink-0" style={{ color: accentColor.color }} />
-                    <h2 className="text-lg font-bold truncate">Bugun trendda</h2>
-                  </div>
-                  {feedTrendingLoading ? (
-                    <Loader2 className="w-5 h-5 animate-spin shrink-0" style={{ color: accentColor.color }} />
-                  ) : null}
-                </div>
-                <div
-                  className="flex gap-3 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x snap-mandatory"
-                  style={{ WebkitOverflowScrolling: 'touch' }}
-                >
-                  {feedTrending.map((product: any) => (
-                    <button
-                      key={`trend-${product.id}`}
-                      type="button"
-                      onClick={() => openProductUnlessGalleryScroll(product)}
-                      className="snap-start shrink-0 w-[140px] sm:w-[160px] rounded-2xl overflow-hidden text-left transition-transform active:scale-[0.98]"
-                      style={{
-                        background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
-                        border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-                        boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
-                      }}
-                    >
-                      <div className="relative aspect-square w-full bg-zinc-100 dark:bg-zinc-900/40 overflow-hidden">
-                        {(() => {
-                          const imgs = collectProductGalleryImages(product);
-                          const list = imgs.length > 0 ? imgs : product.image ? [product.image] : [];
-                          if (list.length === 0) {
-                            return (
-                              <div className="w-full h-full flex items-center justify-center">
-                                <Package className="w-10 h-10" style={{ color: accentColor.color, opacity: 0.35 }} />
-                              </div>
-                            );
-                          }
-                          if (list.length === 1) {
-                            return (
-                              <img
-                                src={list[0]}
-                                alt={product.name}
-                                loading="lazy"
-                                decoding="async"
-                                className="w-full h-full object-contain"
-                              />
-                            );
-                          }
-                          return (
-                            <CardImageScroll
-                              images={list}
-                              alt={product.name}
-                              dotColor={accentColor.color}
-                              onUserInteracted={() => onProductGallerySwipe(product)}
-                              imgClassName="h-full w-full object-contain"
-                            />
-                          );
-                        })()}
-                      </div>
-                      <div className="p-2.5">
-                        <p className="text-[11px] line-clamp-1 mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
-                          {product.shopName || product.category || ''}
-                        </p>
-                        <p
-                          className="text-xs font-semibold line-clamp-2 leading-snug mb-1.5 min-h-[2.25rem]"
-                          style={{ color: isDark ? '#fff' : '#111827' }}
-                        >
-                          {product.name}
-                        </p>
-                        <p className="text-xs font-bold" style={{ color: accentColor.color }}>
-                          {Number(product.price || 0).toLocaleString('uz-UZ')} so'm
-                        </p>
-                      </div>
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
+            <MarketplaceRecoCarousels
+              catalogProducts={searchFilteredProducts as Record<string, unknown>[]}
+              selectedRegion={selectedRegion}
+              selectedDistrict={selectedDistrict}
+              accessToken={accessToken}
+              accentColor={accentColor}
+              isDark={isDark}
+              onProductOpen={(p) => setSelectedProduct(p)}
+              onRecoBump={bumpReco}
+              refreshKey={`${catalogRefreshKey}-${recoRefreshTick}`}
+              shopClosedContent={shopClosedContent}
+            />
 
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Barcha mahsulotlar</h2>
@@ -966,24 +703,27 @@ export default function OnlineShops({
               </div>
             ) : (
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 gap-3 sm:gap-4 md:gap-6">
-                {progressiveOnlineShopProducts.map((product: any) => (
+                {progressiveOnlineShopProducts.map((product: any) => {
+                  void hoursUiTick;
+                  const isMarketProduct = product.source === 'market';
+                  const merchant = shops.find((s: any) => String(s?.id) === String(product.shopId));
+                  const hoursEv = isMarketProduct
+                    ? { allowed: true, label: null as string | null }
+                    : evaluateMerchantHours(merchant as Record<string, unknown> | null | undefined);
+                  const stockOk = Number(product.stockQuantity) > 0;
+                  const closedByHours = !isMarketProduct && stockOk && !hoursEv.allowed;
+                  const canOpenVariant = stockOk && hoursEv.allowed;
+                  return (
                   <div
                     key={`${String(product.shopId ?? '')}-${String(product.id ?? '')}`}
                     className="rounded-xl md:rounded-2xl overflow-hidden transition-all hover:scale-[1.02] active:scale-95 group cursor-pointer relative"
                     style={{
                       background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
                       border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-                      boxShadow: pressingProductId === product.id 
-                        ? `0 0 0 3px ${accentColor.color}40` 
-                        : '0 2px 8px rgba(0, 0, 0, 0.04)',
+                      boxShadow: '0 2px 8px rgba(0, 0, 0, 0.04)',
+                      opacity: closedByHours ? 0.93 : 1,
                     }}
                     onClick={() => openProductUnlessGalleryScroll(product)}
-                    onMouseDown={() => handlePressStart(product)}
-                    onMouseUp={handlePressEnd}
-                    onMouseLeave={handlePressEnd}
-                    onTouchStart={() => handlePressStart(product)}
-                    onTouchEnd={handlePressEnd}
-                    onTouchCancel={handlePressEnd}
                   >
                     {/* Image Container with Badges */}
                     <div className="relative aspect-square w-full overflow-hidden bg-zinc-100 dark:bg-zinc-900/40">
@@ -1079,6 +819,22 @@ export default function OnlineShops({
                           {product.stockQuantity > 0 ? `${product.stockQuantity} ta` : 'Tugadi'}
                         </div>
                       )}
+                      {closedByHours ? (
+                        <div
+                          className="pointer-events-none absolute inset-0 z-[13] flex flex-col items-center justify-center gap-0.5 bg-black/50 px-1.5 text-center"
+                          aria-hidden
+                        >
+                          <Clock className="h-6 w-6 shrink-0 text-white" strokeWidth={2} />
+                          <span className="max-w-full text-[10px] font-bold leading-tight text-white">
+                            Buyurtma yopiq
+                          </span>
+                          {hoursEv.label ? (
+                            <span className="max-w-full text-[9px] leading-tight text-white/90">
+                              {hoursEv.label}
+                            </span>
+                          ) : null}
+                        </div>
+                      ) : null}
                     </div>
 
                     {/* Content */}
@@ -1196,71 +952,67 @@ export default function OnlineShops({
                       </div>
 
                       {/* Action Button — ish vaqti tashqarida: yopiq, tugmada faqat soat */}
-                      {(() => {
-                        void hoursUiTick;
-                        const merchant = shops.find((s: any) => String(s?.id) === String(product.shopId));
-                        const hoursEv = evaluateMerchantHours(
-                          merchant as Record<string, unknown> | null | undefined,
-                        );
-                        const stockOk = product.stockQuantity > 0;
-                        const closedByHours = stockOk && !hoursEv.allowed;
-                        const canOpenVariant = stockOk && hoursEv.allowed;
-                        return (
-                          <>
-                            {closedByHours && hoursEv.label ? (
-                              <p
-                                className="text-xs mb-1 text-center"
-                                style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
-                              >
-                                Yopiq {hoursEv.label}
-                              </p>
-                            ) : null}
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                if (canOpenVariant) handleOpenVariantMenu(product);
-                              }}
-                              className="w-full py-2 md:py-3 rounded-lg md:rounded-xl text-xs sm:text-sm md:text-base font-medium transition-all active:scale-95 flex items-center justify-center gap-2"
-                              style={{
-                                background: canOpenVariant
-                                  ? accentColor.color
-                                  : isDark
-                                    ? 'rgba(255, 255, 255, 0.1)'
-                                    : 'rgba(0, 0, 0, 0.1)',
-                                color: canOpenVariant
-                                  ? '#ffffff'
-                                  : isDark
-                                    ? 'rgba(255, 255, 255, 0.5)'
-                                    : 'rgba(0, 0, 0, 0.5)',
-                                cursor: canOpenVariant ? 'pointer' : 'not-allowed',
-                              }}
-                              disabled={!stockOk || closedByHours}
-                            >
-                              {!stockOk ? (
-                                <>
-                                  <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                                  </svg>
-                                  Tugagan
-                                </>
-                              ) : closedByHours ? (
-                                <Clock className="w-4 h-4 sm:w-5 sm:h-5" aria-label="Yopiq" />
-                              ) : (
-                                <>
-                                  <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
-                                  </svg>
-                                  Savatga
-                                </>
-                              )}
-                            </button>
-                          </>
-                        );
-                      })()}
+                      <>
+                        {closedByHours && hoursEv.label ? (
+                          <p
+                            className="text-xs mb-1 text-center"
+                            style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
+                          >
+                            Yopiq {hoursEv.label}
+                          </p>
+                        ) : null}
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            if (canOpenVariant) handleOpenVariantMenu(product);
+                            else if (closedByHours) {
+                              toast.error(
+                                hoursEv.label
+                                  ? `Do'kon yopiq (${hoursEv.label})`
+                                  : "Do'kon hozir buyurtma qabul qilmaydi",
+                              );
+                            }
+                          }}
+                          className="w-full py-2 md:py-3 rounded-lg md:rounded-xl text-xs sm:text-sm md:text-base font-medium transition-all active:scale-95 flex items-center justify-center gap-2"
+                          style={{
+                            background: canOpenVariant
+                              ? accentColor.color
+                              : isDark
+                                ? 'rgba(255, 255, 255, 0.1)'
+                                : 'rgba(0, 0, 0, 0.1)',
+                            color: canOpenVariant
+                              ? '#ffffff'
+                              : isDark
+                                ? 'rgba(255, 255, 255, 0.5)'
+                                : 'rgba(0, 0, 0, 0.5)',
+                            cursor: canOpenVariant ? 'pointer' : 'not-allowed',
+                          }}
+                          disabled={!stockOk || closedByHours}
+                        >
+                          {!stockOk ? (
+                            <>
+                              <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                              </svg>
+                              Tugagan
+                            </>
+                          ) : closedByHours ? (
+                            <Clock className="w-4 h-4 sm:w-5 sm:h-5" aria-label="Yopiq" />
+                          ) : (
+                            <>
+                              <svg className="w-4 h-4 sm:w-5 sm:h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M16 11V7a4 4 0 00-8 0v4M5 9h14l1 12H4L5 9z" />
+                              </svg>
+                              Savatga
+                            </>
+                          )}
+                        </button>
+                      </>
                     </div>
                   </div>
-                ))}
+                  );
+                })}
                 {progressiveOnlineShopProducts.length < searchFilteredProducts.length && (
                   <div
                     ref={onlineShopGridSentinelRef}
@@ -1324,81 +1076,6 @@ export default function OnlineShops({
               : (shops.find((s: any) => String(s?.id) === String(variantMenuProduct?.shopId)) ?? null)
           }
         />
-      )}
-
-      {/* 🔐 Delete Confirmation Modal */}
-      {showDeleteModal && deleteProduct && (
-        <div 
-          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
-          style={{ background: 'rgba(0, 0, 0, 0.8)', backdropFilter: 'blur(10px)' }}
-        >
-          <div 
-            className="w-full max-w-md rounded-3xl p-6 shadow-2xl"
-            style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
-          >
-            {/* Icon */}
-            <div 
-              className="w-16 h-16 mx-auto mb-4 rounded-2xl flex items-center justify-center"
-              style={{ background: '#ef444420' }}
-            >
-              <Trash2 className="w-8 h-8 text-red-500" />
-            </div>
-
-            {/* Title */}
-            <h3 className="text-2xl font-bold text-center mb-2">
-              Mahsulotni o'chirish
-            </h3>
-
-            {/* Product Name */}
-            <p 
-              className="text-center mb-4"
-              style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}
-            >
-              <span className="font-medium">{deleteProduct.name}</span> ni o'chirmoqchimisiz?
-            </p>
-
-            <p
-              className="text-center text-sm mb-6"
-              style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}
-            >
-              Admin panel sessiyasi bilan tasdiqlanadi. Avval /admin orqali kiring.
-            </p>
-
-            {/* Buttons */}
-            <div className="flex gap-3">
-              <button
-                onClick={() => {
-                  setShowDeleteModal(false);
-                  setDeleteProduct(null);
-                }}
-                disabled={deleteProductBusy}
-                className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95 disabled:opacity-50"
-                style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                  color: isDark ? '#ffffff' : '#000000',
-                }}
-              >
-                Bekor qilish
-              </button>
-              <button
-                onClick={() => void handleDeleteProduct()}
-                disabled={deleteProductBusy}
-                className="flex-1 py-3 rounded-xl font-medium transition-all active:scale-95 flex items-center justify-center gap-2 disabled:opacity-50"
-                style={{
-                  background: '#ef4444',
-                  color: '#ffffff',
-                }}
-              >
-                {deleteProductBusy ? (
-                  <Loader2 className="w-5 h-5 animate-spin" />
-                ) : (
-                  <Trash2 className="w-5 h-5" />
-                )}
-                O'chirish
-              </button>
-            </div>
-          </div>
-        </div>
       )}
 
       {/* 🔐 Delete Shop Confirmation Modal */}

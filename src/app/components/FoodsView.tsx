@@ -57,6 +57,7 @@ import {
   googleMapsUrlForCoordinates,
   parseMerchantCoordinates,
   phoneToTelHref,
+  restaurantIdForRestaurantsApiPath,
   yandexMapsUrlForCoordinates,
 } from '../utils/restaurantContactLinks';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
@@ -364,7 +365,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     for (const restaurant of restaurantList) {
       void (async () => {
         try {
-          const rid = encodeURIComponent(restaurant.id);
+          const rid = restaurantIdForRestaurantsApiPath(restaurant.id);
           const response = await fetch(
             `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/dishes`,
             { headers: { Authorization: `Bearer ${publicAnonKey}` } },
@@ -452,7 +453,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       return;
     }
     try {
-      const rid = encodeURIComponent(id);
+      const rid = restaurantIdForRestaurantsApiPath(id);
       const r = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/table-bookings?public=1`,
         { headers: { Authorization: `Bearer ${publicAnonKey}` } },
@@ -513,7 +514,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     }
     try {
       setBookingSubmitting(true);
-      const rid = encodeURIComponent(selectedRestaurant.id);
+      const rid = restaurantIdForRestaurantsApiPath(selectedRestaurant.id);
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/table-bookings`,
         {
@@ -741,6 +742,30 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   );
   const hasMoreDishes = visibleDishCount < filteredDishes.length;
 
+  /** Do‘kon lentlari bilan mos: faqat joriy ro‘yxat (taomlar bo‘limi) ichidan */
+  const dishStripForYou = useMemo(() => {
+    if (filteredDishes.length === 0) return [];
+    return [...filteredDishes]
+      .sort(
+        (a, b) =>
+          (Number(b.likesPercent) || 0) - (Number(a.likesPercent) || 0) ||
+          (Number(b.weeklyPopularityScore) || 0) - (Number(a.weeklyPopularityScore) || 0) ||
+          a.name.localeCompare(b.name),
+      )
+      .slice(0, 18);
+  }, [filteredDishes]);
+
+  const dishStripTrending = useMemo(() => {
+    if (filteredDishes.length === 0) return [];
+    return [...filteredDishes]
+      .sort(
+        (a, b) =>
+          (Number(b.weeklyOrderCount) || 0) - (Number(a.weeklyOrderCount) || 0) ||
+          (Number(b.weeklyPopularityScore) || 0) - (Number(a.weeklyPopularityScore) || 0),
+      )
+      .slice(0, 18);
+  }, [filteredDishes]);
+
   const visibleMenuDishes = useMemo(
     () => selectedRestaurantDishes.slice(0, visibleMenuDishCount),
     [selectedRestaurantDishes, visibleMenuDishCount],
@@ -832,7 +857,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     (async () => {
       setRoomsLoading(true);
       try {
-        const rid = encodeURIComponent(selectedRestaurant.id);
+        const rid = restaurantIdForRestaurantsApiPath(selectedRestaurant.id);
         const r = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/rooms?public=1`,
           { headers: { Authorization: `Bearer ${publicAnonKey}` } },
@@ -881,7 +906,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     }
     let cancelled = false;
     setRestaurantReviewsLoading(true);
-    const rid = encodeURIComponent(selectedRestaurant.id);
+    const rid = restaurantIdForRestaurantsApiPath(selectedRestaurant.id);
     void fetch(
       `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/reviews`,
       { headers: { Authorization: `Bearer ${publicAnonKey}` } },
@@ -944,7 +969,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     (async () => {
       setDishDetailRoomsLoading(true);
       try {
-        const rid = encodeURIComponent(selectedDish.restaurantId);
+        const rid = restaurantIdForRestaurantsApiPath(selectedDish.restaurantId);
         const r = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${rid}/rooms?public=1`,
           { headers: { Authorization: `Bearer ${publicAnonKey}` } },
@@ -1057,6 +1082,106 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           {/* DISHES TAB */}
           {activeTab === 'dishes' && (
             <div className="px-4 pb-2">
+              {!loading && filteredDishes.length > 0 && (
+                <>
+                  <div className="mb-6">
+                    <div className="flex items-center gap-2 mb-3 min-w-0">
+                      <Star className="w-5 h-5 shrink-0" style={{ color: accentColor.color }} />
+                      <h2 className="text-lg font-bold truncate">Sizga mos taomlar</h2>
+                    </div>
+                    <div
+                      className="flex gap-3 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x snap-mandatory"
+                      style={{ WebkitOverflowScrolling: 'touch' }}
+                    >
+                      {dishStripForYou.map((dish) => (
+                        <button
+                          key={`food-reco-${dish.id}`}
+                          type="button"
+                          onClick={() => handleDishClick(dish)}
+                          className="snap-start shrink-0 w-[140px] sm:w-[160px] rounded-2xl overflow-hidden text-left transition-transform active:scale-[0.98]"
+                          style={{
+                            background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
+                            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+                          }}
+                        >
+                          <div className="relative aspect-square w-full bg-black/10 overflow-hidden">
+                            {dish.images[0] ? (
+                              <img src={dish.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" />
+                            ) : null}
+                          </div>
+                          <div className="p-2.5">
+                            <p
+                              className="text-[11px] line-clamp-1 mb-1"
+                              style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
+                            >
+                              {getRestaurantName(dish.restaurantId)}
+                            </p>
+                            <p
+                              className="text-xs font-semibold line-clamp-2 leading-snug mb-1.5 min-h-[2.25rem]"
+                              style={{ color: isDark ? '#fff' : '#111827' }}
+                            >
+                              {dish.name}
+                            </p>
+                            <p className="text-xs font-bold" style={{ color: accentColor.color }}>
+                              {dish.variants[0]?.price.toLocaleString() || '0'} so'm
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mb-6">
+                    <div className="flex items-center gap-2 mb-3 min-w-0">
+                      <TrendingUp className="w-5 h-5 shrink-0" style={{ color: accentColor.color }} />
+                      <h2 className="text-lg font-bold truncate">Bugun trendda</h2>
+                    </div>
+                    <div
+                      className="flex gap-3 overflow-x-auto pb-1 -mx-0.5 px-0.5 snap-x snap-mandatory"
+                      style={{ WebkitOverflowScrolling: 'touch' }}
+                    >
+                      {dishStripTrending.map((dish) => (
+                        <button
+                          key={`food-trend-${dish.id}`}
+                          type="button"
+                          onClick={() => handleDishClick(dish)}
+                          className="snap-start shrink-0 w-[140px] sm:w-[160px] rounded-2xl overflow-hidden text-left transition-transform active:scale-[0.98]"
+                          style={{
+                            background: isDark ? 'rgba(255, 255, 255, 0.06)' : '#ffffff',
+                            border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
+                            boxShadow: '0 2px 8px rgba(0, 0, 0, 0.05)',
+                          }}
+                        >
+                          <div className="relative aspect-square w-full bg-black/10 overflow-hidden">
+                            {dish.images[0] ? (
+                              <img src={dish.images[0]} alt="" className="w-full h-full object-cover" loading="lazy" />
+                            ) : null}
+                          </div>
+                          <div className="p-2.5">
+                            <p
+                              className="text-[11px] line-clamp-1 mb-1"
+                              style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
+                            >
+                              {getRestaurantName(dish.restaurantId)}
+                            </p>
+                            <p
+                              className="text-xs font-semibold line-clamp-2 leading-snug mb-1.5 min-h-[2.25rem]"
+                              style={{ color: isDark ? '#fff' : '#111827' }}
+                            >
+                              {dish.name}
+                            </p>
+                            <p className="text-xs font-bold" style={{ color: accentColor.color }}>
+                              {dish.variants[0]?.price.toLocaleString() || '0'} so'm
+                            </p>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                </>
+              )}
+
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 lg:grid-cols-5">
                 {visibleDishes.map((dish, dishIdx) => {
                   return (
@@ -1243,7 +1368,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           
           <div 
             ref={restaurantModalScrollRef}
-            className="fixed inset-0 app-safe-pad z-[101] overflow-y-auto"
+            className="fixed inset-0 app-safe-pad z-[101] overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] touch-pan-x touch-pan-y"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="min-h-screen">
@@ -1475,9 +1600,8 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                                 href={restaurantDetailContactLinks.googleHref}
                                 target="_blank"
                                 rel="noopener noreferrer"
-                                className="font-medium break-words underline decoration-dotted underline-offset-2"
+                                className="relative z-[1] inline-block max-w-full touch-manipulation font-medium break-words underline decoration-dotted underline-offset-2"
                                 style={{ color: accentColor.color }}
-                                onClick={(e) => e.stopPropagation()}
                               >
                                 {selectedRestaurant.contact.address}
                               </a>
@@ -1487,8 +1611,8 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                                     href={restaurantDetailContactLinks.yandexHref}
                                     target="_blank"
                                     rel="noopener noreferrer"
+                                    className="relative z-[1] touch-manipulation"
                                     style={{ color: accentColor.color }}
-                                    onClick={(e) => e.stopPropagation()}
                                   >
                                     Yandex xarita
                                   </a>
@@ -1513,9 +1637,8 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                           restaurantDetailContactLinks.telHref !== '#' ? (
                             <a
                               href={restaurantDetailContactLinks.telHref}
-                              className="font-medium break-all underline decoration-dotted underline-offset-2"
+                              className="relative z-[1] inline-block max-w-full touch-manipulation font-medium break-all underline decoration-dotted underline-offset-2"
                               style={{ color: accentColor.color }}
-                              onClick={(e) => e.stopPropagation()}
                             >
                               {selectedRestaurant.contact.phone}
                             </a>
@@ -2135,13 +2258,13 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
             aria-hidden
           />
           <div
-            className="relative z-[1] grid w-full min-h-0 h-[100dvh] max-h-[100dvh] grid-rows-[minmax(0,1fr)_auto] overflow-hidden sm:h-auto sm:max-h-[90vh] sm:max-w-lg md:max-w-2xl lg:max-w-3xl sm:rounded-3xl sm:shadow-2xl"
+            className="relative z-[1] flex min-h-0 h-[100dvh] max-h-[100dvh] w-full flex-col overflow-hidden sm:h-auto sm:max-h-[90vh] sm:max-w-lg md:max-w-2xl lg:max-w-3xl sm:rounded-3xl sm:shadow-2xl"
             style={{
               background: isDark ? '#0a0a0a' : '#ffffff',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
+            <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
             <div className="min-h-0" style={{ background: isDark ? '#000000' : '#ffffff' }}>
               {/* Image Header */}
               <div className="relative h-96">
@@ -2747,9 +2870,9 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
             </div>
             </div>
 
-              {/* Bottom Bar */}
+              {/* Bottom Bar — flex-col + shrink-0: kichik ekranda grid minmax(1fr) ba’zan pastki tugmani kesib yuborardi */}
               <div 
-                className="shrink-0 p-4 pb-[max(1rem,var(--app-safe-bottom,0px))] border-t"
+                className="relative z-20 shrink-0 border-t p-4 pb-[max(1rem,calc(var(--app-safe-bottom,0px)+0.5rem))] shadow-[0_-8px_24px_rgba(0,0,0,0.1)]"
                 style={{ 
                   background: isDark ? '#0a0a0a' : '#ffffff',
                   borderColor: isDark ? '#1f1f1f' : '#e5e7eb',
@@ -2763,9 +2886,9 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     Yopiq — ish vaqti: {dishModalHoursEv.label}
                   </p>
                 ) : null}
-                <div className="flex items-center gap-3">
+                <div className="flex min-w-0 flex-col gap-3 min-[400px]:flex-row min-[400px]:items-center">
                   {/* Quantity Controls */}
-                  <div className="flex items-center gap-2">
+                  <div className="flex shrink-0 items-center gap-2">
                     <button
                       type="button"
                       onClick={() => setQuantity(Math.max(1, quantity - 1))}
@@ -2791,7 +2914,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     type="button"
                     onClick={handleAddToCart}
                     disabled={restaurantClosedByHours}
-                    className="flex-1 py-4 rounded-2xl font-bold text-base disabled:opacity-50 disabled:cursor-not-allowed"
+                    className="min-h-[3.25rem] w-full min-w-0 flex-1 shrink-0 rounded-2xl py-4 text-base font-bold disabled:cursor-not-allowed disabled:opacity-50 min-[400px]:min-w-[12rem]"
                     style={{
                       background: restaurantClosedByHours
                         ? isDark

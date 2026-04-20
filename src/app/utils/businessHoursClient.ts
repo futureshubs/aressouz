@@ -86,8 +86,16 @@ export function collectHourStringsFromRecord(rec: Record<string, unknown> | null
   push(rec.workingHours);
   push(rec.workTime);
   push(rec.openingHours);
+  push((rec as { opening_hours?: unknown }).opening_hours);
+  push((rec as { businessHours?: unknown }).businessHours);
+  push((rec as { hours?: unknown }).hours);
   const c = rec.contact;
-  if (c && typeof c === 'object') push((c as Record<string, unknown>).workHours);
+  if (c && typeof c === 'object') {
+    const co = c as Record<string, unknown>;
+    push(co.workHours);
+    push(co.openingHours);
+    push(co.hours);
+  }
   return out;
 }
 

@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react';
+import { useState, useMemo, useEffect } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { Platform } from '../utils/platform';
 import { PropertyCategoryCard } from './PropertyCategoryCard';
@@ -8,6 +8,7 @@ import { propertyCategories, properties, Property, PropertyCategory } from '../d
 import { Home, FolderOpen } from 'lucide-react';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
+import { ProductGridSkeleton } from './skeletons';
 
 interface PropertiesViewProps {
   platform: Platform;
@@ -21,6 +22,11 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
   const [viewMode, setViewMode] = useState<'properties' | 'categories'>('properties');
   const [selectedCategory, setSelectedCategory] = useState<PropertyCategory | null>(null);
   const [selectedProperty, setSelectedProperty] = useState<Property | null>(null);
+  const [sectionLoading, setSectionLoading] = useState(true);
+
+  useEffect(() => {
+    setSectionLoading(false);
+  }, []);
 
   const handleCategoryClick = (category: PropertyCategory) => {
     setSelectedCategory(category);
@@ -119,7 +125,13 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
 
       {/* Content */}
       <div className="px-5 py-6">
-        {viewMode === 'categories' ? (
+        {sectionLoading ? (
+          <ProductGridSkeleton
+            isDark={isDark}
+            count={8}
+            gridClassName="grid grid-cols-2 gap-4"
+          />
+        ) : viewMode === 'categories' ? (
           // Categories Grid
           <div className="grid grid-cols-2 gap-4">
             {visibleCategories.map((category) => (
@@ -147,7 +159,7 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
         )}
 
         {/* Empty State */}
-        {viewMode === 'properties' && searchFilteredProperties.length === 0 && (
+        {!sectionLoading && viewMode === 'properties' && searchFilteredProperties.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16">
             <div 
               className="size-20 rounded-2xl flex items-center justify-center mb-4"

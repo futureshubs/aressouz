@@ -231,7 +231,7 @@ export function OrderReviewPageSkeleton({ isDark }: { isDark: boolean }) {
   );
 }
 
-/** Lazy route chunk: market-style shell */
+/** Lazy route chunk: Taomlar bo‘limi ochilgandagi kabi — segment, sarlavha, kartochka panjarasi */
 export function RouteChunkSkeleton() {
   const { theme } = useTheme();
   const isDark = theme === 'dark';
@@ -240,12 +240,23 @@ export function RouteChunkSkeleton() {
       className={clsx('min-h-screen pb-10', isDark ? 'bg-black text-white' : 'bg-[#f9fafb] text-gray-900')}
       aria-hidden
     >
-      <div className="mx-auto max-w-[1600px] px-3 sm:px-4 pt-3 space-y-4">
-        <SkeletonBox isDark={isDark} className="h-14 w-full rounded-2xl max-w-4xl mx-auto" />
-        <BannerSkeleton isDark={isDark} />
-        <ViewToggleSkeleton isDark={isDark} />
-        <SectionHeaderSkeleton isDark={isDark} />
-        <ProductGridSkeleton isDark={isDark} count={10} />
+      <div className="mx-auto max-w-[1600px] px-3 pt-3 sm:px-4">
+        <div className="sticky top-0 z-10 -mx-1 mb-3 bg-inherit pb-2 pt-1">
+          <div className="flex gap-2 rounded-3xl p-1.5 sm:p-2" style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+            <SkeletonBox isDark={isDark} className="h-11 flex-1 rounded-2xl sm:h-12" />
+            <SkeletonBox isDark={isDark} className="h-11 flex-1 rounded-2xl sm:h-12" />
+          </div>
+        </div>
+        <div className="mb-3 px-1 sm:px-0">
+          <SkeletonBox isDark={isDark} className="mb-2 h-7 w-44 rounded-lg sm:h-8 sm:w-52" />
+          <SkeletonBox isDark={isDark} className="h-3.5 w-24 rounded-md sm:h-4 sm:w-28" />
+        </div>
+        <SkeletonBox isDark={isDark} className="mb-4 h-3 w-full max-w-md rounded-md" />
+        <ProductGridSkeleton
+          isDark={isDark}
+          count={10}
+          gridClassName="grid grid-cols-2 gap-3 px-1 pb-8 md:grid-cols-3 md:gap-4 lg:grid-cols-5"
+        />
       </div>
     </div>
   );

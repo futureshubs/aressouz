@@ -7,6 +7,7 @@ import { X, Heart, Share2, Star, ChevronLeft, ChevronRight, ShoppingCart, Packag
 import { toast } from 'sonner';
 import { notifyCartAdded } from '../utils/appToast';
 import { shareTitleTextUrl } from '../utils/marketplaceNativeBridge';
+import { MAIN_APP_QUERY } from '../utils/mainAppSearchParams';
 import { getVariantStockQuantity } from '../utils/cartStock';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
 
@@ -22,7 +23,7 @@ export function ProductDetailModal({
   onClose: () => void; 
   onAddToCart: (product: any, quantity: number, variantId?: string, variantName?: string) => void;
   source?: 'market' | 'shop'; // Add source type
-  /** Do'kon ish vaqti (API bilan mos maydonlar) — faqat `source === 'shop'` da */
+  /** Do‘kon: shop KV; market: tanlangan yetkazib berish zonasi (`workingHours`, …) */
   merchantHoursRecord?: Record<string, unknown> | null;
 }) {
   const { theme, accentColor } = useTheme();
@@ -103,7 +104,10 @@ export function ProductDetailModal({
   const currentOldPrice = currentVariant.oldPrice; // Faqat real oldPrice ishlatiladi
   const currentStockQuantity = currentVariant.stockQuantity;
   const shopClosedByHours =
-    source === 'shop' && currentStockQuantity > 0 && !hoursEv.allowed;
+    currentStockQuantity > 0 &&
+    !hoursEv.allowed &&
+    (source === 'shop' || merchantHoursRecord != null);
+  const isMarketZoneHours = source === 'market' && merchantHoursRecord != null;
   const stockCount = currentStockQuantity;
   const totalPrice = currentPrice * quantity;
 
@@ -153,10 +157,14 @@ export function ProductDetailModal({
   const buildProductShareUrl = () => {
     const base = `${window.location.origin}${window.location.pathname || '/'}`;
     const q = new URLSearchParams();
-    q.set('productId', String(product.id));
-    if (product.catalogId) q.set('catalogId', String(product.catalogId));
+    q.set(MAIN_APP_QUERY.tab, 'market');
+    const key =
+      String((product as { productUuid?: string }).productUuid ?? '').trim() || String(product.id);
+    q.set(MAIN_APP_QUERY.product, key);
+    if (product.catalogId) q.set(MAIN_APP_QUERY.cat, String(product.catalogId));
     const qs = q.toString();
-    return qs ? `${base}${base.includes('?') ? '&' : '?'}${qs}` : base;
+    const sep = base.includes('?') ? '&' : '?';
+    return qs ? `${base}${sep}${qs}` : base;
   };
 
   const handleShareProduct = async () => {
@@ -201,7 +209,13 @@ export function ProductDetailModal({
   const handleFirstSavatgaTap = () => {
     if (shopClosedByHours) {
       toast.error(
-        hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq",
+        hoursEv.label
+          ? isMarketZoneHours
+            ? `Yetkazib berish zonasi yopiq (${hoursEv.label})`
+            : `Do'kon yopiq (${hoursEv.label})`
+          : isMarketZoneHours
+            ? 'Yetkazib berish zonasi hozir yopiq'
+            : "Do'kon hozir yopiq",
       );
       return;
     }
@@ -222,7 +236,13 @@ export function ProductDetailModal({
   const handleFooterIncrement = () => {
     if (shopClosedByHours) {
       toast.error(
-        hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq",
+        hoursEv.label
+          ? isMarketZoneHours
+            ? `Yetkazib berish zonasi yopiq (${hoursEv.label})`
+            : `Do'kon yopiq (${hoursEv.label})`
+          : isMarketZoneHours
+            ? 'Yetkazib berish zonasi hozir yopiq'
+            : "Do'kon hozir yopiq",
       );
       return;
     }
@@ -903,7 +923,7 @@ export function ProductDetailModal({
 
       {/* Pastki panel — Market (ProductDetailModal) bilan bir xil */}
       <div
-        className="shrink-0 p-3 sm:p-4 border-t z-10 pb-[max(0.75rem,var(--app-safe-bottom,0px))]"
+        className="relative z-20 shrink-0 border-t p-3 sm:p-4 pb-[max(0.75rem,var(--app-safe-bottom,0px))]"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
           borderColor: isDark ? '#1f1f1f' : '#e5e7eb',
@@ -959,8 +979,8 @@ export function ProductDetailModal({
           )}
 
           {quantity === 0 ? (
-            <div className="flex items-center justify-between gap-3">
-              <div>
+            <div className="flex min-w-0 flex-col gap-3 min-[380px]:flex-row min-[380px]:items-center min-[380px]:justify-between">
+              <div className="min-w-0 shrink">
                 <p
                   className="text-[10px] sm:text-xs font-semibold mb-0.5 sm:mb-1"
                   style={{
@@ -981,7 +1001,7 @@ export function ProductDetailModal({
                 type="button"
                 onClick={handleFirstSavatgaTap}
                 disabled={stockCount === 0 || shopClosedByHours}
-                className="px-5 sm:px-8 py-3 sm:py-3.5 rounded-lg sm:rounded-xl font-bold text-white transition-all active:scale-95 flex items-center gap-1.5 sm:gap-2 disabled:opacity-40 disabled:cursor-not-allowed"
+                className="flex w-full min-w-[9rem] shrink-0 items-center justify-center gap-1.5 rounded-lg px-5 py-3 font-bold text-white transition-all active:scale-95 disabled:cursor-not-allowed disabled:opacity-40 min-[380px]:w-auto sm:px-8 sm:py-3.5 sm:rounded-xl sm:gap-2"
                 style={{
                   background:
                     stockCount === 0 || shopClosedByHours
@@ -1130,7 +1150,13 @@ export function ProductDetailModal({
                 onClick={() => {
                   if (shopClosedByHours) {
                     toast.error(
-                      hoursEv.label ? `Do'kon yopiq (${hoursEv.label})` : "Do'kon hozir yopiq",
+                      hoursEv.label
+                        ? isMarketZoneHours
+                          ? `Yetkazib berish zonasi yopiq (${hoursEv.label})`
+                          : `Do'kon yopiq (${hoursEv.label})`
+                        : isMarketZoneHours
+                          ? 'Yetkazib berish zonasi hozir yopiq'
+                          : "Do'kon hozir yopiq",
                     );
                     return;
                   }

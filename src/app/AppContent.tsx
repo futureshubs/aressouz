@@ -64,11 +64,15 @@ import {
   RouteChunkSkeleton,
   SectionHeaderSkeleton,
 } from './components/skeletons';
+import { MarketplaceRecoCarousels } from './components/MarketplaceRecoCarousels';
 import { devLog } from './utils/devLog';
 import { captureReferralFromUrlToSession } from './utils/bonusReferralDeepLink';
 import { HeaderSearchProvider } from './context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from './utils/headerSearchMatch';
 import { readHeaderSearchFromSession, writeHeaderSearchToSession } from './utils/headerSearchStorage';
+import { useDeliveryZonesByBranchIds } from './hooks/useDeliveryZonesByBranchIds';
+import { pickDeliveryZoneForLocation } from './utils/deliveryZoneForLocation';
+import { evaluateMerchantHours } from './utils/businessHoursClient';
 
 const MAIN_ACTIVE_TAB_KEY = 'aresso:mainActiveTab';
 
@@ -713,6 +717,37 @@ export default function AppContent() {
   // Use only real branch products - removed test/random products
   const allProducts = branchProducts;
 
+  const marketBranchIds = useMemo(
+    () => allProducts.map((p) => String(p.branchId || '').trim()).filter(Boolean),
+    [allProducts],
+  );
+  const deliveryZonesByBranch = useDeliveryZonesByBranchIds(marketBranchIds);
+
+  const marketZoneHoursRecord = useCallback(
+    (product: Product) => {
+      const bid = String(product.branchId || '').trim();
+      if (!bid || !selectedRegion || !selectedDistrict) return null;
+      const zones = deliveryZonesByBranch[bid];
+      return pickDeliveryZoneForLocation(zones, selectedRegion, selectedDistrict);
+    },
+    [deliveryZonesByBranch, selectedRegion, selectedDistrict],
+  );
+
+  const marketRecoShopClosedContent = useCallback(
+    (product: Record<string, unknown>) => {
+      const bid = String(product.branchId ?? '').trim();
+      if (!bid || !selectedRegion || !selectedDistrict) return null;
+      const zones = deliveryZonesByBranch[bid];
+      const zone = pickDeliveryZoneForLocation(zones, selectedRegion, selectedDistrict);
+      if (!zone) return null;
+      const hoursEv = evaluateMerchantHours(zone);
+      const stockOk = Number((product as { stockQuantity?: unknown }).stockQuantity) > 0;
+      if (!(stockOk && !hoursEv.allowed)) return null;
+      return { title: 'Buyurtma yopiq', subtitle: hoursEv.label };
+    },
+    [deliveryZonesByBranch, selectedRegion, selectedDistrict],
+  );
+
   const selectedProduct = useMemo((): Product | null => {
     const key = parsed.productKey;
     if (!key) return null;
@@ -1094,7 +1129,7 @@ export default function AppContent() {
   /** Mobil (<sm): bitta ichki scroll — iOS/Android WebView da body scroll ishonchsiz bo‘lishi mumkin */
   const mainAppMobileScroll = !isCommunityFullscreen && !isProfileOpen;
   const appScrollShellClass = mainAppMobileScroll
-    ? 'max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto max-sm:overflow-x-hidden max-sm:overscroll-y-contain max-sm:touch-pan-y max-sm:[-webkit-overflow-scrolling:touch] max-sm:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))] sm:contents'
+    ? 'max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto max-sm:overflow-x-hidden max-sm:overscroll-y-contain max-sm:touch-pan-x max-sm:touch-pan-y max-sm:[-webkit-overflow-scrolling:touch] max-sm:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))] sm:contents'
     : isCommunityFullscreen
       ? 'min-h-0 flex flex-1 flex-col overflow-hidden'
       : 'contents';
@@ -1169,6 +1204,23 @@ export default function AppContent() {
             {activeView === 'products' && (
               <div className="px-5 sm:px-6 md:px-8 lg:px-12 py-6 sm:py-8">
                 <div className="max-w-[1600px] mx-auto">
+                  {selectedRegion &&
+                    selectedDistrict &&
+                    !marketProductsLoading &&
+                    searchFilteredProducts.length > 0 && (
+                      <MarketplaceRecoCarousels
+                        catalogProducts={searchFilteredProducts as Record<string, unknown>[]}
+                        selectedRegion={selectedRegion}
+                        selectedDistrict={selectedDistrict}
+                        accessToken={accessToken}
+                        accentColor={accentColor}
+                        isDark={isDark}
+                        onProductOpen={(p) => openProductDetail(p as Product)}
+                        refreshKey={refreshKey}
+                        shopClosedContent={marketRecoShopClosedContent}
+                      />
+                    )}
+
                   <div className="flex items-center justify-between mb-6 sm:mb-8">
                     {marketProductsLoading ? (
                       <SectionHeaderSkeleton isDark={isDark} />
@@ -1306,6 +1358,7 @@ export default function AppContent() {
                           onAddToCart={handleAddToCart}
                           onAddVariantLinesBatch={handleAddMarketVariantLines}
                           onProductClick={openProductDetail}
+                          merchantHoursRecord={marketZoneHoursRecord(product)}
                         />
                       ))}
                       {progressiveMarketProducts.length < searchFilteredProducts.length && (
@@ -1717,6 +1770,7 @@ export default function AppContent() {
               handleAddToCart(product, quantity, variantId, variantName);
               replacePatch({ product: null, cart: '1' });
             }}
+            merchantHoursRecord={marketZoneHoursRecord(selectedProduct)}
             cartItems={cartItems.map(item => ({
               id: item.id,
               selectedVariantId: item.selectedVariantId,
