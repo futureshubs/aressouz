@@ -530,79 +530,76 @@ export default function OnlineShops({
         </div>
       </div>
 
-      {/* Shops story strip (Do‘konlar tabida) */}
-      {activeTab === 'shops' && (
-        <div className="px-4 -mt-2 pb-3">
-          {isLoading ? (
-            <div className="flex gap-3 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch]">
-              {Array.from({ length: 8 }).map((_, i) => (
-                <div key={`shop-story-skel-${i}`} className="shrink-0 w-[72px]">
+      {/* Shops story strip (Do‘konlar + E'lonlar tabida) */}
+      <div className="px-4 -mt-2 pb-3">
+        {isLoading ? (
+          <div className="flex gap-4 overflow-x-auto overscroll-x-contain pb-2 [-webkit-overflow-scrolling:touch] snap-x snap-mandatory">
+            {Array.from({ length: 8 }).map((_, i) => (
+              <div key={`shop-story-skel-${i}`} className="snap-start shrink-0 w-[92px] text-center">
+                <div
+                  className="h-[76px] w-[76px] rounded-full mx-auto"
+                  style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+                />
+                <div
+                  className="mt-2 h-3 rounded-md mx-auto"
+                  style={{ width: 74, background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+                />
+              </div>
+            ))}
+          </div>
+        ) : storyShops.length ? (
+          <div className="flex gap-4 overflow-x-auto overscroll-x-contain pb-2 [-webkit-overflow-scrolling:touch] snap-x snap-mandatory">
+            {storyShops.map((shop: any) => {
+              const { rating, reviewCount } = shopRatingFromApi(shop);
+              const active = Boolean(shop?.isActive);
+              const selected = selectedShop?.id != null && String(selectedShop.id) === String(shop?.id);
+              const ring = selected ? accentColor.color : active ? accentColor.color : isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
+              const img = String(shop?.logo || '').trim();
+              return (
+                <button
+                  key={shop.id}
+                  type="button"
+                  onClick={() => setSelectedShop(shop)}
+                  className="snap-start shrink-0 w-[92px] text-center"
+                >
                   <div
-                    className="h-16 w-16 rounded-full mx-auto"
-                    style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
-                  />
-                  <div
-                    className="mt-2 h-3 rounded-md mx-auto"
-                    style={{ width: 58, background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
-                  />
-                </div>
-              ))}
-            </div>
-          ) : storyShops.length ? (
-            <div className="flex gap-3 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch]">
-              {storyShops.map((shop: any) => {
-                const { rating, reviewCount } = shopRatingFromApi(shop);
-                const active = Boolean(shop?.isActive);
-                const selected = selectedShop?.id != null && String(selectedShop.id) === String(shop?.id);
-                const ring = selected
-                  ? accentColor.color
-                  : active
-                    ? `${accentColor.color}cc`
-                    : isDark
-                      ? 'rgba(255,255,255,0.25)'
-                      : 'rgba(0,0,0,0.18)';
-                return (
-                  <button
-                    key={shop.id}
-                    type="button"
-                    onClick={() => setSelectedShop(shop)}
-                    className="shrink-0 w-[72px] text-center"
+                    className="h-[76px] w-[76px] rounded-full mx-auto flex items-center justify-center"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                      border: `2.5px solid ${ring}`,
+                      boxShadow: selected ? `0 0 0 3px ${accentColor.color}33` : 'none',
+                    }}
+                    aria-label={shop?.name || 'Do‘kon'}
                   >
-                    <div
-                      className="h-16 w-16 rounded-full mx-auto flex items-center justify-center overflow-hidden"
-                      style={{
-                        background: isDark ? '#111' : '#fff',
-                        border: `2px solid ${ring}`,
-                        boxShadow: selected ? `0 0 0 3px ${accentColor.color}33` : 'none',
-                      }}
-                      aria-label={shop?.name || 'Do‘kon'}
-                    >
-                      {shop?.logo ? (
-                        <img src={shop.logo} alt="" className="h-full w-full object-cover" />
+                    <div className="h-[66px] w-[66px] rounded-full overflow-hidden flex items-center justify-center" style={{ background: '#fff' }}>
+                      {img ? (
+                        <img src={img} alt="" className="h-full w-full object-cover" />
                       ) : (
                         <Store className="h-7 w-7" style={{ color: accentColor.color }} />
                       )}
                     </div>
-                    <div className="mt-2">
-                      <div className="text-[11px] font-semibold leading-tight line-clamp-2">
-                        {shop?.name || shop?.shopName || 'Do‘kon'}
-                      </div>
-                      {reviewCount > 0 ? (
-                        <div className="mt-0.5 flex items-center justify-center gap-1 text-[10px]">
-                          <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                          <span style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
-                            {rating.toFixed(1)}
-                          </span>
-                        </div>
-                      ) : null}
+                  </div>
+                  <div className="mt-2">
+                    <div className="text-[13px] font-medium leading-tight line-clamp-2">
+                      {shop?.name || shop?.shopName || 'Do‘kon'}
                     </div>
-                  </button>
-                );
-              })}
-            </div>
-          ) : null}
-        </div>
-      )}
+                    {reviewCount > 0 ? (
+                      <div className="mt-1 flex items-center justify-center gap-1 text-[11px]">
+                        <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
+                        <span style={{ color: isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)' }}>
+                          {rating.toFixed(1)}
+                        </span>
+                      </div>
+                    ) : (
+                      <div className="mt-1 h-[14px]" aria-hidden />
+                    )}
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+      </div>
 
       {/* Content */}
       <div className="px-4 pb-24">

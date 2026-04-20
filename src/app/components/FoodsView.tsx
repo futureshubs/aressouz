@@ -1148,51 +1148,56 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
         Qidiruv — sahifa tepasidagi maydon orqali (taom nomi, restoran, tavsif).
       </p>
 
-      {/* Restoranlar story strip (Restoranlar tabida) */}
-      {!loading && activeTab === 'restaurants' && storyRestaurants.length > 0 && (
-        <div className="px-3 -mt-1 mb-3 sm:px-4 sm:-mt-2 sm:mb-4">
-          <div className="flex gap-3 overflow-x-auto overscroll-x-contain pb-1 [-webkit-overflow-scrolling:touch]">
+      {/* Restoranlar story strip (Taomlar + Restoranlar tabida) */}
+      {!loading && (activeTab === 'restaurants' || activeTab === 'dishes') && storyRestaurants.length > 0 && (
+        <div className="-mx-3 px-3 -mt-1 mb-4 sm:-mx-4 sm:px-4 sm:-mt-2 sm:mb-5">
+          <div className="flex gap-4 overflow-x-auto overscroll-x-contain pb-2 [-webkit-overflow-scrolling:touch] snap-x snap-mandatory">
             {storyRestaurants.map((restaurant) => {
               const rating = typeof restaurant.rating === 'number' ? restaurant.rating : 0;
               const reviewCount = typeof restaurant.reviews === 'number' ? restaurant.reviews : 0;
               const active = Boolean(restaurant.isActive);
-              const ring = active
-                ? `${accentColor.color}cc`
-                : isDark
-                  ? 'rgba(255,255,255,0.25)'
-                  : 'rgba(0,0,0,0.18)';
+              const ring = active ? accentColor.color : isDark ? 'rgba(255,255,255,0.22)' : 'rgba(0,0,0,0.18)';
               const img = String(restaurant.logo || restaurant.banner || '').trim();
               return (
                 <button
                   key={restaurant.id}
                   type="button"
                   onClick={() => handleRestaurantClick(restaurant)}
-                  className="shrink-0 w-[72px] text-center"
+                  className="snap-start shrink-0 w-[92px] text-center"
                 >
                   <div
-                    className="h-16 w-16 rounded-full mx-auto flex items-center justify-center overflow-hidden"
+                    className="h-[76px] w-[76px] rounded-full mx-auto flex items-center justify-center"
                     style={{
-                      background: isDark ? '#111' : '#fff',
-                      border: `2px solid ${ring}`,
+                      background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
+                      border: `2.5px solid ${ring}`,
                     }}
                     aria-label={restaurant.name || 'Restoran'}
                   >
-                    {img ? (
-                      <img src={img} alt="" className="h-full w-full object-cover" />
-                    ) : (
-                      <Utensils className="h-7 w-7" style={{ color: accentColor.color }} />
-                    )}
+                    <div
+                      className="h-[66px] w-[66px] rounded-full overflow-hidden flex items-center justify-center"
+                      style={{ background: '#fff' }}
+                    >
+                      {img ? (
+                        <img src={img} alt="" className="h-full w-full object-cover" />
+                      ) : (
+                        <Utensils className="h-7 w-7" style={{ color: accentColor.color }} />
+                      )}
+                    </div>
                   </div>
                   <div className="mt-2">
-                    <div className="text-[11px] font-semibold leading-tight line-clamp-2">{restaurant.name}</div>
+                    <div className="text-[13px] font-medium leading-tight truncate">
+                      {restaurant.name}
+                    </div>
                     {reviewCount > 0 && rating > 0 ? (
-                      <div className="mt-0.5 flex items-center justify-center gap-1 text-[10px]">
-                        <Star className="h-3 w-3 fill-yellow-400 text-yellow-400" />
-                        <span style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
+                      <div className="mt-1 flex items-center justify-center gap-1 text-[11px]">
+                        <Star className="h-3.5 w-3.5 fill-yellow-400 text-yellow-400" />
+                        <span style={{ color: isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.65)' }}>
                           {Math.round(rating * 10) / 10}
                         </span>
                       </div>
-                    ) : null}
+                    ) : (
+                      <div className="mt-1 h-[14px]" aria-hidden />
+                    )}
                   </div>
                 </button>
               );
