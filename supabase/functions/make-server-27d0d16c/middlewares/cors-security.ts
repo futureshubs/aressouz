@@ -36,13 +36,23 @@ export function publicTestEndpointDetailed(): boolean {
 /** Vergul bilan ajratilgan originlar. Bo‘sh bo‘lsa `*` (majburiy rejimda bo‘sh ro‘yxat → hech qanday origin ruxsat etilmaydi). */
 export function resolveCorsAllowOrigin(req: Request): string {
   const raw = Deno.env.get("ALLOWED_ORIGINS")?.trim();
+  const origin = req.headers.get("Origin")?.trim() ?? "";
+  // Hosted + strict CORS mode: if env isn't configured yet, still allow localhost for development.
   if (allowedOriginsRequired() && !raw) {
+    const o = origin.toLowerCase();
+    if (
+      o.startsWith("http://localhost:") ||
+      o.startsWith("http://127.0.0.1:") ||
+      o.startsWith("http://0.0.0.0:") ||
+      o.startsWith("http://[::1]:")
+    ) {
+      return origin;
+    }
     return "";
   }
   if (!raw) return "*";
   const allowed = raw.split(",").map((s) => s.trim()).filter(Boolean);
   if (allowed.length === 0) return allowedOriginsRequired() ? "" : "*";
-  const origin = req.headers.get("Origin")?.trim() ?? "";
   if (origin && allowed.includes(origin)) return origin;
   return "";
 }

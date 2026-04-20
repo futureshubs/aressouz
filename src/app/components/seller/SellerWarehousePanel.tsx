@@ -12,6 +12,7 @@ import {
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
+import { useProgressiveListReveal } from '../../hooks/useProgressiveListReveal';
 
 export type SellerInventoryLine = {
   productId: string;
@@ -21,6 +22,7 @@ export type SellerInventoryLine = {
   variantLabel: string;
   stock: number;
   price: number;
+  costPrice?: number;
   image: string | null;
   barcode: string;
 };
@@ -92,6 +94,16 @@ export default function SellerWarehousePanel({
       return hay.includes(q);
     });
   }, [lines, query, filter, threshold, pending, displayStock]);
+
+  const warehouseRevealKey = useMemo(
+    () => `${filtered.length}-${query}-${filter}-${Object.keys(pending).length}-${threshold}`,
+    [filtered.length, query, filter, pending, threshold],
+  );
+  const { visibleItems: progressiveLines, sentinelRef: warehouseSentinelRef } = useProgressiveListReveal(
+    filtered,
+    warehouseRevealKey,
+    { initialCount: 18, batchSize: 14, rootMargin: '0px 0px 220px 0px' },
+  );
 
   const saveLine = async (line: SellerInventoryLine) => {
     const k = rowKey(line);
@@ -265,72 +277,167 @@ export default function SellerWarehousePanel({
         </div>
       ) : (
         <div className="rounded-3xl border overflow-hidden" style={cardStyle}>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm min-w-[720px]">
+          {/* Mobile: cards (no horizontal scroll) */}
+          <div className="sm:hidden p-3 space-y-2">
+            {progressiveLines.map((line) => {
+              const k = rowKey(line);
+              const st = displayStock(line);
+              const dirty = pending[k] !== undefined && pending[k] !== line.stock;
+              const low = st > 0 && st <= threshold;
+              const out = st <= 0;
+              return (
+                <div
+                  key={k}
+                  className="rounded-2xl border p-3"
+                  style={{
+                    borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                    background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                  }}
+                >
+                  <div className="flex items-start gap-3">
+                    <div
+                      className="w-14 h-14 rounded-2xl border overflow-hidden shrink-0"
+                      style={{
+                        borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)',
+                        background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)',
+                      }}
+                    >
+                      {line.image ? (
+                        <img src={line.image} alt="" className="w-full h-full object-cover" loading="lazy" decoding="async" />
+                      ) : (
+                        <div className="w-full h-full flex items-center justify-center opacity-50">
+                          <Package className="w-5 h-5" />
+                        </div>
+                      )}
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-start justify-between gap-2">
+                        <div className="min-w-0">
+                          <div className="font-bold truncate">{line.productName}</div>
+                          <div className="text-xs mt-0.5" style={{ opacity: 0.75 }}>
+                            {line.variantLabel}
+                            {out ? <span className="ml-2 font-bold text-red-500">Tugagan</span> : low ? <span className="ml-2 font-bold text-amber-500">Kam</span> : null}
+                          </div>
+                          {line.barcode ? <div className="text-[11px] opacity-60 font-mono mt-1 truncate">{line.barcode}</div> : null}
+                        </div>
+                        <div className="shrink-0 text-right">
+                          <div className="text-xs opacity-70">Narx</div>
+                          <div className="font-extrabold tabular-nums">{Number(line.price || 0).toLocaleString('uz-UZ')}</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
+                        <div className="rounded-xl border p-2" style={{ borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)' }}>
+                          <div style={{ opacity: 0.7 }}>Tannarx</div>
+                          <div className="font-bold tabular-nums">{Number(line.costPrice || 0).toLocaleString('uz-UZ')}</div>
+                        </div>
+                        <div className="rounded-xl border p-2" style={{ borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)' }}>
+                          <div style={{ opacity: 0.7 }}>Ombor</div>
+                          <div className="font-bold tabular-nums">{st}</div>
+                        </div>
+                      </div>
+
+                      <div className="mt-2 flex items-center justify-between gap-2">
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            className="p-2 rounded-lg border transition active:scale-95"
+                            style={{ borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)' }}
+                            onClick={() => setLineStock(line, st - 1)}
+                            aria-label="Ayirish"
+                          >
+                            <Minus className="w-4 h-4" />
+                          </button>
+                          <input
+                            type="number"
+                            min={0}
+                            value={st}
+                            onChange={(e) => setLineStock(line, Number(e.target.value))}
+                            className="w-20 text-center tabular-nums py-2 rounded-lg border text-sm font-bold"
+                            style={{
+                              background: isDark ? '#111' : '#fff',
+                              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)',
+                              color: isDark ? '#fff' : '#111',
+                            }}
+                          />
+                          <button
+                            type="button"
+                            className="p-2 rounded-lg border transition active:scale-95"
+                            style={{ borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)' }}
+                            onClick={() => setLineStock(line, st + 1)}
+                            aria-label="Qo‘shish"
+                          >
+                            <Plus className="w-4 h-4" />
+                          </button>
+                        </div>
+
+                        <button
+                          type="button"
+                          disabled={!dirty || savingKey === k}
+                          onClick={() => void saveLine(line)}
+                          className="inline-flex items-center gap-1.5 px-4 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-40 transition active:scale-95"
+                          style={{ background: accentColor.gradient }}
+                        >
+                          {savingKey === k ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
+                          Saqlash
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+            <div ref={warehouseSentinelRef} className="h-1 w-full" aria-hidden />
+          </div>
+
+          {/* Desktop: table */}
+          <div className="hidden sm:block overflow-x-auto">
+            <table className="w-full text-sm min-w-[860px]">
               <thead>
                 <tr style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}>
                   <th className="text-left p-3 font-semibold w-16"> </th>
                   <th className="text-left p-3 font-semibold">Mahsulot</th>
                   <th className="text-left p-3 font-semibold">Variant</th>
                   <th className="text-right p-3 font-semibold">Narx</th>
+                  <th className="text-right p-3 font-semibold">Tannarx</th>
                   <th className="text-right p-3 font-semibold">Omborda</th>
                   <th className="text-right p-3 font-semibold w-44"> </th>
                 </tr>
               </thead>
               <tbody>
-                {filtered.map((line) => {
+                {progressiveLines.map((line) => {
                   const k = rowKey(line);
                   const st = displayStock(line);
                   const dirty = pending[k] !== undefined && pending[k] !== line.stock;
                   const low = st > 0 && st <= threshold;
                   const out = st <= 0;
                   return (
-                    <tr
-                      key={k}
-                      className="border-t"
-                      style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
-                    >
+                    <tr key={k} className="border-t" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
                       <td className="p-3 align-middle">
                         {line.image ? (
-                          <img
-                            src={line.image}
-                            alt=""
-                            className="w-12 h-12 rounded-lg object-cover"
-                          />
+                          <img src={line.image} alt="" className="w-12 h-12 rounded-lg object-cover" loading="lazy" decoding="async" />
                         ) : (
-                          <div
-                            className="w-12 h-12 rounded-lg flex items-center justify-center text-xs"
-                            style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}
-                          >
+                          <div className="w-12 h-12 rounded-lg flex items-center justify-center text-xs" style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}>
                             <Package className="w-5 h-5 opacity-40" />
                           </div>
                         )}
                       </td>
                       <td className="p-3 align-middle">
                         <div className="font-semibold line-clamp-2">{line.productName}</div>
-                        {line.barcode ? (
-                          <div className="text-xs opacity-50 font-mono mt-0.5">{line.barcode}</div>
-                        ) : null}
+                        {line.barcode ? <div className="text-xs opacity-50 font-mono mt-0.5">{line.barcode}</div> : null}
                       </td>
                       <td className="p-3 align-middle">
                         <span>{line.variantLabel}</span>
-                        {out ? (
-                          <span className="ml-2 text-xs font-bold text-red-500">Tugagan</span>
-                        ) : low ? (
-                          <span className="ml-2 text-xs font-bold text-amber-500">Kam</span>
-                        ) : null}
+                        {out ? <span className="ml-2 text-xs font-bold text-red-500">Tugagan</span> : low ? <span className="ml-2 text-xs font-bold text-amber-500">Kam</span> : null}
                       </td>
-                      <td className="p-3 text-right tabular-nums align-middle">
-                        {Number(line.price || 0).toLocaleString('uz-UZ')} so‘m
-                      </td>
+                      <td className="p-3 text-right tabular-nums align-middle">{Number(line.price || 0).toLocaleString('uz-UZ')} so‘m</td>
+                      <td className="p-3 text-right tabular-nums align-middle">{Number(line.costPrice || 0).toLocaleString('uz-UZ')} so‘m</td>
                       <td className="p-3 align-middle">
                         <div className="flex items-center justify-end gap-1">
                           <button
                             type="button"
                             className="p-2 rounded-lg border transition active:scale-95"
-                            style={{
-                              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
-                            }}
+                            style={{ borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }}
                             onClick={() => setLineStock(line, st - 1)}
                             aria-label="Ayirish"
                           >
@@ -351,9 +458,7 @@ export default function SellerWarehousePanel({
                           <button
                             type="button"
                             className="p-2 rounded-lg border transition active:scale-95"
-                            style={{
-                              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
-                            }}
+                            style={{ borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }}
                             onClick={() => setLineStock(line, st + 1)}
                             aria-label="Qo‘shish"
                           >
@@ -369,17 +474,18 @@ export default function SellerWarehousePanel({
                           className="inline-flex items-center gap-1.5 px-3 py-2 rounded-xl text-xs font-bold text-white disabled:opacity-40 transition active:scale-95"
                           style={{ background: accentColor.gradient }}
                         >
-                          {savingKey === k ? (
-                            <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                          ) : (
-                            <Save className="w-3.5 h-3.5" />
-                          )}
+                          {savingKey === k ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Save className="w-3.5 h-3.5" />}
                           Saqlash
                         </button>
                       </td>
                     </tr>
                   );
                 })}
+                <tr>
+                  <td colSpan={7} className="p-0">
+                    <div ref={warehouseSentinelRef} className="h-1 w-full" aria-hidden />
+                  </td>
+                </tr>
               </tbody>
             </table>
           </div>

@@ -5,6 +5,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { restaurantIdForRestaurantsApiPath } from '../utils/restaurantContactLinks';
+import { buildUserHeaders } from '../utils/requestAuth';
 
 interface RestaurantReviewModalProps {
   isOpen: boolean;
@@ -85,14 +86,12 @@ export function RestaurantReviewModal({
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/restaurants/${pathSeg}/reviews`,
         {
           method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
+          headers: buildUserHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             rating,
             comment: comment.trim(),
             userName: displayName(),
+            // server auth userId asosida aniqlaydi; lekin legacy uchun ham yuboramiz
             userId: user.id,
           }),
         },

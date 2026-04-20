@@ -10,6 +10,8 @@ import { CardImageScroll } from '../CardImageScroll';
 import { collectProductGalleryImages } from '../../utils/cardGalleryImages';
 import { regions as allRegions } from '../../data/regions';
 import { rentalCatalogs, rentalCategories } from '../../data/rentals';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { useIntersectionSentinel } from '../../hooks/useIntersectionSentinel';
 
 // Extract regions and districts from structured data
 const regions = allRegions.map(r => r.name);
@@ -23,7 +25,6 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
   const isDark = theme === 'dark';
 
   const [products, setProducts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
   const [showModal, setShowModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<any>(null);
   const [uploading, setUploading] = useState(false);
@@ -70,31 +71,36 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   useVisibilityRefetch(() => setVisibilityTick((t) => t + 1));
 
+  const rentalsQuery = useInfiniteQuery({
+    queryKey: ['rentalPanel-products', branchId, visibilityTick],
+    enabled: Boolean(branchId),
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      const page = Number(pageParam) || 1;
+      const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${encodeURIComponent(branchId)}?page=${page}&limit=20`;
+      const res = await fetch(url, { headers: buildRentalPanelHeaders(), signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) throw new Error(String(data?.error || `HTTP ${res.status}`));
+      return data as { success: boolean; products: any[]; page: number; limit: number; total: number; hasMore: boolean };
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
+
+  const loading = rentalsQuery.isLoading;
+
   useEffect(() => {
-    loadProducts();
-  }, [branchId, visibilityTick]);
+    if (!rentalsQuery.data) return;
+    const list = rentalsQuery.data.pages.flatMap((p: any) => (Array.isArray(p?.products) ? p.products : []));
+    setProducts(list);
+  }, [rentalsQuery.data]);
 
-  const loadProducts = async () => {
-    try {
-      setLoading(true);
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${branchId}`,
-        {
-          headers: buildRentalPanelHeaders(),
-        }
-      );
-
-      const data = await response.json();
-      if (data.success) {
-        setProducts(data.products);
-      }
-    } catch (error) {
-      console.error('Error loading products:', error);
-      toast.error('Mahsulotlarni yuklashda xatolik');
-    } finally {
-      setLoading(false);
-    }
-  };
+  const productsSentinelRef = useIntersectionSentinel({
+    enabled: Boolean(rentalsQuery.hasNextPage && !rentalsQuery.isFetchingNextPage),
+    onIntersect: () => {
+      if (rentalsQuery.hasNextPage) void rentalsQuery.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
 
   const handleImageUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     if (!e.target.files || e.target.files.length === 0) return;
@@ -234,7 +240,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
         toast.success(editingProduct ? 'Mahsulot yangilandi' : 'Mahsulot qo\'shildi');
         setShowModal(false);
         resetForm();
-        loadProducts();
+        await rentalsQuery.refetch();
       } else {
         toast.error(data.error || 'Xatolik yuz berdi');
       }
@@ -263,7 +269,7 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
 
       if (data.success) {
         toast.success('Mahsulot o\'chirildi');
-        loadProducts();
+        await rentalsQuery.refetch();
       } else {
         toast.error(data.error || 'Xatolik yuz berdi');
       }
@@ -680,6 +686,9 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
               </div>
             </div>
           ))}
+          {rentalsQuery.hasNextPage ? (
+            <div ref={productsSentinelRef} className="col-span-full h-4 w-full shrink-0" aria-hidden />
+          ) : null}
         </div>
       )}
 

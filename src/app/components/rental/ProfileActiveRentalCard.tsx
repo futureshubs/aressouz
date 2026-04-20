@@ -73,6 +73,14 @@ export function ProfileActiveRentalCard({
   const approxExtra = Math.round(price * qty * units);
   const cur = t('profile.currency');
   const handoffPreview = computeRentalCourierHandoffUzs(order);
+  const extendUnitLabel = (() => {
+    const p = String(order.rentalPeriod || '').toLowerCase();
+    if (p === 'hourly') return 'soat';
+    if (p === 'daily') return 'kun';
+    if (p === 'weekly') return 'hafta';
+    if (p === 'monthly') return 'oy';
+    return 'birlik';
+  })();
 
   const canExtend =
     phonePk.length >= 9 &&
@@ -342,37 +350,51 @@ export function ProfileActiveRentalCard({
             <p className="text-xs font-semibold mb-2" style={{ color: accentColor }}>
               {t('rental.extendUnits')}
             </p>
-            <div className="flex items-center justify-center gap-4 mb-4">
-              <button
-                type="button"
-                disabled={extending || units <= 1}
-                onClick={() => setUnits((u) => Math.max(1, u - 1))}
-                className="w-12 h-12 rounded-xl flex items-center justify-center border"
-                style={{
-                  borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)',
-                  color: isDark ? '#fff' : '#111827',
-                }}
-              >
-                <Minus className="size-5" />
-              </button>
-              <span
-                className="text-2xl font-bold tabular-nums min-w-[3rem] text-center"
-                style={{ color: isDark ? '#fff' : '#111827' }}
-              >
-                {units}
-              </span>
-              <button
-                type="button"
-                disabled={extending || units >= maxU}
-                onClick={() => setUnits((u) => Math.min(maxU, u + 1))}
-                className="w-12 h-12 rounded-xl flex items-center justify-center border"
-                style={{
-                  borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)',
-                  color: isDark ? '#fff' : '#111827',
-                }}
-              >
-                <Plus className="size-5" />
-              </button>
+            <p
+              className="text-[11px] mb-2"
+              style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
+            >
+              Nechta {extendUnitLabel}ga uzaytirasiz? (1…{maxU})
+            </p>
+            <select
+              disabled={extending}
+              value={String(units)}
+              onChange={(e) => {
+                const v = Math.floor(Number(e.target.value));
+                if (!Number.isFinite(v)) return;
+                setUnits(Math.max(1, Math.min(maxU, v)));
+              }}
+              className="w-full h-12 rounded-xl border px-3 text-sm font-bold outline-none mb-3"
+              style={{
+                background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.03)',
+                borderColor: isDark ? 'rgba(255,255,255,0.15)' : 'rgba(0,0,0,0.1)',
+                color: isDark ? '#fff' : '#111827',
+              }}
+            >
+              {Array.from({ length: Math.max(1, maxU) }, (_, i) => i + 1).map((v) => (
+                <option key={`extend-u-${v}`} value={String(v)}>
+                  {v} {extendUnitLabel}
+                </option>
+              ))}
+            </select>
+
+            <div className="flex flex-wrap gap-2 mb-4">
+              {[1, 2, 3, maxU].filter((v, i, a) => v >= 1 && v <= maxU && a.indexOf(v) === i).map((v) => (
+                <button
+                  key={`extend-chip-${v}`}
+                  type="button"
+                  disabled={extending}
+                  onClick={() => setUnits(v)}
+                  className="px-3 py-2 rounded-xl text-xs font-bold border transition-all active:scale-[0.98] disabled:opacity-55"
+                  style={{
+                    background: units === v ? `${accentColor}22` : isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.02)',
+                    borderColor: units === v ? `${accentColor}66` : isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+                    color: units === v ? accentColor : isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.75)',
+                  }}
+                >
+                  {v === maxU ? `Maksimum (${v} ${extendUnitLabel})` : `${v} ${extendUnitLabel}`}
+                </button>
+              ))}
             </div>
 
             <p className="text-sm mb-4" style={{ color: isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.7)' }}>

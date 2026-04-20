@@ -8,10 +8,13 @@ import { ProductCard } from './ProductCard';
 import { ProductDetailModal } from './ProductDetailModal';
 import { Platform } from '../utils/platform';
 import { useTheme } from '../context/ThemeContext';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
-import { getEffectiveProductStockQuantity } from '../utils/cartStock';
 import { ProductGridSkeleton } from './skeletons';
-import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { fetchPagedProducts } from '../services/pagedCatalogApi';
+import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
+import { normalizeHeaderSearch } from '../utils/headerSearchMatch';
 
 interface Product {
   id: number;
@@ -36,91 +39,46 @@ interface ShopViewProps {
 
 export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProducts }: ShopViewProps) {
   const { theme, accentColor } = useTheme();
+  const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
   const [activeTab, setActiveTab] = useState<'products' | 'stores'>('products');
   const [selectedStore, setSelectedStore] = useState<Store | null>(null);
   const [selectedProduct, setSelectedProduct] = useState<Product | null>(null);
   const [currentSlide, setCurrentSlide] = useState(0);
-  const [onlineShopProducts, setOnlineShopProducts] = useState<any[]>([]);
-  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   const isDark = theme === 'dark';
   const isIOS = platform === 'ios';
 
-  const shopProductGridSource = isLoadingProducts ? [] : onlineShopProducts;
-  const shopProductRevealKey = useMemo(
-    () =>
-      onlineShopProducts.length === 0
-        ? 'empty'
-        : `${onlineShopProducts.length}-${String(onlineShopProducts[0]?.id ?? '')}`,
-    [onlineShopProducts],
-  );
-  const { visibleItems: progressiveShopProducts, sentinelRef: shopViewGridSentinelRef } =
-    useProgressiveListReveal(shopProductGridSource, shopProductRevealKey, {
-      batchSize: 10,
-      initialCount: 16,
-    });
+  const debouncedSearch = useDebouncedValue(normalizeHeaderSearch(headerSearch) ? headerSearch : '', 300);
 
-  // Load online shop products
-  useEffect(() => {
-    if (activeTab === 'products') {
-      loadOnlineShopProducts();
-    }
-  }, [activeTab]);
+  const shopProductsQuery = useInfiniteQuery({
+    queryKey: ['shopview-products', debouncedSearch],
+    enabled: activeTab === 'products',
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      return await fetchPagedProducts<any>({
+        source: 'shop',
+        q: debouncedSearch,
+        page: Number(pageParam) || 1,
+        limit: 20,
+        signal,
+      });
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
 
-  const loadOnlineShopProducts = async () => {
-    setIsLoadingProducts(true);
-    try {
-      // First get all shops
-      const shopsResponse = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-        }
-      );
+  const progressiveShopProducts = useMemo(() => {
+    return shopProductsQuery.data?.pages?.flatMap((p) => p.products || []) ?? [];
+  }, [shopProductsQuery.data]);
 
-      if (shopsResponse.ok) {
-        const shopsData = await shopsResponse.json();
-        const allProducts: any[] = [];
-
-        // Then get products from each shop
-        for (const shop of shopsData.shops) {
-          const productsResponse = await fetch(
-            `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops/${shop.id}/products`,
-            {
-              headers: {
-                'Authorization': `Bearer ${publicAnonKey}`,
-              },
-            }
-          );
-
-          if (productsResponse.ok) {
-            const productsData = await productsResponse.json();
-            if (productsData.products && productsData.products.length > 0) {
-              // Add shop info to each product
-              const productsWithShop = productsData.products.map((p: any) => ({
-                ...p,
-                shopName: shop.name,
-                shopLogo: shop.logo,
-                shopMerchantRecord: shop,
-                stockQuantity: getEffectiveProductStockQuantity(p),
-              }));
-              allProducts.push(...productsWithShop);
-            }
-          }
-        }
-
-        setOnlineShopProducts(allProducts);
-      }
-    } catch (error) {
-      console.error('Error loading online shop products:', error);
-    } finally {
-      setIsLoadingProducts(false);
-    }
-  };
+  const shopViewGridSentinelRef = useIntersectionSentinel({
+    enabled: Boolean(activeTab === 'products' && shopProductsQuery.hasNextPage && !shopProductsQuery.isFetchingNextPage),
+    onIntersect: () => {
+      if (shopProductsQuery.hasNextPage) void shopProductsQuery.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
 
   useVisibilityRefetch(() => {
-    void loadOnlineShopProducts();
+    if (activeTab === 'products') void shopProductsQuery.refetch();
   });
 
   // Shop advertisements data
@@ -311,19 +269,19 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
                     className="text-xs sm:text-sm inline-flex items-center gap-1.5"
                     style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.5)' }}
                   >
-                    {isLoadingProducts ? (
+                    {shopProductsQuery.isLoading ? (
                       <>
                         <Loader2 className="size-3.5 shrink-0 animate-spin" style={{ color: accentColor.color }} />
                         
                       </>
                     ) : (
-                      <>{onlineShopProducts.length} ta</>
+                      <>{progressiveShopProducts.length} ta</>
                     )}
                   </span>
                 </div>
 
                 <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4 md:gap-4">
-                  {isLoadingProducts ? (
+                  {shopProductsQuery.isLoading ? (
                     <div className="col-span-full">
                       <ProductGridSkeleton
                         isDark={isDark}
@@ -343,13 +301,13 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
                           source="shop"
                         />
                       ))}
-                      {progressiveShopProducts.length < onlineShopProducts.length && (
+                      {shopProductsQuery.hasNextPage ? (
                         <div
                           ref={shopViewGridSentinelRef}
                           className="col-span-full h-4 w-full shrink-0"
                           aria-hidden
                         />
-                      )}
+                      ) : null}
                     </>
                   )}
                 </div>

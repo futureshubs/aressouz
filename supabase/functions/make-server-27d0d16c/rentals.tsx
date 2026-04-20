@@ -15,6 +15,45 @@ import {
   rentalProviderSessionKey,
 } from "./rental_provider_kv.ts";
 
+function parsePageLimit(req: any, defaults?: { page?: number; limit?: number; maxLimit?: number }) {
+  const pageRaw = req.query?.("page");
+  const limitRaw = req.query?.("limit");
+  const page0 = Math.floor(Number(pageRaw ?? defaults?.page ?? 1));
+  const limit0 = Math.floor(Number(limitRaw ?? defaults?.limit ?? 20));
+  const maxLimit = Math.max(1, Math.floor(Number(defaults?.maxLimit ?? 60)));
+  const page = Number.isFinite(page0) && page0 > 0 ? page0 : 1;
+  const limit =
+    Number.isFinite(limit0) && limit0 > 0 ? Math.min(maxLimit, limit0) : Math.min(maxLimit, 20);
+  const offset = (page - 1) * limit;
+  return { page, limit, offset };
+}
+
+function applyTextSearch(list: any[], q: string) {
+  const query = String(q || "").trim().toLowerCase();
+  if (!query) return list;
+  return (Array.isArray(list) ? list : []).filter((p: any) => {
+    const hay = `${p?.name ?? ""} ${p?.description ?? ""} ${p?.catalog ?? ""} ${p?.category ?? ""} ${p?.region ?? ""} ${p?.district ?? ""}`.toLowerCase();
+    return hay.includes(query);
+  });
+}
+
+function normalizeLoc(value: unknown): string {
+  return String(value ?? "")
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[`'’‘ʻʼ-]/g, "")
+    .replace(/\s+/g, "");
+}
+
+function locMatches(a: unknown, b: string): boolean {
+  const aa = normalizeLoc(a);
+  const bb = normalizeLoc(b);
+  if (!bb) return true;
+  if (!aa) return false;
+  return aa === bb || aa.includes(bb) || bb.includes(aa);
+}
+
 function telegramRentalBotToken(): string {
   return (
     String(Deno.env.get("TELEGRAM_RENTAL_BOT_TOKEN") || "").trim() ||
@@ -851,16 +890,26 @@ app.put("/branch/rental-notify-settings", async (c) => {
 app.get('/products/:branchId', async (c) => {
   try {
     const branchId = c.req.param('branchId');
+    const q = String(c.req.query("q") || "").trim();
+    const { page, limit, offset } = parsePageLimit(c.req, { page: 1, limit: 20, maxLimit: 60 });
     /** Do‘kon / katalog: ochiq o‘qish; tahrirlash POST/PUT/DELETE da himoyalangan */
     console.log('📦 ===== GET RENTAL PRODUCTS =====');
     console.log('📦 Getting rental products for branch:', branchId);
     
-    const products = await kv.getByPrefix(`rental_product_${branchId}_`);
+    let products = await kv.getByPrefix(`rental_product_${branchId}_`);
+    products = applyTextSearch(products || [], q);
+    const total = products.length;
+    const pageItems = products.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
     console.log(`📦 Found ${products?.length || 0} products for branch ${branchId}`);
     
     return c.json({ 
       success: true, 
-      products: products || []
+      products: pageItems || [],
+      page,
+      limit,
+      total,
+      hasMore,
     });
   } catch (error: any) {
     console.error('❌ ===== ERROR GETTING RENTAL PRODUCTS =====');
@@ -872,6 +921,49 @@ app.get('/products/:branchId', async (c) => {
       error: error.message,
       products: []
     }, 500);
+  }
+});
+
+// Get rental products (paged) across branches (public)
+app.get("/products", async (c) => {
+  try {
+    const region = String(c.req.query("region") || "").trim();
+    const district = String(c.req.query("district") || "").trim();
+    const q = String(c.req.query("q") || "").trim();
+    const catalog = String(c.req.query("catalog") || "").trim();
+    const category = String(c.req.query("category") || "").trim();
+    const { page, limit, offset } = parsePageLimit(c.req, { page: 1, limit: 20, maxLimit: 60 });
+
+    const allBranches = await kv.getByPrefix("branch:");
+    const branches = (Array.isArray(allBranches) ? allBranches : []).filter((b: any) => {
+      if (!b || b.deleted) return false;
+      if (region && !locMatches(b.region ?? b.regionId, region)) return false;
+      if (district && !locMatches(b.district ?? b.districtId, district)) return false;
+      return true;
+    });
+
+    const all: any[] = [];
+    for (const b of branches) {
+      const bid = String(b.id || "").trim();
+      if (!bid) continue;
+      const rows = await kv.getByPrefix(`rental_product_${bid}_`);
+      if (Array.isArray(rows) && rows.length) all.push(...rows);
+    }
+
+    let filtered = applyTextSearch(all, q);
+    if (catalog) filtered = filtered.filter((p: any) => String(p?.catalog || "").trim() === catalog);
+    if (category) filtered = filtered.filter((p: any) => String(p?.category || "").trim() === category);
+
+    // newest first
+    filtered.sort((a: any, b: any) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime());
+
+    const total = filtered.length;
+    const pageItems = filtered.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
+    return c.json({ success: true, products: pageItems, page, limit, total, hasMore });
+  } catch (e: any) {
+    console.error("[rentals/products] error", e);
+    return c.json({ success: false, error: "Ijara mahsulotlarini olishda xatolik", products: [] }, 500);
   }
 });
 

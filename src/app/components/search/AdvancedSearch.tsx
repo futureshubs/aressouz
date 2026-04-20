@@ -1,6 +1,10 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
 import { Search, Filter, SortAsc, SortDesc, X, ChevronDown, Star, MapPin, DollarSign, Calendar, Tag } from 'lucide-react';
 import { toast } from 'sonner';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { useDebouncedValue } from '../../hooks/useDebouncedValue';
+import { useIntersectionSentinel } from '../../hooks/useIntersectionSentinel';
+import { fetchPagedProducts } from '../../services/pagedCatalogApi';
 
 export interface SearchFilters {
   query: string;
@@ -163,160 +167,16 @@ const mockSuggestions: SearchSuggestion[] = [
 ];
 
 export function useAdvancedSearch() {
+  // Legacy API shim: keep same interface but source of truth is the page component now.
   const [searchResults, setSearchResults] = useState<SearchResult[]>([]);
   const [suggestions, setSuggestions] = useState<SearchSuggestion[]>(mockSuggestions);
   const [analytics, setAnalytics] = useState<SearchAnalytics[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [totalResults, setTotalResults] = useState(0);
 
-  // Search function
-  const search = useCallback(async (filters: SearchFilters) => {
-    setIsLoading(true);
-    
-    try {
-      // Mock API call
-      await new Promise(resolve => setTimeout(resolve, 800));
-      
-      let filteredResults = [...mockProducts];
-      
-      // Apply text search
-      if (filters.query) {
-        const query = filters.query.toLowerCase();
-        filteredResults = filteredResults.filter(product => 
-          product.title.toLowerCase().includes(query) ||
-          product.description.toLowerCase().includes(query) ||
-          product.tags.some(tag => tag.toLowerCase().includes(query))
-        );
-      }
-      
-      // Apply category filter
-      if (filters.category) {
-        filteredResults = filteredResults.filter(product => 
-          product.category === filters.category
-        );
-      }
-      
-      // Apply price range
-      if (filters.priceMin !== undefined) {
-        filteredResults = filteredResults.filter(product => 
-          product.price >= filters.priceMin!
-        );
-      }
-      if (filters.priceMax !== undefined) {
-        filteredResults = filteredResults.filter(product => 
-          product.price <= filters.priceMax!
-        );
-      }
-      
-      // Apply location filter
-      if (filters.location) {
-        filteredResults = filteredResults.filter(product => 
-          product.location.toLowerCase().includes(filters.location!.toLowerCase())
-        );
-      }
-      
-      // Apply rating filter
-      if (filters.rating !== undefined) {
-        filteredResults = filteredResults.filter(product => 
-          product.rating >= filters.rating!
-        );
-      }
-      
-      // Apply condition filter
-      if (filters.condition) {
-        filteredResults = filteredResults.filter(product => 
-          product.condition === filters.condition
-        );
-      }
-      
-      // Apply seller type filter
-      if (filters.sellerType) {
-        filteredResults = filteredResults.filter(product => 
-          product.seller.type === filters.sellerType
-        );
-      }
-      
-      // Apply date filter
-      if (filters.datePosted && filters.datePosted !== 'any') {
-        const now = new Date();
-        const cutoffDate = new Date();
-        
-        switch (filters.datePosted) {
-          case 'today':
-            cutoffDate.setHours(0, 0, 0, 0);
-            break;
-          case 'week':
-            cutoffDate.setDate(now.getDate() - 7);
-            break;
-          case 'month':
-            cutoffDate.setMonth(now.getMonth() - 1);
-            break;
-        }
-        
-        filteredResults = filteredResults.filter(product => 
-          product.postedDate >= cutoffDate
-        );
-      }
-      
-      // Apply sorting
-      if (filters.sortBy) {
-        filteredResults.sort((a, b) => {
-          let comparison = 0;
-          
-          switch (filters.sortBy) {
-            case 'price_low':
-              comparison = a.price - b.price;
-              break;
-            case 'price_high':
-              comparison = b.price - a.price;
-              break;
-            case 'rating':
-              comparison = b.rating - a.rating;
-              break;
-            case 'date':
-              comparison = b.postedDate.getTime() - a.postedDate.getTime();
-              break;
-            case 'popularity':
-              comparison = b.views - a.views;
-              break;
-            case 'relevance':
-            default:
-              comparison = (b.relevanceScore || 0) - (a.relevanceScore || 0);
-              break;
-          }
-          
-          return filters.sortOrder === 'desc' ? -comparison : comparison;
-        });
-      }
-      
-      // Apply pagination
-      const page = filters.page || 1;
-      const limit = filters.limit || 20;
-      const startIndex = (page - 1) * limit;
-      const paginatedResults = filteredResults.slice(startIndex, startIndex + limit);
-      
-      setSearchResults(paginatedResults);
-      setTotalResults(filteredResults.length);
-      
-      // Track analytics
-      const searchAnalytics: SearchAnalytics = {
-        query: filters.query,
-        filters,
-        resultsCount: filteredResults.length,
-        clickedResults: [],
-        sessionDuration: 0,
-        timestamp: new Date()
-      };
-      
-      setAnalytics(prev => [...prev, searchAnalytics]);
-      
-    } catch (error) {
-      toast.error('Qidiruvda xatolik yuz berdi');
-      setSearchResults([]);
-      setTotalResults(0);
-    } finally {
-      setIsLoading(false);
-    }
+  const search = useCallback(async () => {
+    // kept for compatibility; real search uses React Query in component
+    setIsLoading(false);
   }, []);
 
   // Get suggestions
@@ -359,7 +219,7 @@ export function useAdvancedSearch() {
 }
 
 export default function AdvancedSearch() {
-  const { search, searchResults, suggestions, getSuggestions, isLoading, totalResults } = useAdvancedSearch();
+  const { suggestions, getSuggestions } = useAdvancedSearch();
   const [filters, setFilters] = useState<SearchFilters>({
     query: '',
     sortBy: 'relevance',
@@ -370,16 +230,52 @@ export default function AdvancedSearch() {
   const [showFilters, setShowFilters] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
 
-  // Debounced search
-  useEffect(() => {
-    const timer = setTimeout(() => {
-      if (filters.query || filters.category || filters.priceMin || filters.priceMax) {
-        search(filters);
-      }
-    }, 500);
+  const debouncedQuery = useDebouncedValue(filters.query || '', 300);
 
-    return () => clearTimeout(timer);
-  }, [filters, search]);
+  const query = useInfiniteQuery({
+    queryKey: [
+      'advancedSearch',
+      debouncedQuery,
+      filters.category,
+      filters.priceMin,
+      filters.priceMax,
+      filters.rating,
+      filters.sortBy,
+    ],
+    enabled: Boolean(debouncedQuery || filters.category || filters.priceMin != null || filters.priceMax != null),
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      const sortBy =
+        filters.sortBy === 'price_low' || filters.sortBy === 'price_high' || filters.sortBy === 'rating'
+          ? filters.sortBy
+          : undefined;
+      return await fetchPagedProducts<any>({
+        source: 'all',
+        q: debouncedQuery,
+        category: filters.category,
+        priceMin: filters.priceMin,
+        priceMax: filters.priceMax,
+        ratingMin: filters.rating,
+        sortBy,
+        page: Number(pageParam) || 1,
+        limit: 20,
+        signal,
+      });
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
+
+  const searchResults = useMemo(() => query.data?.pages?.flatMap((p) => p.products || []) ?? [], [query.data]);
+  const totalResults = query.data?.pages?.[0]?.total ?? 0;
+  const isLoading = query.isLoading;
+
+  const sentinelRef = useIntersectionSentinel({
+    enabled: Boolean(query.hasNextPage && !query.isFetchingNextPage),
+    onIntersect: () => {
+      if (query.hasNextPage) void query.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
 
   // Handle query change
   const handleQueryChange = (value: string) => {
@@ -686,6 +582,8 @@ export default function AdvancedSearch() {
                       src={product.images[0] || '/placeholder.jpg'}
                       alt={product.title}
                       className="w-full h-48 object-cover"
+                      loading="lazy"
+                      decoding="async"
                     />
                   </div>
                   
@@ -726,6 +624,9 @@ export default function AdvancedSearch() {
                   </div>
                 </div>
               ))}
+              {query.hasNextPage ? (
+                <div ref={sentinelRef} className="col-span-full h-6" aria-hidden />
+              ) : null}
             </div>
           )}
 

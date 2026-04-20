@@ -3362,11 +3362,48 @@ function normalizeShopProductForPublicResponse(product: any): { base: any; total
   return { base: { ...product, variants: normalizedVariants }, totalStock };
 }
 
+function parsePageLimit(c: any, defaults?: { page?: number; limit?: number; maxLimit?: number }) {
+  const pageRaw = c.req.query('page');
+  const limitRaw = c.req.query('limit');
+  const page0 = Math.floor(Number(pageRaw ?? defaults?.page ?? 1));
+  const limit0 = Math.floor(Number(limitRaw ?? defaults?.limit ?? 20));
+  const maxLimit = Math.max(1, Math.floor(Number(defaults?.maxLimit ?? 60)));
+  const page = Number.isFinite(page0) && page0 > 0 ? page0 : 1;
+  const limit =
+    Number.isFinite(limit0) && limit0 > 0
+      ? Math.min(maxLimit, limit0)
+      : Math.min(maxLimit, 20);
+  const offset = (page - 1) * limit;
+  return { page, limit, offset };
+}
+
+function applyTextSearch(list: any[], q: string) {
+  const query = String(q || '').trim().toLowerCase();
+  if (!query) return list;
+  return (Array.isArray(list) ? list : []).filter((p: any) => {
+    const hay = `${p?.name ?? ''} ${p?.category ?? ''} ${p?.shopName ?? ''}`.toLowerCase();
+    return hay.includes(query);
+  });
+}
+
+function parseNum(v: unknown): number | null {
+  const n = Number(v);
+  return Number.isFinite(n) ? n : null;
+}
+
 // Get all products (Market + Shops combined)
 app.get("/make-server-27d0d16c/products", async (c) => {
   try {
     const region = c.req.query('region');
     const district = c.req.query('district');
+    const q = String(c.req.query('q') || '').trim();
+    const source = String(c.req.query('source') || 'all').trim().toLowerCase();
+    const category = String(c.req.query('category') || '').trim();
+    const priceMin = parseNum(c.req.query('priceMin'));
+    const priceMax = parseNum(c.req.query('priceMax'));
+    const ratingMin = parseNum(c.req.query('ratingMin'));
+    const sortBy = String(c.req.query('sortBy') || '').trim().toLowerCase(); // price_low|price_high|rating|newest
+    const { page, limit, offset } = parsePageLimit(c, { page: 1, limit: 20, maxLimit: 60 });
     
     console.log('📦 Loading ALL products (Market + Shops)...');
     console.log(`📍 Filter - Region: ${region}, District: ${district}`);
@@ -3450,7 +3487,32 @@ app.get("/make-server-27d0d16c/products", async (c) => {
       });
     
     // Combine all products
-    const allProducts = [...formattedMarketProducts, ...formattedShopProducts];
+    const allProductsUnfiltered =
+      source === 'market'
+        ? [...formattedMarketProducts]
+        : source === 'shop'
+          ? [...formattedShopProducts]
+          : [...formattedMarketProducts, ...formattedShopProducts];
+    let allProducts = applyTextSearch(allProductsUnfiltered, q);
+    if (category) {
+      const cat = category.toLowerCase();
+      allProducts = allProducts.filter((p: any) => String(p?.category ?? '').toLowerCase() === cat);
+    }
+    if (priceMin != null) {
+      allProducts = allProducts.filter((p: any) => Number(p?.price ?? 0) >= priceMin);
+    }
+    if (priceMax != null) {
+      allProducts = allProducts.filter((p: any) => Number(p?.price ?? 0) <= priceMax);
+    }
+    if (ratingMin != null) {
+      allProducts = allProducts.filter((p: any) => Number(p?.rating ?? 0) >= ratingMin);
+    }
+    if (sortBy) {
+      if (sortBy === 'price_low') allProducts.sort((a: any, b: any) => Number(a?.price ?? 0) - Number(b?.price ?? 0));
+      else if (sortBy === 'price_high') allProducts.sort((a: any, b: any) => Number(b?.price ?? 0) - Number(a?.price ?? 0));
+      else if (sortBy === 'rating') allProducts.sort((a: any, b: any) => Number(b?.rating ?? 0) - Number(a?.rating ?? 0));
+      else if (sortBy === 'newest') allProducts.sort((a: any, b: any) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime());
+    }
     
     console.log(`✅ Total products: ${allProducts.length} (${formattedMarketProducts.length} market + ${formattedShopProducts.length} shop)`);
     
@@ -3458,7 +3520,10 @@ app.get("/make-server-27d0d16c/products", async (c) => {
       console.log('📦 Sample product:', allProducts[0]);
     }
 
-    return c.json({ success: true, products: allProducts });
+    const total = allProducts.length;
+    const pageItems = allProducts.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
+    return c.json({ success: true, products: pageItems, page, limit, total, hasMore });
   } catch (error: any) {
     console.error('Get all products error:', error);
     return c.json({ error: 'Mahsulotlarni olishda xatolik' }, 500);
@@ -3537,12 +3602,24 @@ app.post("/make-server-27d0d16c/products/:id/reviews", async (c) => {
       return c.json({ success: false, error: 'Baholash 1 dan 5 gacha bo‘lishi kerak' }, 400);
     }
 
+    const normalizeItemProductId = (raw: unknown): string => {
+      const s = String(raw ?? '').trim();
+      if (!s) return '';
+      // order item id ba'zan "shop_product:123" yoki "product:123" ko‘rinishida keladi
+      const last = s.includes(':') ? s.split(':').filter(Boolean).pop() : s;
+      return String(last ?? s).trim();
+    };
+
     const allOrders = await kv.getByPrefix('order:');
     const hasPurchased = (Array.isArray(allOrders) ? allOrders : []).some((order: any) => {
       if (!order || order.userId !== auth.userId) return false;
       if (String(order.status || '').toLowerCase() === 'cancelled') return false;
       const items = Array.isArray(order.items) ? order.items : [];
-      return items.some((item: any) => String(item?.id || item?.productId || '') === String(id));
+      return items.some((item: any) => {
+        const raw = item?.id ?? item?.productId ?? item?.product_id ?? '';
+        const norm = normalizeItemProductId(raw);
+        return norm === String(id) || String(raw).trim().endsWith(`:${String(id)}`);
+      });
     });
     if (!hasPurchased) {
       return c.json({ success: false, error: 'Sharh yozish uchun mahsulotni oldin xarid qilgan bo‘lishingiz kerak' }, 403);
@@ -4033,6 +4110,8 @@ app.get("/make-server-27d0d16c/branch-products", async (c) => {
     const regionId = c.req.query('regionId');
     const districtId = c.req.query('districtId');
     const includeSold = c.req.query('includeSold') === 'true';
+    const q = String(c.req.query('q') || '').trim();
+    const { page, limit, offset } = parsePageLimit(c, { page: 1, limit: 20, maxLimit: 60 });
     
     console.log('📦 Fetching branch products...', { branchId, regionId, districtId });
     
@@ -4075,8 +4154,12 @@ app.get("/make-server-27d0d16c/branch-products", async (c) => {
       }
     }
     
-    console.log(`✅ Found ${products.length} branch products`);
-    return c.json({ products });
+    products = applyTextSearch(products, q);
+    const total = products.length;
+    const pageItems = products.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
+    console.log(`✅ Found ${total} branch products (returning ${pageItems.length}, page=${page}, limit=${limit})`);
+    return c.json({ success: true, products: pageItems, page, limit, total, hasMore });
   } catch (error) {
     console.log('Get branch products error:', error);
     return c.json({ error: 'Mahsulotlarni olishda xatolik' }, 500);
@@ -14042,21 +14125,40 @@ app.get("/make-server-27d0d16c/seller/products", async (c) => {
       return c.json({ error: auth.error }, 401);
     }
 
+    const q = String(c.req.query("q") || "").trim();
+    const includeSold = String(c.req.query("includeSold") || "") === "1";
+    const { page, limit, offset } = parsePageLimit(c, { page: 1, limit: 20, maxLimit: 60 });
+
     const products = await kv.getByPrefix('shop_product:');
-    const shopProducts = products.filter(
+    let shopProducts = products.filter(
       (p: any) => sellerShopIdsMatch(p.shopId, auth.shopId) && !p.deleted,
     );
 
-    // Calculate soldThisWeek for each product's variants
-    for (const product of shopProducts) {
-      if (product.variants && Array.isArray(product.variants)) {
-        for (const variant of product.variants) {
-          variant.soldThisWeek = await calculateSoldThisWeek(product.id, variant.id);
+    if (q) {
+      const qq = q.toLowerCase();
+      shopProducts = shopProducts.filter((p: any) => {
+        const hay = `${p?.name ?? ""} ${p?.category ?? ""} ${p?.sku ?? ""} ${p?.barcode ?? ""}`.toLowerCase();
+        if (hay.includes(qq)) return true;
+        const vars = Array.isArray(p?.variants) ? p.variants : [];
+        return vars.some((v: any) => `${v?.name ?? ""} ${v?.barcode ?? ""} ${v?.sku ?? ""}`.toLowerCase().includes(qq));
+      });
+    }
+
+    const total = shopProducts.length;
+    const pageItems = shopProducts.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
+
+    if (includeSold) {
+      for (const product of pageItems) {
+        if (product.variants && Array.isArray(product.variants)) {
+          for (const variant of product.variants) {
+            variant.soldThisWeek = await calculateSoldThisWeek(product.id, variant.id);
+          }
         }
       }
     }
 
-    return c.json({ success: true, products: shopProducts });
+    return c.json({ success: true, products: pageItems, page, limit, total, hasMore });
   } catch (error: any) {
     console.error('Get shop products error:', error);
     return c.json({ error: 'Mahsulotlarni olishda xatolik' }, 500);
@@ -14095,6 +14197,9 @@ app.post("/make-server-27d0d16c/seller/products", async (c) => {
       productData.variants = productData.variants.map((v: any) => ({
         ...v,
         commission: clampPlatformCommissionPercent(v?.commission ?? v?.platformCommissionPercent),
+        ...(v?.costPrice != null && Number.isFinite(Number(v.costPrice))
+          ? { costPrice: Math.max(0, Math.floor(Number(v.costPrice))) }
+          : {}),
       }));
     }
 
@@ -14185,6 +14290,9 @@ app.put("/make-server-27d0d16c/seller/products/:id", async (c) => {
       updateData.variants = updateData.variants.map((v: any) => ({
         ...v,
         commission: clampPlatformCommissionPercent(v?.commission ?? v?.platformCommissionPercent),
+        ...(v?.costPrice != null && Number.isFinite(Number(v.costPrice))
+          ? { costPrice: Math.max(0, Math.floor(Number(v.costPrice))) }
+          : {}),
       }));
     }
 
@@ -14669,6 +14777,8 @@ app.get("/make-server-27d0d16c/seller/orders", async (c) => {
       return c.json({ error: auth.error }, 401);
     }
 
+    const q = String(c.req.query("q") || "").trim();
+    const { page, limit, offset } = parsePageLimit(c, { page: 1, limit: 20, maxLimit: 60 });
     const sellerShopNorm = normalizeShopIdForSeller(auth.shopId);
     const byId = new Map<string, any>();
 
@@ -14705,7 +14815,21 @@ app.get("/make-server-27d0d16c/seller/orders", async (c) => {
       return tb - ta;
     });
 
-    return c.json({ success: true, orders: merged });
+    let filtered = merged;
+    if (q) {
+      const qq = q.toLowerCase();
+      filtered = merged.filter((o: any) => {
+        const hay = `${o?.id ?? ""} ${o?.status ?? ""} ${o?.paymentStatus ?? ""} ${o?.customerName ?? ""} ${o?.phone ?? ""} ${o?.address ?? ""}`.toLowerCase();
+        if (hay.includes(qq)) return true;
+        const items = Array.isArray(o?.items) ? o.items : [];
+        return items.some((it: any) => `${it?.name ?? ""} ${it?.title ?? ""}`.toLowerCase().includes(qq));
+      });
+    }
+    const total = filtered.length;
+    const pageItems = filtered.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
+
+    return c.json({ success: true, orders: pageItems, page, limit, total, hasMore });
   } catch (error: any) {
     console.error("Get shop orders error:", error);
     return c.json({ error: "Buyurtmalarni olishda xatolik" }, 500);
@@ -14897,6 +15021,9 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
       const commissionRate = variant.commission || 0;
       const itemCommission = (itemTotal * commissionRate) / 100;
       const itemShopEarning = itemTotal - itemCommission;
+      const unitCost = Math.max(0, Math.floor(Number((variant as any).costPrice || 0)));
+      const itemCost = unitCost * qty;
+      const itemGrossProfit = itemShopEarning - itemCost;
 
       totalAmount += itemTotal;
       totalCommission += itemCommission;
@@ -14907,6 +15034,9 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
         commission: commissionRate,
         commissionAmount: itemCommission,
         shopEarning: itemShopEarning,
+        costPrice: unitCost,
+        costTotal: itemCost,
+        grossProfit: itemGrossProfit,
       });
     }
 
@@ -14925,6 +15055,8 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
       totalAmount,
       totalCommission,
       totalShopEarnings,
+      totalCost: processedItems.reduce((s: number, it: any) => s + Number(it?.costTotal || 0), 0),
+      totalGrossProfit: processedItems.reduce((s: number, it: any) => s + Number(it?.grossProfit || 0), 0),
       status: 'pending', // pending, confirmed, preparing, delivering, completed, cancelled
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -15071,6 +15203,591 @@ app.get("/make-server-27d0d16c/seller/statistics", async (c) => {
   }
 });
 
+// ==================== POS (OFFLINE SALES) ====================
+
+type PosOfflineSale = {
+  saleId: string;
+  shopId: string;
+  createdAt: string;
+  items?: Array<{ productId?: string; variantId?: string; qty?: number; priceUzs?: number }>;
+  totals?: { subtotalUzs?: number; discountUzs?: number; totalUzs?: number };
+  payment?: { method?: string; paidUzs?: number };
+  source?: string;
+};
+
+function toIsoMs(v: unknown): number | null {
+  if (v == null) return null;
+  const s = String(v).trim();
+  if (!s) return null;
+  const t = new Date(s).getTime();
+  return Number.isFinite(t) ? t : null;
+}
+
+// Create offline POS sale (sync endpoint)
+app.post("/make-server-27d0d16c/pos/sales", async (c) => {
+  try {
+    const auth = await validateSellerSession(c);
+    if (!auth.success) {
+      return c.json({ success: false, error: auth.error }, 401);
+    }
+
+    const body = (await c.req.json().catch(() => ({}))) as PosOfflineSale;
+    const saleId = String(body?.saleId || '').trim();
+    const shopId = String(body?.shopId || '').trim();
+    if (!saleId || !shopId) {
+      return c.json({ success: false, error: 'saleId va shopId kerak' }, 400);
+    }
+    if (!sellerShopIdsMatch(shopId, auth.shopId)) {
+      return c.json({ success: false, error: 'Ruxsat yo‘q (shopId mos emas)' }, 403);
+    }
+
+    const createdAt = String(body?.createdAt || '').trim() || new Date().toISOString();
+    const key = `pos:sale:${shopId}:${saleId}`;
+    const existing = await kv.get(key);
+    if (existing) {
+      // idempotent
+      return c.json({ success: true, saleId, already: true });
+    }
+
+    const totals = body?.totals && typeof body.totals === 'object' ? body.totals : {};
+    const totalUzs = Math.max(0, Math.floor(Number((totals as any).totalUzs) || 0));
+
+    // Apply inventory decrement (seller shop inventory) like Branch Market POS:
+    // - validate stock at sync time
+    // - if insufficient stock -> reject sale (client sync marks failed)
+    const items = Array.isArray(body?.items) ? body.items : [];
+    for (const raw of items) {
+      const productId = String((raw as any)?.productId ?? '').trim();
+      if (!productId) continue;
+      const variantId = String((raw as any)?.variantId ?? '').trim();
+      const qty = Math.max(0, Math.floor(Number((raw as any)?.qty ?? 0)));
+      if (qty <= 0) continue;
+
+      const productKey = productId.startsWith('shop_product:') ? productId : `shop_product:${productId}`;
+      const product = await kv.get(productKey);
+      if (!product || !sellerShopIdsMatch(product?.shopId, shopId) || product?.deleted) {
+        return c.json({ success: false, error: 'Mahsulot topilmadi', productId }, 404);
+      }
+
+      const variants = Array.isArray(product?.variants) ? [...product.variants] : [];
+      if (variants.length > 0) {
+        let idx = -1;
+        if (variantId) {
+          idx = variants.findIndex((v: any) => String(v?.id ?? '') === variantId);
+        }
+        if (idx < 0) idx = 0; // fallback to first variant if missing
+        const cur = Math.max(0, Math.floor(Number(variants[idx]?.stock ?? variants[idx]?.stockQuantity ?? 0)));
+        if (cur < qty) {
+          return c.json(
+            {
+              success: false,
+              error: `Omborda yetarli emas (${cur} ta bor)`,
+              code: 'INSUFFICIENT_STOCK',
+              productId,
+              variantId: variants[idx]?.id ?? null,
+              available: cur,
+              requested: qty,
+            },
+            409,
+          );
+        }
+        const next = cur - qty;
+        variants[idx] = { ...variants[idx], stock: next, stockQuantity: next };
+        const updatedProduct = { ...product, variants, updatedAt: new Date().toISOString() };
+        await kv.set(productKey, updatedProduct);
+      } else {
+        const cur = Math.max(0, Math.floor(Number(product?.stock ?? product?.stockQuantity ?? 0)));
+        if (cur < qty) {
+          return c.json(
+            {
+              success: false,
+              error: `Omborda yetarli emas (${cur} ta bor)`,
+              code: 'INSUFFICIENT_STOCK',
+              productId,
+              variantId: null,
+              available: cur,
+              requested: qty,
+            },
+            409,
+          );
+        }
+        const next = cur - qty;
+        const updatedProduct = { ...product, stock: next, stockQuantity: next, updatedAt: new Date().toISOString() };
+        await kv.set(productKey, updatedProduct);
+      }
+    }
+
+    const rec = {
+      saleId,
+      shopId,
+      createdAt,
+      items,
+      totals: {
+        subtotalUzs: Math.max(0, Math.floor(Number((totals as any).subtotalUzs) || 0)),
+        discountUzs: Math.max(0, Math.floor(Number((totals as any).discountUzs) || 0)),
+        totalUzs,
+      },
+      payment: body?.payment && typeof body.payment === 'object' ? body.payment : {},
+      source: 'offline',
+      syncedAt: new Date().toISOString(),
+    };
+
+    await kv.set(key, rec);
+    return c.json({ success: true, saleId });
+  } catch (e: any) {
+    console.error('[pos/sales] error', e);
+    return c.json({ success: false, error: 'POS sotuvni saqlashda xatolik' }, 500);
+  }
+});
+
+// POS stats for date range (online + offline)
+app.get("/make-server-27d0d16c/pos/stats", async (c) => {
+  try {
+    const auth = await validateSellerSession(c);
+    if (!auth.success) {
+      return c.json({ success: false, error: auth.error }, 401);
+    }
+    const shopId = String(auth.shopId || '').trim();
+    if (!shopId) return c.json({ success: false, error: 'shopId topilmadi' }, 400);
+
+    const fromMs = toIsoMs(c.req.query('from')) ?? (() => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    })();
+    const toMs = toIsoMs(c.req.query('to')) ?? Date.now();
+    const from = Math.min(fromMs, toMs);
+    const to = Math.max(fromMs, toMs);
+
+    // Online orders: legacy shop_order:* + customer checkout order:* (orderType=shop)
+    const byOnlineId = new Map<string, any>();
+    const allOrders = await kv.getByPrefix('shop_order:');
+    for (const o of Array.isArray(allOrders) ? allOrders : []) {
+      if (!o || o.deleted) continue;
+      if (!sellerShopIdsMatch(o?.shopId, shopId)) continue;
+      const oid = String(o?.id || '').trim();
+      if (!oid) continue;
+      byOnlineId.set(oid, { ...o, sellerOrderSource: 'legacy_shop_order' });
+    }
+
+    const checkoutRows = await kv.getByPrefixWithKeys('order:');
+    for (const { value } of Array.isArray(checkoutRows) ? checkoutRows : []) {
+      const order = parseOrderKvValue(value);
+      if (!order || order.deleted) continue;
+      const ot = String(order.orderType || '').toLowerCase().trim();
+      if (ot !== 'shop') continue;
+      const sid = inferShopIdFromCustomerOrder(order);
+      if (!sellerShopIdsMatch(sid, shopId)) continue;
+      const oid = String(order.id || '').trim();
+      if (!oid) continue;
+      byOnlineId.set(oid, { ...order, sellerOrderSource: 'customer_checkout' });
+    }
+
+    const shopOrders = Array.from(byOnlineId.values());
+
+    // Cost lookup map: productId::variantId -> costPrice
+    const allProducts = await kv.getByPrefix('shop_product:');
+    const shopProducts = (Array.isArray(allProducts) ? allProducts : []).filter(
+      (p: any) => sellerShopIdsMatch(p?.shopId, shopId) && !p?.deleted,
+    );
+    const costMap = new Map<string, number>();
+    for (const p of shopProducts) {
+      const pid = String(p?.id ?? '').trim();
+      if (!pid) continue;
+      const vars = Array.isArray(p?.variants) ? p.variants : [];
+      if (vars.length) {
+        for (const v of vars) {
+          const vid = String(v?.id ?? '').trim() || '__first__';
+          const cp = Math.max(0, Math.floor(Number(v?.costPrice ?? 0)));
+          costMap.set(`${pid}::${vid}`, cp);
+        }
+      } else {
+        const cp = Math.max(0, Math.floor(Number((p as any)?.costPrice ?? 0)));
+        costMap.set(`${pid}::__first__`, cp);
+      }
+    }
+
+    let onlineTotal = 0;
+    let onlineCount = 0;
+    let onlinePlatformCommission = 0;
+    let onlineSellerNet = 0;
+    let onlineCost = 0;
+    for (const o of shopOrders) {
+      const t = new Date(o?.createdAt || 0).getTime();
+      if (!Number.isFinite(t) || t < from || t > to) continue;
+      const st = String(o?.status || '').toLowerCase();
+      const pay = String(o?.paymentStatus || o?.payment_status || '').toLowerCase();
+      const paid =
+        st === 'completed' ||
+        pay === 'paid' ||
+        pay === 'completed' ||
+        pay === 'success';
+      if (!paid) continue;
+      onlineCount += 1;
+      const orderTotal = Math.max(0, Math.floor(Number(o?.totalAmount || o?.total || 0)));
+      onlineTotal += orderTotal;
+      onlinePlatformCommission += Math.max(0, Math.floor(Number(o?.totalCommission || 0)));
+      onlineSellerNet += Math.max(0, Math.floor(Number(o?.totalShopEarnings || 0)));
+
+      // cost: prefer snapshot if exists
+      const snapCost = Number((o as any)?.totalCost);
+      if (Number.isFinite(snapCost) && snapCost > 0) {
+        onlineCost += Math.max(0, Math.floor(snapCost));
+      } else {
+        const items = Array.isArray((o as any)?.items) ? (o as any).items : [];
+        for (const it of items) {
+          const pid = String(it?.productId ?? '').trim();
+          if (!pid) continue;
+          const vid = String(it?.variantId ?? '').trim() || '__first__';
+          const qty = Math.max(0, Math.floor(Number(it?.quantity ?? it?.qty ?? 1)));
+          const unitCost = costMap.get(`${pid}::${vid}`) ?? costMap.get(`${pid}::__first__`) ?? 0;
+          onlineCost += Math.max(0, unitCost) * qty;
+        }
+      }
+    }
+
+    // Offline: pos:sale:<shopId>:<saleId>
+    const offlineRows = await kv.getByPrefix(`pos:sale:${shopId}:`);
+    let offlineTotal = 0;
+    let offlineCount = 0;
+    let offlineCost = 0;
+    for (const s of Array.isArray(offlineRows) ? offlineRows : []) {
+      const t = new Date((s as any)?.createdAt || 0).getTime();
+      if (!Number.isFinite(t) || t < from || t > to) continue;
+      offlineCount += 1;
+      const total = Math.max(0, Math.floor(Number((s as any)?.totals?.totalUzs ?? (s as any)?.totalUzs ?? 0)));
+      offlineTotal += total;
+      const items = Array.isArray((s as any)?.items) ? (s as any).items : [];
+      for (const it of items) {
+        const pid = String(it?.productId ?? '').trim();
+        if (!pid) continue;
+        const vid = String(it?.variantId ?? '').trim() || '__first__';
+        const qty = Math.max(0, Math.floor(Number(it?.qty ?? it?.quantity ?? 1)));
+        const directCost = Number(it?.costUzs);
+        if (Number.isFinite(directCost) && directCost >= 0) {
+          offlineCost += Math.max(0, Math.floor(directCost)) * qty;
+          continue;
+        }
+        const unitCost = costMap.get(`${pid}::${vid}`) ?? costMap.get(`${pid}::__first__`) ?? 0;
+        offlineCost += Math.max(0, unitCost) * qty;
+      }
+    }
+
+    const combinedTotal = onlineTotal + offlineTotal;
+    const combinedCount = onlineCount + offlineCount;
+    const avgCheck = combinedCount > 0 ? Math.round(combinedTotal / combinedCount) : 0;
+    const offlinePlatformCommission = 0;
+    const offlineSellerNet = offlineTotal;
+    const onlineGrossProfit = onlineSellerNet - onlineCost;
+    const offlineGrossProfit = offlineSellerNet - offlineCost;
+    const combinedSellerNet = onlineSellerNet + offlineSellerNet;
+    const combinedPlatformCommission = onlinePlatformCommission + offlinePlatformCommission;
+    const combinedCost = onlineCost + offlineCost;
+    const combinedGrossProfit = combinedSellerNet - combinedCost;
+
+    return c.json({
+      success: true,
+      range: { from: new Date(from).toISOString(), to: new Date(to).toISOString() },
+      online: {
+        totalUzs: onlineTotal,
+        count: onlineCount,
+        platformCommissionUzs: onlinePlatformCommission,
+        sellerNetUzs: onlineSellerNet,
+        costUzs: onlineCost,
+        grossProfitUzs: onlineGrossProfit,
+      },
+      offline: {
+        totalUzs: offlineTotal,
+        count: offlineCount,
+        platformCommissionUzs: offlinePlatformCommission,
+        sellerNetUzs: offlineSellerNet,
+        costUzs: offlineCost,
+        grossProfitUzs: offlineGrossProfit,
+      },
+      combined: {
+        totalUzs: combinedTotal,
+        count: combinedCount,
+        avgCheckUzs: avgCheck,
+        platformCommissionUzs: combinedPlatformCommission,
+        sellerNetUzs: combinedSellerNet,
+        costUzs: combinedCost,
+        grossProfitUzs: combinedGrossProfit,
+      },
+    });
+  } catch (e: any) {
+    console.error('[pos/stats] error', e);
+    return c.json({ success: false, error: 'POS statistikada xatolik' }, 500);
+  }
+});
+
+// POS stats details (sales list) for date range (online + offline)
+app.get("/make-server-27d0d16c/pos/stats/details", async (c) => {
+  try {
+    const auth = await validateSellerSession(c);
+    if (!auth.success) {
+      return c.json({ success: false, error: auth.error }, 401);
+    }
+    const shopId = String(auth.shopId || "").trim();
+    if (!shopId) return c.json({ success: false, error: "shopId topilmadi" }, 400);
+
+    const fromMs = toIsoMs(c.req.query("from")) ?? (() => {
+      const d = new Date();
+      d.setHours(0, 0, 0, 0);
+      return d.getTime();
+    })();
+    const toMs = toIsoMs(c.req.query("to")) ?? Date.now();
+    const from = Math.min(fromMs, toMs);
+    const to = Math.max(fromMs, toMs);
+    const kind = String(c.req.query("kind") || "all").trim().toLowerCase(); // all|online|offline
+    const { page, limit, offset } = parsePageLimit(c, { page: 1, limit: 20, maxLimit: 100 });
+
+    // Cost lookup map: productId::variantId -> costPrice
+    const allProducts = await kv.getByPrefix("shop_product:");
+    const shopProducts = (Array.isArray(allProducts) ? allProducts : []).filter(
+      (p: any) => sellerShopIdsMatch(p?.shopId, shopId) && !p?.deleted,
+    );
+    const costMap = new Map<string, number>();
+    const imageMap = new Map<string, string>();
+    for (const p of shopProducts) {
+      const pid = String(p?.id ?? "").trim();
+      if (!pid) continue;
+      const vars = Array.isArray(p?.variants) ? p.variants : [];
+      if (vars.length) {
+        for (const v of vars) {
+          const vid = String(v?.id ?? "").trim() || "__first__";
+          const cp = Math.max(0, Math.floor(Number(v?.costPrice ?? 0)));
+          costMap.set(`${pid}::${vid}`, cp);
+          const img = String((Array.isArray(v?.images) ? v.images[0] : "") || (p as any)?.image || "").trim();
+          if (img) imageMap.set(`${pid}::${vid}`, img);
+        }
+      } else {
+        const cp = Math.max(0, Math.floor(Number((p as any)?.costPrice ?? 0)));
+        costMap.set(`${pid}::__first__`, cp);
+        const img = String((p as any)?.image || "").trim();
+        if (img) imageMap.set(`${pid}::__first__`, img);
+      }
+    }
+
+    type DetailItem = {
+      productId?: string;
+      variantId?: string;
+      name: string;
+      variantLabel?: string;
+      qty: number;
+      priceUzs: number;
+      totalUzs: number;
+      costUzs?: number;
+      image?: string;
+    };
+
+    type DetailRow = {
+      id: string;
+      kind: "online" | "offline";
+      createdAt: string;
+      paymentMethod?: string;
+      status?: string;
+      items: DetailItem[];
+      totals: {
+        subtotalUzs: number;
+        discountUzs: number;
+        totalUzs: number;
+        platformCommissionUzs: number;
+        sellerNetUzs: number;
+        costUzs: number;
+        grossProfitUzs: number;
+      };
+      source?: string;
+    };
+
+    const rows: DetailRow[] = [];
+
+    // ONLINE: legacy + checkout orders
+    if (kind === "all" || kind === "online") {
+      const byOnlineId = new Map<string, any>();
+      const allOrders = await kv.getByPrefix("shop_order:");
+      for (const o of Array.isArray(allOrders) ? allOrders : []) {
+        if (!o || o.deleted) continue;
+        if (!sellerShopIdsMatch(o?.shopId, shopId)) continue;
+        const oid = String(o?.id || "").trim();
+        if (!oid) continue;
+        byOnlineId.set(oid, { ...o, sellerOrderSource: "legacy_shop_order" });
+      }
+
+      const checkoutRows = await kv.getByPrefixWithKeys("order:");
+      for (const { value } of Array.isArray(checkoutRows) ? checkoutRows : []) {
+        const order = parseOrderKvValue(value);
+        if (!order || order.deleted) continue;
+        const ot = String(order.orderType || "").toLowerCase().trim();
+        if (ot !== "shop") continue;
+        const sid = inferShopIdFromCustomerOrder(order);
+        if (!sellerShopIdsMatch(sid, shopId)) continue;
+        const oid = String(order.id || "").trim();
+        if (!oid) continue;
+        byOnlineId.set(oid, { ...order, sellerOrderSource: "customer_checkout" });
+      }
+
+      for (const o of Array.from(byOnlineId.values())) {
+        const t = new Date(o?.createdAt || 0).getTime();
+        if (!Number.isFinite(t) || t < from || t > to) continue;
+        const st = String(o?.status || "").toLowerCase();
+        const pay = String(o?.paymentStatus || o?.payment_status || "").toLowerCase();
+        const paid =
+          st === "completed" ||
+          pay === "paid" ||
+          pay === "completed" ||
+          pay === "success";
+        if (!paid) continue;
+
+        const id = String(o?.id || o?.orderNumber || "").trim() || `${t}`;
+        const orderTotal = Math.max(0, Math.floor(Number(o?.totalAmount || o?.total || 0)));
+        const commission = Math.max(0, Math.floor(Number(o?.totalCommission || 0)));
+        const sellerNet = Math.max(0, Math.floor(Number(o?.totalShopEarnings || 0)));
+
+        const itemsRaw = Array.isArray((o as any)?.items) ? (o as any).items : [];
+        const items: DetailItem[] = [];
+        let costTotal = 0;
+        for (const it of itemsRaw) {
+          const pid = String(it?.productId ?? it?.id ?? it?.product?.id ?? "").trim();
+          const vid = String(it?.variantId ?? "").trim() || "__first__";
+          const qty = Math.max(0, Math.floor(Number(it?.quantity ?? it?.qty ?? 1)));
+          const priceUzs = Math.max(0, Math.floor(Number(it?.price ?? it?.priceUzs ?? 0)));
+          const totalUzs = priceUzs * qty;
+          const unitCost = costMap.get(`${pid}::${vid}`) ?? costMap.get(`${pid}::__first__`) ?? 0;
+          const costUzs = Math.max(0, unitCost) * qty;
+          costTotal += costUzs;
+          const image =
+            imageMap.get(`${pid}::${vid}`) ??
+            imageMap.get(`${pid}::__first__`) ??
+            undefined;
+          items.push({
+            productId: pid || undefined,
+            variantId: vid === "__first__" ? undefined : vid,
+            name: String(it?.name ?? it?.title ?? "Mahsulot"),
+            variantLabel: String(it?.variantName ?? it?.variantLabel ?? "").trim() || undefined,
+            qty,
+            priceUzs,
+            totalUzs,
+            costUzs,
+            ...(image ? { image } : {}),
+          });
+        }
+        const snapCost = Number((o as any)?.totalCost);
+        if (Number.isFinite(snapCost) && snapCost >= 0) costTotal = Math.max(0, Math.floor(snapCost));
+        const grossProfit = sellerNet - costTotal;
+
+        rows.push({
+          id,
+          kind: "online",
+          createdAt: String(o?.createdAt || new Date(t).toISOString()),
+          paymentMethod: String(o?.paymentMethod || o?.payment_method || ""),
+          status: String(o?.status || ""),
+          source: String((o as any)?.sellerOrderSource || ""),
+          items,
+          totals: {
+            subtotalUzs: Math.max(0, orderTotal),
+            discountUzs: 0,
+            totalUzs: Math.max(0, orderTotal),
+            platformCommissionUzs: commission,
+            sellerNetUzs: sellerNet,
+            costUzs: Math.max(0, costTotal),
+            grossProfitUzs: Math.max(-999999999, Math.floor(grossProfit)),
+          },
+        });
+      }
+    }
+
+    // OFFLINE: pos sales
+    if (kind === "all" || kind === "offline") {
+      const offlineRows = await kv.getByPrefix(`pos:sale:${shopId}:`);
+      for (const s of Array.isArray(offlineRows) ? offlineRows : []) {
+        const t = new Date((s as any)?.createdAt || 0).getTime();
+        if (!Number.isFinite(t) || t < from || t > to) continue;
+        const saleId = String((s as any)?.saleId ?? "").trim() || String(t);
+        const totalUzs = Math.max(0, Math.floor(Number((s as any)?.totals?.totalUzs ?? (s as any)?.totalUzs ?? 0)));
+        const discountUzs = Math.max(0, Math.floor(Number((s as any)?.totals?.discountUzs ?? 0)));
+        const subtotalUzs = Math.max(totalUzs + discountUzs, Math.max(0, Math.floor(Number((s as any)?.totals?.subtotalUzs ?? 0))));
+        const paymentMethod = String((s as any)?.payment?.method ?? "");
+
+        const itemsRaw = Array.isArray((s as any)?.items) ? (s as any).items : [];
+        const items: DetailItem[] = [];
+        let costTotal = 0;
+        for (const it of itemsRaw) {
+          const pid = String(it?.productId ?? "").trim();
+          const vid = String(it?.variantId ?? "").trim() || "__first__";
+          const qty = Math.max(0, Math.floor(Number(it?.qty ?? it?.quantity ?? 1)));
+          const priceUzs = Math.max(0, Math.floor(Number(it?.priceUzs ?? it?.price ?? 0)));
+          const lineTotal = priceUzs * qty;
+          const directCost = Number(it?.costUzs);
+          const unitCost =
+            Number.isFinite(directCost) && directCost >= 0
+              ? Math.max(0, Math.floor(directCost))
+              : costMap.get(`${pid}::${vid}`) ?? costMap.get(`${pid}::__first__`) ?? 0;
+          const costUzs = Math.max(0, unitCost) * qty;
+          costTotal += costUzs;
+          const image =
+            imageMap.get(`${pid}::${vid}`) ??
+            imageMap.get(`${pid}::__first__`) ??
+            undefined;
+
+          let name = String(it?.variantLabel || "").trim();
+          if (!name) name = pid ? `Mahsulot ${pid}` : "Mahsulot";
+          // best effort: try read product name for nicer UI
+          if (pid) {
+            try {
+              const prod = await kv.get(`shop_product:${pid}`);
+              if (prod?.name) name = String(prod.name);
+              const pimg = String((prod as any)?.image || "").trim();
+              if (!image && pimg) imageMap.set(`${pid}::__first__`, pimg);
+            } catch {
+              /* ignore */
+            }
+          }
+          items.push({
+            productId: pid || undefined,
+            variantId: vid === "__first__" ? undefined : vid,
+            name,
+            variantLabel: String(it?.variantLabel ?? it?.variantName ?? "").trim() || undefined,
+            qty,
+            priceUzs,
+            totalUzs: lineTotal,
+            costUzs,
+            ...(image ? { image } : {}),
+          });
+        }
+        const sellerNet = totalUzs;
+        const grossProfit = sellerNet - costTotal;
+        rows.push({
+          id: saleId,
+          kind: "offline",
+          createdAt: String((s as any)?.createdAt || new Date(t).toISOString()),
+          paymentMethod,
+          status: "offline",
+          source: "pos",
+          items,
+          totals: {
+            subtotalUzs,
+            discountUzs,
+            totalUzs,
+            platformCommissionUzs: 0,
+            sellerNetUzs: sellerNet,
+            costUzs: Math.max(0, costTotal),
+            grossProfitUzs: Math.max(-999999999, Math.floor(grossProfit)),
+          },
+        });
+      }
+    }
+
+    rows.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const total = rows.length;
+    const pageItems = rows.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
+    return c.json({ success: true, range: { from: new Date(from).toISOString(), to: new Date(to).toISOString() }, page, limit, total, hasMore, rows: pageItems });
+  } catch (e: any) {
+    console.error("[pos/stats/details] error", e);
+    return c.json({ success: false, error: "Statistika detalida xatolik" }, 500);
+  }
+});
+
 // ==================== SHOP INVENTORY (SELLER PANEL) ====================
 
 const LOW_STOCK_THRESHOLD = 5;
@@ -15084,6 +15801,8 @@ app.get("/make-server-27d0d16c/seller/inventory", async (c) => {
       return c.json({ error: auth.error }, 401);
     }
 
+    const q = String(c.req.query("q") || "").trim();
+    const { page, limit, offset } = parsePageLimit(c, { page: 1, limit: 30, maxLimit: 120 });
     const products = await kv.getByPrefix('shop_product:');
     const shopProducts = products.filter(
       (p: any) => sellerShopIdsMatch(p.shopId, auth.shopId) && !p.deleted,
@@ -15095,6 +15814,7 @@ app.get("/make-server-27d0d16c/seller/inventory", async (c) => {
       if (vars) {
         vars.forEach((v: any, i: number) => {
           const st = Number(v.stock ?? v.stockQuantity ?? 0);
+          const costPrice = Math.max(0, Math.floor(Number(v?.costPrice ?? 0)));
           items.push({
             productId: p.id,
             productName: String(p.name || 'Mahsulot'),
@@ -15103,12 +15823,14 @@ app.get("/make-server-27d0d16c/seller/inventory", async (c) => {
             variantLabel: String(v.name || '').trim() || `Variant ${i + 1}`,
             stock: Number.isFinite(st) ? Math.max(0, Math.floor(st)) : 0,
             price: Number(v.price) || 0,
+            costPrice,
             image: (Array.isArray(v.images) && v.images[0]) || p.image || null,
             barcode: String(v.barcode || ''),
           });
         });
       } else {
         const st = Number(p.stock ?? p.stockQuantity ?? 0);
+        const costPrice = Math.max(0, Math.floor(Number((p as any)?.costPrice ?? 0)));
         items.push({
           productId: p.id,
           productName: String(p.name || 'Mahsulot'),
@@ -15117,6 +15839,7 @@ app.get("/make-server-27d0d16c/seller/inventory", async (c) => {
           variantLabel: 'Asosiy',
           stock: Number.isFinite(st) ? Math.max(0, Math.floor(st)) : 0,
           price: Number(p.price) || 0,
+          costPrice,
           image: p.image || null,
           barcode: '',
         });
@@ -15146,11 +15869,24 @@ app.get("/make-server-27d0d16c/seller/inventory", async (c) => {
         ? p.variants.reduce((acc: number, v: any) => acc + (Number(v.stock ?? v.stockQuantity) || 0), 0)
         : Number(p.stock ?? p.stockQuantity) || 0,
       price: p.price,
+      costPrice: Math.max(0, Math.floor(Number(p?.costPrice ?? 0))),
       category: p.category,
       image: p.image,
     }));
 
-    return c.json({ success: true, items, summary, inventory: inventoryLegacy });
+    let filteredItems = items;
+    if (q) {
+      const qq = q.toLowerCase();
+      filteredItems = items.filter((it: any) => {
+        const hay = `${it?.productName ?? ""} ${it?.variantLabel ?? ""} ${it?.barcode ?? ""}`.toLowerCase();
+        return hay.includes(qq);
+      });
+    }
+    const total = filteredItems.length;
+    const pageItems = filteredItems.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
+
+    return c.json({ success: true, items: pageItems, summary, inventory: inventoryLegacy, page, limit, total, hasMore });
   } catch (error: any) {
     console.error('Get inventory error:', error);
     return c.json({ error: 'Ombor ma\'lumotlarini olishda xatolik' }, 500);
@@ -15241,6 +15977,8 @@ app.get("/make-server-27d0d16c/shops/:shopId/products", async (c) => {
     const shopId = c.req.param('shopId');
     const region = c.req.query('region');
     const district = c.req.query('district');
+    const q = String(c.req.query('q') || '').trim();
+    const { page, limit, offset } = parsePageLimit(c, { page: 1, limit: 20, maxLimit: 60 });
     
     console.log(`📍 Filter parameters - Region: ${region}, District: ${district}`);
     
@@ -15250,7 +15988,7 @@ app.get("/make-server-27d0d16c/shops/:shopId/products", async (c) => {
     ]);
     const reviewStats = buildProductReviewStatsMap(allReviews);
 
-    const shopProducts = products
+    const shopProductsAll = products
       .filter((p: any) => {
         if (!p || p.deleted) return false;
         if (p.shopId !== shopId) return false;
@@ -15296,13 +16034,74 @@ app.get("/make-server-27d0d16c/shops/:shopId/products", async (c) => {
         };
       });
 
-    console.log(`📦 Returning ${shopProducts.length} products for shop ${shopId} (region: ${region}, district: ${district})`);
-    console.log('📦 Sample product:', shopProducts[0]);
+    const shopProductsFiltered = applyTextSearch(shopProductsAll, q);
+    const total = shopProductsFiltered.length;
+    const pageItems = shopProductsFiltered.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
 
-    return c.json({ success: true, products: shopProducts });
+    console.log(`📦 Returning ${pageItems.length}/${total} products for shop ${shopId} (page=${page}, limit=${limit})`);
+    console.log('📦 Sample product:', pageItems[0]);
+
+    return c.json({ success: true, products: pageItems, page, limit, total, hasMore });
   } catch (error: any) {
     console.error('Get shop products error:', error);
     return c.json({ error: 'Mahsulotlarni olishda xatolik' }, 500);
+  }
+});
+
+// Get shop products by branch (operator/branch panel) - paged (public anon)
+app.get("/make-server-27d0d16c/branch/shop-products", async (c) => {
+  try {
+    const branchId = String(c.req.query('branchId') || '').trim();
+    const shopId = String(c.req.query('shopId') || '').trim();
+    const q = String(c.req.query('q') || '').trim();
+    const { page, limit, offset } = parsePageLimit(c, { page: 1, limit: 20, maxLimit: 60 });
+
+    if (!branchId) {
+      return c.json({ success: false, error: 'branchId kerak' }, 400);
+    }
+
+    const [products, allReviews] = await Promise.all([
+      kv.getByPrefix('shop_product:'),
+      kv.getByPrefix('review:product:'),
+    ]);
+    const reviewStats = buildProductReviewStatsMap(allReviews);
+
+    const all = (Array.isArray(products) ? products : [])
+      .filter((p: any) => {
+        if (!p || p.deleted) return false;
+        if (String(p.branchId || '').trim() !== branchId) return false;
+        if (shopId && String(p.shopId || '').trim() !== shopId) return false;
+        return true;
+      })
+      .map((product: any) => {
+        const { base, totalStock } = normalizeShopProductForPublicResponse(product);
+        const firstVariant = base.variants?.[0];
+        const pid = String(base.id || '').trim();
+        const st = pid ? reviewStats.get(pid) : undefined;
+        const reviewCount = st?.count || 0;
+        const rating = reviewCount > 0 && st ? Number((st.total / st.count).toFixed(1)) : 0;
+        return {
+          ...base,
+          price: firstVariant?.price || 0,
+          oldPrice: firstVariant?.oldPrice || null,
+          image: firstVariant?.images?.[0] || null,
+          stockQuantity: totalStock,
+          variantsCount: base.variants?.length || 0,
+          rating,
+          reviewCount,
+        };
+      });
+
+    const filtered = applyTextSearch(all, q);
+    const total = filtered.length;
+    const pageItems = filtered.slice(offset, offset + limit);
+    const hasMore = offset + limit < total;
+
+    return c.json({ success: true, products: pageItems, page, limit, total, hasMore });
+  } catch (error: any) {
+    console.error('Get branch shop products error:', error);
+    return c.json({ success: false, error: 'Mahsulotlarni olishda xatolik' }, 500);
   }
 });
 
@@ -20321,6 +21120,8 @@ app.get('/make-server-27d0d16c/v2/branch/orders', async (c) => {
 
     const type = (c.req.query('type') || 'all') ? String(c.req.query('type')).trim() : 'all';
     const limit = Math.min(200, Math.max(1, Number(c.req.query('limit') || 100)));
+    const page = Math.max(1, Number(c.req.query('page') || 1));
+    const offset = (page - 1) * limit;
 
     const orderTypeMap: Record<string, string> = {
       all: '',
@@ -20334,7 +21135,8 @@ app.get('/make-server-27d0d16c/v2/branch/orders', async (c) => {
 
     // Shallow embed only (same pattern as getSellerOrderQueue). Deep nesting
     // (order_addresses / payments) often breaks PostgREST; load those in follow-up queries.
-    const { data, error } = await supabase
+    const fetchLimit = Math.min(201, limit + 1);
+    let q = supabase
       .from('order_groups')
       .select(
         `
@@ -20371,8 +21173,13 @@ app.get('/make-server-27d0d16c/v2/branch/orders', async (c) => {
       `,
       )
       .eq('branch_id', pgBranchId)
+      .order('created_at', { ascending: false });
+
+    if (normalizedType) q = q.eq('vertical_type', normalizedType);
+
+    const { data, error } = await q
       .order('created_at', { ascending: false })
-      .limit(limit);
+      .range(offset, offset + fetchLimit - 1);
 
     if (error) {
       console.error('v2 branch orders query error:', error);
@@ -20386,7 +21193,9 @@ app.get('/make-server-27d0d16c/v2/branch/orders', async (c) => {
       );
     }
 
-    const groups = Array.isArray(data) ? data : [];
+    const groupsAll = Array.isArray(data) ? data : [];
+    const hasMore = groupsAll.length > limit;
+    const groups = hasMore ? groupsAll.slice(0, limit) : groupsAll;
     const orderIds = [
       ...new Set(
         groups
@@ -20460,10 +21269,6 @@ app.get('/make-server-27d0d16c/v2/branch/orders', async (c) => {
         }
       }
     }
-    const filtered = normalizedType
-      ? groups.filter((g: any) => String(g?.vertical_type || '') === normalizedType)
-      : groups;
-
     const mapVerticalToLegacyType = (v: any) => {
       const x = String(v || '').toLowerCase().trim();
       if (x === 'food') return 'restaurant';
@@ -20492,7 +21297,7 @@ app.get('/make-server-27d0d16c/v2/branch/orders', async (c) => {
       return 'pending';
     };
 
-    const orders = filtered.map((g: any) => {
+    const orders = groups.map((g: any) => {
       const o = g?.order || {};
       const oid = String(o?.id || g?.order_id || '').trim();
       const shipping = oid ? shippingByOrderId.get(oid) || null : null;
@@ -20529,7 +21334,7 @@ app.get('/make-server-27d0d16c/v2/branch/orders', async (c) => {
       };
     });
 
-    return c.json({ success: true, orders, total: orders.length });
+    return c.json({ success: true, orders, page, limit, hasMore });
   } catch (error: any) {
     console.error('v2 branch orders error:', error);
     return c.json({ success: false, error: 'Filial buyurtmalarini olishda xatolik' }, 500);

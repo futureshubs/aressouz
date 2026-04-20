@@ -18,6 +18,8 @@ interface Variant {
   id: string;
   name: string;
   price: number;
+  /** Asl narx (tannarx) — ixtiyoriy */
+  costPrice?: number;
   oldPrice: number;
   commission: number;
   stock: number;
@@ -51,6 +53,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
     id: Date.now().toString(),
     name: '',
     price: 0,
+    costPrice: undefined,
     oldPrice: 0,
     commission: 0,
     stock: 0,
@@ -72,6 +75,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
       id: Date.now().toString(),
       name: '',
       price: 0,
+      costPrice: undefined,
       oldPrice: 0,
       commission: 0,
       stock: 0,
@@ -332,6 +336,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
               id: v.id,
               name: v.name,
               price: v.price,
+              ...(v.costPrice != null && Number.isFinite(Number(v.costPrice)) ? { costPrice: Number(v.costPrice) } : {}),
               oldPrice: v.oldPrice,
               commission: v.commission,
               stock: v.stock,
@@ -377,6 +382,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
         id: Date.now().toString(),
         name: '',
         price: 0,
+        costPrice: undefined,
         oldPrice: 0,
         commission: 0,
         stock: 0,
@@ -576,7 +582,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium mb-2">Narx (so'm) *</label>
+                    <label className="block text-sm font-medium mb-2">Sotish narxi (so'm) *</label>
                     <input
                       type="number"
                       value={variant.price || ''}
@@ -588,6 +594,31 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
                       }}
                       placeholder="0"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Asl narx (tannarx)</label>
+                    <input
+                      type="number"
+                      value={variant.costPrice ?? ''}
+                      onChange={(e) =>
+                        handleVariantChange(
+                          index,
+                          'costPrice',
+                          e.target.value === '' ? undefined : Number(e.target.value),
+                        )
+                      }
+                      className="w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2"
+                      style={{
+                        background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f9fafb',
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                      }}
+                      placeholder="Ixtiyoriy"
+                      min={0}
+                    />
+                    <p className="text-xs mt-1 opacity-60">
+                      Ixtiyoriy: tannarx kiritilsa statistikada sof foyda aniqroq chiqadi.
+                    </p>
                   </div>
 
                   <div>

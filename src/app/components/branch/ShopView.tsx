@@ -106,6 +106,7 @@ export default function ShopView({ branchId }: ShopViewProps) {
   const [shops, setShops] = useState<any[]>([]);
   const [shopProducts, setShopProducts] = useState<any[]>([]);
   const [shopOrders, setShopOrders] = useState<ShopOrderRow[]>([]);
+  const [ordersVisible, setOrdersVisible] = useState(20);
   const [isLoading, setIsLoading] = useState(true);
   const [shopModalOpen, setShopModalOpen] = useState(false);
   const [editingShop, setEditingShop] = useState<any | null>(null);
@@ -212,6 +213,7 @@ export default function ShopView({ branchId }: ShopViewProps) {
         try {
           const orders = await loadShopOrders();
           setShopOrders(orders);
+          setOrdersVisible(20);
         } catch (e) {
           console.error(e);
           setShopOrders([]);
@@ -1129,7 +1131,7 @@ export default function ShopView({ branchId }: ShopViewProps) {
                 }}
               >
                 <div className="px-4 py-3 font-bold border-b" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
-                  So‘nggi buyurtmalar (20)
+                  Buyurtmalar
                 </div>
                 {shopOrders.length === 0 ? (
                   <div className="p-10 text-center text-sm" style={{ opacity: 0.65 }}>
@@ -1137,48 +1139,102 @@ export default function ShopView({ branchId }: ShopViewProps) {
                     ham tekshiring.
                   </div>
                 ) : (
-                  <div className="overflow-x-auto">
-                    <table className="w-full text-sm min-w-[640px]">
-                      <thead>
-                        <tr style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
-                          <th className="text-left p-3 font-bold">№</th>
-                          <th className="text-left p-3 font-bold">Sana</th>
-                          <th className="text-left p-3 font-bold">Holat</th>
-                          <th className="text-left p-3 font-bold">To‘lov</th>
-                          <th className="text-right p-3 font-bold">Summa</th>
-                        </tr>
-                      </thead>
-                      <tbody>
-                        {shopOrders.slice(0, 20).map((o, idx) => (
-                          <tr
-                            key={`${o.id}-${o.orderId}-${idx}`}
-                            className="border-t"
-                            style={{
-                              borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-                            }}
-                          >
-                            <td className="p-3 font-semibold">#{o.orderId || o.id}</td>
-                            <td className="p-3 tabular-nums" style={{ opacity: 0.85 }}>
-                              {o.createdAt
-                                ? new Date(o.createdAt).toLocaleString('uz-UZ', {
-                                    day: '2-digit',
-                                    month: 'short',
-                                    hour: '2-digit',
-                                    minute: '2-digit',
-                                  })
-                                : '—'}
-                            </td>
-                            <td className="p-3">{statusUz(o.status)}</td>
-                            <td className="p-3 capitalize" style={{ opacity: 0.85 }}>
-                              {o.paymentStatus || '—'}
-                            </td>
-                            <td className="p-3 text-right font-semibold tabular-nums">
-                              {Math.round(o.totalAmount).toLocaleString()} so‘m
-                            </td>
+                  <div className="p-3 space-y-2">
+                    {/* Mobile: card list (no horizontal scroll) */}
+                    <div className="sm:hidden space-y-2">
+                      {shopOrders.slice(0, ordersVisible).map((o, idx) => (
+                        <div
+                          key={`${o.id}-${o.orderId}-${idx}`}
+                          className="rounded-xl border p-3"
+                          style={{
+                            borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)',
+                            background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-3">
+                            <div className="min-w-0">
+                              <div className="font-bold truncate">#{o.orderId || o.id}</div>
+                              <div className="text-xs mt-0.5" style={{ opacity: 0.75 }}>
+                                {o.createdAt ? new Date(o.createdAt).toLocaleString('uz-UZ') : '—'}
+                              </div>
+                              <div className="text-xs mt-1" style={{ opacity: 0.8 }}>
+                                Holat: <span className="font-semibold">{statusUz(o.status)}</span>
+                              </div>
+                              <div className="text-xs mt-0.5" style={{ opacity: 0.8 }}>
+                                To‘lov: <span className="font-semibold capitalize">{o.paymentStatus || '—'}</span>
+                              </div>
+                            </div>
+                            <div className="shrink-0 text-right">
+                              <div className="font-extrabold tabular-nums">
+                                {Math.round(o.totalAmount).toLocaleString()} so‘m
+                              </div>
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+
+                    {/* Desktop/tablet: table */}
+                    <div className="hidden sm:block overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}>
+                            <th className="text-left p-3 font-bold">№</th>
+                            <th className="text-left p-3 font-bold">Sana</th>
+                            <th className="text-left p-3 font-bold">Holat</th>
+                            <th className="text-left p-3 font-bold">To‘lov</th>
+                            <th className="text-right p-3 font-bold">Summa</th>
                           </tr>
-                        ))}
-                      </tbody>
-                    </table>
+                        </thead>
+                        <tbody>
+                          {shopOrders.slice(0, ordersVisible).map((o, idx) => (
+                            <tr
+                              key={`${o.id}-${o.orderId}-${idx}`}
+                              className="border-t"
+                              style={{
+                                borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                              }}
+                            >
+                              <td className="p-3 font-semibold">#{o.orderId || o.id}</td>
+                              <td className="p-3 tabular-nums" style={{ opacity: 0.85 }}>
+                                {o.createdAt
+                                  ? new Date(o.createdAt).toLocaleString('uz-UZ', {
+                                      day: '2-digit',
+                                      month: 'short',
+                                      hour: '2-digit',
+                                      minute: '2-digit',
+                                    })
+                                  : '—'}
+                              </td>
+                              <td className="p-3">{statusUz(o.status)}</td>
+                              <td className="p-3 capitalize" style={{ opacity: 0.85 }}>
+                                {o.paymentStatus || '—'}
+                              </td>
+                              <td className="p-3 text-right font-semibold tabular-nums">
+                                {Math.round(o.totalAmount).toLocaleString()} so‘m
+                              </td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+
+                    <div className="pt-2 flex items-center justify-center">
+                      {ordersVisible < shopOrders.length ? (
+                        <button
+                          type="button"
+                          onClick={() => setOrdersVisible((c) => Math.min(c + 30, shopOrders.length))}
+                          className="px-5 py-3 rounded-2xl font-bold text-white transition active:scale-95"
+                          style={{ background: accentColor.gradient }}
+                        >
+                          Yana ko‘rsatish
+                        </button>
+                      ) : (
+                        <span className="text-xs" style={{ opacity: 0.7 }}>
+                          Hammasi ko‘rsatildi
+                        </span>
+                      )}
+                    </div>
                   </div>
                 )}
               </div>

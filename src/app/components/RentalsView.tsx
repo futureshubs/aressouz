@@ -7,17 +7,19 @@ import { rentalCatalogs, rentalCategories, rentalBanners, RentalItem } from '../
 import { RentalCategoryCard } from './RentalCategoryCard';
 import { RentalItemDetailModal } from './RentalItemDetailModal';
 import { LayoutGrid, Package, ArrowLeft, ChevronRight } from 'lucide-react';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { regions as allRegions } from '../data/regions';
 import { BannerCarousel } from './BannerCarousel';
 import { matchesSelectedLocation } from '../utils/locationMatching';
 import { ProductGridSkeleton } from './skeletons';
-import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
 import { CardImageScroll } from './CardImageScroll';
 import { collectProductGalleryImages } from '../utils/cardGalleryImages';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
+import { fetchPagedRentalProducts } from '../services/pagedCatalogApi';
 
 interface RentalsViewProps {
   platform: Platform;
@@ -36,83 +38,46 @@ export function RentalsView({ platform }: RentalsViewProps) {
   const [selectedItem, setSelectedItem] = useState<RentalItem | null>(null);
   const [currentBanner, setCurrentBanner] = useState(0);
   
-  // Backend state
-  const [backendProducts, setBackendProducts] = useState<any[]>([]);
-  const [loading, setLoading] = useState(true);
+  const debouncedSearch = useDebouncedValue(normalizeHeaderSearch(headerSearch) ? headerSearch : '', 300);
 
-  // Load all rental products from backend
-  useEffect(() => {
-    loadAllRentalProducts();
-  }, []);
+  // Convert region/district IDs (LocationContext) to names (UI only)
+  const selectedRegionData = allRegions.find(r => r.id === selectedRegionId);
+  const selectedRegionName = selectedRegionData?.name || '';
+  const selectedDistrictData = selectedRegionData?.districts.find(d => d.id === selectedDistrictId);
+  const selectedDistrictName = selectedDistrictData?.name || '';
 
-  const loadAllRentalProducts = async () => {
-    try {
-      setLoading(true);
-      
-      // Get all branches first
-      const branchesRes = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branches`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`
-          }
-        }
-      );
-      
-      if (!branchesRes.ok) {
-        console.error('Failed to fetch branches:', branchesRes.status);
-        return;
-      }
-      
-      const branchesData = await branchesRes.json();
-      console.log('📦 Branches loaded:', branchesData);
-      
-      if (branchesData.branches && Array.isArray(branchesData.branches)) {
-        // Load products from all branches
-        const allProducts: any[] = [];
-        
-        for (const branch of branchesData.branches) {
-          try {
-            console.log(`🔄 Loading rental products for branch: ${branch.id}`);
-            const productsRes = await fetch(
-              `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/rentals/products/${branch.id}`,
-              {
-                headers: {
-                  'Authorization': `Bearer ${publicAnonKey}`
-                }
-              }
-            );
-            
-            if (!productsRes.ok) {
-              console.error(`❌ Failed to fetch products for branch ${branch.id}:`, productsRes.status);
-              continue;
-            }
-            
-            const productsData = await productsRes.json();
-            console.log(`✅ Products loaded for branch ${branch.id}:`, productsData);
-            
-            if (productsData.success && productsData.products) {
-              allProducts.push(...productsData.products);
-            }
-          } catch (error) {
-            console.error(`❌ Error loading rental products for branch ${branch.id}:`, error);
-            // Continue with other branches
-          }
-        }
-        
-        console.log('📦 Total rental products loaded:', allProducts.length);
-        setBackendProducts(allProducts);
-      }
-    } catch (error) {
-      console.error('❌ Error loading rental products:', error);
-      // Don't show error toast, just log it
-    } finally {
-      setLoading(false);
-    }
-  };
+  const rentalsQuery = useInfiniteQuery({
+    queryKey: ['rentals-products', selectedRegionId, selectedDistrictId, debouncedSearch, selectedCatalogId, selectedCategoryId],
+    enabled: Boolean(selectedRegionId && selectedDistrictId),
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      return await fetchPagedRentalProducts<any>({
+        region: selectedRegionId,
+        district: selectedDistrictId,
+        q: debouncedSearch,
+        catalog: selectedCatalogId ?? undefined,
+        category: selectedCategoryId ?? undefined,
+        page: Number(pageParam) || 1,
+        limit: 20,
+        signal,
+      });
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
+
+  const backendProducts = useMemo(() => rentalsQuery.data?.pages?.flatMap((p) => p.products || []) ?? [], [rentalsQuery.data]);
+  const loading = rentalsQuery.isLoading;
+
+  const rentalsSentinelRef = useIntersectionSentinel({
+    enabled: Boolean(rentalsQuery.hasNextPage && !rentalsQuery.isFetchingNextPage),
+    onIntersect: () => {
+      if (rentalsQuery.hasNextPage) void rentalsQuery.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
 
   useVisibilityRefetch(() => {
-    void loadAllRentalProducts();
+    void rentalsQuery.refetch();
   });
 
   // Auto-scroll banner
@@ -159,14 +124,6 @@ export function RentalsView({ platform }: RentalsViewProps) {
     setSelectedCatalogId(null);
     setSelectedCategoryId(null);
   };
-
-  // Convert region ID to name
-  const selectedRegionData = allRegions.find(r => r.id === selectedRegionId);
-  const selectedRegion = selectedRegionData?.name || '';
-  
-  // Convert district ID to name
-  const selectedDistrictData = selectedRegionData?.districts.find(d => d.id === selectedDistrictId);
-  const selectedDistrict = selectedDistrictData?.name || '';
 
   const locationSelection = {
     selectedRegionId,
@@ -249,37 +206,18 @@ export function RentalsView({ platform }: RentalsViewProps) {
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'rental' });
   }, [headerSearch, rentalCatalogs, rentalCategories]);
 
-  const rentalProductsGridSource = loading ? [] : searchFilteredBackendProducts;
-  const rentalProductsRevealKey = useMemo(
-    () => `${headerSearch}-${backendProducts.length}-${selectedRegionId}-${selectedDistrictId}`,
-    [headerSearch, backendProducts.length, selectedRegionId, selectedDistrictId],
-  );
-  const { visibleItems: progressiveRentalProducts, sentinelRef: rentalProductsSentinelRef } =
-    useProgressiveListReveal(rentalProductsGridSource, rentalProductsRevealKey, {
-      batchSize: 10,
-      initialCount: 16,
-    });
-
-  const rentalCategoryGridSource = loading ? [] : searchFinalCatalogProducts;
-  const rentalCategoryRevealKey = useMemo(
-    () => `${selectedCategoryId ?? 'none'}-${headerSearch}-${searchFinalCatalogProducts.length}`,
-    [selectedCategoryId, headerSearch, searchFinalCatalogProducts.length],
-  );
-  const { visibleItems: progressiveRentalCategoryProducts, sentinelRef: rentalCategorySentinelRef } =
-    useProgressiveListReveal(rentalCategoryGridSource, rentalCategoryRevealKey, {
-      batchSize: 10,
-      initialCount: 16,
-    });
+  const progressiveRentalProducts = loading ? [] : searchFilteredBackendProducts;
+  const progressiveRentalCategoryProducts = loading ? [] : searchFinalCatalogProducts;
 
   return (
     <div className="min-h-screen pb-[max(5.5rem,calc(4.5rem+env(safe-area-inset-bottom)))]">
       {/* Banner - Only show on main view */}
-      {!selectedCatalogId && !selectedCategoryId && selectedRegion && selectedDistrict && (
+      {!selectedCatalogId && !selectedCategoryId && selectedRegionName && selectedDistrictName && (
         <div className="px-4 pt-6 pb-2">
           <BannerCarousel
             category="rentals"
-            region={selectedRegion}
-            district={selectedDistrict}
+            region={selectedRegionName}
+            district={selectedDistrictName}
           />
         </div>
       )}
@@ -563,13 +501,9 @@ export function RentalsView({ platform }: RentalsViewProps) {
                   </div>
                 </div>
               ))}
-              {progressiveRentalProducts.length < searchFilteredBackendProducts.length && (
-                <div
-                  ref={rentalProductsSentinelRef}
-                  className="col-span-full h-4 w-full shrink-0"
-                  aria-hidden
-                />
-              )}
+              {rentalsQuery.hasNextPage ? (
+                <div ref={rentalsSentinelRef} className="col-span-full h-4 w-full shrink-0" aria-hidden />
+              ) : null}
             </div>
           ) : (
             /* Empty state */
@@ -899,13 +833,9 @@ export function RentalsView({ platform }: RentalsViewProps) {
                   </div>
                 </div>
               ))}
-              {progressiveRentalCategoryProducts.length < searchFinalCatalogProducts.length && (
-                <div
-                  ref={rentalCategorySentinelRef}
-                  className="col-span-full h-4 w-full shrink-0"
-                  aria-hidden
-                />
-              )}
+              {rentalsQuery.hasNextPage ? (
+                <div ref={rentalsSentinelRef} className="col-span-full h-4 w-full shrink-0" aria-hidden />
+              ) : null}
             </div>
           ) : (
             /* Empty state */

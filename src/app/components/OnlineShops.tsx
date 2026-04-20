@@ -20,7 +20,10 @@ import {
   normalizeHeaderSearch,
   sortAllByHeaderSearchRelevance,
 } from '../utils/headerSearchMatch';
-import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
+import { fetchPagedProducts, fetchPagedShopProducts } from '../services/pagedCatalogApi';
 import { postRecoEvents, cartRecoPayload, productToRecoPayload } from '../utils/recommendationsClient';
 import { MarketplaceRecoCarousels } from './MarketplaceRecoCarousels';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
@@ -79,9 +82,7 @@ export default function OnlineShops({
   const [selectedShop, setSelectedShop] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<'products' | 'shops'>(initialTab);
   
-  // Products state
-  const [allProducts, setAllProducts] = useState<any[]>([]);
-  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
+  const debouncedSearch = useDebouncedValue(normalizeHeaderSearch(headerSearch) ? headerSearch : '', 300);
   const [recoRefreshTick, setRecoRefreshTick] = useState(0);
   const bumpReco = useCallback(() => {
     setRecoRefreshTick((t) => t + 1);
@@ -114,7 +115,6 @@ export default function OnlineShops({
 
   useEffect(() => {
     loadShops();
-    loadAllProducts();
   }, [selectedRegion, selectedDistrict, catalogRefreshKey]);
 
   // Sync with LocationContext
@@ -159,46 +159,8 @@ export default function OnlineShops({
     }
   };
 
-  const loadAllProducts = async () => {
-    setIsLoadingProducts(true);
-    try {
-      // Build query parameters
-      const params = new URLSearchParams();
-      if (selectedRegion) params.append('region', selectedRegion);
-      if (selectedDistrict) params.append('district', selectedDistrict);
-      
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/products${params.toString() ? `?${params.toString()}` : ''}`;
-
-      const response = await fetch(url, {
-        headers: {
-          'Authorization': `Bearer ${publicAnonKey}`,
-        },
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-
-        const raw = data.products || [];
-        setAllProducts(
-          raw.map((p: any) => ({
-            ...p,
-            stockQuantity: getEffectiveProductStockQuantity(p),
-          })),
-        );
-      } else {
-        console.error('❌ Products response not OK:', response.status);
-      }
-    } catch (error) {
-      console.error('❌ Error loading products:', error);
-      toast.error('Mahsulotlar yuklanmadi');
-    } finally {
-      setIsLoadingProducts(false);
-    }
-  };
-
   useVisibilityRefetch(() => {
     void loadShops();
-    void loadAllProducts();
   });
 
   useEffect(() => {
@@ -233,15 +195,63 @@ export default function OnlineShops({
     selectedDistrictId: selectedDistrict,
   };
 
-  const filteredShops = shops.filter(shop =>
-    matchesSelectedLocation(shop, locationSelection)
+  const filteredShops = shops.filter((shop) =>
+    matchesSelectedLocation(shop, locationSelection) ||
+    matchesSelectedLocation(
+      shop,
+      { selectedRegionId: selectedRegionName || '', selectedDistrictId: selectedDistrictName || '' },
+      ['region', 'regionId', 'region_id'],
+      ['district', 'districtId', 'district_id'],
+    )
   );
 
   const filteredShopIds = new Set(filteredShops.map(shop => shop.id));
-  const filteredProducts = allProducts.filter(product =>
-    filteredShopIds.has(product.shopId) ||
-    matchesSelectedLocation(product, locationSelection)
-  );
+  const productsQuery = useInfiniteQuery({
+    queryKey: ['onlineShops-products', selectedRegion, selectedDistrict, debouncedSearch, catalogRefreshKey],
+    enabled: activeTab === 'products',
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      const page = Number(pageParam) || 1;
+      const r = await fetchPagedProducts<any>({
+        source: 'shop',
+        region: selectedRegion || undefined,
+        district: selectedDistrict || undefined,
+        q: debouncedSearch,
+        page,
+        limit: 20,
+        signal,
+      });
+      // keep legacy derived fields used across UI
+      r.products = (r.products || []).map((p: any) => ({
+        ...p,
+        stockQuantity: getEffectiveProductStockQuantity(p),
+      }));
+      return r;
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
+
+  const allLoadedProducts = useMemo(() => {
+    const raw = productsQuery.data?.pages?.flatMap((p) => p.products || []) ?? [];
+    return raw;
+  }, [productsQuery.data]);
+
+  const filteredProducts = useMemo(() => {
+    const list = allLoadedProducts;
+    if (!filteredShopIds.size) return [];
+    return list.filter((product: any) => {
+      return (
+        filteredShopIds.has(product.shopId) ||
+        matchesSelectedLocation(product, locationSelection) ||
+        matchesSelectedLocation(
+          product,
+          { selectedRegionId: selectedRegionName || '', selectedDistrictId: selectedDistrictName || '' },
+          ['region', 'regionId', 'region_id'],
+          ['district', 'districtId', 'district_id'],
+        )
+      );
+    });
+  }, [allLoadedProducts, filteredShopIds, locationSelection, selectedRegionName, selectedDistrictName]);
 
   const shopNameById = useMemo(() => {
     const m = new Map<string, string>();
@@ -320,24 +330,15 @@ export default function OnlineShops({
   }, [filteredProducts, headerSearch, productSearchParts]);
 
   const onlineShopsProductGridSource =
-    activeTab !== 'products' || isLoadingProducts ? [] : searchFilteredProducts;
-  const onlineShopsRevealKey = useMemo(
-    () =>
-      `${catalogRefreshKey}-${allProducts.length}-${normalizeHeaderSearch(headerSearch) ? headerSearch : ''}-${selectedRegion}-${selectedDistrict}`,
-    [
-      catalogRefreshKey,
-      allProducts.length,
-      headerSearch,
-      selectedRegion,
-      selectedDistrict,
-    ],
-  );
-  const { visibleItems: progressiveOnlineShopProducts, sentinelRef: onlineShopGridSentinelRef } =
-    useProgressiveListReveal(onlineShopsProductGridSource, onlineShopsRevealKey, {
-      batchSize: 6,
-      initialCount: 8,
-      rootMargin: '0px 0px 96px 0px',
-    });
+    activeTab !== 'products' || productsQuery.isLoading ? [] : searchFilteredProducts;
+  const progressiveOnlineShopProducts = onlineShopsProductGridSource;
+  const onlineShopGridSentinelRef = useIntersectionSentinel({
+    enabled: Boolean(activeTab === 'products' && productsQuery.hasNextPage && !productsQuery.isFetchingNextPage),
+    onIntersect: () => {
+      if (productsQuery.hasNextPage) void productsQuery.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
 
   useEffect(() => {
     if (selectedShop && !filteredShopIds.has(selectedShop.id)) {
@@ -531,7 +532,7 @@ export default function OnlineShops({
       </div>
 
       {/* Shops story strip (Do‘konlar + E'lonlar tabida) */}
-      <div className="px-4 -mt-2 pb-3">
+      <div className="-mx-4 px-4 -mt-2 pb-3">
         {isLoading ? (
           <div className="flex gap-4 overflow-x-auto overscroll-x-contain pb-2 [-webkit-overflow-scrolling:touch] snap-x snap-mandatory">
             {Array.from({ length: 8 }).map((_, i) => (
@@ -580,7 +581,7 @@ export default function OnlineShops({
                     </div>
                   </div>
                   <div className="mt-2">
-                    <div className="text-[13px] font-medium leading-tight line-clamp-2">
+                    <div className="text-[13px] font-medium leading-tight truncate">
                       {shop?.name || shop?.shopName || 'Do‘kon'}
                     </div>
                     {reviewCount > 0 ? (
@@ -777,7 +778,7 @@ export default function OnlineShops({
               </span>
             </div>
 
-            {isLoadingProducts ? (
+            {productsQuery.isLoading ? (
               <ProductGridSkeleton
                 isDark={isDark}
                 count={10}
@@ -1106,13 +1107,13 @@ export default function OnlineShops({
                   </div>
                   );
                 })}
-                {progressiveOnlineShopProducts.length < searchFilteredProducts.length && (
+                {productsQuery.hasNextPage ? (
                   <div
                     ref={onlineShopGridSentinelRef}
                     className="col-span-full h-4 w-full shrink-0"
                     aria-hidden
                   />
-                )}
+                ) : null}
               </div>
             )}
           </>
@@ -1264,8 +1265,6 @@ function ShopDetailModal({
   const { theme, accentColor } = useTheme();
   const { accessToken } = useAuth();
   const isDark = theme === 'dark';
-  const [products, setProducts] = useState<any[]>([]);
-  const [isLoading, setIsLoading] = useState(true);
   const [activeTab, setActiveTab] = useState<'products' | 'info'>('products');
   
   // Product detail modal state
@@ -1280,48 +1279,31 @@ function ShopDetailModal({
     return () => window.clearInterval(id);
   }, []);
 
-  const loadProducts = useCallback(async () => {
-    const sid = shop?.id;
-    if (!sid) return;
-    setIsLoading(true);
-    try {
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/shops/${encodeURIComponent(sid)}/products`,
-        {
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-          },
-        },
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setProducts(data.products || []);
-      } else {
-        setProducts([]);
-      }
-    } catch {
-      setProducts([]);
-    } finally {
-      setIsLoading(false);
-    }
-  }, [shop?.id]);
-
-  useEffect(() => {
-    void loadProducts();
-  }, [loadProducts]);
-
-  const shopModalProductSource = isLoading ? [] : products;
-  const shopModalRevealKey = useMemo(
-    () => `${shop?.id ?? ''}-${products.length}`,
-    [shop?.id, products.length],
-  );
-  const { visibleItems: progressiveShopModalProducts, sentinelRef: shopModalGridSentinelRef } =
-    useProgressiveListReveal(shopModalProductSource, shopModalRevealKey, {
-      batchSize: 6,
-      initialCount: 8,
-      rootMargin: '0px 0px 96px 0px',
-    });
+  const shopId = String(shop?.id ?? '').trim();
+  const shopProductsQuery = useInfiniteQuery({
+    queryKey: ['shopModal-products', shopId],
+    enabled: Boolean(shopId && activeTab === 'products'),
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      return await fetchPagedShopProducts<any>({
+        shopId,
+        page: Number(pageParam) || 1,
+        limit: 20,
+        signal,
+      });
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
+  const products = useMemo(() => shopProductsQuery.data?.pages?.flatMap((p) => p.products || []) ?? [], [shopProductsQuery.data]);
+  const isLoading = shopProductsQuery.isLoading;
+  const progressiveShopModalProducts = products;
+  const shopModalGridSentinelRef = useIntersectionSentinel({
+    enabled: Boolean(activeTab === 'products' && shopProductsQuery.hasNextPage && !shopProductsQuery.isFetchingNextPage),
+    onIntersect: () => {
+      if (shopProductsQuery.hasNextPage) void shopProductsQuery.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
 
   const modalShopRating = useMemo(() => {
     const fromApi = shopRatingFromApi(shop);
@@ -1800,13 +1782,13 @@ function ShopDetailModal({
                       </div>
                     </div>
                   )})}
-                  {progressiveShopModalProducts.length < products.length && (
+                  {shopProductsQuery.hasNextPage ? (
                     <div
                       ref={shopModalGridSentinelRef}
                       className="col-span-full h-4 w-full shrink-0"
                       aria-hidden
                     />
-                  )}
+                  ) : null}
                 </div>
               )}
             </div>

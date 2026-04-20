@@ -10,7 +10,10 @@ import { ProductCard } from './ProductCard';
 import { ProductGridSkeleton, ShopListSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
-import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { useDebouncedValue } from '../hooks/useDebouncedValue';
+import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
+import { fetchPagedBranchProducts } from '../services/pagedCatalogApi';
 import { useAuth } from '../context/AuthContext';
 import { MarketplaceRecoCarousels } from './MarketplaceRecoCarousels';
 import { useDeliveryZonesByBranchIds } from '../hooks/useDeliveryZonesByBranchIds';
@@ -71,9 +74,7 @@ export default function Market() {
   const isDark = theme === 'dark';
 
   const [branches, setBranches] = useState<Branch[]>([]);
-  const [products, setProducts] = useState<Product[]>([]);
   const [isLoading, setIsLoading] = useState(true);
-  const [isLoadingProducts, setIsLoadingProducts] = useState(false);
   const [selectedBranch, setSelectedBranch] = useState<Branch | null>(null);
   const [branchProducts, setBranchProducts] = useState<Product[]>([]);
   const [activeTab, setActiveTab] = useState<'products' | 'branches'>('products');
@@ -82,12 +83,6 @@ export default function Market() {
   useEffect(() => {
     loadBranches();
   }, []);
-
-  useEffect(() => {
-    if (branches.length > 0) {
-      loadProducts();
-    }
-  }, [selectedRegion, selectedDistrict, branches.length]);
 
   const loadBranches = async (silent?: boolean) => {
     try {
@@ -123,97 +118,74 @@ export default function Market() {
     }
   };
 
-  const loadProducts = async () => {
-    if (!selectedRegion || !selectedDistrict || branches.length === 0) {
-      setProducts([]);
-      setIsLoadingProducts(false);
-      return;
+  const debouncedSearch = useDebouncedValue(normalizeHeaderSearch(headerSearch) ? headerSearch : '', 300);
+
+  const stringToNumber = useCallback((str: string): number => {
+    let hash = 0;
+    for (let i = 0; i < str.length; i++) {
+      const char = str.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash;
     }
+    return Math.abs(hash);
+  }, []);
 
-    const localBranches = branches.filter(
-      b => b.regionId === selectedRegion && b.districtId === selectedDistrict
-    );
+  const marketProductsQuery = useInfiniteQuery({
+    queryKey: ['market-branch-products', selectedRegion, selectedDistrict, debouncedSearch],
+    enabled: Boolean(selectedRegion && selectedDistrict && branches.length > 0),
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      return await fetchPagedBranchProducts<any>({
+        regionId: selectedRegion,
+        districtId: selectedDistrict,
+        includeSold: false,
+        q: debouncedSearch,
+        page: Number(pageParam) || 1,
+        limit: 20,
+        signal,
+      });
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
 
-    if (localBranches.length === 0) {
-      setProducts([]);
-      setIsLoadingProducts(false);
-      return;
-    }
-
-    try {
-      setIsLoadingProducts(true);
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch-products?includeSold=false`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        const allBranchProducts = data.products || [];
-        
-        const localBranchIds = localBranches.map(b => b.id);
-        const filteredProducts = allBranchProducts.filter((p: any) => 
-          localBranchIds.includes(p.branchId)
-        );
-
-        const stringToNumber = (str: string): number => {
-          let hash = 0;
-          for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash = hash & hash;
-          }
-          return Math.abs(hash);
-        };
-
-        const displayProducts: Product[] = filteredProducts.map((bp: any) => {
-          const firstVariant = bp.variants[0];
-          return {
-            id: stringToNumber(bp.id),
-            productUuid: bp.id,
-            name: bp.name,
-            price: firstVariant.price,
-            image: firstVariant.image || 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800',
-            categoryId: bp.categoryId,
-            catalogId: bp.catalogId,
-            rating: 5,
-            stockCount: firstVariant.stockQuantity,
-            oldPrice: firstVariant.oldPrice,
-            description: bp.description,
-            recommendation: bp.recommendation,
-            barcode: firstVariant.barcode,
-            sku: firstVariant.sku,
-            video: firstVariant.video,
-            specs: firstVariant.attributes || [],
-            variants: bp.variants.map((v: any) => ({ 
-              id: v.id, 
-              name: v.name, 
-              image: v.image, 
-              price: v.price,
-              stockQuantity: v.stockQuantity,
-              oldPrice: v.oldPrice,
-              barcode: v.barcode,
-              sku: v.sku,
-              video: v.video,
-              attributes: v.attributes || []
-            })),
-            branchName: localBranches.find(b => b.id === bp.branchId)?.branchName,
-            branchId: bp.branchId
-          };
-        });
-
-        setProducts(displayProducts);
-      }
-    } catch (error) {
-      console.error('Error loading products:', error);
-    } finally {
-      setIsLoadingProducts(false);
-    }
-  };
+  const products: Product[] = useMemo(() => {
+    const raw = marketProductsQuery.data?.pages?.flatMap((p) => p.products || []) ?? [];
+    return raw.map((bp: any) => {
+      const firstVariant = bp.variants?.[0] ?? {};
+      return {
+        id: stringToNumber(String(bp.id || '')),
+        productUuid: bp.id,
+        name: bp.name,
+        price: firstVariant.price,
+        image: firstVariant.image || 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800',
+        categoryId: bp.categoryId,
+        catalogId: bp.catalogId,
+        rating: 5,
+        stockCount: firstVariant.stockQuantity,
+        oldPrice: firstVariant.oldPrice,
+        description: bp.description,
+        recommendation: bp.recommendation,
+        barcode: firstVariant.barcode,
+        sku: firstVariant.sku,
+        video: firstVariant.video,
+        specs: firstVariant.attributes || [],
+        variants: (bp.variants || []).map((v: any) => ({
+          id: v.id,
+          name: v.name,
+          image: v.image,
+          price: v.price,
+          stockQuantity: v.stockQuantity,
+          oldPrice: v.oldPrice,
+          barcode: v.barcode,
+          sku: v.sku,
+          video: v.video,
+          attributes: v.attributes || [],
+        })),
+        branchName: bp.branchName,
+        branchId: bp.branchId,
+      };
+    });
+  }, [marketProductsQuery.data, stringToNumber]);
 
   const loadBranchProducts = async (branch: Branch) => {
     setLoadingBranchId(branch.id);
@@ -330,16 +302,15 @@ export default function Market() {
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'branch' });
   }, [filteredBranches, headerSearch, regions]);
 
-  const marketGridSource = isLoading || isLoadingProducts ? [] : searchFilteredProducts;
-  const marketRevealKey = useMemo(
-    () => `${headerSearch}-${products.length}-${selectedRegion}-${selectedDistrict}`,
-    [headerSearch, products.length, selectedRegion, selectedDistrict],
-  );
-  const { visibleItems: progressiveMarketSearchProducts, sentinelRef: marketSearchSentinelRef } =
-    useProgressiveListReveal(marketGridSource, marketRevealKey, {
-      batchSize: 10,
-      initialCount: 16,
-    });
+  const marketGridSource = isLoading || marketProductsQuery.isLoading ? [] : searchFilteredProducts;
+  const marketSearchSentinelRef = useIntersectionSentinel({
+    enabled: Boolean(marketProductsQuery.hasNextPage && !marketProductsQuery.isFetchingNextPage),
+    onIntersect: () => {
+      if (marketProductsQuery.hasNextPage) void marketProductsQuery.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
+  const progressiveMarketSearchProducts = marketGridSource;
 
   const searchFilteredBranchProducts = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return branchProducts;
@@ -492,7 +463,7 @@ export default function Market() {
           /* Products Tab */
           <>
             {!isLoading &&
-              !isLoadingProducts &&
+              !marketProductsQuery.isLoading &&
               selectedRegion &&
               selectedDistrict &&
               searchFilteredProducts.length > 0 && (
@@ -523,7 +494,7 @@ export default function Market() {
               </span>
             </div>
 
-            {isLoading || isLoadingProducts ? (
+            {isLoading || marketProductsQuery.isLoading ? (
               <ProductGridSkeleton
                 isDark={isDark}
                 count={10}

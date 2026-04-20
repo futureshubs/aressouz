@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { 
   Package, 
@@ -41,6 +41,9 @@ import {
   API_BASE_URL,
   DEV_API_BASE_URL,
 } from '../../../../utils/supabase/info';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { useIntersectionSentinel } from '../../hooks/useIntersectionSentinel';
+import { fetchPagedBranchProducts } from '../../services/pagedCatalogApi';
 import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
 import { ReceiptModal } from '../ReceiptModal';
 
@@ -109,7 +112,6 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
   const [products, setProducts] = useState<Product[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
-  const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   /** Variant rasmini R2 ga yuklash — qaysi variant.id hozir yuklanmoqda */
   const [variantImageUploadingId, setVariantImageUploadingId] = useState<string | null>(null);
@@ -122,6 +124,36 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
   const [currentReceipt, setCurrentReceipt] = useState<any>(null);
   const [isProcessingPayment, setIsProcessingPayment] = useState(false);
   const [isInventoryLoading, setIsInventoryLoading] = useState(false);
+
+  const branchProductsQuery = useInfiniteQuery({
+    queryKey: ['branchMarket-products', branchId],
+    enabled: Boolean(branchId) && activeTab === 'products',
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      return await fetchPagedBranchProducts<any>({
+        branchId,
+        includeSold: false,
+        page: Number(pageParam) || 1,
+        limit: 20,
+        signal,
+      });
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
+
+  const productsSentinelRef = useIntersectionSentinel({
+    enabled: Boolean(activeTab === 'products' && branchProductsQuery.hasNextPage && !branchProductsQuery.isFetchingNextPage),
+    onIntersect: () => {
+      if (branchProductsQuery.hasNextPage) void branchProductsQuery.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
+
+  useEffect(() => {
+    if (!branchProductsQuery.data) return;
+    const list = branchProductsQuery.data.pages.flatMap((p: any) => (Array.isArray(p?.products) ? p.products : []));
+    setProducts(list);
+  }, [branchProductsQuery.data]);
 
   // Sales History States
   const [sales, setSales] = useState<Sale[]>([]);
@@ -241,7 +273,6 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
 
   useEffect(() => {
     loadCategories();
-    loadProducts();
     loadSales();
     loadInventoryOperations();
   }, [branchId]);
@@ -276,35 +307,8 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
     }
   }, [formData.catalogId, catalogs]);
 
-  const loadProducts = async () => {
-    try {
-      setIsLoading(true);
-      console.log('📦 Loading products for branch:', branchId);
-      
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch-products?branchId=${branchId}`,
-        {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-        }
-      );
-
-      if (!response.ok) {
-        throw new Error('Failed to load products');
-      }
-
-      const data = await response.json();
-      console.log('✅ Products loaded:', data.products.length);
-      setProducts(data.products || []);
-    } catch (error) {
-      console.error('❌ Error loading products:', error);
-      toast.error('Mahsulotlarni yuklashda xatolik');
-      setProducts([]);
-    } finally {
-      setIsLoading(false);
-    }
+  const refreshProducts = async () => {
+    await branchProductsQuery.refetch();
   };
 
   const loadSales = async () => {
@@ -522,7 +526,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
         }
       }
 
-      await loadProducts();
+      await refreshProducts();
       resetForm();
       setIsModalOpen(false);
     } catch (error) {
@@ -568,7 +572,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
 
         console.log('✅ Product deleted');
         toast.success('Mahsulot o\'chirildi');
-        await loadProducts();
+        await refreshProducts();
       } catch (error) {
         console.error('❌ Error deleting product:', error);
         toast.error('O\'chirishda xatolik');
@@ -657,7 +661,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       console.log('✅ Stock updated on server:', data);
       
       // Reload products to reflect changes
-      await loadProducts();
+      await refreshProducts();
     } catch (error) {
       console.error('❌ Error updating stock:', error);
       toast.error(`Omborni yangilashda xatolik: ${error instanceof Error ? error.message : 'Unknown error'}`);
@@ -1336,7 +1340,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       console.log('✅ Sale created:', data.sale);
       
       // Reload products to reflect updated stock
-      await loadProducts();
+      await refreshProducts();
       await loadSales();
 
       // Create receipt data
@@ -1562,6 +1566,8 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                       src={product.variants[0].image} 
                       alt={product.name}
                       className="w-full h-full object-cover"
+                      loading="lazy"
+                      decoding="async"
                     />
                   </div>
                 )}
@@ -1617,10 +1623,13 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                 )}
               </div>
             ))}
+            {branchProductsQuery.hasNextPage ? (
+              <div ref={productsSentinelRef} className="h-4 w-full md:col-span-2 lg:col-span-3" aria-hidden />
+            ) : null}
           </div>
 
           {/* Loading State */}
-          {isLoading && (
+          {branchProductsQuery.isLoading && (
             <div 
               className="text-center py-12 rounded-3xl border"
               style={{
@@ -1642,7 +1651,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
           )}
 
           {/* Empty State */}
-          {!isLoading && products.length === 0 && (
+          {!branchProductsQuery.isLoading && products.length === 0 && (
             <div 
               className="text-center py-12 rounded-3xl border"
               style={{

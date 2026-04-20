@@ -1,10 +1,11 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { useAuth } from '../../context/AuthContext';
 import { Store, Package, Plus, Edit2, Trash2, X, Eye, EyeOff, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
+import { useProgressiveListReveal } from '../../hooks/useProgressiveListReveal';
 
 interface Shop {
   id: string;
@@ -52,6 +53,17 @@ export default function SellerDashboard() {
   const [togglingProductId, setTogglingProductId] = useState<string | null>(null);
   const [deletingProductId, setDeletingProductId] = useState<string | null>(null);
   const visibilityRefetchTick = useVisibilityTick();
+
+  const sellerProductsRevealKey = useMemo(
+    () => `${products.length}-${visibilityRefetchTick}`,
+    [products.length, visibilityRefetchTick],
+  );
+  const { visibleItems: progressiveSellerProducts, sentinelRef: sellerProductsSentinelRef } =
+    useProgressiveListReveal(products, sellerProductsRevealKey, {
+      initialCount: 12,
+      batchSize: 10,
+      rootMargin: '0px 0px 180px 0px',
+    });
 
   useEffect(() => {
     if (accessToken) {
@@ -333,7 +345,7 @@ export default function SellerDashboard() {
               </div>
             ) : (
               <div className="space-y-4">
-                {products.map((product) => (
+                {progressiveSellerProducts.map((product) => (
                   <div
                     key={product.id}
                     className="p-4 rounded-2xl"
@@ -417,6 +429,7 @@ export default function SellerDashboard() {
                     </div>
                   </div>
                 ))}
+                <div ref={sellerProductsSentinelRef} className="h-1 w-full" aria-hidden />
               </div>
             )}
           </>

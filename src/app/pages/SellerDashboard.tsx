@@ -5,6 +5,8 @@ import { useTheme } from '../context/ThemeContext';
 import { 
   LayoutDashboard, 
   ShoppingCart, 
+  ReceiptText,
+  History,
   Package, 
   Warehouse, 
   CreditCard, 
@@ -35,6 +37,9 @@ import SellerWarehousePanel, {
 } from '../components/seller/SellerWarehousePanel';
 import { deriveInventoryLinesFromProducts } from '../components/seller/sellerInventoryDerive';
 import SellerPaymentsPanel from '../components/seller/SellerPaymentsPanel';
+import SellerSalesPanel from '../components/seller/SellerSalesPanel';
+import SellerStatisticsPanel from '../components/seller/SellerStatisticsPanel';
+import SellerHistoryPanel from '../components/seller/SellerHistoryPanel';
 import {
   sellerOrderPaymentStatusNorm,
   sellerOrderTotal,
@@ -42,6 +47,8 @@ import {
 import { useBodyScrollLock } from '../utils/useBodyScrollLock';
 import { readValidSellerSession } from '../utils/sellerSession';
 import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
+import { useInfiniteQuery } from '@tanstack/react-query';
+import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
 
 export default function SellerDashboard() {
   const navigate = useNavigate();
@@ -66,6 +73,85 @@ export default function SellerDashboard() {
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'active' | 'done' | 'cancelled'>('all');
 
+  const sellerToken = String(sellerInfo?.token || '').trim();
+  const sellerHeaders = useMemo(() => {
+    if (!sellerToken) return null;
+    return {
+      'Content-Type': 'application/json',
+      Authorization: `Bearer ${publicAnonKey}`,
+      'X-Seller-Token': sellerToken,
+    } as const;
+  }, [sellerToken]);
+
+  const productsQuery = useInfiniteQuery({
+    queryKey: ['seller-products', sellerToken],
+    enabled: Boolean(sellerToken) && (activeTab === 'products' || activeTab === 'sales' || activeTab === 'dashboard' || activeTab === 'inventory'),
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      const page = Number(pageParam) || 1;
+      const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/products?token=${encodeURIComponent(sellerToken)}&page=${page}&limit=20`;
+      const res = await fetch(url, { headers: sellerHeaders ?? undefined, signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
+      return data as { success: boolean; products: any[]; page: number; limit: number; total: number; hasMore: boolean };
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
+
+  const ordersQuery = useInfiniteQuery({
+    queryKey: ['seller-orders', sellerToken],
+    enabled: Boolean(sellerToken) && (activeTab === 'orders' || activeTab === 'payments' || activeTab === 'dashboard'),
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      const page = Number(pageParam) || 1;
+      const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/orders?token=${encodeURIComponent(sellerToken)}&page=${page}&limit=20`;
+      const res = await fetch(url, { headers: sellerHeaders ?? undefined, signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
+      return data as { success: boolean; orders: any[]; page: number; limit: number; total: number; hasMore: boolean };
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
+
+  const inventoryQuery = useInfiniteQuery({
+    queryKey: ['seller-inventory', sellerToken],
+    enabled: Boolean(sellerToken) && (activeTab === 'inventory' || activeTab === 'dashboard'),
+    initialPageParam: 1,
+    queryFn: async ({ pageParam, signal }) => {
+      const page = Number(pageParam) || 1;
+      const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/inventory?token=${encodeURIComponent(sellerToken)}&page=${page}&limit=60`;
+      const res = await fetch(url, { headers: sellerHeaders ?? undefined, signal });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
+      return data as { success: boolean; items: any[]; summary?: any; page: number; limit: number; total: number; hasMore: boolean; inventory?: any[] };
+    },
+    getNextPageParam: (last) => (last?.hasMore ? (last.page ?? 1) + 1 : undefined),
+  });
+
+  const productsSentinel = useIntersectionSentinel({
+    enabled: Boolean(productsQuery.hasNextPage && !productsQuery.isFetchingNextPage) && activeTab === 'products',
+    onIntersect: () => {
+      if (productsQuery.hasNextPage) void productsQuery.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
+
+  const ordersSentinel = useIntersectionSentinel({
+    enabled: Boolean(ordersQuery.hasNextPage && !ordersQuery.isFetchingNextPage) && (activeTab === 'orders' || activeTab === 'payments'),
+    onIntersect: () => {
+      if (ordersQuery.hasNextPage) void ordersQuery.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
+
+  const inventorySentinel = useIntersectionSentinel({
+    enabled: Boolean(inventoryQuery.hasNextPage && !inventoryQuery.isFetchingNextPage) && activeTab === 'inventory',
+    onIntersect: () => {
+      if (inventoryQuery.hasNextPage) void inventoryQuery.fetchNextPage();
+    },
+    rootMargin: '900px 0px',
+  });
+
   useBodyScrollLock(sidebarOpen || isProductModalOpen || isEditModalOpen);
 
   useEffect(() => {
@@ -77,6 +163,27 @@ export default function SellerDashboard() {
       loadData();
     }
   }, [activeTab, sellerInfo]);
+
+  // Keep legacy local states in sync with paginated queries (UI uses these arrays in many places)
+  useEffect(() => {
+    if (!productsQuery.data) return;
+    const list = productsQuery.data.pages.flatMap((p) => Array.isArray((p as any).products) ? (p as any).products : []);
+    setProducts(list);
+  }, [productsQuery.data]);
+
+  useEffect(() => {
+    if (!ordersQuery.data) return;
+    const list = ordersQuery.data.pages.flatMap((p) => Array.isArray((p as any).orders) ? (p as any).orders : []);
+    setOrders(sortOrdersNewestFirst(list));
+  }, [ordersQuery.data]);
+
+  useEffect(() => {
+    if (!inventoryQuery.data) return;
+    const first = inventoryQuery.data.pages?.[0] as any;
+    const list = inventoryQuery.data.pages.flatMap((p) => Array.isArray((p as any).items) ? (p as any).items : []);
+    setInventoryLines(list as any);
+    setInventorySummary((first?.summary as any) ?? null);
+  }, [inventoryQuery.data]);
 
   const checkSession = () => {
     const sessionData = readValidSellerSession();
@@ -168,98 +275,18 @@ export default function SellerDashboard() {
       } as const;
 
       if (activeTab === 'dashboard') {
-        const ordersUrl = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/orders?token=${encodeURIComponent(token)}`;
-        const productsUrl = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/products?token=${encodeURIComponent(token)}`;
-        const invUrl = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/inventory?token=${encodeURIComponent(token)}`;
-        const [rOrders, rProducts, rInv] = await Promise.all([
-          fetch(ordersUrl, { headers: sellerHeaders }),
-          fetch(productsUrl, { headers: sellerHeaders }),
-          fetch(invUrl, { headers: sellerHeaders }),
-        ]);
-        if (rOrders.ok) {
-          const d = await rOrders.json().catch(() => ({}));
-          setOrders(sortOrdersNewestFirst(Array.isArray(d.orders) ? d.orders : []));
-        } else {
-          setOrders([]);
-        }
-        let prodList: any[] = [];
-        if (rProducts.ok) {
-          const d = await rProducts.json().catch(() => ({}));
-          prodList = Array.isArray(d.products) ? d.products : [];
-          setProducts(prodList);
-        }
-        const dInv = await rInv.json().catch(() => ({}));
-        if (rInv.ok) {
-          setInventoryLoadError(null);
-          applyInventoryPayload(dInv, prodList);
-        } else {
-          const msg = dInv.error || `Ombor: HTTP ${rInv.status}`;
-          if (!silent) toast.error(msg);
-          setInventoryLoadError(msg);
-          applyInventoryPayload({}, prodList);
-        }
+        // Dashboard lists are driven by paginated React Query now
         return;
       }
 
       if (activeTab === 'orders' || activeTab === 'payments') {
-        const res = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/orders?token=${encodeURIComponent(token)}`,
-          { headers: sellerHeaders },
-        );
-        const data = await res.json().catch(() => ({}));
-        if (!res.ok) {
-          if (!silent) toast.error(data.error || `Buyurtmalar: HTTP ${res.status}`);
-          setOrders([]);
-          return;
-        }
-        setOrders(sortOrdersNewestFirst(Array.isArray(data.orders) ? data.orders : []));
         return;
       }
 
-      if (activeTab === 'products') {
-        const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/products?token=${encodeURIComponent(token)}`,
-          {
-            headers: {
-              'Content-Type': 'application/json',
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Seller-Token': token,
-            },
-          }
-        );
-
-        if (response.ok) {
-          const data = await response.json();
-          setProducts(data.products || []);
-        }
+      if (activeTab === 'products' || activeTab === 'sales') {
+        return;
       } else if (activeTab === 'inventory') {
-        const invUrl = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/inventory?token=${encodeURIComponent(token)}`;
-        const prodUrl = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/products?token=${encodeURIComponent(token)}`;
-        const [rInv, rProd] = await Promise.all([
-          fetch(invUrl, { headers: sellerHeaders }),
-          fetch(prodUrl, { headers: sellerHeaders }),
-        ]);
-        let prodList = products;
-        if (rProd.ok) {
-          const dp = await rProd.json().catch(() => ({}));
-          prodList = Array.isArray(dp.products) ? dp.products : products;
-          setProducts(prodList);
-        }
-        const data = await rInv.json().catch(() => ({}));
-        if (rInv.ok) {
-          setInventoryLoadError(null);
-          applyInventoryPayload(data, prodList);
-        } else {
-          const msg = data.error || `Ombor: HTTP ${rInv.status}`;
-          if (!silent) toast.error(msg);
-          setInventoryLoadError(msg);
-          if (rInv.status === 401) {
-            setInventoryLines([]);
-            setInventorySummary(null);
-          } else {
-            applyInventoryPayload({}, prodList);
-          }
-        }
+        return;
       } else if (activeTab === 'statistics') {
         const response = await fetch(
           `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/statistics?token=${encodeURIComponent(token)}`,
@@ -441,10 +468,12 @@ export default function SellerDashboard() {
   const menuItems = [
     { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
     { id: 'orders', label: 'Buyurtmalar', icon: ShoppingCart },
+    { id: 'sales', label: 'Savdo', icon: ReceiptText },
     { id: 'products', label: 'Mahsulotlar', icon: Package },
     { id: 'inventory', label: 'Ombor', icon: Warehouse },
     { id: 'payments', label: 'To\'lovlar', icon: CreditCard },
     { id: 'statistics', label: 'Statistika', icon: BarChart3 },
+    { id: 'history', label: 'Tarix', icon: History },
   ];
 
   const startOfToday = new Date();
@@ -983,9 +1012,29 @@ export default function SellerDashboard() {
                           </div>
                         );
                       })}
+                      {productsQuery.hasNextPage ? (
+                        <div ref={productsSentinel} className="h-1 w-full md:col-span-2 lg:col-span-3" aria-hidden />
+                      ) : null}
                     </div>
                   )}
                 </div>
+              )}
+
+              {/* Sales (POS) Tab */}
+              {activeTab === 'sales' && sellerInfo?.token && (
+                <SellerSalesPanel
+                  token={sellerInfo.token}
+                  isDark={isDark}
+                  accentColor={accentColor}
+                  products={products}
+                  shopId={String(sellerInfo?.shopId || '')}
+                  shopName={String(sellerInfo?.shopName || '')}
+                  onAfterSale={() => {
+                    // Update stock everywhere (inventory + products + online shop listing uses same KV)
+                    void productsQuery.refetch();
+                    void inventoryQuery.refetch();
+                  }}
+                />
               )}
 
               {/* Orders Tab — mijozlar ilovadan bergan do‘kon buyurtmalari + eski shop_order */}
@@ -1219,177 +1268,20 @@ export default function SellerDashboard() {
               ) : null}
 
               {/* Statistics Tab */}
-              {activeTab === 'statistics' && statistics && (
-                <div className="space-y-6">
-                  {/* Title */}
-                  <div
-                    className="p-6 rounded-3xl border"
-                    style={{
-                      background: isDark 
-                        ? `linear-gradient(145deg, ${accentColor.color}15, ${accentColor.color}08)`
-                        : `linear-gradient(145deg, ${accentColor.color}20, ${accentColor.color}10)`,
-                      borderColor: `${accentColor.color}33`,
-                    }}
-                  >
-                    <h3 className="text-2xl font-bold mb-2">
-                      Kamisya Statistikasi 📊
-                    </h3>
-                    <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                      Do'koningizning batafsil moliyaviy hisoboti
-                    </p>
-                  </div>
+              {activeTab === 'statistics' && sellerInfo?.token ? (
+                <SellerStatisticsPanel token={sellerInfo.token} isDark={isDark} accentColor={accentColor} />
+              ) : null}
 
-                  {/* Main Stats */}
-                  <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
-                    {[
-                      { 
-                        label: 'Jami Sotuvlar', 
-                        value: `${statistics.totalRevenue.toLocaleString()} so'm`, 
-                        icon: CreditCard, 
-                        color: '#3b82f6',
-                        desc: 'Umumiy savdo hajmi'
-                      },
-                      { 
-                        label: 'Platforma Kamisyasi', 
-                        value: `${statistics.totalCommission.toLocaleString()} so'm`, 
-                        icon: BarChart3, 
-                        color: '#ef4444',
-                        desc: `O'rtacha ${statistics.averageCommissionRate}%`
-                      },
-                      { 
-                        label: 'Sizning Daromadingiz', 
-                        value: `${statistics.totalEarnings.toLocaleString()} so'm`, 
-                        icon: CreditCard, 
-                        color: '#10b981',
-                        desc: 'Sof foyda'
-                      },
-                      { 
-                        label: 'Jami Buyurtmalar', 
-                        value: statistics.totalOrders.toString(), 
-                        icon: ShoppingCart, 
-                        color: '#14b8a6',
-                        desc: `${statistics.completedOrders} ta bajarilgan`
-                      },
-                    ].map((stat, index) => {
-                      const Icon = stat.icon;
-                      return (
-                        <div
-                          key={index}
-                          className="p-6 rounded-3xl border"
-                          style={{
-                            background: isDark 
-                              ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
-                              : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-                            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                          }}
-                        >
-                          <div 
-                            className="p-3 rounded-2xl inline-flex mb-4"
-                            style={{ background: `${stat.color}20` }}
-                          >
-                            <Icon className="w-6 h-6" style={{ color: stat.color }} />
-                          </div>
-                          <p 
-                            className="text-xs mb-1"
-                            style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                          >
-                            {stat.label}
-                          </p>
-                          <p className="text-xl lg:text-2xl font-bold mb-1">{stat.value}</p>
-                          <p 
-                            className="text-xs"
-                            style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}
-                          >
-                            {stat.desc}
-                          </p>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Additional Stats */}
-                  <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
-                    {[
-                      { 
-                        label: 'Kutilmoqda', 
-                        value: statistics.pendingOrders.toString(), 
-                        icon: ShoppingCart, 
-                        color: '#f59e0b'
-                      },
-                      { 
-                        label: 'Jami Mahsulotlar', 
-                        value: statistics.totalProducts.toString(), 
-                        icon: Package, 
-                        color: '#3b82f6'
-                      },
-                      { 
-                        label: 'Omborda', 
-                        value: statistics.totalStock.toString(), 
-                        icon: Warehouse, 
-                        color: '#8b5cf6'
-                      },
-                    ].map((stat, index) => {
-                      const Icon = stat.icon;
-                      return (
-                        <div
-                          key={index}
-                          className="p-5 rounded-2xl border"
-                          style={{
-                            background: isDark 
-                              ? 'rgba(255, 255, 255, 0.03)'
-                              : 'rgba(0, 0, 0, 0.02)',
-                            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                          }}
-                        >
-                          <div className="flex items-center gap-3">
-                            <div 
-                              className="p-2.5 rounded-xl"
-                              style={{ background: `${stat.color}20` }}
-                            >
-                              <Icon className="w-5 h-5" style={{ color: stat.color }} />
-                            </div>
-                            <div>
-                              <p 
-                                className="text-xs mb-0.5"
-                                style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-                              >
-                                {stat.label}
-                              </p>
-                              <p className="text-xl font-bold">{stat.value}</p>
-                            </div>
-                          </div>
-                        </div>
-                      );
-                    })}
-                  </div>
-
-                  {/* Commission Explanation */}
-                  <div
-                    className="p-6 rounded-3xl border"
-                    style={{
-                      background: isDark 
-                        ? 'rgba(255, 255, 255, 0.03)'
-                        : 'rgba(0, 0, 0, 0.02)',
-                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                    }}
-                  >
-                    <h4 className="font-bold mb-3 flex items-center gap-2">
-                      💡 Kamisya Tizimi Haqida
-                    </h4>
-                    <div className="space-y-2 text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                      <p>
-                        <strong>Kamisya:</strong> Har bir mahsulot sotilganda platformaga to'lanadigan foiz. 
-                        Masalan, agar siz 100,000 so'mlik mahsulot 15% kamisya bilan sotgan bo'lsangiz:
-                      </p>
-                      <ul className="list-disc list-inside space-y-1 ml-4">
-                        <li>Jami sotish: <strong>100,000 so'm</strong></li>
-                        <li>Platforma kamisyasi (15%): <strong>15,000 so'm</strong></li>
-                        <li>Sizning daromadingiz: <strong>85,000 so'm</strong></li>
-                      </ul>
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* History Tab */}
+              {activeTab === 'history' && sellerInfo?.token ? (
+                <SellerHistoryPanel
+                  token={sellerInfo.token}
+                  shopId={String(sellerInfo?.shopId || '')}
+                  shopName={String(sellerInfo?.shopName || '')}
+                  isDark={isDark}
+                  accentColor={accentColor}
+                />
+              ) : null}
             </>
             </RouteErrorBoundary>
           )}
