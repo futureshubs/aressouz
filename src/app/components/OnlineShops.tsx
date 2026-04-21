@@ -1368,7 +1368,9 @@ function ShopDetailModal({
           className="fixed top-3 right-3 md:top-4 md:right-4 z-10 w-9 h-9 md:w-10 md:h-10 rounded-full flex items-center justify-center shadow-lg"
           style={{ 
             background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-            backdropFilter: 'blur(10px)'
+            backdropFilter: 'blur(10px)',
+            top: 'calc(0.75rem + var(--app-safe-top, 0px))',
+            right: 'calc(0.75rem + var(--app-safe-right, 0px))',
           }}
         >
           <X className="w-4 h-4 md:w-5 md:h-5" />
