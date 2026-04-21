@@ -26,10 +26,50 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
   const [isNewUser, setIsNewUser] = useState(false); // Track if user is new
+  const [kbInsetPx, setKbInsetPx] = useState(0);
   
   const codeInputsRef = useRef<(HTMLInputElement | null)[]>([]);
   const otpHiddenInputRef = useRef<HTMLInputElement | null>(null);
   const { tc, isLight } = useThemePalette('android');
+
+  // Read CSS keyboard inset into React state (for iOS/Telegram alignment).
+  useEffect(() => {
+    if (typeof window === 'undefined' || typeof document === 'undefined') return;
+    if (!isOpen) return;
+
+    const root = document.documentElement;
+    const vv = window.visualViewport;
+
+    const readInset = () => {
+      try {
+        const raw = getComputedStyle(root).getPropertyValue('--kb-inset').trim();
+        const px = Math.max(0, Math.round(parseFloat(raw) || 0));
+        setKbInsetPx(px);
+      } catch {
+        setKbInsetPx(0);
+      }
+    };
+
+    readInset();
+    const onResize = () => readInset();
+    if (vv) {
+      vv.addEventListener('resize', onResize);
+      vv.addEventListener('scroll', onResize);
+    }
+    window.addEventListener('resize', onResize);
+    window.addEventListener('focusin', onResize);
+    window.addEventListener('focusout', onResize);
+
+    return () => {
+      if (vv) {
+        vv.removeEventListener('resize', onResize);
+        vv.removeEventListener('scroll', onResize);
+      }
+      window.removeEventListener('resize', onResize);
+      window.removeEventListener('focusin', onResize);
+      window.removeEventListener('focusout', onResize);
+    };
+  }, [isOpen]);
 
   // SMS OTP auto-read (WebOTP on supported browsers)
   useEffect(() => {
@@ -729,14 +769,16 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 app-safe-pad z-[100] flex items-center justify-center backdrop-blur-sm p-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
+      className={`fixed inset-0 app-safe-pad z-[100] flex justify-center backdrop-blur-sm p-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] ${
+        kbInsetPx > 20 ? 'items-start' : 'items-center'
+      }`}
       style={{
         background: tc.backdrop,
         // Make the scroll container match the *visible* viewport.
         minHeight: 'var(--app-viewport-height, 100dvh)',
         // Telegram WebApp top bar can be taller than safe-area on some devices.
         paddingTop: 'calc(1rem + var(--app-safe-top, 0px))',
-        paddingBottom: 'calc(1rem + var(--app-safe-bottom, 0px))',
+        paddingBottom: 'calc(1rem + var(--kb-inset, 0px) + var(--app-safe-bottom, 0px))',
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -754,8 +796,8 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
           // Keep modal within the *visible* viewport when keyboard is open.
           maxHeight:
             'min(900px, calc(var(--app-viewport-height, 100dvh) - var(--app-safe-top, 0px) - var(--app-safe-bottom, 0px) - 2rem - var(--kb-inset, 0px)))',
-          // When keyboard opens (`--kb-inset` > 0), lift the modal up.
-          transform: 'translateY(calc(-0.5 * min(var(--kb-inset, 0px), 240px)))',
+          // When keyboard opens we use items-start; keep transform neutral.
+          transform: 'translateY(0px)',
         }}
       >
         {/* Close Button */}
