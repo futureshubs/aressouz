@@ -674,11 +674,14 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 app-safe-pad z-[100] flex items-center justify-center backdrop-blur-sm p-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
+      className="fixed inset-0 app-safe-pad z-[100] flex items-start sm:items-center justify-center backdrop-blur-sm p-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
       style={{
         background: tc.backdrop,
         // Make the scroll container match the *visible* viewport.
         minHeight: 'var(--app-viewport-height, 100dvh)',
+        // Telegram WebApp top bar can be taller than safe-area on some devices.
+        paddingTop: 'calc(1rem + var(--app-safe-top, 0px))',
+        paddingBottom: 'calc(1rem + var(--kb-inset, 0px) + var(--app-safe-bottom, 0px))',
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
