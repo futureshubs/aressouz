@@ -28,7 +28,38 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
   const [isNewUser, setIsNewUser] = useState(false); // Track if user is new
   
   const codeInputsRef = useRef<(HTMLInputElement | null)[]>([]);
+  const otpHiddenInputRef = useRef<HTMLInputElement | null>(null);
   const { tc, isLight } = useThemePalette('android');
+
+  // SMS OTP auto-read (WebOTP on supported browsers)
+  useEffect(() => {
+    if (!isOpen) return;
+    if (step !== 'code') return;
+
+    const nav: any = typeof navigator !== 'undefined' ? navigator : null;
+    const getOtp: any = nav?.credentials?.get;
+    if (typeof getOtp !== 'function') return;
+
+    const ac = new AbortController();
+    (async () => {
+      try {
+        const cred: any = await getOtp.call(nav.credentials, {
+          otp: { transport: ['sms'] },
+          signal: ac.signal,
+        });
+        const otp = String(cred?.code || '').replace(/\D/g, '').slice(0, 6);
+        if (otp.length !== 6) return;
+        const digits = otp.split('');
+        setCode(digits);
+        // Trigger verify immediately
+        handleVerifyCode(otp);
+      } catch {
+        // ignore (unsupported, cancelled, timeout, or webview limitations)
+      }
+    })();
+
+    return () => ac.abort();
+  }, [isOpen, step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // Countdown timer for resend
   useEffect(() => {
@@ -371,6 +402,24 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       </div>
 
       <div className="space-y-4">
+        {/* Hidden OTP input (iOS/Android autofill hint) */}
+        <input
+          ref={otpHiddenInputRef}
+          value={code.join('')}
+          onChange={(e) => {
+            const otp = String(e.target.value || '').replace(/\D/g, '').slice(0, 6);
+            if (otp.length !== 6) return;
+            const digits = otp.split('');
+            setCode(digits);
+            handleVerifyCode(otp);
+          }}
+          inputMode="numeric"
+          autoComplete="one-time-code"
+          aria-hidden="true"
+          tabIndex={-1}
+          className="absolute opacity-0 pointer-events-none w-0 h-0"
+        />
+
         <div className="flex justify-center gap-2">
           {code.map((digit, index) => (
             <input
@@ -381,11 +430,17 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
               type="text"
               inputMode="numeric"
               pattern="[0-9]*"
-              autoComplete="off"
+              autoComplete={index === 0 ? 'one-time-code' : 'off'}
               maxLength={1}
               value={digit}
               onChange={(e) => handleCodeChange(index, e.target.value)}
               onKeyDown={(e) => handleCodeKeyDown(index, e)}
+              onFocus={() => {
+                // Encourage OS OTP autofill to target our hidden one-time-code field
+                otpHiddenInputRef.current?.focus();
+                // then keep UX on the visible cell
+                requestAnimationFrame(() => codeInputsRef.current[index]?.focus());
+              }}
               className="w-12 h-14 border-2 rounded-2xl text-2xl text-center focus:border-[var(--accent-color)] focus:outline-none transition-all"
               style={{
                 background: tc.input.background,
@@ -674,14 +729,14 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 app-safe-pad z-[100] flex items-start sm:items-center justify-center backdrop-blur-sm p-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
+      className="fixed inset-0 app-safe-pad z-[100] flex items-center justify-center backdrop-blur-sm p-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
       style={{
         background: tc.backdrop,
         // Make the scroll container match the *visible* viewport.
         minHeight: 'var(--app-viewport-height, 100dvh)',
         // Telegram WebApp top bar can be taller than safe-area on some devices.
         paddingTop: 'calc(1rem + var(--app-safe-top, 0px))',
-        paddingBottom: 'calc(1rem + var(--kb-inset, 0px) + var(--app-safe-bottom, 0px))',
+        paddingBottom: 'calc(1rem + var(--app-safe-bottom, 0px))',
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
@@ -699,6 +754,8 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
           // Keep modal within the *visible* viewport when keyboard is open.
           maxHeight:
             'min(900px, calc(var(--app-viewport-height, 100dvh) - var(--app-safe-top, 0px) - var(--app-safe-bottom, 0px) - 2rem - var(--kb-inset, 0px)))',
+          // When keyboard opens (`--kb-inset` > 0), lift the modal up.
+          transform: 'translateY(calc(-0.5 * min(var(--kb-inset, 0px), 240px)))',
         }}
       >
         {/* Close Button */}
