@@ -1129,7 +1129,7 @@ export default function AppContent() {
   /** Mobil (<sm): bitta ichki scroll — iOS/Android WebView da body scroll ishonchsiz bo‘lishi mumkin */
   const mainAppMobileScroll = !isCommunityFullscreen && !isProfileOpen;
   const appScrollShellClass = mainAppMobileScroll
-    ? 'max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto max-sm:overflow-x-hidden max-sm:overscroll-y-contain max-sm:touch-pan-x max-sm:touch-pan-y max-sm:[-webkit-overflow-scrolling:touch] max-sm:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))] sm:contents'
+    ? 'max-sm:flex-1 max-sm:min-h-0 max-sm:overflow-y-auto max-sm:overflow-x-hidden max-sm:overscroll-y-contain max-sm:touch-pan-y max-sm:[-webkit-overflow-scrolling:touch] max-sm:pb-[max(6rem,calc(6rem+var(--app-safe-bottom)))] sm:contents'
     : isCommunityFullscreen
       ? 'min-h-0 flex flex-1 flex-col overflow-hidden'
       : 'contents';

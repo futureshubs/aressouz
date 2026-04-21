@@ -84,6 +84,27 @@ export const CORS_ALLOW_HEADERS =
 /** CORS javob sarlavhalari + xavfsizlik sarlavhalari (oldingi `index.ts` tartibi bilan bir xil). */
 export function registerCorsAndSecurityHeaders(app: Hono): void {
   app.use("/*", async (c, next) => {
+    const corsEnvRaw = Deno.env.get("ALLOWED_ORIGINS")?.trim();
+    const corsMisconfigured = allowedOriginsRequired() && !corsEnvRaw;
+    const path = c.req.path;
+    if (
+      corsMisconfigured &&
+      !path.includes("/health") &&
+      !path.includes("/test-deployment")
+    ) {
+      // Fail closed if production CORS is required but not configured.
+      // Keep health endpoints reachable so operators can diagnose quickly.
+      return c.json(
+        {
+          success: false,
+          error: "CORS misconfigured",
+          code: "CORS_MISCONFIGURED",
+          hint:
+            "Set ALLOWED_ORIGINS (comma-separated) in Supabase Edge Secrets. If you intended wildcard CORS, disable EDGE_PRODUCTION_CORS/ALLOWED_ORIGINS_REQUIRED.",
+        },
+        500,
+      );
+    }
     const corsRestricted = isCorsRestricted();
     const acao = resolveCorsAllowOrigin(c.req.raw);
     if (corsRestricted && !acao && c.req.method === "OPTIONS") {
@@ -137,6 +158,16 @@ export function registerHttpRedactedLogging(
 export function registerOptionsHandler(app: Hono, opts: { DEBUG_HTTP: boolean }): void {
   const { DEBUG_HTTP } = opts;
   app.options("*", (c) => {
+    const corsEnvRaw = Deno.env.get("ALLOWED_ORIGINS")?.trim();
+    const corsMisconfigured = allowedOriginsRequired() && !corsEnvRaw;
+    const path = c.req.path;
+    if (
+      corsMisconfigured &&
+      !path.includes("/health") &&
+      !path.includes("/test-deployment")
+    ) {
+      return c.text("CORS misconfigured", 500);
+    }
     const corsRestricted = isCorsRestricted();
     const acao = resolveCorsAllowOrigin(c.req.raw);
     if (corsRestricted && !acao) {

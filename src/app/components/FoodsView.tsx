@@ -1,5 +1,6 @@
 import { useState, useEffect, useMemo, useRef, useCallback } from 'react';
 import { useTheme } from '../context/ThemeContext';
+import { ExpandableText } from './ui/ExpandableText';
 import { useLocation } from '../context/LocationContext';
 import {
   Star,
@@ -175,7 +176,6 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const [restaurants, setRestaurants] = useState<Restaurant[]>([]);
   const [allDishes, setAllDishes] = useState<Dish[]>([]);
   const [selectedRestaurant, setSelectedRestaurant] = useState<Restaurant | null>(null);
-  const [restaurantDescExpanded, setRestaurantDescExpanded] = useState(false);
   const [restaurantReviews, setRestaurantReviews] = useState<RestaurantReview[]>([]);
   const [restaurantReviewsLoading, setRestaurantReviewsLoading] = useState(false);
   const [restaurantReviewStats, setRestaurantReviewStats] = useState<{ avg: number; count: number }>({
@@ -978,10 +978,6 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   }, [selectedRestaurant]);
 
   useEffect(() => {
-    setRestaurantDescExpanded(false);
-  }, [selectedRestaurant?.id]);
-
-  useEffect(() => {
     if (!selectedRestaurant?.id) {
       setRestaurantReviews([]);
       setRestaurantReviewStats({ avg: 0, count: 0 });
@@ -1621,22 +1617,16 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 <div className="px-4 py-6">
                   {selectedRestaurant.description && (
                     <div className="mb-4">
-                      <p
-                        className={`text-sm leading-relaxed ${restaurantDescExpanded ? '' : 'line-clamp-5'}`}
+                      <ExpandableText
+                        text={selectedRestaurant.description}
+                        mobileLines={2}
+                        minToggleChars={FOODS_RESTAURANT_DESC_MIN_TOGGLE}
+                        className="text-sm leading-relaxed"
                         style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}
-                      >
-                        {selectedRestaurant.description}
-                      </p>
-                      {selectedRestaurant.description.trim().length >= FOODS_RESTAURANT_DESC_MIN_TOGGLE && (
-                        <button
-                          type="button"
-                          onClick={() => setRestaurantDescExpanded((v) => !v)}
-                          className="mt-2 text-sm font-semibold"
-                          style={{ color: accentColor.color }}
-                        >
-                          {restaurantDescExpanded ? "Yig'ish" : "Batafsil o'qish"}
-                        </button>
-                      )}
+                        moreLabel="Batafsil"
+                        lessLabel="Yopish"
+                        toggleColor={accentColor.color}
+                      />
                     </div>
                   )}
 

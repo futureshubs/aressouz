@@ -45,6 +45,9 @@
   --app-safe-right: env(safe-area-inset-right, 0px);
   --app-safe-bottom: env(safe-area-inset-bottom, 0px);
   --app-safe-left: env(safe-area-inset-left, 0px);
+  /* Visual viewport (keyboard-safe) defaults; overridden by `initKeyboardViewportVars()` */
+  --app-viewport-height: 100dvh;
+  --kb-inset: 0px;
 }
 
 .dark {
@@ -145,7 +148,8 @@
     /* Keep document scrolling available on desktop browsers */
     overflow-y: auto;
     /* Prevent horizontal overflow */
-    overflow-x: hidden;
+    overflow-x: clip;
+    overscroll-behavior-x: none;
     max-width: 100vw;
     min-height: 100%;
     min-height: 100dvh;
@@ -166,7 +170,8 @@
     /* Prevent tap highlight */
     -webkit-tap-highlight-color: transparent;
     /* Prevent horizontal overflow */
-    overflow-x: hidden;
+    overflow-x: clip;
+    overscroll-behavior-x: none;
     max-width: 100vw;
     min-height: 100%;
     min-height: 100dvh;
@@ -185,7 +190,8 @@
     /* Safe tepa: Header / app-safe-pt / panellar o‘zlari beradi — ikki marta indent va qora “yo‘lak” bo‘lmasin */
     padding-top: 0;
     box-sizing: border-box;
-    overflow-x: hidden;
+    overflow-x: clip;
+    overscroll-behavior-x: none;
     width: 100%;
     max-width: 100vw;
   }
@@ -346,8 +352,9 @@
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  /* pan-y faqat vertikal — ichki overflow-x:auto (jadval, karusel) gorizontal surishni yutadi */
-  touch-action: pan-x pan-y;
+  /* Root scroll faqat vertikal: gorizontal "yonboshga siljish" bo‘lmasin */
+  touch-action: pan-y;
+  overscroll-behavior-x: none;
 }
 
 .app-panel-sidebar-scroll {
@@ -357,7 +364,8 @@
   overflow-y: auto;
   overscroll-behavior-y: contain;
   -webkit-overflow-scrolling: touch;
-  touch-action: pan-x pan-y;
+  touch-action: pan-y;
+  overscroll-behavior-x: none;
 }
 
 /* Modal ortidagi sahifa siljimasin */

@@ -4204,6 +4204,7 @@ app.post("/make-server-27d0d16c/branch-products", async (c) => {
     console.log('📝 Creating product:', name);
     
     const productId = `prod_${Date.now()}`;
+    const weightKg = Math.max(0, Number(body?.weightKg) || 0);
     
     const product = {
       id: productId,
@@ -4215,6 +4216,7 @@ app.post("/make-server-27d0d16c/branch-products", async (c) => {
       description: description || '',
       recommendation: recommendation || '',
       variants: variants || [],
+      weightKg,
       createdAt: new Date().toISOString(),
     };
 
@@ -4242,10 +4244,15 @@ app.put("/make-server-27d0d16c/branch-products/:id", async (c) => {
       return c.json({ error: 'Mahsulot topilmadi' }, 404);
     }
     
+    const weightKg =
+      body?.weightKg !== undefined
+        ? Math.max(0, Number(body?.weightKg) || 0)
+        : Math.max(0, Number(existingProduct?.weightKg) || 0);
     const updatedProduct = {
       ...existingProduct,
       ...body,
       id,
+      weightKg,
       updatedAt: new Date().toISOString(),
     };
 
@@ -12421,6 +12428,7 @@ app.get("/make-server-27d0d16c/courier/orders/available", async (c) => {
         }
       }
       if (
+        order.requiresAutoCourier === true ||
         order.assignedCourierId ||
         order.courierAcceptedAt ||
         order.status === 'delivering' ||
@@ -12428,6 +12436,9 @@ app.get("/make-server-27d0d16c/courier/orders/available", async (c) => {
         order.status === 'awaiting_receipt' ||
         order.status === 'cancelled'
       ) {
+        if (order.requiresAutoCourier === true) {
+          if (debugMode) bump('auto_courier_only', { id: order.id, productWeightKg: order.productWeightKg ?? null });
+        }
         if (debugMode) bump('already_assigned_or_done', { id: order.id, status: order.status, assignedCourierId: order.assignedCourierId || null });
         continue;
       }
@@ -12612,6 +12623,9 @@ app.post("/make-server-27d0d16c/courier/orders/:id/accept", async (c) => {
     const orderRecord = await getOrderRecord(orderId);
     if (!orderRecord) {
       return c.json({ error: 'Buyurtma topilmadi' }, 404);
+    }
+    if (orderRecord.order?.requiresAutoCourier === true) {
+      return c.json({ error: 'Bu buyurtma faqat avto-kuryer uchun (10kg+)' }, 403);
     }
 
     const body = await parseOptionalJsonBody(c);
@@ -14204,6 +14218,7 @@ app.post("/make-server-27d0d16c/seller/products", async (c) => {
     }
 
     const productId = `shop_product-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    const weightKg = Math.max(0, Number(productData?.weightKg) || 0);
     console.log('🆔 Generated product ID:', productId);
     
     // Get shop info to add shop name to product
@@ -14221,6 +14236,7 @@ app.post("/make-server-27d0d16c/seller/products", async (c) => {
       shopName, // Add shop name for display
       region: shop?.region || '', // Add shop region to product
       district: shop?.district || '', // Add shop district to product
+      weightKg,
       deleted: false,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
@@ -14305,6 +14321,10 @@ app.put("/make-server-27d0d16c/seller/products/:id", async (c) => {
       ...updateData,
       id,
       shopName, // Preserve or update shop name
+      weightKg:
+        updateData?.weightKg !== undefined
+          ? Math.max(0, Number(updateData?.weightKg) || 0)
+          : Math.max(0, Number(product?.weightKg) || 0),
       updatedAt: new Date().toISOString(),
     };
 
@@ -19836,6 +19856,48 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       );
     }
 
+    // ----------------------------------------------------------------------
+    // Weight (kg) & auto-courier routing
+    // - totalWeightKg = sum(weightKg * qty) across items
+    // - if totalWeightKg > 10 => requiresAutoCourier (heavy order)
+    // ----------------------------------------------------------------------
+    let totalWeightKg = 0;
+    try {
+      for (const line of commissionPack.items) {
+        const qty = Math.max(0, Math.floor(Number(line?.quantity ?? 1)));
+        if (qty <= 0) continue;
+
+        let wkg = 0;
+        if (normalizedOrderType === "market" && !isShopProductCartLine(line)) {
+          const storageId = resolveMarketCartBranchProductStorageId(line);
+          if (storageId) {
+            const bp = await kv.get(`branchproduct:${storageId}`);
+            wkg = Math.max(0, Number(bp?.weightKg) || 0);
+          }
+        } else if (normalizedOrderType === "shop" || isShopProductCartLine(line)) {
+          const pid = String(line?.id ?? line?.productId ?? "").trim();
+          const key = shopProductKvKeyFromPid(pid);
+          if (key) {
+            const prod = await kv.get(key);
+            wkg = Math.max(0, Number(prod?.weightKg) || 0);
+          }
+        } else if (normalizedOrderType === "food") {
+          const dish = await resolveDishRecordForFoodLine(line);
+          const raw = dish?.weight;
+          const n = Math.max(0, Number(raw) || 0);
+          // Dish weight is stored as grams in most flows; tolerate kg input.
+          wkg = n > 30 ? n / 1000 : n;
+        }
+
+        totalWeightKg += wkg * qty;
+      }
+    } catch {
+      // Fail open: do not block order creation if weight lookup fails
+      totalWeightKg = 0;
+    }
+    totalWeightKg = Math.round(totalWeightKg * 1000) / 1000; // 3dp
+    const requiresAutoCourier = totalWeightKg > 10;
+
     const addressText = typeof data.address === 'object'
       ? [
           data.address?.street,
@@ -19959,6 +20021,10 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       ...(branchCashHold ? { branchCashHold: true } : {}),
       ...(foodOrderMirrorKey ? { foodOrderMirrorKey } : {}),
       ...(releasedToPreparerAt ? { releasedToPreparerAt } : {}),
+      productWeightKg: totalWeightKg || null,
+      requiresAutoCourier,
+      assignedAutoCourierId: null,
+      assignedAutoCourierAt: null,
     };
     
     // Save order with type-specific key for better filtering

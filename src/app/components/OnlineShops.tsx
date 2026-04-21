@@ -1266,6 +1266,7 @@ function ShopDetailModal({
   const { accessToken } = useAuth();
   const isDark = theme === 'dark';
   const [activeTab, setActiveTab] = useState<'products' | 'info'>('products');
+  const [isDescriptionExpanded, setIsDescriptionExpanded] = useState(false);
   
   // Product detail modal state
   const [selectedProduct, setSelectedProduct] = useState<any>(null);
@@ -1446,12 +1447,43 @@ function ShopDetailModal({
           </div>
 
           {shop.description && (
-            <p 
-              className="mb-4 md:mb-6 text-base md:text-lg leading-relaxed"
-              style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}
-            >
-              {shop.description}
-            </p>
+            <div className="mb-4 md:mb-6">
+              <button
+                type="button"
+                className="w-full text-left"
+                aria-expanded={isDescriptionExpanded}
+                onClick={() => setIsDescriptionExpanded((v) => !v)}
+              >
+                <p
+                  className="text-base md:text-lg leading-relaxed"
+                  style={{
+                    color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)',
+                    // Mobile: show a short preview (like ~5-8 words / 2 lines), tap to expand.
+                    ...(isDescriptionExpanded
+                      ? {}
+                      : {
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                        }),
+                  }}
+                >
+                  {shop.description}
+                </p>
+              </button>
+
+              <div className="mt-2 sm:hidden">
+                <button
+                  type="button"
+                  onClick={() => setIsDescriptionExpanded((v) => !v)}
+                  className="text-sm font-semibold"
+                  style={{ color: accentColor.color }}
+                >
+                  {isDescriptionExpanded ? "Yopish" : "Batafsil"}
+                </button>
+              </div>
+            </div>
           )}
 
           {/* Tab Buttons - Responsive */}

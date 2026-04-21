@@ -20,6 +20,7 @@ import { toast } from 'sonner';
 import { notifyRentalCartAdded } from '../utils/appToast';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
+import { ExpandableText } from './ui/ExpandableText';
 
 interface RentalItemDetailModalProps {
   item: RentalItem;
@@ -398,12 +399,16 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
             >
               Ta'rif
             </h3>
-            <p 
+            <ExpandableText
+              text={item.description}
+              mobileLines={2}
+              minToggleChars={140}
               className="text-sm leading-relaxed"
               style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}
-            >
-              {item.description}
-            </p>
+              moreLabel="Batafsil"
+              lessLabel="Yopish"
+              toggleColor={accentColor.color}
+            />
           </div>
 
           {/* Features */}

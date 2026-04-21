@@ -310,4 +310,78 @@ app.post("/auto-courier/claim-rental", async (c) => {
   }
 });
 
+/**
+ * Avto-kuryer: katta/og‘ir buyurtmalar navbati (market/shop/food).
+ * Criteria: requiresAutoCourier=true, order is courier-eligible, not assigned yet.
+ */
+app.get("/auto-courier/orders-queue", async (c) => {
+  try {
+    const auth = await resolveSession(c);
+    if (!auth) return c.json({ success: false, error: "Sessiya yo‘q" }, 401);
+
+    const raw = (await kv.getByPrefix("order:")) || [];
+    const list = raw
+      .filter((o: any) => {
+        if (!o || o.deleted) return false;
+        if (String(o.branchId || "") !== auth.branchId) return false;
+        if (o.requiresAutoCourier !== true) return false;
+        if (o.assignedAutoCourierId || o.assignedCourierId || o.courierAcceptedAt) return false;
+        const s = String(o.status || "").toLowerCase().trim();
+        // Mirror courier available logic: ready/preparing states only
+        return s !== "delivering" && s !== "delivered" && s !== "awaiting_receipt" && s !== "cancelled";
+      })
+      .map((o: any) => ({
+        id: o.id,
+        orderType: o.orderType,
+        customerName: o.customerName,
+        customerPhone: o.customerPhone,
+        addressText: o.addressText || "",
+        totalPrice: o.finalTotal ?? o.totalAmount ?? null,
+        productWeightKg: o.productWeightKg,
+        createdAt: o.createdAt,
+      }))
+      .sort((a: any, b: any) => String(b.createdAt || "").localeCompare(String(a.createdAt || "")));
+
+    return c.json({ success: true, orders: list });
+  } catch (e: any) {
+    console.error("auto-courier orders-queue", e);
+    return c.json({ success: false, error: e?.message || "xato" }, 500);
+  }
+});
+
+/** Buyurtmani o‘ziga olish (market/shop/food) */
+app.post("/auto-courier/claim-order", async (c) => {
+  try {
+    const auth = await resolveSession(c);
+    if (!auth) return c.json({ success: false, error: "Sessiya yo‘q" }, 401);
+    const body = await c.req.json().catch(() => ({}));
+    const orderId = String(body.orderId || "").trim();
+    if (!orderId) return c.json({ success: false, error: "orderId kerak" }, 400);
+
+    const key = `order:${orderId}`;
+    const order = await kv.get(key);
+    if (!order || order.deleted) return c.json({ success: false, error: "Buyurtma topilmadi" }, 404);
+    if (String(order.branchId || "") !== auth.branchId) return c.json({ success: false, error: "Filial mos emas" }, 403);
+    if (order.requiresAutoCourier !== true) return c.json({ success: false, error: "Bu buyurtma avto-kuryer uchun emas" }, 400);
+    if (order.assignedAutoCourierId || order.assignedCourierId || order.courierAcceptedAt) {
+      return c.json({ success: false, error: "Allaqachon biriktirilgan" }, 409);
+    }
+
+    const nowIso = new Date().toISOString();
+    order.assignedAutoCourierId = auth.courierId;
+    order.assignedAutoCourierAt = nowIso;
+    order.deliveryCourierId = auth.courierId;
+    order.courierAcceptedAt = nowIso;
+    order.assignedCourierId = auth.courierId;
+    order.status = String(order.status || "").toLowerCase().trim() === "preparing" ? "delivering" : order.status;
+    order.updatedAt = nowIso;
+
+    await kv.set(key, order);
+    return c.json({ success: true, order: { id: order.id, assignedAutoCourierId: auth.courierId } });
+  } catch (e: any) {
+    console.error("auto-courier claim-order", e);
+    return c.json({ success: false, error: e?.message || "xato" }, 500);
+  }
+});
+
 export default app;

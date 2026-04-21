@@ -21,9 +21,11 @@ import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
 type QueueOrder = {
   id: string;
   productName?: string;
+  orderType?: string;
   customerName?: string;
   customerPhone?: string;
   address?: string;
+  addressText?: string;
   totalPrice?: number;
   productWeightKg?: number;
   createdAt?: string;
@@ -67,6 +69,7 @@ export default function AutoCourierDashboard() {
 
   const [session, setSession] = useState<ReturnType<typeof readSession>>(null);
   const [orders, setOrders] = useState<QueueOrder[]>([]);
+  const [heavyOrders, setHeavyOrders] = useState<QueueOrder[]>([]);
   const [myDeliveryJobs, setMyDeliveryJobs] = useState<RentalDeliveryJob[]>([]);
   const [activeRentals, setActiveRentals] = useState<ActiveRentalOrder[]>([]);
   const [loading, setLoading] = useState(true);
@@ -76,6 +79,8 @@ export default function AutoCourierDashboard() {
   const [depositBusyId, setDepositBusyId] = useState<string | null>(null);
   /** Yangi navbat vs sizning ijara ishlaringiz */
   const [autoCourierRentalTab, setAutoCourierRentalTab] = useState<'new' | 'active'>('new');
+  /** Avto-kuryer: katta buyurtmalar vs ijara */
+  const [autoCourierMode, setAutoCourierMode] = useState<'heavy' | 'rental'>('heavy');
   const visibilityTick = useVisibilityTick();
   const tabTeal = '#0d9488';
   const mutedTextColor = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)';
@@ -107,8 +112,14 @@ export default function AutoCourierDashboard() {
     try {
       if (!silent) setLoading(true);
       const u = new URLSearchParams({ token: s.token });
-      const [res, jobsRes, activeRes] = await Promise.all([
+      const [res, heavyRes, jobsRes, activeRes] = await Promise.all([
         fetch(`${baseUrl}/auto-courier/rental-queue?${u}`, {
+          headers: {
+            Authorization: `Bearer ${publicAnonKey}`,
+            'X-Auto-Courier-Token': s.token,
+          },
+        }),
+        fetch(`${baseUrl}/auto-courier/orders-queue?${u}`, {
           headers: {
             Authorization: `Bearer ${publicAnonKey}`,
             'X-Auto-Courier-Token': s.token,
@@ -128,6 +139,7 @@ export default function AutoCourierDashboard() {
         }),
       ]);
       const data = await res.json();
+      const heavyData = await heavyRes.json().catch(() => ({}));
       const jobsData = await jobsRes.json().catch(() => ({}));
       const activeData = await activeRes.json().catch(() => ({}));
       if (res.status === 401 || !data.success) {
@@ -137,11 +149,17 @@ export default function AutoCourierDashboard() {
           navigate('/avtokuryer');
         }
         setOrders([]);
+        setHeavyOrders([]);
         setMyDeliveryJobs([]);
         setActiveRentals([]);
         return;
       }
       setOrders(sortOrdersNewestFirst(Array.isArray(data.orders) ? data.orders : []));
+      if (heavyRes.ok && heavyData.success && Array.isArray(heavyData.orders)) {
+        setHeavyOrders(sortOrdersNewestFirst(heavyData.orders));
+      } else {
+        setHeavyOrders([]);
+      }
       if (jobsRes.ok && jobsData.success && Array.isArray(jobsData.orders)) {
         setMyDeliveryJobs(sortOrdersNewestFirst(jobsData.orders));
       } else {
@@ -154,6 +172,7 @@ export default function AutoCourierDashboard() {
       }
     } catch {
       setOrders([]);
+      setHeavyOrders([]);
       setMyDeliveryJobs([]);
       setActiveRentals([]);
       if (!silent) toast.error('Navbatni yuklashda xatolik');
@@ -199,6 +218,32 @@ export default function AutoCourierDashboard() {
       await loadQueue();
     } catch {
       toast.error('So‘rov yuborilmadi');
+    } finally {
+      setClaiming(null);
+    }
+  };
+
+  const claimHeavyOrder = async (orderId: string) => {
+    const s = readSession();
+    if (!s) return;
+    setClaiming(orderId);
+    try {
+      const res = await fetch(`${baseUrl}/auto-courier/claim-order`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json',
+          'X-Auto-Courier-Token': s.token,
+        },
+        body: JSON.stringify({ orderId }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        toast.error(data.error || 'Olishda xatolik');
+        return;
+      }
+      toast.success('Buyurtma sizga biriktirildi');
+      await loadQueue();
     } finally {
       setClaiming(null);
     }
@@ -388,18 +433,165 @@ export default function AutoCourierDashboard() {
       </header>
 
       <main className="max-w-2xl mx-auto p-4 space-y-4 pb-24">
-        <p
-          className="text-sm rounded-2xl px-4 py-3 border"
-          style={{
-            borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-            background: isDark ? 'rgba(255,255,255,0.03)' : '#fff',
-          }}
+        <div
+          className="flex gap-1.5 p-1.5 rounded-full"
+          style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+          role="tablist"
+          aria-label="Avto-kuryer bo‘limlari"
         >
-          Bu yerda faqat <b>katta yuk</b> belgilangan ijara buyurtmalari chiqadi. «Olish» bosgach,
-          boshqa avto-kuryerlar ko‘rmaydi. Telegram uchun alohida bot tokeni:{' '}
-          <span className="font-mono text-xs">TELEGRAM_AUTO_COURIER_BOT_TOKEN</span>.
-        </p>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={autoCourierMode === 'heavy'}
+            onClick={() => setAutoCourierMode('heavy')}
+            className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-full text-sm font-semibold transition-colors"
+            style={
+              autoCourierMode === 'heavy'
+                ? { background: tabTeal, color: '#fff', boxShadow: '0 1px 8px rgba(13,148,136,0.35)' }
+                : {
+                    background: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.85)',
+                    color: isDark ? 'rgba(255,255,255,0.9)' : '#1f2937',
+                  }
+            }
+          >
+            <Car className="w-4 h-4 shrink-0 opacity-95" aria-hidden />
+            Katta buyurtmalar ({heavyOrders.length})
+          </button>
+          <button
+            type="button"
+            role="tab"
+            aria-selected={autoCourierMode === 'rental'}
+            onClick={() => setAutoCourierMode('rental')}
+            className="flex-1 flex items-center justify-center gap-1.5 min-h-[44px] px-3 rounded-full text-sm font-semibold transition-colors"
+            style={
+              autoCourierMode === 'rental'
+                ? { background: tabTeal, color: '#fff', boxShadow: '0 1px 8px rgba(13,148,136,0.35)' }
+                : {
+                    background: isDark ? 'rgba(0,0,0,0.35)' : 'rgba(255,255,255,0.85)',
+                    color: isDark ? 'rgba(255,255,255,0.9)' : '#1f2937',
+                  }
+            }
+          >
+            <Package className="w-4 h-4 shrink-0 opacity-95" aria-hidden />
+            Ijara ({orders.length})
+          </button>
+        </div>
 
+        {autoCourierMode === 'heavy' ? (
+          <div
+            className="rounded-3xl border p-5 space-y-4"
+            style={{
+              borderColor: isDark ? 'rgba(13,148,136,0.35)' : 'rgba(13,148,136,0.28)',
+              background: isDark ? 'rgba(13,148,136,0.06)' : 'rgba(13,148,136,0.05)',
+            }}
+          >
+            <p className="text-xs" style={{ color: mutedTextColor }}>
+              Bu yerda <b>10 kg dan og‘ir</b> (market/do‘kon/taom) buyurtmalari chiqadi. «O‘zimga olish» bosgach boshqa avto-kuryerlar ko‘rmaydi.
+            </p>
+            {loading && heavyOrders.length === 0 ? (
+              <div className="flex justify-center py-10">
+                <Loader2 className="w-9 h-9 animate-spin opacity-80" style={{ color: tabTeal }} />
+              </div>
+            ) : heavyOrders.length === 0 ? (
+              <div
+                className="rounded-2xl border px-4 py-8 text-center"
+                style={{
+                  borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                  background: isDark ? 'rgba(0,0,0,0.2)' : 'rgba(255,255,255,0.6)',
+                }}
+              >
+                <Car className="w-10 h-10 mx-auto mb-2 opacity-35" aria-hidden />
+                <p className="font-medium text-sm">Navbat bo‘sh</p>
+                <p className="text-xs mt-1" style={{ color: mutedTextColor }}>
+                  Og‘ir buyurtma tushganda shu yerda ko‘rinadi.
+                </p>
+              </div>
+            ) : (
+              <div className="space-y-3">
+                {heavyOrders.map((o) => (
+                  <div
+                    key={o.id}
+                    className="rounded-2xl border p-4 space-y-3"
+                    style={{
+                      borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                      background: isDark
+                        ? 'linear-gradient(145deg, rgba(255,255,255,0.06), rgba(255,255,255,0.02))'
+                        : '#fff',
+                    }}
+                  >
+                    <div className="flex justify-between gap-2 items-start">
+                      <div>
+                        <p className="font-bold">
+                          {String(o.orderType || '').toUpperCase() || 'ORDER'} · {o.customerName || 'Mijoz'}
+                        </p>
+                        <p
+                          className="text-xs font-mono mt-1"
+                          style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+                        >
+                          {o.id}
+                        </p>
+                      </div>
+                      {o.productWeightKg != null ? (
+                        <span className="text-xs font-semibold px-2 py-1 rounded-lg" style={{ background: `${accentColor.color}28` }}>
+                          {o.productWeightKg} kg
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="space-y-2 text-sm">
+                      <div className="flex items-center gap-2">
+                        <Phone className="w-4 h-4 opacity-50" />
+                        {o.customerPhone || '—'}
+                      </div>
+                      {o.addressText ? (
+                        <div className="flex items-start gap-2">
+                          <MapPin className="w-4 h-4 opacity-50 shrink-0 mt-0.5" />
+                          <span>{o.addressText}</span>
+                        </div>
+                      ) : null}
+                    </div>
+
+                    {o.totalPrice != null ? (
+                      <p className="text-sm font-semibold">{Number(o.totalPrice).toLocaleString()} so'm</p>
+                    ) : null}
+
+                    <button
+                      type="button"
+                      disabled={claiming === o.id}
+                      onClick={() => void claimHeavyOrder(o.id)}
+                      className="w-full py-3 rounded-2xl font-semibold transition-opacity disabled:opacity-50 inline-flex items-center justify-center gap-2"
+                      style={{ background: accentColor.color, color: '#fff' }}
+                    >
+                      {claiming === o.id ? (
+                        <>
+                          <Loader2 className="w-5 h-5 animate-spin shrink-0" />
+                          Biriktirilmoqda…
+                        </>
+                      ) : (
+                        'O‘zimga olish'
+                      )}
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        ) : (
+          <p
+            className="text-sm rounded-2xl px-4 py-3 border"
+            style={{
+              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              background: isDark ? 'rgba(255,255,255,0.03)' : '#fff',
+            }}
+          >
+            Bu yerda faqat <b>katta yuk</b> belgilangan ijara buyurtmalari chiqadi. «Olish» bosgach,
+            boshqa avto-kuryerlar ko‘rmaydi. Telegram uchun alohida bot tokeni:{' '}
+            <span className="font-mono text-xs">TELEGRAM_AUTO_COURIER_BOT_TOKEN</span>.
+          </p>
+        )}
+
+        {autoCourierMode === 'rental' ? (
+        <>
         <div
           className="flex gap-1.5 p-1.5 rounded-full"
           style={{
@@ -732,6 +924,8 @@ export default function AutoCourierDashboard() {
           </div>
         </div>
         )}
+        </>
+        ) : null}
       </main>
     </div>
   );

@@ -1,8 +1,7 @@
 import React, { useState, useRef, useEffect } from 'react';
 import { X, Phone, ArrowLeft, Loader2, CheckCircle2, User, Calendar, Users } from 'lucide-react';
 import { motion } from 'motion/react';
-import { projectId, publicAnonKey, API_BASE_URL } from '/utils/supabase/info';
-import { WheelDatePicker } from './WheelDatePicker';
+import { publicAnonKey, API_BASE_URL } from '../../../utils/supabase/info';
 import { useThemePalette } from '../hooks/useThemePalette';
 
 const API_URL = API_BASE_URL; // Use local backend in development
@@ -14,7 +13,6 @@ interface SMSAuthModalProps {
 }
 
 type AuthStep = 'phone' | 'code' | 'details' | 'loading' | 'success';
-type AuthMode = 'signin' | 'signup';
 
 export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) {
   const [step, setStep] = useState<AuthStep>('phone');
@@ -38,6 +36,7 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
       return () => clearTimeout(timer);
     }
+    return undefined;
   }, [countdown]);
 
   // Reset modal state when closed
@@ -127,7 +126,7 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
     }
 
     if (value.length > 1) {
-      value = value[0];
+      value = value.slice(0, 1);
     }
 
     const newCode = [...code];
@@ -376,7 +375,9 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
           {code.map((digit, index) => (
             <input
               key={index}
-              ref={el => codeInputsRef.current[index] = el}
+              ref={(el) => {
+                codeInputsRef.current[index] = el;
+              }}
               type="text"
               inputMode="numeric"
               pattern="[0-9]*"
@@ -508,9 +509,14 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
           </label>
           <div className="relative pl-12">
             <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 z-10" style={{ color: tc.text.tertiary }} />
-            <WheelDatePicker
+            <input
+              type="date"
               value={birthDate}
-              onChange={(date) => setBirthDate(date)}
+              onChange={(e) => setBirthDate(e.target.value)}
+              inputMode="numeric"
+              autoComplete="bday"
+              max={new Date().toISOString().slice(0, 10)}
+              className="w-full px-4 py-3 border-2 rounded-2xl focus:border-[var(--accent-color)] focus:outline-none transition-all"
               style={{
                 background: tc.input.background,
                 borderColor: tc.input.border,
@@ -668,8 +674,12 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className="fixed inset-0 app-safe-pad z-[100] flex items-center justify-center backdrop-blur-sm p-4"
-      style={{ background: tc.backdrop }}
+      className="fixed inset-0 app-safe-pad z-[100] flex items-center justify-center backdrop-blur-sm p-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
+      style={{
+        background: tc.backdrop,
+        // Make the scroll container match the *visible* viewport.
+        minHeight: 'var(--app-viewport-height, 100dvh)',
+      }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
@@ -683,6 +693,9 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
           background: tc.background.modal,
           borderColor: tc.border.primary,
           boxShadow: tc.shadow.xl,
+          // Keep modal within the *visible* viewport when keyboard is open.
+          maxHeight:
+            'min(900px, calc(var(--app-viewport-height, 100dvh) - var(--app-safe-top, 0px) - var(--app-safe-bottom, 0px) - 2rem - var(--kb-inset, 0px)))',
         }}
       >
         {/* Close Button */}
@@ -698,7 +711,14 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         </button>
 
         {/* Content */}
-        <div className="p-8 overflow-y-auto" style={{ maxHeight: 'calc(100vh - 120px)' }}>
+        <div
+          className="p-8 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
+          style={{
+            maxHeight:
+              'calc(var(--app-viewport-height, 100dvh) - var(--app-safe-top, 0px) - var(--app-safe-bottom, 0px) - 120px - var(--kb-inset, 0px))',
+            paddingBottom: 'calc(1rem + var(--kb-inset, 0px) + var(--app-safe-bottom, 0px))',
+          }}
+        >
           {step === 'phone' && renderPhoneStep()}
           {step === 'code' && renderCodeStep()}
           {step === 'details' && renderDetailsStep()}

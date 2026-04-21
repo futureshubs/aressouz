@@ -115,7 +115,7 @@ async function saveTapHistory(userId: string, amount: number, balanceAfter: numb
   );
 }
 
-// Validate user from Authorization header (matches index.tsx validateAccessToken)
+// Validate user from Authorization header (matches `index.ts` validateAccessToken)
 async function validateUser(c: any) {
   console.log('🔐 ===== BONUS validateUser START =====');
   console.log('📍 Request URL:', c.req.url);

@@ -187,6 +187,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
     categoryId: '',
     description: '',
     recommendation: '',
+    weightKg: '',
   });
 
   const [variants, setVariants] = useState<ProductVariant[]>([{
@@ -426,6 +427,11 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       toast.error('Mahsulot nomi, katalog va kategoriyani to\'ldiring');
       return;
     }
+    const w = Number(String(formData.weightKg || '').replace(',', '.'));
+    if (!Number.isFinite(w) || w <= 0) {
+      toast.error('Vazn (kg) ni kiriting');
+      return;
+    }
 
     if (variants.length === 0 || !variants[0]?.name) {
       toast.error('Kamida 1 ta variant qo\'shing');
@@ -446,6 +452,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
         branchName: branchInfo?.branchName || 'Filial',
         description: formData.description || '',
         recommendation: formData.recommendation || '',
+        weightKg: Math.max(0, Number(formData.weightKg) || 0),
         variants: variants.map(v => {
           const rawProfit = v.profitPrice as number | string | undefined | null;
           let profitPrice: number | undefined;
@@ -545,6 +552,10 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       categoryId: product.categoryId,
       description: product.description,
       recommendation: product.recommendation || '',
+      weightKg:
+        product && (product as any).weightKg != null
+          ? String((product as any).weightKg)
+          : '',
     });
     setVariants(product.variants);
     setIsModalOpen(true);
@@ -2832,6 +2843,35 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                       }}
                     />
                   </div>
+
+                <div className="md:col-span-2">
+                  <label
+                    className="block text-sm font-medium mb-2"
+                    style={{ color: isDark ? 'rgba(255, 255, 255, 0.9)' : '#374151' }}
+                  >
+                    Vazn (kg) *
+                  </label>
+                  <input
+                    type="number"
+                    min={0}
+                    step="0.01"
+                    value={formData.weightKg}
+                    onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
+                    placeholder="Masalan: 2.5"
+                    className="w-full px-4 py-3 rounded-2xl border outline-none transition-all"
+                    style={{
+                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                      color: isDark ? '#ffffff' : '#111827',
+                      boxShadow: isDark
+                        ? '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
+                        : '0 2px 6px rgba(0, 0, 0, 0.06)',
+                    }}
+                  />
+                  <p className="text-xs mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                    Buyurtma umumiy vazni 10 kg dan oshsa avtomatik avto-kuryerga chiqadi.
+                  </p>
+                </div>
 
                   <div className="md:col-span-2">
                     <label 

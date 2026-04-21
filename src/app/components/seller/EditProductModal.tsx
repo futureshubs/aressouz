@@ -45,6 +45,7 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
     name: '',
     description: '',
     features: [] as string[], // Changed to array
+    weightKg: '',
   });
 
   const [newFeature, setNewFeature] = useState(''); // For adding new features
@@ -86,6 +87,7 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
         name: product.name || '',
         description: product.description || '',
         features: featuresArray,
+        weightKg: product.weightKg != null ? String(product.weightKg) : '',
       });
 
       if (product.variants && product.variants.length > 0) {
@@ -272,6 +274,11 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
       toast.error('Mahsulot nomini kiriting');
       return;
     }
+    const w = Number(String(formData.weightKg || '').replace(',', '.'));
+    if (!Number.isFinite(w) || w <= 0) {
+      toast.error('Mahsulot vaznini (kg) kiriting');
+      return;
+    }
 
     if (variants.length === 0) {
       toast.error('Kamida bitta variant qo\'shing');
@@ -324,6 +331,7 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
             name: formData.name,
             description: formData.description,
             features: formData.features,
+            weightKg: w,
             variants: variants.map(v => ({
               id: v.id,
               name: v.name,
@@ -445,6 +453,23 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
                   borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
                 }}
                 placeholder="Mahsulot haqida qisqacha ma'lumot"
+              />
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium mb-2">Vazn (kg) *</label>
+              <input
+                type="number"
+                min={0}
+                step="0.01"
+                value={formData.weightKg}
+                onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
+                className="w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2"
+                style={{
+                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f9fafb',
+                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                }}
+                placeholder="Masalan: 2.5"
               />
             </div>
 
