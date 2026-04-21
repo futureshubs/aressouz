@@ -45,6 +45,9 @@ export function OrderReviewModal({
 }: OrderReviewModalProps) {
   const [rating, setRating] = useState(5);
   const [comment, setComment] = useState('');
+  const [courierRating, setCourierRating] = useState(5);
+  const [courierComment, setCourierComment] = useState('');
+  const [courierAvailable, setCourierAvailable] = useState(false);
   const [loading, setLoading] = useState(false);
   const [loadingExisting, setLoadingExisting] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
@@ -66,6 +69,23 @@ export function OrderReviewModal({
     (async () => {
       setLoadingExisting(true);
       try {
+        // Load order to check if courier rating should be shown.
+        try {
+          const orderRes = await fetch(`${apiBaseUrl}/orders/${encodeURIComponent(orderId)}`, {
+            headers: {
+              Authorization: `Bearer ${publicAnonKey}`,
+              apikey: publicAnonKey,
+              'X-Access-Token': accessToken,
+            },
+          });
+          const ordJson = await orderRes.json().catch(() => ({}));
+          const o = (ordJson?.order || ordJson) as Record<string, unknown>;
+          const courierId = String((o as any)?.assignedCourierId || (o as any)?.deliveryCourierId || '').trim();
+          if (!cancelled) setCourierAvailable(Boolean(courierId));
+        } catch {
+          if (!cancelled) setCourierAvailable(false);
+        }
+
         const res = await fetch(
           `${apiBaseUrl}/user/order-reviews?orderId=${encodeURIComponent(orderId)}`,
           {
@@ -82,10 +102,13 @@ export function OrderReviewModal({
         if (!parsed.ok) {
           setRating(5);
           setComment('');
+          setCourierRating(5);
+          setCourierComment('');
           return;
         }
         const data = parsed.data;
         const rev = data.review as Record<string, unknown> | null | undefined;
+        const cRev = data.courierReview as Record<string, unknown> | null | undefined;
         if (res.ok && rev && typeof rev === 'object') {
           setRating(Number(rev.rating) || 5);
           setComment(String(rev.comment || ''));
@@ -93,10 +116,19 @@ export function OrderReviewModal({
           setRating(5);
           setComment('');
         }
+        if (res.ok && cRev && typeof cRev === 'object') {
+          setCourierRating(Number(cRev.rating) || 5);
+          setCourierComment(String(cRev.comment || ''));
+        } else {
+          setCourierRating(5);
+          setCourierComment('');
+        }
       } catch {
         if (!cancelled) {
           setRating(5);
           setComment('');
+          setCourierRating(5);
+          setCourierComment('');
         }
       } finally {
         if (!cancelled) setLoadingExisting(false);
@@ -134,6 +166,38 @@ export function OrderReviewModal({
         throw new Error(String(data.error || 'Saqlashda xatolik'));
       }
       toast.success('Sharx saqlandi');
+      onSaved?.();
+    } catch (e: unknown) {
+      toast.error(e instanceof Error ? e.message : 'Xatolik');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const saveWithCourier = async () => {
+    if (!accessToken || !orderId) {
+      toast.error('Tizimga kiring');
+      return;
+    }
+    setLoading(true);
+    try {
+      const res = await fetch(`${apiBaseUrl}/user/order-reviews`, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${publicAnonKey}`,
+          apikey: publicAnonKey,
+          'X-Access-Token': accessToken,
+        },
+        body: JSON.stringify({ orderId, rating, comment, courierRating, courierComment }),
+      });
+      const raw = await res.text();
+      const parsed = parseJsonFromResponse(raw);
+      const data = parsed.data;
+      if (!res.ok) {
+        throw new Error(String(data.error || 'Saqlashda xatolik'));
+      }
+      toast.success('Baholash saqlandi');
       onSaved?.();
     } catch (e: unknown) {
       toast.error(e instanceof Error ? e.message : 'Xatolik');
@@ -268,6 +332,49 @@ export function OrderReviewModal({
               placeholder="Yetkazib berish, sifat, tavsiyalar…"
             />
 
+            {courierAvailable ? (
+              <div
+                className="mb-4 rounded-xl border p-3"
+                style={{
+                  borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                  background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                }}
+              >
+                <p className="mb-2 text-sm font-medium" style={{ color: isDark ? '#e5e7eb' : '#374151' }}>
+                  Kuryerni baholang
+                </p>
+                <div className="mb-3 flex gap-1">
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <button
+                      key={n}
+                      type="button"
+                      onClick={() => setCourierRating(n)}
+                      className="p-1 transition-transform active:scale-90"
+                      aria-label={`${n} yulduz (kuryer)`}
+                    >
+                      <Star
+                        className="size-8"
+                        fill={n <= courierRating ? accentHex : 'transparent'}
+                        stroke={n <= courierRating ? accentHex : isDark ? '#6b7280' : '#9ca3af'}
+                      />
+                    </button>
+                  ))}
+                </div>
+                <textarea
+                  value={courierComment}
+                  onChange={(e) => setCourierComment(e.target.value.slice(0, 4000))}
+                  rows={3}
+                  className="w-full resize-none rounded-xl border px-3 py-2 text-sm"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.05)' : '#f9fafb',
+                    borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                    color: isDark ? '#fff' : '#111827',
+                  }}
+                  placeholder="Kuryer haqida sharh (ixtiyoriy)"
+                />
+              </div>
+            ) : null}
+
             <div className="flex flex-col gap-2 sm:flex-row sm:flex-wrap sm:justify-end">
               <button
                 type="button"
@@ -296,7 +403,7 @@ export function OrderReviewModal({
               <button
                 type="button"
                 disabled={loading}
-                onClick={() => void save()}
+                onClick={() => void (courierAvailable ? saveWithCourier() : save())}
                 className="rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
                 style={{ background: accentHex }}
               >

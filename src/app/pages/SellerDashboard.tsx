@@ -376,7 +376,7 @@ export default function SellerDashboard() {
 
   /** Naqd: filial «Qabul qilish» (release-to-preparer) qilmaguncha tayyorlovchiga chiqmaydi — sotuvchi ko‘radi, lekin holatni o‘zgartirish xavfsiz emas */
   const isSellerOrderAwaitingBranchCashRelease = (o: any) =>
-    Boolean(o?.branchCashHold) && !o?.releasedToPreparerAt;
+    Boolean(o?.branchCashHold) && !o?.releasedToSellerAt;
 
   const sellerOrderCounts = useMemo(
     () => ({

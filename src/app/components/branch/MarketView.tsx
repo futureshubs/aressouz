@@ -433,8 +433,13 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       return;
     }
 
-    if (variants.length === 0 || !variants[0]?.name) {
+    if (variants.length === 0) {
       toast.error('Kamida 1 ta variant qo\'shing');
+      return;
+    }
+    const badSizeVariant = variants.find((v) => !String(v?.name || '').trim());
+    if (badSizeVariant) {
+      toast.error('Variant o‘lchami (variant nomi) majburiy');
       return;
     }
 
@@ -2869,7 +2874,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                     }}
                   />
                   <p className="text-xs mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
-                    Buyurtma umumiy vazni 10 kg dan oshsa avtomatik avto-kuryerga chiqadi.
+                    Buyurtma umumiy vazni 30 kg dan oshsa avtomatik avto-kuryerga chiqadi.
                   </p>
                 </div>
 
@@ -2942,7 +2947,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                       <div className="md:col-span-2">
-                        <label className="block text-sm font-medium mb-2">Variant nomi *</label>
+                        <label className="block text-sm font-medium mb-2">O‘lchami (variant nomi) *</label>
                         <input
                           type="text"
                           value={variant.name}

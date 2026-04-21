@@ -676,7 +676,7 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
             initial={{ opacity: 0, y: -10 }}
             animate={{ opacity: 1, y: 0 }}
             className={`p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-center ${isLight ? 'text-red-600' : 'text-red-400'}`}
-          >
+          > 
             {error}
           </motion.div>
         )}

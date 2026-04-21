@@ -281,6 +281,12 @@ export function BranchRefundsPanel({ variant = 'branch' }: BranchRefundsPanelPro
           const clickId = ord.clickTransId ?? ord.click_trans_id ?? '';
           const refundReq = ord.refundRequestedAt ?? ord.refund_requested_at ?? '';
           const cancelledAt = ord.cancelledByBranchAt ?? ord.cancelled_at ?? ord.updatedAt ?? '';
+          const cancelReason = String(
+            (ord as any).cancellationReason ||
+              (ord as any).cancelReason ||
+              (ord as any).cancel_reason ||
+              '',
+          ).trim();
 
           return (
             <article
@@ -334,6 +340,9 @@ export function BranchRefundsPanel({ variant = 'branch' }: BranchRefundsPanelPro
                     : null}
                   {isCashier ? metaRow(Calendar, 'Buyurtma vaqti', formatWhen(ord.createdAt), isDark) : null}
                   {isCashier ? metaRow(Calendar, 'Bekor / so‘rov', formatWhen(refundReq || cancelledAt), isDark) : null}
+                  {isCashier && cancelReason
+                    ? metaRow(Hash, 'Bekor sababi', cancelReason, isDark)
+                    : null}
                   {isCashier && paymeId
                     ? metaRow(Hash, 'Payme chek / ID', String(paymeId), isDark)
                     : null}

@@ -343,7 +343,10 @@ async function listRestaurantOrders(canonicalRestaurantId: string): Promise<any[
       : [];
   const merged = mergeOrdersLists([primary, secondary]);
   // Avval naqd + filial qabuli bo‘lmaguncha yashirilgan — restoran Telegram oladi, lekin panel bo‘sh qolardi.
-  return merged.filter((o: any) => !o?.deleted);
+  return merged
+    .filter((o: any) => !o?.deleted)
+    // Cash > 100k: filial qabuligacha restorandan yashiramiz
+    .filter((o: any) => !(o?.branchCashHold === true && !o?.releasedToRestaurantAt));
 }
 
 const DISH_WEEK_MS = 7 * 24 * 60 * 60 * 1000;

@@ -68,6 +68,47 @@ function telegramAutoCourierBotToken(): string {
   );
 }
 
+const EXPO_PUSH_API_URL = 'https://exp.host/--/api/v2/push/send';
+
+async function sendExpoPushBatch(payloads: Array<{ to: string; title: string; body: string; data?: any }>) {
+  if (!Array.isArray(payloads) || payloads.length === 0) return;
+  try {
+    const res = await fetch(EXPO_PUSH_API_URL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payloads),
+    });
+    const j = await res.json().catch(() => ({}));
+    if (!res.ok) {
+      console.error('Expo push HTTP error', res.status, j);
+    }
+  } catch (e) {
+    console.error('Expo push fetch error', e);
+  }
+}
+
+async function notifyRentalUserExpoPush(userId: string, title: string, body: string, data?: any) {
+  const key = `expo_push_tokens:${String(userId).trim()}`;
+  let raw: any = null;
+  try {
+    raw = await kv.get(key);
+  } catch {
+    raw = null;
+  }
+  let tokens: string[] = [];
+  if (Array.isArray(raw)) {
+    tokens = raw.filter((t: any) => typeof t === 'string' && t.startsWith('ExponentPushToken'));
+  } else if (typeof raw === 'string' && raw.startsWith('ExponentPushToken')) {
+    tokens = [raw];
+  }
+  if (tokens.length === 0) return;
+  await sendExpoPushBatch(tokens.map((to) => ({ to, title, body, data })));
+}
+
+function rentalEndSoonKey(orderId: string) {
+  return `rental_endsoon_reminder:${String(orderId).trim()}`;
+}
+
 function formatRentalDepositTelegramLine(order: any): string {
   const desc = String(order.depositDescription || "").trim();
   const amt = Math.max(0, Math.round(Number(order.depositAmountUzs) || 0));
@@ -883,6 +924,118 @@ app.put("/branch/rental-notify-settings", async (c) => {
       { success: false, error: error?.message || "Xatolik" },
       500,
     );
+  }
+});
+
+/**
+ * Cron/job: rental ends in <= 2 hours reminder
+ * - Notifies customer (Expo push if customerUserId exists)
+ * - Notifies courier (Telegram to courier.telegramChatId if exists)
+ * Idempotent per order + endsAt: reminder will be sent once per rentalPeriodEndsAt.
+ */
+app.post('/jobs/rental-end-soon-reminders', async (c) => {
+  try {
+    const secret = String(Deno.env.get('RENTAL_REMINDER_CRON_SECRET') || '').trim();
+    const provided =
+      String(c.req.header('X-Cron-Secret') || c.req.header('x-cron-secret') || '').trim();
+    if (secret && provided !== secret) {
+      return c.json({ success: false, error: 'Unauthorized' }, 401);
+    }
+
+    const now = Date.now();
+    const windowMs = 2 * 60 * 60 * 1000;
+
+    const orders = (await kv.getByPrefix('rental_order_')) || [];
+    let scanned = 0;
+    let eligible = 0;
+    let notifiedUser = 0;
+    let notifiedCourier = 0;
+    let skippedAlready = 0;
+
+    const rentalBot = telegramRentalBotToken();
+    for (const raw of orders) {
+      scanned++;
+      const o: any = raw;
+      if (!o || o.deleted) continue;
+      if (String(o.status || '').toLowerCase().trim() !== 'active') continue;
+      if (!o.rentalPeriodStartedAt) continue;
+
+      const endsAtIso = String(o.rentalPeriodEndsAt || '').trim();
+      if (!endsAtIso) continue;
+      const endTs = new Date(endsAtIso).getTime();
+      if (!Number.isFinite(endTs)) continue;
+      const left = endTs - now;
+      if (left <= 0 || left > windowMs) continue;
+
+      eligible++;
+      const orderId = String(o.id || '').trim();
+      if (!orderId) continue;
+
+      const stateKey = rentalEndSoonKey(orderId);
+      const prev = await kv.get(stateKey).catch(() => null);
+      const prevEndsAt = prev && typeof prev === 'object' ? String((prev as any).endsAt || '').trim() : '';
+      if (prevEndsAt && prevEndsAt === endsAtIso) {
+        skippedAlready++;
+        continue;
+      }
+
+      // Customer push (best-effort)
+      const customerUserId = String(o.customerUserId || '').trim();
+      if (customerUserId) {
+        try {
+          await notifyRentalUserExpoPush(
+            customerUserId,
+            'Ijara muddati tugashiga oz qoldi',
+            '2 soat qoldi. Istasangiz vaqtni uzaytirishingiz mumkin.',
+            { type: 'rental_end_soon', orderId },
+          );
+          notifiedUser++;
+        } catch {
+          /* ignore */
+        }
+      }
+
+      // Courier telegram (best-effort)
+      const courierId = String(o.deliveryCourierId || '').trim();
+      if (rentalBot && courierId) {
+        try {
+          const courier = await kv.get(`courier:${courierId}`);
+          const cid = String(courier?.telegramChatId || '').trim();
+          if (cid && isValidTelegramTarget(cid)) {
+            const pickup = String(o.pickupAddress || '').trim();
+            const html = [
+              `<b>⏰ Ijara muddati tugashiga oz qoldi</b>`,
+              ``,
+              `2 soat qoldi. Mahsulotni olib, o‘z joyiga yetkazing.`,
+              ``,
+              `<b>Mahsulot:</b> ${escapeTelegramHtml(String(o.productName || ''))}`,
+              pickup ? `<b>Topshirish (ijara beruvchi):</b> ${escapeTelegramHtml(pickup)}` : '',
+              `<b>Buyurtma ID:</b> <code>${escapeTelegramHtml(orderId)}</code>`,
+            ]
+              .filter(Boolean)
+              .join('\n');
+            await sendHtmlTelegramWithToken(rentalBot, cid, html);
+            notifiedCourier++;
+          }
+        } catch {
+          /* ignore */
+        }
+      }
+
+      await kv.set(stateKey, { endsAt: endsAtIso, sentAt: new Date().toISOString() });
+    }
+
+    return c.json({
+      success: true,
+      scanned,
+      eligible,
+      notifiedUser,
+      notifiedCourier,
+      skippedAlready,
+    });
+  } catch (e: any) {
+    console.error('rental-end-soon-reminders job:', e);
+    return c.json({ success: false, error: 'Xatolik' }, 500);
   }
 });
 

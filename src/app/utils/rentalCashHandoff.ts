@@ -23,14 +23,16 @@ export function computeRentalCourierHandoffUzs(order: {
   return { toCashierUzs, isCashLike, totalUzs, deliveryKeptUzs };
 }
 
-/** Market (oddiy kuryer): `cashLike` true bo‘lsa kassaga `jami − yetkazish` (serverdagi naqd qoidasi bilan mos). */
+/** Market (oddiy kuryer): `cashLike` true bo‘lsa kassaga jami summa topshiriladi. */
 export function computeMarketCourierHandoffUzs(
   grandTotalUzs: number,
   deliveryFeeUzs: number,
   cashLike: boolean,
 ): { toCashierUzs: number; totalUzs: number; deliveryKeptUzs: number } {
   const totalUzs = Math.max(0, Math.round(Number(grandTotalUzs) || 0));
-  const deliveryKeptUzs = Math.max(0, Math.round(Number(deliveryFeeUzs) || 0));
-  const toCashierUzs = cashLike ? Math.max(0, totalUzs - deliveryKeptUzs) : 0;
+  // Yetkazish haqi naqd ko‘rinishda kuryerda qolmaydi — kassaga jami topshiriladi.
+  const deliveryKeptUzs = 0;
+  void deliveryFeeUzs; // kept for signature compatibility
+  const toCashierUzs = cashLike ? totalUzs : 0;
   return { toCashierUzs, totalUzs, deliveryKeptUzs };
 }

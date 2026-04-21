@@ -486,7 +486,7 @@ export default function AutoCourierDashboard() {
             }}
           >
             <p className="text-xs" style={{ color: mutedTextColor }}>
-              Bu yerda <b>10 kg dan og‘ir</b> (market/do‘kon/taom) buyurtmalari chiqadi. «O‘zimga olish» bosgach boshqa avto-kuryerlar ko‘rmaydi.
+              Bu yerda <b>30 kg dan og‘ir</b> (market/do‘kon/taom) buyurtmalari chiqadi. «O‘zimga olish» bosgach boshqa avto-kuryerlar ko‘rmaydi.
             </p>
             {loading && heavyOrders.length === 0 ? (
               <div className="flex justify-center py-10">

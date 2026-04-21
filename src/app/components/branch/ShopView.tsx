@@ -29,6 +29,7 @@ import { buildBranchHeaders } from '../../utils/requestAuth';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { getVariantStockQuantity, getEffectiveProductStockQuantity } from '../../utils/cartStock';
 import { branchIdsEqual } from '../../utils/branchIdNormalize';
+import { CheckoutMapPickerModal } from '../CheckoutMapPickerModal';
 
 interface ShopViewProps {
   branchId: string;
@@ -119,6 +120,7 @@ export default function ShopView({ branchId }: ShopViewProps) {
   const tabs = [
     { id: 'products', label: 'Mahsulotlar', icon: Package },
     { id: 'shops', label: 'Do\'konlar', icon: Store },
+    { id: 'orders', label: 'Buyurtmalar', icon: ShoppingBag },
     { id: 'inventory', label: 'Ombor', icon: Warehouse },
     { id: 'statistics', label: 'Statistika', icon: BarChart3 },
   ];
@@ -191,10 +193,23 @@ export default function ShopView({ branchId }: ShopViewProps) {
     return merged;
   }, [branchId]);
 
+  const loadShopCashHoldOrders = useCallback(async () => {
+    const b = encodeURIComponent(branchId);
+    const branchHeaders = buildBranchHeaders({ 'Content-Type': 'application/json' });
+    const res = await fetch(
+      `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders/branch?branchId=${b}&type=shop&cashHoldOnly=1`,
+      { headers: branchHeaders },
+    );
+    const data = await res.json().catch(() => ({}));
+    if (!res.ok || !data?.success) throw new Error(String(data?.error || 'Shop buyurtmalarini olishda xatolik'));
+    const list = Array.isArray(data.orders) ? data.orders : [];
+    return list.map(mapRawShopOrder).filter((o) => String(o.id || o.orderId).trim() !== '');
+  }, [branchId]);
+
   const loadData = useCallback(async () => {
     setIsLoading(true);
     try {
-      const needsCatalog = ['shops', 'products', 'inventory', 'statistics'].includes(activeTab);
+      const needsCatalog = ['shops', 'products', 'inventory', 'statistics', 'orders'].includes(activeTab);
       const needsProducts = ['products', 'inventory'].includes(activeTab);
 
       if (needsCatalog) {
@@ -219,6 +234,16 @@ export default function ShopView({ branchId }: ShopViewProps) {
           setShopOrders([]);
           toast.error('Do‘kon buyurtma statistikasi yuklanmadi (filial sessiyasini tekshiring)');
         }
+      } else if (activeTab === 'orders') {
+        try {
+          const orders = await loadShopCashHoldOrders();
+          setShopOrders(orders);
+          setOrdersVisible(50);
+        } catch (e) {
+          console.error(e);
+          setShopOrders([]);
+          toast.error('Do‘kon buyurtmalari yuklanmadi');
+        }
       } else {
         setShopOrders([]);
       }
@@ -228,7 +253,7 @@ export default function ShopView({ branchId }: ShopViewProps) {
     } finally {
       setIsLoading(false);
     }
-  }, [activeTab, fetchBranchShops, fetchAllBranchShopProducts, loadShopOrders]);
+  }, [activeTab, fetchBranchShops, fetchAllBranchShopProducts, loadShopOrders, loadShopCashHoldOrders]);
 
   useEffect(() => {
     void loadData();
@@ -780,6 +805,92 @@ export default function ShopView({ branchId }: ShopViewProps) {
             </div>
           )}
 
+          {/* Orders Tab (cash > 100k hold) */}
+          {activeTab === 'orders' && (
+            <div className="space-y-4">
+              <div className="flex items-center justify-between gap-3">
+                <div>
+                  <h3 className="text-lg font-bold">Do‘kon buyurtmalari</h3>
+                  <p className="text-xs opacity-70 mt-1">
+                    Bu yerda <b>naqd</b> va <b>100 000 so‘mdan katta</b> buyurtmalar chiqadi. Filial “Qabul qilish” bosgandan keyin sotuvchi panelga o‘tadi.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => void loadData()}
+                  className="px-4 py-2 rounded-xl border inline-flex items-center gap-2"
+                  style={{
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                  }}
+                >
+                  <RefreshCw className={`w-4 h-4 ${isLoading ? 'animate-spin' : ''}`} />
+                  Yangilash
+                </button>
+              </div>
+
+              {shopOrders.length === 0 ? (
+                <div
+                  className="p-10 rounded-3xl border text-center"
+                  style={{
+                    background: isDark
+                      ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
+                      : 'linear-gradient(145deg, #ffffff, #f9fafb)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                  }}
+                >
+                  <ShoppingBag className="w-12 h-12 mx-auto mb-3 opacity-40" aria-hidden />
+                  <p className="font-medium">Hozircha buyurtma yo‘q</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {shopOrders.slice(0, ordersVisible).map((o) => (
+                    <div
+                      key={o.id}
+                      className="p-4 rounded-2xl border"
+                      style={{
+                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : '#fff',
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                      }}
+                    >
+                      <div className="flex items-start justify-between gap-3">
+                        <div>
+                          <p className="font-bold">#{o.orderId}</p>
+                          <p className="text-sm opacity-80 mt-0.5">
+                            Jami: {Math.round(o.totalAmount).toLocaleString('uz-UZ')} so‘m
+                          </p>
+                        </div>
+                        <button
+                          type="button"
+                          onClick={async () => {
+                            try {
+                              const res = await fetch(
+                                `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch/shop-orders/${encodeURIComponent(o.orderId)}/accept`,
+                                {
+                                  method: 'POST',
+                                  headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+                                },
+                              );
+                              const data = await res.json().catch(() => ({}));
+                              if (!res.ok || !data?.success) throw new Error(String(data?.error || 'Xatolik'));
+                              toast.success('Qabul qilindi — sotuvchiga yuborildi');
+                              await loadData();
+                            } catch (e: unknown) {
+                              toast.error(e instanceof Error ? e.message : 'Xatolik');
+                            }
+                          }}
+                          className="px-4 py-2 rounded-xl font-semibold text-white active:scale-[0.99]"
+                          style={{ background: 'linear-gradient(135deg, #10b981, #059669)' }}
+                        >
+                          Qabul qilish
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Inventory Tab — barcha do‘konlar variantlari bo‘yicha real zaxira */}
           {activeTab === 'inventory' && (
             <div className="space-y-5">
@@ -1286,6 +1397,7 @@ function AddShopModal({
   const isEdit = Boolean(editingShop?.id);
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [telegramTestBusy, setTelegramTestBusy] = useState(false);
+  const [pickupMapOpen, setPickupMapOpen] = useState(false);
 
   const [formData, setFormData] = useState({
     name: '',
@@ -1766,7 +1878,7 @@ function AddShopModal({
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-2 flex items-center gap-2">
+            <label className="text-sm font-medium mb-2 flex items-center gap-2">
               <Navigation className="w-4 h-4 shrink-0" />
               Mahsulotni olib ketish joyi (GPS) *
             </label>
@@ -1774,6 +1886,14 @@ function AddShopModal({
               Kuryer xaritada shu nuqtaga yo‘l oladi.
             </p>
             <div className="flex flex-wrap gap-2 mb-2">
+              <button
+                type="button"
+                onClick={() => setPickupMapOpen(true)}
+                className="px-3 py-2 rounded-xl text-sm font-medium"
+                style={{ background: `${accentColor.color}22`, color: accentColor.color }}
+              >
+                Xarita orqali tanlash
+              </button>
               <button
                 type="button"
                 onClick={() => {
@@ -1911,6 +2031,28 @@ function AddShopModal({
               />
             </div>
           </div>
+
+      <CheckoutMapPickerModal
+        isOpen={pickupMapOpen}
+        onClose={() => setPickupMapOpen(false)}
+        onConfirm={(coords) => {
+          setFormData((prev) => ({
+            ...prev,
+            pickupLat: String(coords.lat.toFixed(6)),
+            pickupLng: String(coords.lng.toFixed(6)),
+          }));
+          setPickupMapOpen(false);
+          toast.success('Nuqta tanlandi');
+        }}
+        initialCenter={(() => {
+          const la = parseFloat(String(formData.pickupLat).replace(',', '.'));
+          const ln = parseFloat(String(formData.pickupLng).replace(',', '.'));
+          if (Number.isFinite(la) && Number.isFinite(ln)) return { lat: la, lng: ln };
+          return null;
+        })()}
+        isDark={isDark}
+        accentColor={accentColor}
+      />
 
           {/* Delivery Time */}
           {formData.delivery && (

@@ -133,9 +133,9 @@ export function CashierCashReceiveTab({ branchId }: Props) {
         style={{ background: cardBg, borderColor: border }}
       >
         <p className="text-sm mb-3" style={{ color: muted }}>
-          Kuryer mijozdan naqd olgach, <strong>mahsulot pulini</strong> kassaga topshiradi. Yetkazib berish haqi
-          kuryerda qoladi. <strong>Ijara</strong> buyurtmalarida ham xuddi shu: kuryer «qaytarib oldim» tugmasidan
-          keyin kutilayotgan summa shu ro‘yxatga tushadi.
+          Kuryer mijozdan naqd olgach, <strong>jami summani</strong> filial kassasiga topshiradi. Yetkazib berish haqi
+          alohida hisoblanadi (kuryerda naqd ko‘rinishda qolmaydi). <strong>Ijara</strong> buyurtmalarida ham xuddi shu:
+          kuryer «qaytarib oldim» tugmasidan keyin kutilayotgan summa shu ro‘yxatga tushadi.
         </p>
         <div className="relative">
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-45" />
@@ -195,8 +195,7 @@ export function CashierCashReceiveTab({ branchId }: Props) {
                     Olish kerak: {row.courierCashHandoffExpectedUzs.toLocaleString('uz-UZ')} so‘m
                   </p>
                   <p className="text-xs" style={{ color: muted }}>
-                    Jami: {row.finalTotal.toLocaleString('uz-UZ')} · Yetkazish (kuryerda):{' '}
-                    {row.deliveryFee.toLocaleString('uz-UZ')}
+                    Jami: {row.finalTotal.toLocaleString('uz-UZ')} · Yetkazish: {row.deliveryFee.toLocaleString('uz-UZ')}
                   </p>
                   <p className="font-semibold">{formatOrderNumber(row.orderNumber, row.id)}</p>
                   <div className="flex flex-wrap gap-x-4 gap-y-1 text-sm" style={{ color: muted }}>

@@ -468,11 +468,20 @@ export function PendingCashMarketBranchPanel({
 
   const handleCancelByBranch = async (orderId: string) => {
     if (!window.confirm('Buyurtmani bekor qilasizmi? Mijoz profilida bekor ko‘rinadi.')) return;
+    const reason = window.prompt(
+      'Bekor qilish sababi:\n- ingredients_bad\n- delivered_bad\n- wrong_product',
+      'wrong_product',
+    );
+    if (!reason) return;
     try {
       setCancellingOrderId(orderId);
       const res = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders/${encodeURIComponent(orderId)}/cancel-by-branch`,
-        { method: 'POST', headers: buildBranchHeaders({ 'Content-Type': 'application/json' }) },
+        {
+          method: 'POST',
+          headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ reason }),
+        },
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {

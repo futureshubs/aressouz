@@ -3225,7 +3225,21 @@ app.get("/make-server-27d0d16c/user/:userId", async (c) => {
         }
         const reviewKey = `user:${auth.userId}:order_review:${orderId}`;
         const review = await kv.get(reviewKey);
-        return c.json({ success: true, review: review || null });
+
+        // Courier review is stored separately but returned together for UI convenience.
+        let courierReview: any | null = null;
+        try {
+          const ord = await findKvOrderById(orderId);
+          const courierId = String(ord?.assignedCourierId || ord?.deliveryCourierId || '').trim();
+          if (courierId) {
+            const ck = `user:${auth.userId}:courier_review:${courierId}:${orderId}`;
+            courierReview = (await kv.get(ck)) || null;
+          }
+        } catch {
+          /* ignore */
+        }
+
+        return c.json({ success: true, review: review || null, courierReview });
       } catch (e: any) {
         console.error('order-reviews GET (user/:userId branch):', e);
         return c.json({ success: false, error: 'Sharxni olishda xatolik' }, 500);
@@ -13068,8 +13082,11 @@ app.post("/make-server-27d0d16c/courier/orders/:id/delivered", async (c) => {
           orderRecord.order.delivery_fee ??
           0,
       ) || 0;
-    /** Naqd: kuryer yetkazish haqini o‘zi saqlaydi, qolgani kassaga topshiriladi. */
-    const courierCashHandoffExpectedUzs = isCashLike ? Math.max(0, finalTotalNum - deliveryFeeNum) : 0;
+    /**
+     * Naqd/COD: kuryer mijozdan jami summani oladi va filial kassasiga topshiradi.
+     * (Yetkazish haqi kuryerda naqd ko‘rinishda qolmaydi — platforma orqali hisoblanadi.)
+     */
+    const courierCashHandoffExpectedUzs = isCashLike ? Math.max(0, finalTotalNum) : 0;
     const courierCashHandoffStatus = isCashLike ? 'pending_cashier' : 'not_applicable';
 
     const updatedOrder = {
@@ -14835,10 +14852,17 @@ app.get("/make-server-27d0d16c/seller/orders", async (c) => {
       return tb - ta;
     });
 
-    let filtered = merged;
+    // Cash > 100k: hide from seller until branch accepts (releasedToSellerAt set)
+    const gated = merged.filter((o: any) => {
+      const hold = Boolean(o?.branchCashHold);
+      const released = Boolean(o?.releasedToSellerAt);
+      return !(hold && !released);
+    });
+
+    let filtered = gated;
     if (q) {
       const qq = q.toLowerCase();
-      filtered = merged.filter((o: any) => {
+      filtered = gated.filter((o: any) => {
         const hay = `${o?.id ?? ""} ${o?.status ?? ""} ${o?.paymentStatus ?? ""} ${o?.customerName ?? ""} ${o?.phone ?? ""} ${o?.address ?? ""}`.toLowerCase();
         if (hay.includes(qq)) return true;
         const items = Array.isArray(o?.items) ? o.items : [];
@@ -14998,6 +15022,7 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
     let totalAmount = 0;
     let totalCommission = 0;
     let totalShopEarnings = 0;
+    let totalWeightKg = 0;
     const processedItems = [];
 
     for (const item of items) {
@@ -15044,6 +15069,8 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
       const unitCost = Math.max(0, Math.floor(Number((variant as any).costPrice || 0)));
       const itemCost = unitCost * qty;
       const itemGrossProfit = itemShopEarning - itemCost;
+      const wkg = Math.max(0, Number((product as any)?.weightKg) || 0);
+      totalWeightKg += wkg * qty;
 
       totalAmount += itemTotal;
       totalCommission += itemCommission;
@@ -15051,6 +15078,7 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
 
       processedItems.push({
         ...item,
+        weightKg: wkg,
         commission: commissionRate,
         commissionAmount: itemCommission,
         shopEarning: itemShopEarning,
@@ -15063,29 +15091,52 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
     // Create order
     const orderId = `${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
     const orderNumber = `ORD${Date.now().toString().slice(-8)}`;
+    totalWeightKg = Math.round(totalWeightKg * 1000) / 1000;
+    const requiresAutoCourier = totalWeightKg > 30;
+    const paymentMethod = String(payment?.method || '').toLowerCase().trim();
+    const isCashLike = paymentMethod === 'cash' || paymentMethod.includes('naqd') || paymentMethod.includes('naqt');
+    const deliveryFee = Number(delivery?.price ?? delivery?.deliveryPrice ?? delivery?.fee ?? 0) || 0;
+    const finalTotal = Math.max(0, Math.round((Number(totalAmount) + deliveryFee) * 100) / 100);
+    const branchCashHold = Boolean(isCashLike && finalTotal > 100000);
+    const releasedToSellerAt = branchCashHold ? null : new Date().toISOString();
+    const initialStatus = branchCashHold ? 'pending_branch_accept' : 'pending';
     const order = {
       id: orderId,
       orderNumber,
       shopId,
       shopName: shop.name,
+      branchId: String(shop.branchId || '').trim(),
+      orderType: 'shop',
       items: processedItems,
       customer,
       delivery,
       payment,
       totalAmount,
+      deliveryPrice: deliveryFee,
+      finalTotal,
       totalCommission,
       totalShopEarnings,
       totalCost: processedItems.reduce((s: number, it: any) => s + Number(it?.costTotal || 0), 0),
       totalGrossProfit: processedItems.reduce((s: number, it: any) => s + Number(it?.grossProfit || 0), 0),
-      status: 'pending', // pending, confirmed, preparing, delivering, completed, cancelled
+      status: initialStatus, // pending_branch_accept | pending | confirmed | preparing | delivering | completed | cancelled
+      paymentMethod: paymentMethod || undefined,
+      paymentStatus: String(payment?.status || 'pending').toLowerCase().trim(),
+      productWeightKg: totalWeightKg || null,
+      requiresAutoCourier,
+      branchCashHold: branchCashHold || undefined,
+      releasedToSellerAt: releasedToSellerAt || undefined,
       createdAt: new Date().toISOString(),
       updatedAt: new Date().toISOString(),
     };
 
+    // Keep legacy key for backward compatibility (seller stats/history)
     await kv.set(`shop_order:${orderId}`, order);
+    // Also write to unified order storage so courier/auto-courier pipelines can see it.
+    await kv.set(`order:${orderId}`, order);
 
     const legacyShopTg = pickTelegramChatIdFromEntity(shop);
-    if (legacyShopTg) {
+    // Cash > 100k: do not notify seller/bot until branch accepts.
+    if (!branchCashHold && legacyShopTg) {
       console.log(`📱 Sending Telegram notification to shop ${shop.name} (Chat ID: ${legacyShopTg})`);
 
       const notificationSent = await telegram.sendOrderNotification({
@@ -15102,7 +15153,7 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
           quantity: item.quantity,
           price: item.price,
         })),
-        totalAmount,
+        totalAmount: finalTotal,
         deliveryMethod: delivery.method || 'Yetkazib berish',
         paymentMethod: payment.method || 'Naqd',
         orderDate: new Date().toLocaleString('uz-UZ', {
@@ -15119,8 +15170,10 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
       } else {
         console.log(`⚠️ Failed to send Telegram notification for order ${orderNumber}`);
       }
-    } else {
+    } else if (!branchCashHold) {
       console.log(`ℹ️ No Telegram chat ID configured for shop ${shop.name} (telegramChatId / telegram_chat_id)`);
+    } else {
+      console.log(`ℹ️ Cash > 100k order: waiting branch accept before notifying seller/bot (order ${orderNumber})`);
     }
 
     return c.json({ 
@@ -19337,12 +19390,18 @@ app.post("/make-server-27d0d16c/user/order-reviews", async (c) => {
     const orderId = String(body.orderId || "").trim();
     const rating = Number(body.rating);
     const comment = String(body.comment || "").trim().slice(0, 4000);
+    const courierRatingRaw = body.courierRating;
+    const courierRating = courierRatingRaw != null ? Number(courierRatingRaw) : null;
+    const courierComment = String(body.courierComment || "").trim().slice(0, 4000);
 
     if (!orderId || !Number.isFinite(rating) || rating < 1 || rating > 5) {
       return c.json(
         { success: false, error: "orderId va rating (1–5) majburiy" },
         400,
       );
+    }
+    if (courierRating != null && (!Number.isFinite(courierRating) || courierRating < 1 || courierRating > 5)) {
+      return c.json({ success: false, error: "courierRating (1–5) noto‘g‘ri" }, 400);
     }
 
     const gate = await assertUserOwnsReviewableOrder(auth.userId, orderId);
@@ -19367,6 +19426,50 @@ app.post("/make-server-27d0d16c/user/order-reviews", async (c) => {
       createdAt: existing.createdAt || now,
     };
     await kv.set(key, record);
+
+    // Optional: courier review (stored separately + updates courier aggregate rating)
+    if (courierRating != null) {
+      try {
+        const ord = await findKvOrderById(orderId);
+        const courierId = String(ord?.assignedCourierId || ord?.deliveryCourierId || '').trim();
+        if (courierId) {
+          const ck = `user:${auth.userId}:courier_review:${courierId}:${orderId}`;
+          const prev = (await kv.get(ck)) || {};
+          const courierReview = {
+            ...prev,
+            orderId,
+            courierId,
+            userId: auth.userId,
+            rating: courierRating,
+            comment: courierComment,
+            authorName,
+            updatedAt: now,
+            createdAt: prev.createdAt || now,
+          };
+          await kv.set(ck, courierReview);
+
+          // Update courier aggregate rating fields (best-effort)
+          const courierKey = buildCourierKey(courierId);
+          const courier = await kv.get(courierKey);
+          if (courier && !courier.deleted) {
+            const prevTotal = Number((courier as any).ratingTotal || 0);
+            const prevCount = Number((courier as any).ratingCount || 0);
+            const nextTotal = prevTotal + courierRating;
+            const nextCount = prevCount + 1;
+            const nextAvg = nextCount > 0 ? Number((nextTotal / nextCount).toFixed(2)) : 0;
+            await kv.set(courierKey, {
+              ...(courier as any),
+              ratingTotal: nextTotal,
+              ratingCount: nextCount,
+              rating: nextAvg,
+              updatedAt: now,
+            });
+          }
+        }
+      } catch {
+        /* ignore */
+      }
+    }
 
     return c.json({ success: true, review: record });
   } catch (e: any) {
@@ -19859,7 +19962,7 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
     // ----------------------------------------------------------------------
     // Weight (kg) & auto-courier routing
     // - totalWeightKg = sum(weightKg * qty) across items
-    // - if totalWeightKg > 10 => requiresAutoCourier (heavy order)
+    // - if totalWeightKg > 30 => requiresAutoCourier (heavy order)
     // ----------------------------------------------------------------------
     let totalWeightKg = 0;
     try {
@@ -19896,7 +19999,7 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       totalWeightKg = 0;
     }
     totalWeightKg = Math.round(totalWeightKg * 1000) / 1000; // 3dp
-    const requiresAutoCourier = totalWeightKg > 10;
+    const requiresAutoCourier = totalWeightKg > 30;
 
     const addressText = typeof data.address === 'object'
       ? [
@@ -19953,7 +20056,8 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       (normalizedPaymentMethod === 'cash' || normalizedPaymentMethod === 'naqd');
     const branchCashHold =
       (normalizedOrderType === 'shop' || normalizedOrderType === 'food') &&
-      (normalizedPaymentMethod === 'cash' || normalizedPaymentMethod === 'naqd');
+      (normalizedPaymentMethod === 'cash' || normalizedPaymentMethod === 'naqd') &&
+      Number(data.finalTotal || 0) > 100000;
     const shopOrFoodOnlinePaid =
       (normalizedOrderType === 'shop' || normalizedOrderType === 'food') &&
       paymentStatus === 'paid' &&
@@ -19973,6 +20077,11 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
             return `order:restaurant:${canon}:${orderId}`;
           })()
         : null;
+
+    const releasedToRestaurantAt =
+      normalizedOrderType === 'food' && !branchCashHold
+        ? new Date().toISOString()
+        : undefined;
 
     const order = {
       id: orderId,
@@ -20021,6 +20130,7 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       ...(branchCashHold ? { branchCashHold: true } : {}),
       ...(foodOrderMirrorKey ? { foodOrderMirrorKey } : {}),
       ...(releasedToPreparerAt ? { releasedToPreparerAt } : {}),
+      ...(releasedToRestaurantAt ? { releasedToRestaurantAt } : {}),
       productWeightKg: totalWeightKg || null,
       requiresAutoCourier,
       assignedAutoCourierId: null,
@@ -20299,7 +20409,8 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
     }
 
     // Food buyurtmasi bo'lsa restoran Telegram chatiga xabar yuborish
-    if (order.orderType === 'food') {
+    // Cash > 100k: filial qabuligacha Telegram yuborilmaydi.
+    if (order.orderType === 'food' && !(order.branchCashHold === true && !order.releasedToRestaurantAt)) {
       try {
         const itemRestaurantId = String(data?.items?.[0]?.restaurantId || '').trim();
         const payloadRestaurantId = String(data?.restaurantId || '').trim();
@@ -20625,6 +20736,7 @@ app.get('/make-server-27d0d16c/orders/branch', async (c) => {
     }
 
     const type = (c.req.query('type') || 'all') ? String(c.req.query('type')).trim() : 'all';
+    const cashHoldOnly = String(c.req.query('cashHoldOnly') || '').trim() === '1';
     const refundQueue = String(c.req.query('refundQueue') || '').trim() === '1';
 
     const rows = await kv.getByPrefixWithKeys('order:');
@@ -20655,6 +20767,10 @@ app.get('/make-server-27d0d16c/orders/branch', async (c) => {
       }
     }
 
+    if (cashHoldOnly) {
+      orders = orders.filter((o: any) => Boolean((o as any).branchCashHold) && !Boolean((o as any).releasedToSellerAt));
+    }
+
     const sortedOrders = [...orders].sort(
       (a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
     );
@@ -20663,6 +20779,215 @@ app.get('/make-server-27d0d16c/orders/branch', async (c) => {
   } catch (error: any) {
     console.error('Get branch orders error:', error);
     return c.json({ error: 'Filial buyurtmalarini olishda xatolik' }, 500);
+  }
+});
+
+// Branch accepts cash shop order (finalTotal > 100k) -> release to seller + notify Telegram
+app.post('/make-server-27d0d16c/branch/shop-orders/:id/accept', async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ success: false, error: branchAuth.error }, 403);
+    }
+    const orderId = String(c.req.param('id') || '').trim();
+    if (!orderId) return c.json({ success: false, error: 'orderId majburiy' }, 400);
+
+    const record = await getOrderRecord(orderId);
+    if (!record?.order) {
+      return c.json({ success: false, error: 'Buyurtma topilmadi' }, 404);
+    }
+    const order = record.order as any;
+    if (String(order.orderType || '').toLowerCase().trim() !== 'shop') {
+      return c.json({ success: false, error: 'Faqat do‘kon buyurtmasi uchun' }, 400);
+    }
+    const branchId = String(order.branchId || '').trim();
+    if (!branchId || branchId !== String(branchAuth.branchId || '')) {
+      return c.json({ success: false, error: "Filial mos emas" }, 403);
+    }
+    if (!order.branchCashHold) {
+      return c.json({ success: false, error: 'Bu buyurtma filial qabulini talab qilmaydi' }, 409);
+    }
+    if (order.releasedToSellerAt) {
+      return c.json({ success: true, order, alreadyReleased: true });
+    }
+
+    const now = new Date().toISOString();
+    const updated = {
+      ...order,
+      branchCashHold: true,
+      releasedToSellerAt: now,
+      status: String(order.status || '').toLowerCase().trim() === 'pending_branch_accept' ? 'pending' : order.status,
+      updatedAt: now,
+      statusHistory: [
+        ...(Array.isArray(order.statusHistory) ? order.statusHistory : []),
+        { status: 'branch_accepted', timestamp: now, note: 'Filial do‘kon buyurtmasini qabul qildi' },
+      ],
+    };
+
+    await kv.set(record.key, updated);
+    // Keep legacy mirror if exists
+    try {
+      const legacy = await kv.get(`shop_order:${orderId}`);
+      if (legacy && !legacy.deleted) {
+        await kv.set(`shop_order:${orderId}`, { ...legacy, ...updated });
+      }
+    } catch {
+      /* ignore */
+    }
+
+    try {
+      const shopId = String(updated.shopId || '').trim();
+      const shop = shopId ? await kv.get(`shop:${shopId}`) : null;
+      const chatId = pickTelegramChatIdFromEntity(shop);
+      if (chatId) {
+        await telegram.sendOrderNotification({
+          type: 'shop',
+          shopName: String(shop?.name || updated.shopName || 'Do\'kon'),
+          shopChatId: chatId,
+          orderNumber: String(updated.orderNumber || orderId),
+          customerName: String(updated.customer?.name || updated.customerName || 'Mijoz'),
+          customerPhone: String(updated.customer?.phone || updated.customerPhone || '—'),
+          customerAddress: formatCustomerAddressForTelegram(updated.customer || {}),
+          items: (Array.isArray(updated.items) ? updated.items : []).map((it: any) => ({
+            name: it.name || 'Mahsulot',
+            variantName: it.variantName || it.variant?.name || 'Standart',
+            quantity: it.quantity,
+            price: it.price,
+          })),
+          totalAmount: Number(updated.finalTotal ?? updated.totalAmount ?? 0) || 0,
+          deliveryMethod: String(updated.delivery?.method || 'Yetkazib berish'),
+          paymentMethod: String(updated.paymentMethod || updated.payment?.method || 'Naqd'),
+          orderDate: new Date().toLocaleString('uz-UZ', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        });
+      }
+    } catch (e) {
+      console.warn('[branch shop accept] telegram:', e);
+    }
+
+    return c.json({ success: true, order: updated });
+  } catch (e: any) {
+    console.error('branch shop accept error:', e);
+    return c.json({ success: false, error: 'Qabul qilishda xatolik' }, 500);
+  }
+});
+
+// Branch accepts cash food order (finalTotal > 100k) -> release to restaurant + notify Telegram
+app.post('/make-server-27d0d16c/branch/food-orders/:id/accept', async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ success: false, error: branchAuth.error }, 403);
+    }
+    const orderId = String(c.req.param('id') || '').trim();
+    if (!orderId) return c.json({ success: false, error: 'orderId majburiy' }, 400);
+
+    const record = await getOrderRecord(orderId);
+    if (!record?.order) {
+      return c.json({ success: false, error: 'Buyurtma topilmadi' }, 404);
+    }
+    const order = record.order as any;
+    if (String(order.orderType || '').toLowerCase().trim() !== 'food') {
+      return c.json({ success: false, error: 'Faqat taom buyurtmasi uchun' }, 400);
+    }
+    const branchId = String(order.branchId || '').trim();
+    if (!branchId || normalizeBranchId(branchId) !== normalizeBranchId(String(branchAuth.branchId || ''))) {
+      return c.json({ success: false, error: "Filial mos emas" }, 403);
+    }
+    if (!order.branchCashHold) {
+      return c.json({ success: false, error: 'Bu buyurtma filial qabulini talab qilmaydi' }, 409);
+    }
+    if (order.releasedToRestaurantAt) {
+      return c.json({ success: true, order, alreadyReleased: true });
+    }
+
+    const now = new Date().toISOString();
+    const updated = {
+      ...order,
+      branchCashHold: true,
+      releasedToRestaurantAt: now,
+      status: String(order.status || '').toLowerCase().trim() === 'pending_branch_accept' ? 'pending' : order.status,
+      updatedAt: now,
+      statusHistory: [
+        ...(Array.isArray(order.statusHistory) ? order.statusHistory : []),
+        { status: 'branch_accepted', timestamp: now, note: 'Filial taom buyurtmasini qabul qildi' },
+      ],
+    };
+
+    await kv.set(record.key, updated);
+
+    // Food mirror (order:restaurant:...) also keep in sync if present
+    try {
+      const mk = String(updated.foodOrderMirrorKey || '').trim();
+      if (mk) {
+        const mirror = await kv.get(mk);
+        if (mirror && typeof mirror === 'object') {
+          await kv.set(mk, { ...(mirror as any), ...updated });
+        }
+      }
+    } catch {
+      /* ignore */
+    }
+
+    // Telegram notify restaurant
+    try {
+      const rid = String(updated.restaurantId || '').trim();
+      const restKey = rid ? (rid.startsWith('restaurant:') ? rid : `restaurant:${rid}`) : '';
+      const restaurant = restKey ? await kv.get(restKey) : null;
+      const restTg = restaurant ? pickTelegramChatIdFromEntity(restaurant) : '';
+      if (restaurant && restTg) {
+        const itemsForTelegram = (Array.isArray(updated.items) ? updated.items : []).map((item: any) => {
+          const baseName = String(item?.name || item?.title || item?.dishName || 'Taom');
+          return {
+            name: baseName,
+            variantName: String(item?.variantName || item?.size || 'Standart'),
+            quantity: Number(item?.quantity || 1),
+            price: Number(item?.price || 0),
+            additionalProducts: (
+              Array.isArray(item?.additionalProducts)
+                ? item.additionalProducts
+                : (Array.isArray(item?.addons) ? item.addons : (Array.isArray(item?.extras) ? item.extras : []))
+            ).map((addon: any) => ({
+              name: String(addon?.name || 'Qo\'shimcha'),
+              price: Number(addon?.price || 0),
+              quantity: Number(addon?.quantity || 1),
+            })),
+          };
+        });
+        await telegram.sendOrderNotification({
+          type: 'restaurant',
+          shopName: String(restaurant.name || restaurant.title || 'Restoran'),
+          shopChatId: restTg,
+          orderNumber: String(updated.orderNumber || orderId),
+          customerName: String(updated.customerName || 'Mijoz'),
+          customerPhone: String(updated.customerPhone || '—'),
+          customerAddress: formatHumanOrderAddressForTelegram(updated),
+          items: itemsForTelegram,
+          totalAmount: Number(updated.finalTotal || updated.totalAmount || 0),
+          deliveryMethod: 'Yetkazib berish',
+          paymentMethod: String(updated.paymentMethod || 'cash'),
+          orderDate: new Date(updated.createdAt || Date.now()).toLocaleString('uz-UZ', {
+            day: '2-digit',
+            month: '2-digit',
+            year: 'numeric',
+            hour: '2-digit',
+            minute: '2-digit',
+          }),
+        });
+      }
+    } catch (e) {
+      console.warn('[branch food accept] telegram:', e);
+    }
+
+    return c.json({ success: true, order: updated });
+  } catch (e: any) {
+    console.error('branch food accept error:', e);
+    return c.json({ success: false, error: 'Qabul qilishda xatolik' }, 500);
   }
 });
 
@@ -20975,6 +21300,20 @@ app.post('/make-server-27d0d16c/orders/:orderId/cancel-by-branch', async (c) => 
       await restoreInventoryFromOrder(o);
     }
 
+    const body = await parseOptionalJsonBody(c);
+    const allowedReasons = new Set([
+      'ingredients_bad',
+      'delivered_bad',
+      'wrong_product',
+    ]);
+    const reason = String(body?.reason || '').trim();
+    if (!allowedReasons.has(reason)) {
+      return c.json(
+        { error: 'Bekor qilish sababi majburiy (ingredients_bad | delivered_bad | wrong_product)' },
+        400,
+      );
+    }
+
     const now = new Date().toISOString();
     const refundPending = paidLike;
     const cancelNote = refundPending
@@ -20995,13 +21334,14 @@ app.post('/make-server-27d0d16c/orders/:orderId/cancel-by-branch', async (c) => 
         refundPending,
         cancelledByBranchAt: now,
         cancellationSource: 'branch',
+        cancellationReason: reason,
         updatedAt: now,
         statusHistory: [
           ...hist,
           {
             status: 'cancelled',
             timestamp: now,
-            note: cancelNote,
+            note: `${cancelNote} (reason=${reason})`,
           },
         ],
       };

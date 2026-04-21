@@ -4,6 +4,7 @@ import { X, Upload, Image as ImageIcon, Send, Store, Phone, Clock, MapPin, Dolla
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { regions, getDistrictsByRegionId } from '../data/regions';
+import { CheckoutMapPickerModal } from './CheckoutMapPickerModal';
 
 const RESTAURANT_TYPES = [
   'Milliy taomlar',
@@ -137,6 +138,7 @@ export function AddRestaurantModal({
   const [formData, setFormData] = useState<RestaurantFormState>(() =>
     restaurantRecordToForm(editingRestaurant ?? null),
   );
+  const [pickupMapOpen, setPickupMapOpen] = useState(false);
 
   useEffect(() => {
     setFormData(restaurantRecordToForm(editingRestaurant ?? null));
@@ -583,7 +585,7 @@ export function AddRestaurantModal({
             {/* Contact Info */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-bold mb-2 flex items-center gap-2">
+                <label className="text-sm font-bold mb-2 flex items-center gap-2">
                   <Phone className="w-4 h-4" />
                   Telefon *
                 </label>
@@ -605,7 +607,7 @@ export function AddRestaurantModal({
               </div>
 
               <div>
-                <label className="block text-sm font-bold mb-2 flex items-center gap-2">
+                <label className="text-sm font-bold mb-2 flex items-center gap-2">
                   <Clock className="w-4 h-4" />
                   Ish vaqti
                 </label>
@@ -687,7 +689,7 @@ export function AddRestaurantModal({
             </div>
 
             <div>
-              <label className="block text-sm font-bold mb-2 flex items-center gap-2">
+              <label className="text-sm font-bold mb-2 flex items-center gap-2">
                 <MapPin className="w-4 h-4" />
                 Manzil
               </label>
@@ -708,7 +710,7 @@ export function AddRestaurantModal({
             </div>
 
             <div>
-              <label className="block text-sm font-bold mb-2 flex items-center gap-2">
+              <label className="text-sm font-bold mb-2 flex items-center gap-2">
                 <Navigation className="w-4 h-4" />
                 Mahsulotni olib ketish joyi (GPS) *
               </label>
@@ -716,6 +718,14 @@ export function AddRestaurantModal({
                 Kuryer xaritada shu nuqtaga yo‘l oladi. «Mening joyim» yoki qo‘lda kenglik / uzunlik.
               </p>
               <div className="flex flex-wrap gap-2 mb-2">
+                <button
+                  type="button"
+                  onClick={() => setPickupMapOpen(true)}
+                  className="px-3 py-2 rounded-xl text-sm font-medium"
+                  style={{ background: `${accentColor.color}22`, color: accentColor.color }}
+                >
+                  Xarita orqali tanlash
+                </button>
                 <button
                   type="button"
                   onClick={() => {
@@ -775,7 +785,7 @@ export function AddRestaurantModal({
             {/* Delivery Settings */}
             <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
               <div>
-                <label className="block text-sm font-bold mb-2 flex items-center gap-2">
+                <label className="text-sm font-bold mb-2 flex items-center gap-2">
                   <DollarSign className="w-4 h-4" />
                   Minimal buyurtma narxi (so'm)
                 </label>
@@ -793,7 +803,7 @@ export function AddRestaurantModal({
               </div>
 
               <div>
-                <label className="block text-sm font-bold mb-2 flex items-center gap-2">
+                <label className="text-sm font-bold mb-2 flex items-center gap-2">
                   <Truck className="w-4 h-4" />
                   Yetkazish vaqti
                 </label>
@@ -813,7 +823,7 @@ export function AddRestaurantModal({
 
             {/* Description */}
             <div>
-              <label className="block text-sm font-bold mb-2 flex items-center gap-2">
+              <label className="text-sm font-bold mb-2 flex items-center gap-2">
                 <FileText className="w-4 h-4" />
                 Tavsif
               </label>
@@ -916,6 +926,28 @@ export function AddRestaurantModal({
           </div>
         </form>
       </div>
+
+      <CheckoutMapPickerModal
+        isOpen={pickupMapOpen}
+        onClose={() => setPickupMapOpen(false)}
+        onConfirm={(coords) => {
+          setFormData((prev) => ({
+            ...prev,
+            pickupLat: String(coords.lat.toFixed(6)),
+            pickupLng: String(coords.lng.toFixed(6)),
+          }));
+          setPickupMapOpen(false);
+          toast.success('Nuqta tanlandi');
+        }}
+        initialCenter={(() => {
+          const la = parseFloat(String(formData.pickupLat).replace(',', '.'));
+          const ln = parseFloat(String(formData.pickupLng).replace(',', '.'));
+          if (Number.isFinite(la) && Number.isFinite(ln)) return { lat: la, lng: ln };
+          return null;
+        })()}
+        isDark={isDark}
+        accentColor={accentColor}
+      />
 
       <style>{`
         @keyframes fadeIn {
