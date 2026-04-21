@@ -2,8 +2,9 @@ import { useMemo, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { Payments } from './Payments';
 import { CashierCashReceiveTab } from './CashierCashReceiveTab';
-import { ArrowDownToLine, ArrowUpFromLine, RotateCcw, Store } from 'lucide-react';
+import { ArrowDownToLine, ArrowUpFromLine, RotateCcw, Store, Wallet } from 'lucide-react';
 import { BranchRefundsPanel } from './BranchRefundsPanel';
+import { CourierSalaryTab } from './CourierSalaryTab';
 
 type CashierPanelProps = {
   branchId?: string;
@@ -14,7 +15,7 @@ type CashierPanelProps = {
   };
 };
 
-type CashierTab = 'receive' | 'payout' | 'refunds';
+type CashierTab = 'receive' | 'payout' | 'salary' | 'refunds';
 
 export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
   const { theme, accentColor } = useTheme();
@@ -67,6 +68,12 @@ export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
       icon: ArrowUpFromLine,
     },
     {
+      id: 'salary',
+      label: 'Oylik',
+      hint: 'Kuryer arizalari — naqd/karta qilib berish',
+      icon: Wallet,
+    },
+    {
       id: 'refunds',
       label: 'Mijozga qaytarish',
       hint: 'Onlayn to‘lagan, bekor — qaytarish va tasdiq',
@@ -101,7 +108,7 @@ export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
         </header>
 
         <div
-          className="grid grid-cols-1 sm:grid-cols-3 gap-3 p-1.5 rounded-2xl border"
+          className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-1.5 rounded-2xl border"
           style={{ background: surface, borderColor: border }}
           role="tablist"
           aria-label="Kassa bo‘limlari"
@@ -153,6 +160,10 @@ export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
                 Restoran / sotuvchi qabul qilgach, shu yerda «to‘lov kutilmoqda» ko‘rinishi kerak.
               </p>
               <Payments variant="cashier" branchId={branchId} branchInfo={branchInfo} />
+            </div>
+          ) : tab === 'salary' ? (
+            <div className="p-5 sm:p-6">
+              <CourierSalaryTab branchId={branchId} />
             </div>
           ) : (
             <div className="p-4 sm:p-5">

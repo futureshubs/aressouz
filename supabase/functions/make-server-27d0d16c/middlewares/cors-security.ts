@@ -48,6 +48,11 @@ export function resolveCorsAllowOrigin(req: Request): string {
     ) {
       return origin;
     }
+    // Allow production webapp even if secrets misconfigured (fail-closed otherwise).
+    // This prevents a total outage when ALLOWED_ORIGINS is accidentally unset.
+    if (o === "https://aresso.app" || o === "https://www.aresso.app") {
+      return origin;
+    }
     return "";
   }
   if (!raw) return "*";
@@ -94,16 +99,20 @@ export function registerCorsAndSecurityHeaders(app: Hono): void {
     ) {
       // Fail closed if production CORS is required but not configured.
       // Keep health endpoints reachable so operators can diagnose quickly.
-      return c.json(
-        {
-          success: false,
-          error: "CORS misconfigured",
-          code: "CORS_MISCONFIGURED",
-          hint:
-            "Set ALLOWED_ORIGINS (comma-separated) in Supabase Edge Secrets. If you intended wildcard CORS, disable EDGE_PRODUCTION_CORS/ALLOWED_ORIGINS_REQUIRED.",
-        },
-        500,
-      );
+      // Safety valve: allow the official web app origin to avoid total downtime.
+      const acao = resolveCorsAllowOrigin(c.req.raw);
+      if (!acao) {
+        return c.json(
+          {
+            success: false,
+            error: "CORS misconfigured",
+            code: "CORS_MISCONFIGURED",
+            hint:
+              "Set ALLOWED_ORIGINS (comma-separated) in Supabase Edge Secrets. If you intended wildcard CORS, disable EDGE_PRODUCTION_CORS/ALLOWED_ORIGINS_REQUIRED.",
+          },
+          500,
+        );
+      }
     }
     const corsRestricted = isCorsRestricted();
     const acao = resolveCorsAllowOrigin(c.req.raw);

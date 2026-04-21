@@ -9647,6 +9647,10 @@ const normalizeCourierRecord = (courier: any) => ({
   email: courier.email || '',
   login: courier.login || '',
   pin: courier.pin || '',
+  /** Kuryer oylik/to‘lov uchun karta raqami (ixtiyoriy, lekin karta bilan berishda kerak). */
+  cardNumber: String(courier.cardNumber || courier.card_number || '').trim(),
+  /** Telegram bot (xabar) uchun chat id (ixtiyoriy). */
+  telegramChatId: String(courier.telegramChatId || courier.telegram_chat_id || '').trim(),
   vehicleType: courier.vehicleType || 'bike',
   vehicleNumber: courier.vehicleNumber || '',
   status: courier.status || 'inactive',
@@ -12063,6 +12067,8 @@ app.post("/make-server-27d0d16c/couriers", async (c) => {
       email: body.email,
       login: body.login,
       pin: String(body.pin),
+      cardNumber: body.cardNumber || body.card_number || '',
+      telegramChatId: body.telegramChatId || body.telegram_chat_id || '',
       vehicleType: body.vehicleType,
       vehicleNumber: body.vehicleNumber,
       status: body.status || 'active',
@@ -12249,6 +12255,186 @@ app.get("/make-server-27d0d16c/courier/me", async (c) => {
   }
 });
 
+app.post("/make-server-27d0d16c/courier/me/update", async (c) => {
+  try {
+    const auth = await validateCourierSession(c);
+    if (!auth.success) {
+      return c.json({ success: false, error: auth.error }, 401);
+    }
+    const body = await parseOptionalJsonBody(c);
+    const cardNumber = String((body as any)?.cardNumber ?? (body as any)?.card_number ?? "").trim();
+    const telegramChatId = String((body as any)?.telegramChatId ?? (body as any)?.telegram_chat_id ?? "").trim();
+
+    const updatedCourier = normalizeCourierRecord({
+      ...auth.courier,
+      ...(cardNumber ? { cardNumber } : {}),
+      ...(telegramChatId ? { telegramChatId } : {}),
+      updatedAt: new Date().toISOString(),
+    });
+    await kv.set(buildCourierKey(auth.courier.id), updatedCourier);
+    return c.json({ success: true, courier: { ...updatedCourier, pin: undefined } });
+  } catch (error: any) {
+    console.error('Courier me update error:', error);
+    return c.json({ success: false, error: 'Ma’lumotlarni saqlashda xatolik' }, 500);
+  }
+});
+
+const buildCourierPayoutRequestKey = (id: string) => `courier_payout_request:${id}`;
+
+app.get("/make-server-27d0d16c/courier/payout-requests", async (c) => {
+  try {
+    const auth = await validateCourierSession(c);
+    if (!auth.success) {
+      return c.json({ success: false, error: auth.error }, 401);
+    }
+    const rows = await kv.getByPrefix("courier_payout_request:");
+    const my = rows
+      .filter((r: any) => String(r?.courierId || "") === String(auth.courier.id))
+      .sort(
+        (a: any, b: any) =>
+          new Date(String(b.createdAt || "")).getTime() - new Date(String(a.createdAt || "")).getTime(),
+      );
+    return c.json({
+      success: true,
+      balance: Number(auth.courier.balance || 0) || 0,
+      requests: my,
+    });
+  } catch (error: any) {
+    console.error("Courier payout list error:", error);
+    return c.json({ success: false, error: "Arizalarni olishda xatolik" }, 500);
+  }
+});
+
+app.post("/make-server-27d0d16c/courier/payout-requests", async (c) => {
+  try {
+    const auth = await validateCourierSession(c);
+    if (!auth.success) {
+      return c.json({ success: false, error: auth.error }, 401);
+    }
+    const body = await parseOptionalJsonBody(c);
+    const amountUzs = Number((body as any)?.amountUzs ?? (body as any)?.amount ?? 0);
+    const methodRaw = String((body as any)?.method ?? (body as any)?.payoutMethod ?? "").toLowerCase().trim();
+    const method = methodRaw === "card" ? "card" : "cash";
+    if (!Number.isFinite(amountUzs) || amountUzs <= 0) {
+      return c.json({ success: false, error: "Summa noto‘g‘ri" }, 400);
+    }
+    const balance = Number(auth.courier.balance || 0) || 0;
+    if (amountUzs > balance) {
+      return c.json({ success: false, error: "Balans yetarli emas" }, 400);
+    }
+    if (method === "card" && !String(auth.courier.cardNumber || "").trim()) {
+      return c.json({ success: false, error: "Karta raqami kiritilmagan" }, 400);
+    }
+    const id = `payout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+    const now = new Date().toISOString();
+    const row = {
+      id,
+      courierId: String(auth.courier.id),
+      branchId: String(auth.courier.branchId || ""),
+      courierName: String(auth.courier.name || ""),
+      courierPhone: String(auth.courier.phone || ""),
+      courierCardNumber: String(auth.courier.cardNumber || "").trim() || null,
+      amountUzs: Math.round(amountUzs),
+      requestedMethod: method,
+      status: "pending",
+      createdAt: now,
+      decidedAt: null,
+      decidedBy: null,
+      paidMethod: null,
+      note: null,
+    };
+    await kv.set(buildCourierPayoutRequestKey(id), row);
+    return c.json({ success: true, request: row });
+  } catch (error: any) {
+    console.error("Courier payout create error:", error);
+    return c.json({ success: false, error: "Ariza yuborishda xatolik" }, 500);
+  }
+});
+
+app.get("/make-server-27d0d16c/branch/courier-payout-requests", async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ success: false, error: branchAuth.error || "Unauthorized" }, 401);
+    }
+    const branchId = String(c.req.query("branchId") || "").trim();
+    if (!branchId) return c.json({ success: false, error: "branchId kerak" }, 400);
+    if (normalizeBranchId(branchId) !== normalizeBranchId(String(branchAuth.branchId || ""))) {
+      return c.json({ success: false, error: "Ruxsat yo‘q (filial mos emas)" }, 403);
+    }
+    const rows = await kv.getByPrefix("courier_payout_request:");
+    const list = rows
+      .filter((r: any) => normalizeBranchId(String(r?.branchId || "")) === normalizeBranchId(branchId))
+      .sort(
+        (a: any, b: any) =>
+          new Date(String(b.createdAt || "")).getTime() - new Date(String(a.createdAt || "")).getTime(),
+      );
+    return c.json({ success: true, requests: list });
+  } catch (error: any) {
+    console.error("Branch payout list error:", error);
+    return c.json({ success: false, error: "Arizalarni olishda xatolik" }, 500);
+  }
+});
+
+app.post("/make-server-27d0d16c/branch/courier-payout-requests/:id/pay", async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ success: false, error: branchAuth.error || "Unauthorized" }, 401);
+    }
+    const branchId = String(c.req.query("branchId") || "").trim();
+    const id = String(c.req.param("id") || "").trim();
+    if (!branchId || !id) return c.json({ success: false, error: "branchId va id kerak" }, 400);
+    if (normalizeBranchId(branchId) !== normalizeBranchId(String(branchAuth.branchId || ""))) {
+      return c.json({ success: false, error: "Ruxsat yo‘q (filial mos emas)" }, 403);
+    }
+    const body = await parseOptionalJsonBody(c);
+    const methodRaw = String((body as any)?.method ?? (body as any)?.paidMethod ?? "").toLowerCase().trim();
+    const paidMethod = methodRaw === "card" ? "card" : "cash";
+    const note = String((body as any)?.note || "").trim() || null;
+
+    const key = buildCourierPayoutRequestKey(id);
+    const row = await kv.get(key);
+    if (!row) return c.json({ success: false, error: "Ariza topilmadi" }, 404);
+    if (String(row.status || "") !== "pending") {
+      return c.json({ success: false, error: "Ariza allaqachon yakunlangan" }, 400);
+    }
+    if (normalizeBranchId(String(row.branchId || "")) !== normalizeBranchId(branchId)) {
+      return c.json({ success: false, error: "Ariza bu filialga tegishli emas" }, 403);
+    }
+
+    const courierKey = buildCourierKey(String(row.courierId || ""));
+    const courier = await kv.get(courierKey);
+    if (!courier || courier.deleted) return c.json({ success: false, error: "Kuryer topilmadi" }, 404);
+    const amount = Number(row.amountUzs || 0) || 0;
+    const balance = Number(courier.balance || 0) || 0;
+    if (amount <= 0 || amount > balance) {
+      return c.json({ success: false, error: "Kuryer balansida mablag‘ yetarli emas" }, 400);
+    }
+
+    const now = new Date().toISOString();
+    const updatedCourier = normalizeCourierRecord({
+      ...courier,
+      balance: Math.max(0, balance - amount),
+      updatedAt: now,
+    });
+    const updatedRow = {
+      ...row,
+      status: "paid",
+      decidedAt: now,
+      decidedBy: String((branchAuth as any).staffId || branchAuth.branchId || "branch"),
+      paidMethod,
+      note,
+    };
+    await kv.set(courierKey, updatedCourier);
+    await kv.set(key, updatedRow);
+    return c.json({ success: true, request: updatedRow, courier: updatedCourier });
+  } catch (error: any) {
+    console.error("Branch payout pay error:", error);
+    return c.json({ success: false, error: "To‘lashda xatolik" }, 500);
+  }
+});
+
 app.post("/make-server-27d0d16c/courier/location", async (c) => {
   try {
     const auth = await validateCourierSession(c);
@@ -12307,6 +12493,9 @@ function dedupeCourierOrderScanRows(orders: any[]): any[] {
 
 app.get("/make-server-27d0d16c/courier/orders/available", async (c) => {
   try {
+    c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    c.header('Pragma', 'no-cache');
+    c.header('Expires', '0');
     const auth = await validateCourierSession(c);
     if (!auth.success) {
       return c.json({ error: auth.error }, 401);
@@ -12565,6 +12754,9 @@ app.get("/make-server-27d0d16c/courier/orders/available", async (c) => {
 
 app.get("/make-server-27d0d16c/courier/orders/active", async (c) => {
   try {
+    c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    c.header('Pragma', 'no-cache');
+    c.header('Expires', '0');
     const auth = await validateCourierSession(c);
     if (!auth.success) {
       return c.json({ error: auth.error }, 401);
@@ -12600,6 +12792,9 @@ app.get("/make-server-27d0d16c/courier/orders/active", async (c) => {
 
 app.get("/make-server-27d0d16c/courier/orders/history", async (c) => {
   try {
+    c.header('Cache-Control', 'no-store, no-cache, must-revalidate, proxy-revalidate');
+    c.header('Pragma', 'no-cache');
+    c.header('Expires', '0');
     const auth = await validateCourierSession(c);
     if (!auth.success) {
       return c.json({ error: auth.error }, 401);
@@ -17807,66 +18002,65 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
     // Sort newest first
     filtered.sort((a: any, b: any) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 
-    let stats: any = null;
-    if (!cashierMode) {
-      const totalTransactions = filtered.length;
-      const completed = filtered.filter((x: any) => x.status === 'completed');
-      const refunded = filtered.filter((x: any) => x.status === 'refunded');
+    const totalTransactions = filtered.length;
+    const completed = filtered.filter((x: any) => x.status === 'completed');
+    const refunded = filtered.filter((x: any) => x.status === 'refunded');
 
-      const totalRevenue = completed.reduce((sum: number, x: any) => sum + (Number(x.amount) || 0), 0);
-      const averageTransactionValue = totalTransactions ? totalRevenue / totalTransactions : 0;
-      const successRate = totalTransactions ? (completed.length / totalTransactions) * 100 : 0;
-      const refundRate = totalTransactions ? (refunded.length / totalTransactions) * 100 : 0;
+    const totalRevenue = completed.reduce((sum: number, x: any) => sum + (Number(x.amount) || 0), 0);
+    const averageTransactionValue = totalTransactions ? totalRevenue / totalTransactions : 0;
+    const successRate = totalTransactions ? (completed.length / totalTransactions) * 100 : 0;
+    const refundRate = totalTransactions ? (refunded.length / totalTransactions) * 100 : 0;
 
-      const methodAgg = new Map<string, { method: string; count: number; amount: number }>();
-      for (const x of filtered) {
-        const key = x.method || 'cash';
-        const prev = methodAgg.get(key) || { method: key, count: 0, amount: 0 };
-        prev.count += 1;
-        if (x.status === 'completed') prev.amount += Number(x.amount) || 0;
-        methodAgg.set(key, prev);
-      }
-
-      const paymentMethods = Array.from(methodAgg.values()).map((m) => ({
-        method: m.method,
-        count: m.count,
-        amount: m.amount,
-        percentage: totalTransactions ? (m.count / totalTransactions) * 100 : 0,
-      }));
-
-      const dayMap = new Map<string, { date: string; amount: number; transactions: number }>();
-      const monthMap = new Map<string, { month: string; amount: number; transactions: number }>();
-
-      for (const x of filtered) {
-        if (x.status !== 'completed') continue;
-        const d = new Date(x.createdAt);
-        const day = d.toISOString().slice(0, 10);
-        const month = d.toISOString().slice(0, 7); // YYYY-MM
-        const prevDay = dayMap.get(day) || { date: day, amount: 0, transactions: 0 };
-        prevDay.amount += Number(x.amount) || 0;
-        prevDay.transactions += 1;
-        dayMap.set(day, prevDay);
-
-        const prevMonth = monthMap.get(month) || { month, amount: 0, transactions: 0 };
-        prevMonth.amount += Number(x.amount) || 0;
-        prevMonth.transactions += 1;
-        monthMap.set(month, prevMonth);
-      }
-
-      const dailyRevenue = Array.from(dayMap.values()).sort((a, b) => a.date < b.date ? -1 : 1);
-      const monthlyRevenue = Array.from(monthMap.values()).sort((a, b) => a.month < b.month ? -1 : 1);
-
-      stats = {
-        totalRevenue,
-        totalTransactions,
-        averageTransactionValue,
-        successRate: Math.round(successRate * 10) / 10,
-        refundRate: Math.round(refundRate * 10) / 10,
-        paymentMethods,
-        dailyRevenue,
-        monthlyRevenue,
-      };
+    const methodAgg = new Map<string, { method: string; count: number; amount: number }>();
+    for (const x of filtered) {
+      const key = x.method || 'cash';
+      const prev = methodAgg.get(key) || { method: key, count: 0, amount: 0 };
+      prev.count += 1;
+      if (x.status === 'completed') prev.amount += Number(x.amount) || 0;
+      methodAgg.set(key, prev);
     }
+
+    const paymentMethods = Array.from(methodAgg.values()).map((m) => ({
+      method: m.method,
+      count: m.count,
+      amount: m.amount,
+      percentage: totalTransactions ? (m.count / totalTransactions) * 100 : 0,
+    }));
+
+    const dayMap = new Map<string, { date: string; amount: number; transactions: number }>();
+    const monthMap = new Map<string, { month: string; amount: number; transactions: number }>();
+
+    for (const x of filtered) {
+      if (x.status !== 'completed') continue;
+      const d = new Date(x.createdAt);
+      const day = d.toISOString().slice(0, 10);
+      const month = d.toISOString().slice(0, 7); // YYYY-MM
+      const prevDay = dayMap.get(day) || { date: day, amount: 0, transactions: 0 };
+      prevDay.amount += Number(x.amount) || 0;
+      prevDay.transactions += 1;
+      dayMap.set(day, prevDay);
+
+      const prevMonth = monthMap.get(month) || { month, amount: 0, transactions: 0 };
+      prevMonth.amount += Number(x.amount) || 0;
+      prevMonth.transactions += 1;
+      monthMap.set(month, prevMonth);
+    }
+
+    const dailyRevenue = Array.from(dayMap.values()).sort((a, b) => (a.date < b.date ? -1 : 1));
+    const monthlyRevenue = Array.from(monthMap.values()).sort((a, b) => (a.month < b.month ? -1 : 1));
+
+    const stats: any = {
+      totalRevenue,
+      totalTransactions,
+      averageTransactionValue,
+      successRate: Math.round(successRate * 10) / 10,
+      refundRate: Math.round(refundRate * 10) / 10,
+      paymentMethods,
+      dailyRevenue,
+      monthlyRevenue,
+      // cashier panel uses same stats; it already limits range to <=30 days above.
+      cashierMode: Boolean(cashierMode),
+    };
 
     return c.json({
       success: true,

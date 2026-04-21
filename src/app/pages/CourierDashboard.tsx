@@ -529,6 +529,16 @@ function SwipeAction({ label, disabled = false, isDark, gradient, onComplete }: 
   );
 }
 
+type CourierPayoutRequestRow = {
+  id: string;
+  amountUzs: number;
+  requestedMethod: 'cash' | 'card';
+  status: 'pending' | 'paid' | 'rejected';
+  createdAt: string;
+  decidedAt?: string | null;
+  paidMethod?: 'cash' | 'card' | null;
+};
+
 export default function CourierDashboard() {
   const navigate = useNavigate();
   const { theme, accentColor, notifications, soundEnabled, toggleNotifications, toggleSound, toggleTheme } = useTheme();
@@ -562,6 +572,15 @@ export default function CourierDashboard() {
   const actionLoadingRef = useRef<string | null>(null);
   const [selectedBagId, setSelectedBagId] = useState('');
   const [bagQrOpen, setBagQrOpen] = useState(false);
+
+  const [payoutOpen, setPayoutOpen] = useState(false);
+  const [payoutAmount, setPayoutAmount] = useState('');
+  const [payoutMethod, setPayoutMethod] = useState<'cash' | 'card'>('cash');
+  const [payoutSaving, setPayoutSaving] = useState(false);
+  const [payoutRequests, setPayoutRequests] = useState<CourierPayoutRequestRow[]>([]);
+  const [payoutListLoading, setPayoutListLoading] = useState(false);
+  const [courierCardNumberDraft, setCourierCardNumberDraft] = useState('');
+  const [courierTelegramChatIdDraft, setCourierTelegramChatIdDraft] = useState('');
   const bagQrScannerRef = useRef<any>(null);
   const [mobileSection, setMobileSection] = useState<'orders' | 'history' | 'stats' | 'profile'>('orders');
   const [mobileOrderTab, setMobileOrderTab] = useState<'new' | 'delivering' | 'delivered' | 'cancelled'>('new');
@@ -805,6 +824,123 @@ export default function CourierDashboard() {
       }
     }
   }, [navigate]);
+
+  const loadPayoutRequests = useCallback(
+    async (silent = true) => {
+      try {
+        if (!silent) setPayoutListLoading(true);
+        const courierToken = getStoredCourierToken();
+        if (!courierToken) return;
+        const tokenQuery = `?token=${encodeURIComponent(courierToken)}`;
+        const baseUrl =
+          typeof window !== 'undefined' && window.location.hostname === 'localhost'
+            ? DEV_API_BASE_URL
+            : API_BASE_URL;
+        const res = await fetchWithRetry(`${baseUrl}/courier/payout-requests${tokenQuery}`, { cache: 'no-store' as any });
+        const data = await readPayload(res);
+        if (res.ok && data?.success) {
+          setPayoutRequests(Array.isArray(data.requests) ? data.requests : []);
+        }
+      } catch {
+        // silent
+      } finally {
+        if (!silent) setPayoutListLoading(false);
+      }
+    },
+    [],
+  );
+
+  const loadDashboardLight = useCallback(
+    async (silent = true) => {
+      if (dashboardRequestInFlightRef.current) {
+        return;
+      }
+      dashboardRequestInFlightRef.current = true;
+      if (!silent) {
+        setIsLoading(true);
+      }
+
+      const courierToken = getStoredCourierToken();
+      if (!courierToken) {
+        localStorage.removeItem('courierSession');
+        if (!silent) {
+          toast.error('Sessiya topilmadi, qaytadan kiring');
+        }
+        navigate('/kuryer');
+        dashboardRequestInFlightRef.current = false;
+        if (!silent) setIsLoading(false);
+        return;
+      }
+
+      const tokenQuery = courierToken ? `?token=${encodeURIComponent(courierToken)}` : '';
+      const baseUrl =
+        typeof window !== 'undefined' && window.location.hostname === 'localhost'
+          ? DEV_API_BASE_URL
+          : API_BASE_URL;
+
+      try {
+        const [meResult, availableResult, activeResult] = await Promise.allSettled([
+          fetchWithRetry(`${baseUrl}/courier/me${tokenQuery}`, {}),
+          fetchWithRetry(`${baseUrl}/courier/orders/available${tokenQuery}`, {}),
+          fetchWithRetry(`${baseUrl}/courier/orders/active${tokenQuery}`, {}),
+        ]);
+
+        const meResponse = meResult.status === 'fulfilled' ? meResult.value : null;
+        const availableResponse = availableResult.status === 'fulfilled' ? availableResult.value : null;
+        const activeResponse = activeResult.status === 'fulfilled' ? activeResult.value : null;
+
+        if (meResponse && (meResponse.status === 401 || meResponse.status === 403)) {
+          localStorage.removeItem('courierSession');
+          toast.error('Sessiya tugagan, qaytadan kiring');
+          navigate('/kuryer');
+          return;
+        }
+
+        const meData = meResponse ? await readPayload(meResponse) : null;
+        const availableData = availableResponse ? await readPayload(availableResponse) : null;
+        const activeData = activeResponse ? await readPayload(activeResponse) : null;
+
+        if (meResponse?.ok && meData?.success) {
+          const nextProfile = meData.courier || null;
+          const nextProfileSignature = buildProfileSignature(nextProfile);
+          if (nextProfileSignature !== lastProfileSignatureRef.current) {
+            lastProfileSignatureRef.current = nextProfileSignature;
+            setProfile(nextProfile);
+          }
+        }
+
+        if (availableResponse?.ok && availableData?.success) {
+          const nextOrders = sortOrdersNewestFirst(availableData.orders || []);
+          const nextOrdersSignature = buildOrdersSignature(nextOrders);
+          if (nextOrdersSignature !== lastAvailableOrdersSignatureRef.current) {
+            lastAvailableOrdersSignatureRef.current = nextOrdersSignature;
+            setAvailableOrders(nextOrders);
+          }
+        }
+
+        if (activeResponse?.ok && activeData?.success) {
+          const nextList: CourierOrder[] = sortOrdersNewestFirst(
+            Array.isArray(activeData.orders)
+              ? activeData.orders
+              : activeData.order
+                ? [activeData.order]
+                : [],
+          );
+          const nextSig = buildActiveOrdersSignature(nextList);
+          if (nextSig !== lastActiveOrderSignatureRef.current) {
+            lastActiveOrderSignatureRef.current = nextSig;
+            setActiveOrders(nextList);
+          }
+        }
+      } finally {
+        dashboardRequestInFlightRef.current = false;
+        if (!silent) {
+          setIsLoading(false);
+        }
+      }
+    },
+    [navigate],
+  );
 
   useEffect(() => {
     for (const o of courierRentalOrders) {
@@ -1050,8 +1186,8 @@ export default function CourierDashboard() {
       if (actionLoadingRef.current) {
         return;
       }
-      void loadDashboard(true);
-    }, 5000);
+      void loadDashboardLight(true);
+    }, 3000);
 
     const locationInterval = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
@@ -1067,7 +1203,21 @@ export default function CourierDashboard() {
       window.clearInterval(refreshInterval);
       window.clearInterval(locationInterval);
     };
-  }, [loadDashboard, navigate, pushLocation]);
+  }, [loadDashboard, loadDashboardLight, navigate, pushLocation]);
+
+  useEffect(() => {
+    setCourierCardNumberDraft(String((profile as any)?.cardNumber || ''));
+    setCourierTelegramChatIdDraft(String((profile as any)?.telegramChatId || ''));
+  }, [profile]);
+
+  useEffect(() => {
+    void loadPayoutRequests(true);
+    const t = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void loadPayoutRequests(true);
+    }, 12000);
+    return () => window.clearInterval(t);
+  }, [loadPayoutRequests]);
 
   const executeCourierPost = useCallback(
     async (
@@ -2139,6 +2289,21 @@ export default function CourierDashboard() {
                             </>
                           ) : null}
                         </div>
+                        {(order.pickupRackNumber || order.pickupRackName) ? (
+                          <div
+                            className="mb-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold"
+                            style={{
+                              background: isDark ? 'rgba(16,185,129,0.16)' : 'rgba(16,185,129,0.12)',
+                              color: '#10b981',
+                            }}
+                          >
+                            <span>Rasta</span>
+                            <span>
+                              #{order.pickupRackNumber || '—'}
+                              {order.pickupRackName ? ` (${order.pickupRackName})` : ''}
+                            </span>
+                          </div>
+                        ) : null}
                         <div className="flex items-center gap-2 text-sm mb-2">
                           <MapPin className="w-4 h-4 shrink-0" style={{ color: accentColor.color }} />
                           <span className="leading-snug">{getAddressLine(order)}</span>
@@ -2876,6 +3041,21 @@ export default function CourierDashboard() {
                   <p className="text-sm" style={{ color: mutedTextColor }}>
                     {card.note}
                   </p>
+                  {card.id === 'balance' ? (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setPayoutOpen(true);
+                          void loadPayoutRequests(true);
+                        }}
+                        className="px-3 py-2 rounded-2xl text-sm font-semibold text-white"
+                        style={{ background: accentColor.gradient }}
+                      >
+                        Pul olish
+                      </button>
+                    </div>
+                  ) : null}
                 </div>
                 <div
                   className="w-12 h-12 rounded-2xl flex items-center justify-center flex-shrink-0"
@@ -2887,6 +3067,263 @@ export default function CourierDashboard() {
             </div>
           ))}
         </div>
+
+        {payoutOpen ? (
+          <div
+            className="fixed inset-0 z-[260] app-safe-pad flex items-center justify-center p-4"
+            style={{ background: isDark ? 'rgba(0,0,0,0.72)' : 'rgba(17,24,39,0.55)' }}
+            role="dialog"
+            aria-modal="true"
+            onClick={() => setPayoutOpen(false)}
+          >
+            <div
+              className="w-full max-w-xl rounded-3xl border overflow-hidden"
+              style={{
+                background: isDark ? '#0f1012' : '#ffffff',
+                borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.10)',
+              }}
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div
+                className="p-4 border-b flex items-center justify-between gap-3"
+                style={{ borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.08)' }}
+              >
+                <div className="font-bold text-lg">Pul olish (oylik arizasi)</div>
+                <button
+                  type="button"
+                  onClick={() => setPayoutOpen(false)}
+                  className="h-10 w-10 rounded-full border flex items-center justify-center"
+                  style={{ borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)' }}
+                  aria-label="Yopish"
+                >
+                  <X className="w-5 h-5" />
+                </button>
+              </div>
+              <div className="p-4 space-y-4">
+                <div className="text-sm" style={{ color: mutedTextColor }}>
+                  Balans: <span className="font-bold">{Number(profile?.balance || 0).toLocaleString('uz-UZ')} so'm</span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold" style={{ color: mutedTextColor }}>
+                      Karta raqami (karta bilan olish uchun)
+                    </label>
+                    <input
+                      value={courierCardNumberDraft}
+                      onChange={(e) => setCourierCardNumberDraft(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                        borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                        color: textColor,
+                      }}
+                      placeholder="8600 ...."
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold" style={{ color: mutedTextColor }}>
+                      Telegram Chat ID (ixtiyoriy)
+                    </label>
+                    <input
+                      value={courierTelegramChatIdDraft}
+                      onChange={(e) => setCourierTelegramChatIdDraft(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                        borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                        color: textColor,
+                      }}
+                      placeholder="123456789"
+                      inputMode="numeric"
+                    />
+                  </div>
+                </div>
+
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={payoutSaving}
+                    onClick={async () => {
+                      if (payoutSaving) return;
+                      setPayoutSaving(true);
+                      try {
+                        const courierToken = getStoredCourierToken();
+                        if (!courierToken) return;
+                        const tokenQuery = `?token=${encodeURIComponent(courierToken)}`;
+                        const baseUrl =
+                          typeof window !== 'undefined' && window.location.hostname === 'localhost'
+                            ? DEV_API_BASE_URL
+                            : API_BASE_URL;
+                        const res = await fetch(`${baseUrl}/courier/me/update${tokenQuery}`, {
+                          method: 'POST',
+                          headers: { 'Content-Type': 'application/json' },
+                          body: JSON.stringify({
+                            cardNumber: courierCardNumberDraft.trim(),
+                            telegramChatId: courierTelegramChatIdDraft.trim(),
+                          }),
+                        });
+                        const data = await res.json().catch(() => ({}));
+                        if (!res.ok || !data.success) {
+                          toast.error(data.error || 'Saqlashda xatolik');
+                          return;
+                        }
+                        toast.success('Saqlandi');
+                        await loadDashboard(true);
+                      } finally {
+                        setPayoutSaving(false);
+                      }
+                    }}
+                    className="px-4 py-3 rounded-2xl border text-sm font-semibold"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
+                      borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                      color: textColor,
+                    }}
+                  >
+                    Ma’lumotlarni saqlash
+                  </button>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-xs font-semibold" style={{ color: mutedTextColor }}>
+                      Summa (so'm)
+                    </label>
+                    <input
+                      value={payoutAmount}
+                      onChange={(e) => setPayoutAmount(e.target.value)}
+                      className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                        borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                        color: textColor,
+                      }}
+                      placeholder="100000"
+                      inputMode="numeric"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-xs font-semibold" style={{ color: mutedTextColor }}>
+                      Qanday olasiz?
+                    </label>
+                    <select
+                      value={payoutMethod}
+                      onChange={(e) => setPayoutMethod(e.target.value === 'card' ? 'card' : 'cash')}
+                      className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                        borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                        color: textColor,
+                      }}
+                    >
+                      <option value="cash">Naqd</option>
+                      <option value="card">Karta</option>
+                    </select>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  disabled={payoutSaving}
+                  onClick={async () => {
+                    if (payoutSaving) return;
+                    const amt = Number(String(payoutAmount || '').replace(/[^\d.]/g, ''));
+                    if (!Number.isFinite(amt) || amt <= 0) {
+                      toast.error("Summa noto‘g‘ri");
+                      return;
+                    }
+                    setPayoutSaving(true);
+                    try {
+                      const courierToken = getStoredCourierToken();
+                      if (!courierToken) return;
+                      const tokenQuery = `?token=${encodeURIComponent(courierToken)}`;
+                      const baseUrl =
+                        typeof window !== 'undefined' && window.location.hostname === 'localhost'
+                          ? DEV_API_BASE_URL
+                          : API_BASE_URL;
+                      const res = await fetch(`${baseUrl}/courier/payout-requests${tokenQuery}`, {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ amountUzs: amt, method: payoutMethod }),
+                      });
+                      const data = await res.json().catch(() => ({}));
+                      if (!res.ok || !data.success) {
+                        toast.error(data.error || 'Ariza yuborilmadi');
+                        return;
+                      }
+                      toast.success('Ariza yuborildi');
+                      setPayoutAmount('');
+                      await loadPayoutRequests(true);
+                    } finally {
+                      setPayoutSaving(false);
+                    }
+                  }}
+                  className="w-full py-3 rounded-2xl font-semibold text-white"
+                  style={{ background: accentColor.gradient }}
+                >
+                  Ariza yuborish
+                </button>
+
+                <div className="pt-2">
+                  <div className="text-sm font-semibold mb-2">Arizalar</div>
+                  {payoutListLoading ? (
+                    <div className="text-sm" style={{ color: mutedTextColor }}>
+                      Yuklanmoqda...
+                    </div>
+                  ) : payoutRequests.length === 0 ? (
+                    <div className="text-sm" style={{ color: mutedTextColor }}>
+                      Hozircha ariza yo‘q.
+                    </div>
+                  ) : (
+                    <div className="space-y-2">
+                      {payoutRequests.slice(0, 12).map((r) => (
+                        <div
+                          key={r.id}
+                          className="rounded-2xl border px-4 py-3 text-sm flex items-center justify-between gap-3"
+                          style={{
+                            borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                            background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                          }}
+                        >
+                          <div className="min-w-0">
+                            <div className="font-semibold">
+                              {Math.round(Number(r.amountUzs || 0)).toLocaleString('uz-UZ')} so'm · {r.requestedMethod === 'card' ? 'Karta' : 'Naqd'}
+                            </div>
+                            <div className="text-xs mt-0.5" style={{ color: mutedTextColor }}>
+                              {new Date(r.createdAt).toLocaleString('uz-UZ')}
+                            </div>
+                          </div>
+                          <div
+                            className="shrink-0 text-xs px-3 py-1 rounded-full"
+                            style={{
+                              background:
+                                r.status === 'paid'
+                                  ? isDark
+                                    ? 'rgba(16,185,129,0.14)'
+                                    : 'rgba(16,185,129,0.12)'
+                                  : r.status === 'pending'
+                                    ? isDark
+                                      ? 'rgba(245,158,11,0.14)'
+                                      : 'rgba(245,158,11,0.12)'
+                                    : isDark
+                                      ? 'rgba(239,68,68,0.16)'
+                                      : 'rgba(239,68,68,0.12)',
+                              color: r.status === 'paid' ? '#10b981' : r.status === 'pending' ? '#f59e0b' : '#ef4444',
+                            }}
+                          >
+                            {r.status}
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            </div>
+          </div>
+        ) : null}
 
         {courierRentalDeliveryJobs.length > 0 ? (
           <div
