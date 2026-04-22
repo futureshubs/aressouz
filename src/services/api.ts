@@ -15,6 +15,11 @@ export class ApiService {
     'apikey': publicAnonKey,
     'Authorization': `Bearer ${publicAnonKey}`,
   };
+  private static isDebugEnabled(): boolean {
+    const v = (import.meta as any)?.env?.VITE_DEBUG_API;
+    if (v === '1' || v === 'true' || v === 'yes') return true;
+    return Boolean((import.meta as any)?.env?.DEV);
+  }
 
   /**
    * Makes authenticated requests to Supabase Edge Functions
@@ -33,16 +38,17 @@ export class ApiService {
       },
     };
 
-    console.log(`🌐 API Request: ${options.method || 'GET'} ${url}`);
+    const debug = this.isDebugEnabled();
+    if (debug) console.log(`🌐 API Request: ${options.method || 'GET'} ${url}`);
 
     try {
       const response = await fetch(url, config);
       
-      console.log(`📊 Response Status: ${response.status} ${response.ok ? '✅' : '❌'}`);
+      if (debug) console.log(`📊 Response Status: ${response.status} ${response.ok ? '✅' : '❌'}`);
 
       // Handle 401 errors with fallback to mock data
       if (response.status === 401) {
-        console.warn(`⚠️ 401 Unauthorized - Using fallback data for ${endpoint}`);
+        if (debug) console.warn(`⚠️ 401 Unauthorized - Using fallback data for ${endpoint}`);
         
         // Return mock data for development
         if (endpoint.includes('branches')) {
@@ -61,15 +67,15 @@ export class ApiService {
 
       if (!response.ok) {
         const errorText = await response.text();
-        console.error(`❌ API Error (${response.status}):`, errorText);
+        if (debug) console.error(`❌ API Error (${response.status}):`, errorText);
         throw new Error(`API Error: ${response.status} - ${errorText}`);
       }
 
       const data = await response.json();
-      console.log(`✅ API Success:`, data);
+      if (debug) console.log(`✅ API Success:`, data);
       return data;
     } catch (error) {
-      console.error(`❌ Request Failed:`, error);
+      if (debug) console.error(`❌ Request Failed:`, error);
       throw error;
     }
   }

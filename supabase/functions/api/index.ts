@@ -105,8 +105,33 @@ app.use('*', async (c, next) => {
   // Add request ID to headers
   c.header('X-Request-ID', requestId);
   
-  // Log request
-  logger.logRequest(requestContext, c.req.raw.body);
+  // Log request (never consume the live request body stream)
+  let requestBodyForLog: unknown = undefined;
+  if (config.logging.enableRequestBody) {
+    try {
+      const contentType = c.req.header('content-type') || '';
+      const lengthHeader = c.req.header('content-length');
+      const length = lengthHeader ? Number(lengthHeader) : undefined;
+      // Keep logs safe + cheap (avoid large payloads and binary/multipart).
+      const isLikelySmall = length === undefined || (Number.isFinite(length) && length <= 8_192);
+      const isLoggableContentType =
+        contentType.includes('application/json') ||
+        contentType.includes('application/x-www-form-urlencoded') ||
+        contentType.startsWith('text/');
+
+      if (isLikelySmall && isLoggableContentType) {
+        const cloned = c.req.raw.clone();
+        if (contentType.includes('application/json')) {
+          requestBodyForLog = await cloned.json().catch(async () => await cloned.text());
+        } else {
+          requestBodyForLog = await cloned.text();
+        }
+      }
+    } catch {
+      // best-effort request body logging only
+    }
+  }
+  logger.logRequest(requestContext, requestBodyForLog);
   
   // Store context in c.set for later use
   c.set('requestContext', requestContext);

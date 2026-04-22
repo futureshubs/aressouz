@@ -47,9 +47,7 @@ export class ApiLogger implements Logger {
    * Sanitizes metadata to remove sensitive information
    */
   private sanitizeMeta(meta?: any): any {
-    if (!meta || !this.config.enableSensitiveData) {
-      return undefined;
-    }
+    if (!meta) return undefined;
 
     const sensitiveFields = [
       'password',
@@ -74,7 +72,7 @@ export class ApiLogger implements Logger {
       const sanitized: any = {};
       for (const [key, value] of Object.entries(obj)) {
         const lowerKey = key.toLowerCase();
-        if (sensitiveFields.some(field => lowerKey.includes(field))) {
+        if (!this.config.enableSensitiveData && sensitiveFields.some(field => lowerKey.includes(field))) {
           sanitized[key] = '[REDACTED]';
         } else if (typeof value === 'object' && value !== null) {
           sanitized[key] = sanitize(value);
@@ -276,21 +274,25 @@ export function generateRequestId(): string {
 export function extractRequestContext(req: {
   method: string;
   url: string;
-  headers: Record<string, string>;
+  headers: Headers | Record<string, string>;
 }): RequestContext {
   const url = new URL(req.url);
+  const headerRecord: Record<string, string> =
+    typeof (req.headers as Headers)?.forEach === 'function'
+      ? Object.fromEntries((req.headers as Headers).entries())
+      : (req.headers as Record<string, string>);
   
   return {
     id: generateRequestId(),
     method: req.method,
     path: url.pathname,
     url: req.url,
-    headers: req.headers,
-    userAgent: req.headers['user-agent'] || req.headers['User-Agent'],
-    ip: req.headers['x-forwarded-for'] || 
-        req.headers['x-real-ip'] || 
-        req.headers['X-Forwarded-For'] || 
-        req.headers['X-Real-IP'] ||
+    headers: headerRecord,
+    userAgent: headerRecord['user-agent'] || headerRecord['User-Agent'],
+    ip: headerRecord['x-forwarded-for'] || 
+        headerRecord['x-real-ip'] || 
+        headerRecord['X-Forwarded-For'] || 
+        headerRecord['X-Real-IP'] ||
         'unknown',
     timestamp: new Date().toISOString()
   };

@@ -5,7 +5,7 @@
 import fs from 'fs';
 import path from 'path';
 
-const SKIP = new Set(['src/app/AppContent.tsx', 'src/app/components/Checkout-backup.tsx']);
+const SKIP = new Set(['src/app/AppContent.tsx']);
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {
