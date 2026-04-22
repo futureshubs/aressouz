@@ -12,7 +12,10 @@ const TELEGRAM_RESTAURANT_BOT_TOKEN = Deno.env.get('TELEGRAM_RESTAURANT_BOT_TOKE
 const TELEGRAM_COURIER_BOT_TOKEN = Deno.env.get('TELEGRAM_COURIER_BOT_TOKEN');
 const TELEGRAM_PREPARER_BOT_TOKEN = Deno.env.get('TELEGRAM_PREPARER_BOT_TOKEN');
 const TELEGRAM_COURIER_CHANNEL = Deno.env.get('TELEGRAM_COURIER_CHANNEL'); // e.g. "@Aressobuyutma"
-const TELEGRAM_PREPARER_CHANNEL = Deno.env.get('TELEGRAM_PREPARER_CHANNEL'); // e.g. "@Aressotayyorlovchi"
+// Backward-compat: PREPAPER misspelling in some dashboards.
+const TELEGRAM_PREPARER_CHANNEL =
+  Deno.env.get('TELEGRAM_PREPARER_CHANNEL') ||
+  Deno.env.get('TELEGRAM_PREPAPER_CHANNEL'); // e.g. "@Aressotayyorlovchi"
 
 type NotificationType = 'shop' | 'restaurant';
 
@@ -31,6 +34,22 @@ export function isValidTelegramTarget(chatId: string): boolean {
   if (/^-?\d+$/.test(s)) return true;
   if (/^@[a-zA-Z][a-zA-Z0-9_]{4,31}$/.test(s)) return true;
   return false;
+}
+
+/**
+ * Secrets'da target ba'zan `https://t.me/<name>` ko‘rinishida turadi.
+ * Telegram API esa `@<name>` yoki raqamli chat_id kutadi.
+ */
+export function normalizeTelegramTarget(raw: string): string {
+  let s = String(raw || "").trim();
+  if (!s) return "";
+  // accept full URLs like https://t.me/ChannelName or t.me/ChannelName
+  s = s.replace(/^https?:\/\/t\.me\//i, "@");
+  s = s.replace(/^t\.me\//i, "@");
+  // accept joinchat links are not usable as chat_id; keep as-is (will fail validation)
+  // remove trailing slashes/spaces
+  s = s.replace(/\/+$/, "").trim();
+  return s;
 }
 
 interface OrderNotification {
@@ -198,10 +217,11 @@ export async function sendOrderBroadcastToChannel(p: {
     audience === 'courier'
       ? (TELEGRAM_COURIER_BOT_TOKEN || TELEGRAM_SHOP_BOT_TOKEN)
       : (TELEGRAM_PREPARER_BOT_TOKEN || TELEGRAM_RESTAURANT_BOT_TOKEN);
-  const chatId =
+  const chatId = normalizeTelegramTarget(
     audience === 'courier'
-      ? String(TELEGRAM_COURIER_CHANNEL || '').trim()
-      : String(TELEGRAM_PREPARER_CHANNEL || '').trim();
+      ? String(TELEGRAM_COURIER_CHANNEL || '')
+      : String(TELEGRAM_PREPARER_CHANNEL || ''),
+  );
 
   if (!botToken) {
     console.error(`❌ TELEGRAM_${audience.toUpperCase()}_BOT_TOKEN sozlanmagan`);
@@ -253,6 +273,128 @@ export async function sendOrderBroadcastToChannel(p: {
     console.error('Telegram channel broadcast exception:', e);
     return false;
   }
+}
+
+export async function sendOrderBroadcastToChannelDebug(p: {
+  audience: 'courier' | 'preparer';
+  orderType: 'market' | 'shop' | 'food' | 'rental' | 'other';
+  orderNumber: string;
+  merchantName?: string;
+  customerAddress?: string;
+  totalAmount?: number;
+  paymentMethod?: string;
+  pickupHint?: string;
+}): Promise<{ ok: boolean; audience: 'courier' | 'preparer'; chatId: string; status?: number; error?: unknown }> {
+  const audience = p.audience;
+  const botToken =
+    audience === 'courier'
+      ? (TELEGRAM_COURIER_BOT_TOKEN || TELEGRAM_SHOP_BOT_TOKEN)
+      : (TELEGRAM_PREPARER_BOT_TOKEN || TELEGRAM_RESTAURANT_BOT_TOKEN);
+  const chatId = normalizeTelegramTarget(
+    audience === 'courier'
+      ? String(TELEGRAM_COURIER_CHANNEL || '')
+      : String(TELEGRAM_PREPARER_CHANNEL || ''),
+  );
+
+  if (!botToken) {
+    return { ok: false, audience, chatId, error: `TELEGRAM_${audience.toUpperCase()}_BOT_TOKEN missing` };
+  }
+  if (!chatId || !isValidTelegramTarget(chatId)) {
+    return { ok: false, audience, chatId, error: `TELEGRAM_${audience.toUpperCase()}_CHANNEL invalid` };
+  }
+
+  const typeUz =
+    p.orderType === 'market' ? 'Market' :
+    p.orderType === 'shop' ? "Do'kon" :
+    p.orderType === 'food' ? 'Taom' :
+    p.orderType === 'rental' ? 'Ijara' : 'Buyurtma';
+
+  const lines: string[] = [];
+  lines.push(`🧪 <b>DEBUG</b>`);
+  lines.push(`📦 <b>${typeUz} · Test</b>`);
+  lines.push(`🔢 <b>Buyurtma:</b> #${escapeTelegramHtml(String(p.orderNumber || ''))}`);
+  if (p.pickupHint) lines.push(`📍 <b>Izoh:</b> ${escapeTelegramHtml(String(p.pickupHint))}`);
+  const message = lines.join('\n');
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }),
+    });
+    const payload = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      return { ok: false, audience, chatId, status: response.status, error: payload };
+    }
+    return { ok: true, audience, chatId, status: response.status };
+  } catch (e) {
+    return { ok: false, audience, chatId, error: String(e) };
+  }
+}
+
+export async function debugTelegramAudienceMembership(audience: 'courier' | 'preparer'): Promise<{
+  ok: boolean;
+  audience: 'courier' | 'preparer';
+  chatId: string;
+  bot?: { id?: number; username?: string };
+  member?: unknown;
+  sendTest?: { ok: boolean; status?: number; error?: unknown };
+  error?: unknown;
+}> {
+  const botToken =
+    audience === 'courier'
+      ? (TELEGRAM_COURIER_BOT_TOKEN || TELEGRAM_SHOP_BOT_TOKEN)
+      : (TELEGRAM_PREPARER_BOT_TOKEN || TELEGRAM_RESTAURANT_BOT_TOKEN);
+  const chatId = normalizeTelegramTarget(
+    audience === 'courier'
+      ? String(TELEGRAM_COURIER_CHANNEL || '')
+      : String(TELEGRAM_PREPARER_CHANNEL || ''),
+  );
+
+  if (!botToken) {
+    return { ok: false, audience, chatId, error: `TELEGRAM_${audience.toUpperCase()}_BOT_TOKEN missing` };
+  }
+  if (!chatId || !isValidTelegramTarget(chatId)) {
+    return { ok: false, audience, chatId, error: `TELEGRAM_${audience.toUpperCase()}_CHANNEL invalid` };
+  }
+
+  // 1) getMe (token qaysi botniki)
+  let bot: { id?: number; username?: string } = {};
+  try {
+    const meRes = await fetch(`https://api.telegram.org/bot${botToken}/getMe`);
+    const meJson = await meRes.json().catch(() => ({}));
+    bot = { id: meJson?.result?.id, username: meJson?.result?.username };
+  } catch (e) {
+    return { ok: false, audience, chatId, error: `getMe failed: ${String(e)}` };
+  }
+
+  // 2) getChatMember (bot kanalda bormi)
+  let member: unknown = null;
+  try {
+    if (bot.id) {
+      const mRes = await fetch(
+        `https://api.telegram.org/bot${botToken}/getChatMember?chat_id=${encodeURIComponent(
+          chatId,
+        )}&user_id=${encodeURIComponent(String(bot.id))}`,
+      );
+      const mJson = await mRes.json().catch(() => ({}));
+      member = mJson;
+    } else {
+      member = { ok: false, description: 'bot id missing from getMe' };
+    }
+  } catch (e) {
+    member = { ok: false, description: `getChatMember exception: ${String(e)}` };
+  }
+
+  // 3) sendMessage test (real yuborish)
+  const sendTest = await sendOrderBroadcastToChannelDebug({
+    audience,
+    orderType: 'other',
+    orderNumber: `DEBUG-${Date.now()}`,
+    pickupHint: 'membership-debug',
+  });
+
+  return { ok: true, audience, chatId, bot, member, sendTest };
 }
 
 /** Stol / xona broni — restoran Telegram chatiga (RESTAURANT bot). Rasmlar bo‘lsa sendPhoto / sendMediaGroup. */

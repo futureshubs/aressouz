@@ -106,8 +106,7 @@ if (!DEBUG_HTTP && !VERBOSE_SERVER_LOG) {
   globalThis.console.log = noop as typeof console.log;
   globalThis.console.info = noop as typeof console.info;
   globalThis.console.debug = noop as typeof console.debug;
-  globalThis.console.warn = noop as typeof console.warn;
-  globalThis.console.error = noop as typeof console.error;
+  // WARN/ERROR ni o‘chirmaymiz: prod muammolar (Telegram/API) aks holda ko‘rinmay qoladi.
 }
 
 const app = new Hono();
@@ -15460,6 +15459,87 @@ app.post("/make-server-27d0d16c/test-telegram", async (c) => {
   }
 });
 
+/**
+ * Kanallarni tez tekshirish: Supabase Secrets’dagi
+ * TELEGRAM_COURIER_CHANNEL / TELEGRAM_PREPARER_CHANNEL ga test xabar yuboradi.
+ */
+app.post("/make-server-27d0d16c/test-telegram-broadcast", async (c) => {
+  try {
+    const now = new Date().toISOString();
+    const payload = await c.req.json().catch(() => ({} as any));
+    const orderNumber = String(payload?.orderNumber || `TEST-${Date.now()}`).slice(0, 32);
+    const merchantName = String(payload?.merchantName || "Aresso Test").slice(0, 64);
+    const customerAddress = String(payload?.customerAddress || "Test manzil").slice(0, 128);
+    const totalAmount = Number(payload?.totalAmount || 12345);
+    const paymentMethod = String(payload?.paymentMethod || "test");
+
+    const courierOk = await telegram.sendOrderBroadcastToChannel({
+      audience: "courier",
+      orderType: "other",
+      orderNumber,
+      merchantName,
+      customerAddress,
+      totalAmount,
+      paymentMethod,
+      pickupHint: `Broadcast test · ${now}`,
+    });
+
+    const preparerOk = await telegram.sendOrderBroadcastToChannel({
+      audience: "preparer",
+      orderType: "other",
+      orderNumber,
+      merchantName,
+      customerAddress,
+      totalAmount,
+      paymentMethod,
+      pickupHint: `Broadcast test · ${now}`,
+    });
+
+    return c.json({ success: true, courierOk, preparerOk });
+  } catch (e: any) {
+    console.error("test-telegram-broadcast:", e);
+    return c.json({ success: false, error: String(e?.message || e) }, 500);
+  }
+});
+
+/** Debug: Telegram API xatosini payload bilan qaytaradi (tokenlarni oshkor qilmaydi). */
+app.post("/make-server-27d0d16c/test-telegram-broadcast-debug", async (c) => {
+  try {
+    const now = new Date().toISOString();
+    const payload = await c.req.json().catch(() => ({} as any));
+    const orderNumber = String(payload?.orderNumber || `TEST-${Date.now()}`).slice(0, 32);
+
+    const courier = await telegram.sendOrderBroadcastToChannelDebug({
+      audience: "courier",
+      orderType: "other",
+      orderNumber,
+      pickupHint: `Broadcast debug · ${now}`,
+    });
+    const preparer = await telegram.sendOrderBroadcastToChannelDebug({
+      audience: "preparer",
+      orderType: "other",
+      orderNumber,
+      pickupHint: `Broadcast debug · ${now}`,
+    });
+
+    return c.json({ success: true, courier, preparer });
+  } catch (e: any) {
+    console.error("test-telegram-broadcast-debug:", e);
+    return c.json({ success: false, error: String(e?.message || e) }, 500);
+  }
+});
+
+app.get("/make-server-27d0d16c/debug-telegram-membership", async (c) => {
+  try {
+    const courier = await telegram.debugTelegramAudienceMembership("courier");
+    const preparer = await telegram.debugTelegramAudienceMembership("preparer");
+    return c.json({ success: true, courier, preparer });
+  } catch (e: any) {
+    console.error("debug-telegram-membership:", e);
+    return c.json({ success: false, error: String(e?.message || e) }, 500);
+  }
+});
+
 // ==================== SELLER STATISTICS ====================
 
 // Get seller statistics
@@ -21498,6 +21578,39 @@ app.post('/make-server-27d0d16c/orders/:orderId/release-to-preparer', async (c) 
     };
     await kv.set(record.key, updated);
     await syncFoodOrderMirrorKv(updated);
+
+    // Telegram broadcast: filial "qabul qildi" → tayyorlovchi kanali (va kerak bo'lsa kuryer kanali ham).
+    // Maqsad: "Qabul qilish (tayyorlovchiga)" bosilganda kanalga xabar borsin.
+    try {
+      const otLabel = String(updated.orderType || updated.type || '').toLowerCase();
+      const orderType =
+        otLabel === 'shop'
+          ? 'shop'
+          : otLabel === 'food' || otLabel === 'restaurant'
+            ? 'food'
+            : 'market';
+      const orderNum = String(updated.orderNumber || updated.order_number || orderId);
+      const merchantName =
+        String(updated.shopName || updated.shop_name || updated.restaurantName || updated.restaurant_name || '').trim() ||
+        (orderType === 'food' ? 'Restoran' : orderType === 'shop' ? "Do'kon" : 'Market');
+      const addr = formatHumanOrderAddressForTelegram(updated);
+      const total = Number(updated.finalTotal ?? updated.totalAmount ?? updated.totalPrice ?? updated.total ?? 0) || 0;
+      const pm = String(updated.paymentMethod || updated.payment_method || '').trim();
+
+      void telegram.sendOrderBroadcastToChannel({
+        audience: 'preparer',
+        orderType,
+        orderNumber: orderNum,
+        merchantName,
+        customerAddress: addr,
+        totalAmount: total,
+        paymentMethod: pm,
+        pickupHint: 'Filial qabul qildi',
+      });
+    } catch (e) {
+      console.warn('[release-to-preparer] preparer broadcast:', e);
+    }
+
     return c.json({ success: true, order: updated });
   } catch (error: any) {
     console.error('release-to-preparer error:', error);

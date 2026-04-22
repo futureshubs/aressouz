@@ -169,6 +169,29 @@ const normalizePaymentStatusForOrder = (raw: unknown): Order['paymentStatus'] =>
   return 'pending';
 };
 
+/** KV / legacy / v2: bitta UI status ketma-ketligi */
+const normalizeOrderStatusForOrder = (raw: unknown): Order['status'] => {
+  const s = String(raw ?? '').toLowerCase().trim();
+  if (!s) return 'pending';
+
+  // Legacy cash hold / branch accept gates
+  if (['pending_branch_accept', 'pending_branch_acceptance', 'branch_cash_hold', 'hold'].includes(s)) {
+    return 'new';
+  }
+
+  // Common aliases
+  if (['new', 'pending'].includes(s)) return s as Order['status'];
+  if (['accepted', 'confirm', 'confirmed'].includes(s)) return 'confirmed';
+  if (['preparing', 'in_progress', 'inprogress', 'cooking', 'packing'].includes(s)) return 'preparing';
+  if (['ready', 'prepared', 'packed', 'done'].includes(s)) return 'ready';
+  if (['with_courier', 'courier', 'on_the_way', 'ontheway', 'delivering'].includes(s)) return 'delivering';
+  if (['delivered', 'completed', 'fulfilled', 'finished'].includes(s)) return 'delivered';
+  if (['cancelled', 'canceled', 'rejected', 'refunded'].includes(s)) return 'cancelled';
+
+  // Fallback: keep pending for unknown states to avoid breaking UI actions
+  return 'pending';
+};
+
 const formatPaymentMethodUz = (raw: string | null | undefined, methodType?: string | null) => {
   const m = String(raw || '').toLowerCase().trim();
   const mt = String(methodType || '').toLowerCase().trim();
@@ -277,7 +300,7 @@ const mapRawToOrder = (raw: any): Order => {
     customerName: String(raw?.customerName ?? raw?.name ?? ''),
     customerPhone: String(raw?.customerPhone ?? raw?.phone ?? ''),
     customerAddress: addr,
-    status: String(raw?.status ?? 'pending'),
+    status: normalizeOrderStatusForOrder(raw?.status),
     paymentStatus: normalizePaymentStatusForOrder(
       raw?.paymentStatus ??
         raw?.payment_status ??
@@ -1741,168 +1764,170 @@ export default function OrdersManagement({
                           : 'Qabul qilish (tayyorlovchiga)'}
                   </button>
                 )}
-                {/* Status Update Buttons — market: `new` yoki `pending` (naqd release allaqachon bo‘lgan) */}
-                {(selectedOrder.status === 'pending' ||
-                  (selectedOrder.type === 'market' && selectedOrder.status === 'new')) &&
-                  !needsMarketCashBranchRelease(selectedOrder) && (
-                  <button
-                    onClick={() =>
-                      updateOrderStatus(
-                        selectedOrder.id,
-                        // Market va do‘kon: filial «Qabul qilish» bilan darhol tayyorlovchi oqimiga (`preparing`). Taom: `confirmed` + QR tekshiruv.
-                        selectedOrder.type === 'market' || selectedOrder.type === 'shop'
-                          ? 'preparing'
-                          : 'confirmed',
-                        selectedOrder.type === 'restaurant' ? 'qr' : undefined,
-                      )
-                    }
-                    disabled={actionLoading}
-                    className="transition-all active:scale-95 disabled:opacity-50"
-                    style={{
-                      width: '100%',
-                      padding: '18px',
-                      borderRadius: '18px',
-                      background: 'linear-gradient(135deg, #10b981, #059669)',
-                      color: '#ffffff',
-                      fontWeight: '700',
-                      fontSize: '16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '10px',
-                      boxShadow: '0 10px 30px rgba(16, 185, 129, 0.3)',
-                    }}
-                  >
-                    {actionLoading ? (
-                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
-                    ) : (
-                      <CheckCircle className="w-6 h-6 shrink-0" />
+                {/* Workflow tugmalari (confirmed→preparing→ready→delivering→delivered):
+                    Filial/operator panelda ko‘rsatmaymiz — bu oqim tayyorlovchi/kuryer panellarda boshqariladi. */}
+                {authMode !== 'branch' && (
+                  <>
+                    {/* Status Update Buttons — market: `new` yoki `pending` (naqd release allaqachon bo‘lgan) */}
+                    {(selectedOrder.status === 'pending' ||
+                      (selectedOrder.type === 'market' && selectedOrder.status === 'new')) &&
+                      !needsMarketCashBranchRelease(selectedOrder) && (
+                      <button
+                        onClick={() =>
+                          updateOrderStatus(
+                            selectedOrder.id,
+                            // Market va do‘kon: filial «Qabul qilish» bilan darhol tayyorlovchi oqimiga (`preparing`). Taom: `confirmed` + QR tekshiruv.
+                            selectedOrder.type === 'market' || selectedOrder.type === 'shop'
+                              ? 'preparing'
+                              : 'confirmed',
+                            selectedOrder.type === 'restaurant' ? 'qr' : undefined,
+                          )
+                        }
+                        disabled={actionLoading}
+                        className="transition-all active:scale-95 disabled:opacity-50"
+                        style={{
+                          width: '100%',
+                          padding: '18px',
+                          borderRadius: '18px',
+                          background: 'linear-gradient(135deg, #10b981, #059669)',
+                          color: '#ffffff',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '10px',
+                          boxShadow: '0 10px 30px rgba(16, 185, 129, 0.3)',
+                        }}
+                      >
+                        {actionLoading ? (
+                          <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                        ) : (
+                          <CheckCircle className="w-6 h-6 shrink-0" />
+                        )}
+                        {actionLoading ? 'Yuborilmoqda…' : 'Qabul qilish'}
+                      </button>
                     )}
-                    {actionLoading ? 'Yuborilmoqda…' : 'Qabul qilish'}
-                  </button>
-                )}
-                
-                {selectedOrder.status === 'confirmed' &&
-                  !(authMode === 'branch' && selectedOrder.type === 'shop') && (
-                  <button
-                    onClick={() => updateOrderStatus(selectedOrder.id, 'preparing')}
-                    disabled={actionLoading}
-                    className="transition-all active:scale-95 disabled:opacity-50"
-                    style={{
-                      width: '100%',
-                      padding: '18px',
-                      borderRadius: '18px',
-                      background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
-                      color: '#ffffff',
-                      fontWeight: '700',
-                      fontSize: '16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '10px',
-                      boxShadow: '0 10px 30px rgba(139, 92, 246, 0.3)',
-                    }}
-                  >
-                    {actionLoading ? (
-                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
-                    ) : null}
-                    {actionLoading ? 'Yuborilmoqda…' : 'Tayyorlashni boshlash'}
-                  </button>
-                )}
-                
-                {selectedOrder.status === 'preparing' &&
-                  !(authMode === 'branch' && selectedOrder.type === 'shop') && (
-                  <button
-                    onClick={() => updateOrderStatus(selectedOrder.id, 'ready')}
-                    disabled={actionLoading}
-                    className="transition-all active:scale-95 disabled:opacity-50"
-                    style={{
-                      width: '100%',
-                      padding: '18px',
-                      borderRadius: '18px',
-                      background: 'linear-gradient(135deg, #10b981, #059669)',
-                      color: '#ffffff',
-                      fontWeight: '700',
-                      fontSize: '16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '10px',
-                      boxShadow: '0 10px 30px rgba(16, 185, 129, 0.3)',
-                    }}
-                  >
-                    {actionLoading ? (
-                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
-                    ) : null}
-                    {actionLoading ? 'Yuborilmoqda…' : 'Tayyor deb belgilash'}
-                  </button>
-                )}
-                
-                {selectedOrder.status === 'ready' &&
-                  !(authMode === 'branch' && selectedOrder.type === 'shop') && (
-                  <button
-                    onClick={() => updateOrderStatus(selectedOrder.id, 'delivering')}
-                    disabled={actionLoading}
-                    className="transition-all active:scale-95 disabled:opacity-50"
-                    style={{
-                      width: '100%',
-                      padding: '18px',
-                      borderRadius: '18px',
-                      background: 'linear-gradient(135deg, #06b6d4, #0891b2)',
-                      color: '#ffffff',
-                      fontWeight: '700',
-                      fontSize: '16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '10px',
-                      boxShadow: '0 10px 30px rgba(6, 182, 212, 0.3)',
-                    }}
-                  >
-                    {actionLoading ? (
-                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
-                    ) : (
-                      <Truck className="w-6 h-6 shrink-0" />
+
+                    {selectedOrder.status === 'confirmed' && (
+                      <button
+                        onClick={() => updateOrderStatus(selectedOrder.id, 'preparing')}
+                        disabled={actionLoading}
+                        className="transition-all active:scale-95 disabled:opacity-50"
+                        style={{
+                          width: '100%',
+                          padding: '18px',
+                          borderRadius: '18px',
+                          background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)',
+                          color: '#ffffff',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '10px',
+                          boxShadow: '0 10px 30px rgba(139, 92, 246, 0.3)',
+                        }}
+                      >
+                        {actionLoading ? (
+                          <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                        ) : null}
+                        {actionLoading ? 'Yuborilmoqda…' : 'Tayyorlashni boshlash'}
+                      </button>
                     )}
-                    {actionLoading ? 'Yuborilmoqda…' : 'Yetkazishni boshlash'}
-                  </button>
-                )}
-                
-                {selectedOrder.status === 'delivering' &&
-                  !(authMode === 'branch' && selectedOrder.type === 'shop') && (
-                  <button
-                    onClick={() => updateOrderStatus(selectedOrder.id, 'delivered')}
-                    disabled={actionLoading || String(selectedOrder.paymentMethod || '').toLowerCase().trim() === 'cash'}
-                    className="transition-all active:scale-95 disabled:opacity-50"
-                    title={
-                      String(selectedOrder.paymentMethod || '').toLowerCase().trim() === 'cash'
-                        ? 'Naqd to‘lov: to‘lov faqat kuryer yetkazgandan keyin “To‘landi”ga o‘tadi'
-                        : undefined
-                    }
-                    style={{
-                      width: '100%',
-                      padding: '18px',
-                      borderRadius: '18px',
-                      background: 'linear-gradient(135deg, #22c55e, #16a34a)',
-                      color: '#ffffff',
-                      fontWeight: '700',
-                      fontSize: '16px',
-                      display: 'flex',
-                      alignItems: 'center',
-                      justifyContent: 'center',
-                      gap: '10px',
-                      boxShadow: '0 10px 30px rgba(34, 197, 94, 0.3)',
-                    }}
-                  >
-                    {actionLoading ? (
-                      <Loader2 className="w-6 h-6 animate-spin shrink-0" />
-                    ) : null}
-                    {actionLoading
-                      ? 'Yuborilmoqda…'
-                      : String(selectedOrder.paymentMethod || '').toLowerCase().trim() === 'cash'
-                        ? 'Kuryer tasdiqlaydi'
-                        : '✓ Yetkazildi'}
-                  </button>
+
+                    {selectedOrder.status === 'preparing' && (
+                      <button
+                        onClick={() => updateOrderStatus(selectedOrder.id, 'ready')}
+                        disabled={actionLoading}
+                        className="transition-all active:scale-95 disabled:opacity-50"
+                        style={{
+                          width: '100%',
+                          padding: '18px',
+                          borderRadius: '18px',
+                          background: 'linear-gradient(135deg, #10b981, #059669)',
+                          color: '#ffffff',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '10px',
+                          boxShadow: '0 10px 30px rgba(16, 185, 129, 0.3)',
+                        }}
+                      >
+                        {actionLoading ? (
+                          <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                        ) : null}
+                        {actionLoading ? 'Yuborilmoqda…' : 'Tayyor deb belgilash'}
+                      </button>
+                    )}
+
+                    {selectedOrder.status === 'ready' && (
+                      <button
+                        onClick={() => updateOrderStatus(selectedOrder.id, 'delivering')}
+                        disabled={actionLoading}
+                        className="transition-all active:scale-95 disabled:opacity-50"
+                        style={{
+                          width: '100%',
+                          padding: '18px',
+                          borderRadius: '18px',
+                          background: 'linear-gradient(135deg, #06b6d4, #0891b2)',
+                          color: '#ffffff',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '10px',
+                          boxShadow: '0 10px 30px rgba(6, 182, 212, 0.3)',
+                        }}
+                      >
+                        {actionLoading ? (
+                          <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                        ) : (
+                          <Truck className="w-6 h-6 shrink-0" />
+                        )}
+                        {actionLoading ? 'Yuborilmoqda…' : 'Yetkazishni boshlash'}
+                      </button>
+                    )}
+
+                    {selectedOrder.status === 'delivering' && (
+                      <button
+                        onClick={() => updateOrderStatus(selectedOrder.id, 'delivered')}
+                        disabled={actionLoading || String(selectedOrder.paymentMethod || '').toLowerCase().trim() === 'cash'}
+                        className="transition-all active:scale-95 disabled:opacity-50"
+                        title={
+                          String(selectedOrder.paymentMethod || '').toLowerCase().trim() === 'cash'
+                            ? 'Naqd to‘lov: to‘lov faqat kuryer yetkazgandan keyin “To‘landi”ga o‘tadi'
+                            : undefined
+                        }
+                        style={{
+                          width: '100%',
+                          padding: '18px',
+                          borderRadius: '18px',
+                          background: 'linear-gradient(135deg, #22c55e, #16a34a)',
+                          color: '#ffffff',
+                          fontWeight: '700',
+                          fontSize: '16px',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          gap: '10px',
+                          boxShadow: '0 10px 30px rgba(34, 197, 94, 0.3)',
+                        }}
+                      >
+                        {actionLoading ? (
+                          <Loader2 className="w-6 h-6 animate-spin shrink-0" />
+                        ) : null}
+                        {actionLoading
+                          ? 'Yuborilmoqda…'
+                          : String(selectedOrder.paymentMethod || '').toLowerCase().trim() === 'cash'
+                            ? 'Kuryer tasdiqlaydi'
+                            : '✓ Yetkazildi'}
+                      </button>
+                    )}
+                  </>
                 )}
 
                 {/* Cancel Button */}
