@@ -24,6 +24,8 @@ interface Variant {
   commission: number;
   stock: number;
   barcode: string;
+  /** Har bir variant vazni (kg) — majburiy */
+  weightKg: number;
   images: string[];
   video: string;
   uploadingImages: boolean[];
@@ -45,7 +47,6 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
     name: '',
     description: '',
     features: [] as string[], // Changed to array
-    weightKg: '',
   });
 
   const [newFeature, setNewFeature] = useState(''); // For adding new features
@@ -59,6 +60,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
     commission: 0,
     stock: 0,
     barcode: '',
+    weightKg: 0,
     images: [],
     video: '',
     uploadingImages: [],
@@ -81,6 +83,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
       commission: 0,
       stock: 0,
       barcode: '',
+      weightKg: 0,
       images: [],
       video: '',
       uploadingImages: [],
@@ -281,11 +284,6 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
       toast.error('Mahsulot nomini kiriting');
       return;
     }
-    const w = Number(String(formData.weightKg || '').replace(',', '.'));
-    if (!Number.isFinite(w) || w <= 0) {
-      toast.error('Mahsulot vaznini (kg) kiriting');
-      return;
-    }
 
     if (variants.length === 0) {
       toast.error('Kamida bitta variant qo\'shing');
@@ -296,6 +294,11 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
       const variant = variants[i];
       if (!variant.name.trim()) {
         toast.error(`Variant ${i + 1} nomini kiriting`);
+        return;
+      }
+      const wv = Number(variant.weightKg);
+      if (!Number.isFinite(wv) || wv <= 0) {
+        toast.error(`Variant ${i + 1} vaznini (kg) kiriting`);
         return;
       }
       if (variant.price <= 0) {
@@ -338,7 +341,6 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
             name: formData.name,
             description: formData.description,
             features: formData.features,
-            weightKg: w,
             variants: variants.map(v => ({
               id: v.id,
               name: v.name,
@@ -348,6 +350,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
               commission: v.commission,
               stock: v.stock,
               barcode: v.barcode,
+              weightKg: Number(v.weightKg) || 0,
               images: v.images,
               video: v.video,
             })),
@@ -384,7 +387,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
       onClose();
       
       // Reset form
-      setFormData({ name: '', description: '', features: [], weightKg: '' });
+      setFormData({ name: '', description: '', features: [] });
       setVariants([{
         id: Date.now().toString(),
         name: '',
@@ -394,6 +397,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
         commission: 0,
         stock: 0,
         barcode: '',
+        weightKg: 0,
         images: [],
         video: '',
         uploadingImages: [],
@@ -484,26 +488,6 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
                 }}
                 placeholder="Mahsulot haqida qisqacha ma'lumot"
               />
-            </div>
-
-            <div>
-              <label className="block text-sm font-medium mb-2">Vazn (kg) *</label>
-              <input
-                type="number"
-                min={0}
-                step="0.01"
-                value={formData.weightKg}
-                onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
-                className="w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2"
-                style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f9fafb',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                }}
-                placeholder="Masalan: 2.5"
-              />
-              <p className="text-xs mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
-                Buyurtma umumiy vazni 10 kg dan oshsa avtomatik avto-kuryerga chiqadi.
-              </p>
             </div>
 
             <div>
@@ -606,6 +590,29 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
                       }}
                       placeholder="Masalan: 128GB Qora"
                     />
+                  </div>
+
+                  <div>
+                    <label className="block text-sm font-medium mb-2">Vazn (kg) *</label>
+                    <input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      value={Number.isFinite(Number(variant.weightKg)) ? String(variant.weightKg) : ''}
+                      onChange={(e) => handleVariantChange(index, 'weightKg', Number(e.target.value))}
+                      className="w-full px-4 py-3 rounded-xl border focus:outline-none focus:ring-2"
+                      style={{
+                        background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#f9fafb',
+                        borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                      }}
+                      placeholder="Masalan: 2.5"
+                    />
+                    <p
+                      className="text-xs mt-1"
+                      style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
+                    >
+                      Og‘ir buyurtma (30kg+) avto-kuryerga chiqadi.
+                    </p>
                   </div>
 
                   <div>

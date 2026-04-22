@@ -187,13 +187,13 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
     categoryId: '',
     description: '',
     recommendation: '',
-    weightKg: '',
   });
 
   const [variants, setVariants] = useState<ProductVariant[]>([{
     id: Date.now().toString(),
     name: '',
     price: 0,
+    weightKg: 0,
     stockQuantity: 0,
     attributes: [],
   }]);
@@ -427,11 +427,6 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       toast.error('Mahsulot nomi, katalog va kategoriyani to\'ldiring');
       return;
     }
-    const w = Number(String(formData.weightKg || '').replace(',', '.'));
-    if (!Number.isFinite(w) || w <= 0) {
-      toast.error('Vazn (kg) ni kiriting');
-      return;
-    }
 
     if (variants.length === 0) {
       toast.error('Kamida 1 ta variant qo\'shing');
@@ -440,6 +435,14 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
     const badSizeVariant = variants.find((v) => !String(v?.name || '').trim());
     if (badSizeVariant) {
       toast.error('Variant o‘lchami (variant nomi) majburiy');
+      return;
+    }
+    const badWeightVariant = variants.find((v: any) => {
+      const n = Number(String(v?.weightKg ?? '').replace(',', '.'));
+      return !Number.isFinite(n) || n <= 0;
+    });
+    if (badWeightVariant) {
+      toast.error('Har bir variant uchun vazn (kg) majburiy');
       return;
     }
 
@@ -457,7 +460,6 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
         branchName: branchInfo?.branchName || 'Filial',
         description: formData.description || '',
         recommendation: formData.recommendation || '',
-        weightKg: Math.max(0, Number(formData.weightKg) || 0),
         variants: variants.map(v => {
           const rawProfit = v.profitPrice as number | string | undefined | null;
           let profitPrice: number | undefined;
@@ -467,6 +469,7 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
           }
           return {
             ...v,
+            weightKg: Math.max(0, Number((v as any).weightKg) || 0),
             stockQuantity: Number(v.stockQuantity) || 0,
             price: Number(v.price) || 0,
             oldPrice: v.oldPrice ? Number(v.oldPrice) : undefined,
@@ -557,10 +560,6 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
       categoryId: product.categoryId,
       description: product.description,
       recommendation: product.recommendation || '',
-      weightKg:
-        product && (product as any).weightKg != null
-          ? String((product as any).weightKg)
-          : '',
     });
     setVariants(product.variants);
     setIsModalOpen(true);
@@ -742,6 +741,11 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
   };
 
   const updateVariant = (id: string, field: string, value: any) => {
+    if (field === 'weightKg') {
+      const n = Number(String(value ?? '').replace(',', '.'));
+      setVariants(variants.map(v => v.id === id ? { ...v, [field]: Number.isFinite(n) ? n : value } : v));
+      return;
+    }
     setVariants(variants.map(v => v.id === id ? { ...v, [field]: value } : v));
   };
 
@@ -2849,35 +2853,6 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                     />
                   </div>
 
-                <div className="md:col-span-2">
-                  <label
-                    className="block text-sm font-medium mb-2"
-                    style={{ color: isDark ? 'rgba(255, 255, 255, 0.9)' : '#374151' }}
-                  >
-                    Vazn (kg) *
-                  </label>
-                  <input
-                    type="number"
-                    min={0}
-                    step="0.01"
-                    value={formData.weightKg}
-                    onChange={(e) => setFormData({ ...formData, weightKg: e.target.value })}
-                    placeholder="Masalan: 2.5"
-                    className="w-full px-4 py-3 rounded-2xl border outline-none transition-all"
-                    style={{
-                      background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
-                      borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      color: isDark ? '#ffffff' : '#111827',
-                      boxShadow: isDark
-                        ? '0 2px 8px rgba(0, 0, 0, 0.3), inset 0 1px 0 rgba(255, 255, 255, 0.05)'
-                        : '0 2px 6px rgba(0, 0, 0, 0.06)',
-                    }}
-                  />
-                  <p className="text-xs mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
-                    Buyurtma umumiy vazni 30 kg dan oshsa avtomatik avto-kuryerga chiqadi.
-                  </p>
-                </div>
-
                   <div className="md:col-span-2">
                     <label 
                       className="block text-sm font-medium mb-2"
@@ -2960,6 +2935,27 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
                             color: isDark ? '#ffffff' : '#111827',
                           }}
                         />
+                      </div>
+
+                      <div className="md:col-span-2">
+                        <label className="block text-sm font-medium mb-2">Vazn (kg) *</label>
+                        <input
+                          type="number"
+                          min={0}
+                          step="0.01"
+                          value={String((variant as any).weightKg ?? '')}
+                          onChange={(e) => updateVariant(variant.id, 'weightKg', e.target.value)}
+                          placeholder="Masalan: 2.5"
+                          className="w-full px-4 py-2.5 rounded-xl border outline-none"
+                          style={{
+                            background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
+                            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                            color: isDark ? '#ffffff' : '#111827',
+                          }}
+                        />
+                        <p className="text-xs mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+                          Buyurtma umumiy vazni 30 kg dan oshsa avtomatik avto-kuryerga chiqadi.
+                        </p>
                       </div>
 
                       {/* Image Upload */}

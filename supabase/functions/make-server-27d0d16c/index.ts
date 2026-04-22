@@ -4218,7 +4218,16 @@ app.post("/make-server-27d0d16c/branch-products", async (c) => {
     console.log('📝 Creating product:', name);
     
     const productId = `prod_${Date.now()}`;
+    // Product-level weight is deprecated; each variant must provide weightKg.
     const weightKg = Math.max(0, Number(body?.weightKg) || 0);
+    if (Array.isArray(variants)) {
+      for (const v of variants) {
+        const wv = Math.max(0, Number(v?.weightKg) || 0);
+        if (!Number.isFinite(wv) || wv <= 0) {
+          return c.json({ error: 'Har bir variant uchun vazn (kg) majburiy' }, 400);
+        }
+      }
+    }
     
     const product = {
       id: productId,
@@ -4262,6 +4271,14 @@ app.put("/make-server-27d0d16c/branch-products/:id", async (c) => {
       body?.weightKg !== undefined
         ? Math.max(0, Number(body?.weightKg) || 0)
         : Math.max(0, Number(existingProduct?.weightKg) || 0);
+    if (Array.isArray(body?.variants)) {
+      for (const v of body.variants) {
+        const wv = Math.max(0, Number(v?.weightKg) || 0);
+        if (!Number.isFinite(wv) || wv <= 0) {
+          return c.json({ error: 'Har bir variant uchun vazn (kg) majburiy' }, 400);
+        }
+      }
+    }
     const updatedProduct = {
       ...existingProduct,
       ...body,
@@ -14430,7 +14447,16 @@ app.post("/make-server-27d0d16c/seller/products", async (c) => {
     }
 
     const productId = `shop_product-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+    // Product-level weight is deprecated; each variant must provide weightKg.
     const weightKg = Math.max(0, Number(productData?.weightKg) || 0);
+    if (Array.isArray(productData?.variants)) {
+      for (const v of productData.variants) {
+        const wv = Math.max(0, Number(v?.weightKg) || 0);
+        if (!Number.isFinite(wv) || wv <= 0) {
+          return c.json({ error: 'Har bir variant uchun vazn (kg) majburiy' }, 400);
+        }
+      }
+    }
     console.log('🆔 Generated product ID:', productId);
     
     // Get shop info to add shop name to product
@@ -14953,6 +14979,21 @@ async function sendShopOrderTelegramNotification(params: {
       }),
     });
 
+    // Broadcast to courier channel (optional; requires TELEGRAM_COURIER_* secrets)
+    try {
+      void telegram.sendOrderBroadcastToChannel({
+        audience: 'courier',
+        orderType: 'shop',
+        orderNumber: String(order.orderNumber || order.id),
+        merchantName: tgShopName,
+        customerAddress: addr,
+        totalAmount: Number(totalAmount || order.finalTotal || order.totalAmount || 0),
+        paymentMethod: paymentLabel,
+      });
+    } catch {
+      /* ignore */
+    }
+
     if (!sent) {
       console.warn("⚠️ Do'kon Telegram: yuborilmadi (token yoki API)", {
         shopIdNorm,
@@ -15364,6 +15405,21 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
         console.log(`✅ Telegram notification sent successfully for order ${orderNumber}`);
       } else {
         console.log(`⚠️ Failed to send Telegram notification for order ${orderNumber}`);
+      }
+
+      // Broadcast to courier channel (optional; requires TELEGRAM_COURIER_* secrets)
+      try {
+        void telegram.sendOrderBroadcastToChannel({
+          audience: 'courier',
+          orderType: 'shop',
+          orderNumber: String(orderNumber || orderId),
+          merchantName: String(shop.name || "Do'kon"),
+          customerAddress: formatCustomerAddressForTelegram(customer),
+          totalAmount: finalTotal,
+          paymentMethod: String(payment?.method || ''),
+        });
+      } catch {
+        /* ignore */
       }
     } else if (!branchCashHold) {
       console.log(`ℹ️ No Telegram chat ID configured for shop ${shop.name} (telegramChatId / telegram_chat_id)`);
@@ -20679,6 +20735,21 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
           } else {
             console.log('✅ Food order Telegram notification yuborildi');
           }
+
+          // Broadcast to preparer channel (optional; requires TELEGRAM_PREPARER_* secrets)
+          try {
+            void telegram.sendOrderBroadcastToChannel({
+              audience: 'preparer',
+              orderType: 'food',
+              orderNumber: String(order.orderNumber || order.id),
+              merchantName: String(restaurant.name || restaurant.title || 'Restoran'),
+              customerAddress: formatHumanOrderAddressForTelegram(order),
+              totalAmount: Number(order.finalTotal || order.totalAmount || 0),
+              paymentMethod: String(order.paymentMethod || 'cash'),
+            });
+          } catch {
+            /* ignore */
+          }
         } else {
           console.log('ℹ️ Food order: restaurant Telegram chat topilmadi (telegramChatId / telegram_chat_id)');
         }
@@ -21173,6 +21244,21 @@ app.post('/make-server-27d0d16c/branch/food-orders/:id/accept', async (c) => {
             minute: '2-digit',
           }),
         });
+
+        // Broadcast to preparer channel (optional; requires TELEGRAM_PREPARER_* secrets)
+        try {
+          void telegram.sendOrderBroadcastToChannel({
+            audience: 'preparer',
+            orderType: 'food',
+            orderNumber: String(updated.orderNumber || orderId),
+            merchantName: String(restaurant.name || restaurant.title || 'Restoran'),
+            customerAddress: formatHumanOrderAddressForTelegram(updated),
+            totalAmount: Number(updated.finalTotal || updated.totalAmount || 0),
+            paymentMethod: String(updated.paymentMethod || 'cash'),
+          });
+        } catch {
+          /* ignore */
+        }
       }
     } catch (e) {
       console.warn('[branch food accept] telegram:', e);

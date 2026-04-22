@@ -8,6 +8,12 @@
 const TELEGRAM_SHOP_BOT_TOKEN = Deno.env.get('TELEGRAM_BOT_TOKEN');
 const TELEGRAM_RESTAURANT_BOT_TOKEN = Deno.env.get('TELEGRAM_RESTAURANT_BOT_TOKEN');
 
+/** New (2026): broadcast channels for couriers & preparers */
+const TELEGRAM_COURIER_BOT_TOKEN = Deno.env.get('TELEGRAM_COURIER_BOT_TOKEN');
+const TELEGRAM_PREPARER_BOT_TOKEN = Deno.env.get('TELEGRAM_PREPARER_BOT_TOKEN');
+const TELEGRAM_COURIER_CHANNEL = Deno.env.get('TELEGRAM_COURIER_CHANNEL'); // e.g. "@Aressobuyutma"
+const TELEGRAM_PREPARER_CHANNEL = Deno.env.get('TELEGRAM_PREPARER_CHANNEL'); // e.g. "@Aressotayyorlovchi"
+
 type NotificationType = 'shop' | 'restaurant';
 
 /** HTML parse_mode uchun — < > & bo‘lsa Telegram 400 qaytaradi (test oddiy matn bilan o‘tadi). */
@@ -173,6 +179,78 @@ Bu buyurtmani tasdiqlash yoki bekor qilish uchun /seller platformasiga kiring va
     return true;
   } catch (error) {
     console.error('Error sending Telegram notification:', error);
+    return false;
+  }
+}
+
+export async function sendOrderBroadcastToChannel(p: {
+  audience: 'courier' | 'preparer';
+  orderType: 'market' | 'shop' | 'food' | 'rental' | 'other';
+  orderNumber: string;
+  merchantName?: string;
+  customerAddress?: string;
+  totalAmount?: number;
+  paymentMethod?: string;
+  pickupHint?: string;
+}): Promise<boolean> {
+  const audience = p.audience;
+  const botToken =
+    audience === 'courier'
+      ? (TELEGRAM_COURIER_BOT_TOKEN || TELEGRAM_SHOP_BOT_TOKEN)
+      : (TELEGRAM_PREPARER_BOT_TOKEN || TELEGRAM_RESTAURANT_BOT_TOKEN);
+  const chatId =
+    audience === 'courier'
+      ? String(TELEGRAM_COURIER_CHANNEL || '').trim()
+      : String(TELEGRAM_PREPARER_CHANNEL || '').trim();
+
+  if (!botToken) {
+    console.error(`❌ TELEGRAM_${audience.toUpperCase()}_BOT_TOKEN sozlanmagan`);
+    return false;
+  }
+  if (!chatId || !isValidTelegramTarget(chatId)) {
+    console.error(`❌ TELEGRAM_${audience.toUpperCase()}_CHANNEL noto‘g‘ri yoki bo‘sh`, chatId);
+    return false;
+  }
+
+  const typeUz =
+    p.orderType === 'market' ? 'Market' :
+    p.orderType === 'shop' ? "Do'kon" :
+    p.orderType === 'food' ? 'Taom' :
+    p.orderType === 'rental' ? 'Ijara' : 'Buyurtma';
+
+  const orderNumEsc = escapeTelegramHtml(String(p.orderNumber || ''));
+  const merchantEsc = escapeTelegramHtml(String(p.merchantName || '').trim());
+  const addrEsc = escapeTelegramHtml(String(p.customerAddress || '').trim());
+  const payEsc = escapeTelegramHtml(String(p.paymentMethod || '').trim());
+  const pickupEsc = escapeTelegramHtml(String(p.pickupHint || '').trim());
+  const total = Number(p.totalAmount || 0) || 0;
+
+  const lines: string[] = [];
+  lines.push(`📦 <b>${typeUz} · Yangi</b>`);
+  lines.push(`🔢 <b>Buyurtma:</b> #${orderNumEsc}`);
+  if (merchantEsc) lines.push(`🏪 <b>Manba:</b> ${merchantEsc}`);
+  if (pickupEsc) lines.push(`📍 <b>Olib ketish:</b> ${pickupEsc}`);
+  if (addrEsc) lines.push(`🏠 <b>Yetkazish:</b> ${addrEsc}`);
+  if (total) lines.push(`💰 <b>Jami:</b> ${total.toLocaleString('uz-UZ')} so'm`);
+  if (payEsc) lines.push(`💳 <b>To'lov:</b> ${payEsc}`);
+
+  const message = lines.join('\n');
+
+  try {
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ chat_id: chatId, text: message, parse_mode: 'HTML' }),
+    });
+    if (!response.ok) {
+      const err = await response.json().catch(() => ({}));
+      console.error('Telegram channel sendMessage error:', err);
+      return false;
+    }
+    console.log(`✅ Telegram channel broadcast sent (${audience}) -> ${chatId}`);
+    return true;
+  } catch (e) {
+    console.error('Telegram channel broadcast exception:', e);
     return false;
   }
 }
