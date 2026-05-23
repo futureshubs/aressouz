@@ -37,7 +37,8 @@ import {
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../../utils/edgeFunctionBaseUrl';
+import { publicAnonKey } from '../../../../utils/supabase/info';
 import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { compressImageIfNeeded, uploadFormDataWithProgress } from '../../utils/uploadWithProgress';
@@ -202,9 +203,7 @@ interface PaymentsProps {
 export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
-  const apiBaseUrl = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
-    ? DEV_API_BASE_URL
-    : API_BASE_URL;
+  const apiBaseUrl = edgeFunctionBaseUrl();
 
   const [payments, setPayments] = useState<Payment[]>([]);
   const [stats, setStats] = useState<PaymentStats | null>(null);

@@ -24,6 +24,8 @@ import {
   Loader2,
   XCircle,
   RotateCcw,
+  Users,
+  Wallet,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
@@ -40,12 +42,14 @@ import SellerPaymentsPanel from '../components/seller/SellerPaymentsPanel';
 import SellerSalesPanel from '../components/seller/SellerSalesPanel';
 import SellerStatisticsPanel from '../components/seller/SellerStatisticsPanel';
 import SellerHistoryPanel from '../components/seller/SellerHistoryPanel';
+import SellerWorkersPanel from '../components/seller/SellerWorkersPanel';
+import SellerExpensesPanel from '../components/seller/SellerExpensesPanel';
 import {
   sellerOrderPaymentStatusNorm,
   sellerOrderTotal,
 } from '../components/seller/sellerOrderPaymentUtils';
 import { useBodyScrollLock } from '../utils/useBodyScrollLock';
-import { readValidSellerSession } from '../utils/sellerSession';
+import { readValidSellerSession, isSellerCashier } from '../utils/sellerSession';
 import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
@@ -55,7 +59,10 @@ export default function SellerDashboard() {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
-  const [activeTab, setActiveTab] = useState('dashboard');
+  const [activeTab, setActiveTab] = useState(() => {
+    const saved = readValidSellerSession();
+    return isSellerCashier(saved) ? 'sales' : 'dashboard';
+  });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sellerInfo, setSellerInfo] = useState<any>(null);
   const [products, setProducts] = useState<any[]>([]);
@@ -74,6 +81,8 @@ export default function SellerDashboard() {
   const [orderStatusFilter, setOrderStatusFilter] = useState<'all' | 'active' | 'done' | 'cancelled'>('all');
 
   const sellerToken = String(sellerInfo?.token || '').trim();
+  const isCashier = isSellerCashier(sellerInfo);
+  const cashierTabIds = useMemo(() => ['orders', 'sales'], []);
   const sellerHeaders = useMemo(() => {
     if (!sellerToken) return null;
     return {
@@ -85,7 +94,11 @@ export default function SellerDashboard() {
 
   const productsQuery = useInfiniteQuery({
     queryKey: ['seller-products', sellerToken],
-    enabled: Boolean(sellerToken) && (activeTab === 'products' || activeTab === 'sales' || activeTab === 'dashboard' || activeTab === 'inventory'),
+    enabled: Boolean(sellerToken) && (
+      isCashier
+        ? activeTab === 'sales'
+        : activeTab === 'products' || activeTab === 'sales' || activeTab === 'dashboard' || activeTab === 'inventory'
+    ),
     initialPageParam: 1,
     queryFn: async ({ pageParam, signal }) => {
       const page = Number(pageParam) || 1;
@@ -100,7 +113,11 @@ export default function SellerDashboard() {
 
   const ordersQuery = useInfiniteQuery({
     queryKey: ['seller-orders', sellerToken],
-    enabled: Boolean(sellerToken) && (activeTab === 'orders' || activeTab === 'payments' || activeTab === 'dashboard'),
+    enabled: Boolean(sellerToken) && (
+      isCashier
+        ? activeTab === 'orders'
+        : activeTab === 'orders' || activeTab === 'payments' || activeTab === 'dashboard'
+    ),
     initialPageParam: 1,
     queryFn: async ({ pageParam, signal }) => {
       const page = Number(pageParam) || 1;
@@ -115,7 +132,7 @@ export default function SellerDashboard() {
 
   const inventoryQuery = useInfiniteQuery({
     queryKey: ['seller-inventory', sellerToken],
-    enabled: Boolean(sellerToken) && (activeTab === 'inventory' || activeTab === 'dashboard'),
+    enabled: Boolean(sellerToken) && !isCashier && (activeTab === 'inventory' || activeTab === 'dashboard'),
     initialPageParam: 1,
     queryFn: async ({ pageParam, signal }) => {
       const page = Number(pageParam) || 1;
@@ -157,6 +174,12 @@ export default function SellerDashboard() {
   useEffect(() => {
     checkSession();
   }, [navigate]);
+
+  useEffect(() => {
+    if (isCashier && !cashierTabIds.includes(activeTab)) {
+      setActiveTab('sales');
+    }
+  }, [isCashier, activeTab, cashierTabIds]);
 
   useEffect(() => {
     if (sellerInfo) {
@@ -465,16 +488,22 @@ export default function SellerDashboard() {
     }
   };
 
-  const menuItems = [
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+  const allMenuItems = [
+    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard, ownerOnly: true },
     { id: 'orders', label: 'Buyurtmalar', icon: ShoppingCart },
     { id: 'sales', label: 'Savdo', icon: ReceiptText },
-    { id: 'products', label: 'Mahsulotlar', icon: Package },
-    { id: 'inventory', label: 'Ombor', icon: Warehouse },
-    { id: 'payments', label: 'To\'lovlar', icon: CreditCard },
-    { id: 'statistics', label: 'Statistika', icon: BarChart3 },
-    { id: 'history', label: 'Tarix', icon: History },
+    { id: 'products', label: 'Mahsulotlar', icon: Package, ownerOnly: true },
+    { id: 'inventory', label: 'Ombor', icon: Warehouse, ownerOnly: true },
+    { id: 'payments', label: 'To\'lovlar', icon: CreditCard, ownerOnly: true },
+    { id: 'statistics', label: 'Statistika', icon: BarChart3, ownerOnly: true },
+    { id: 'history', label: 'Tarix', icon: History, ownerOnly: true },
+    { id: 'workers', label: 'Ishchilar', icon: Users, ownerOnly: true },
+    { id: 'expenses', label: 'Harajatlar', icon: Wallet, ownerOnly: true },
   ];
+
+  const menuItems = isCashier
+    ? allMenuItems.filter((item) => !item.ownerOnly)
+    : allMenuItems;
 
   const startOfToday = new Date();
   startOfToday.setHours(0, 0, 0, 0);
@@ -528,7 +557,7 @@ export default function SellerDashboard() {
                 className="text-xs text-center"
                 style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}
               >
-                Seller Panel
+                {isCashier ? (sellerInfo?.staffName || 'Ishchi') : 'Seller Panel'}
               </p>
             </div>
           </div>
@@ -725,7 +754,7 @@ export default function SellerDashboard() {
             <RouteErrorBoundary resetKeys={[activeTab]} embedded>
             <>
               {/* Dashboard Tab */}
-              {activeTab === 'dashboard' && (
+              {activeTab === 'dashboard' && !isCashier && (
                 <div className="space-y-6">
                   {/* Welcome */}
                   <div
@@ -797,7 +826,7 @@ export default function SellerDashboard() {
               )}
 
               {/* Products Tab */}
-              {activeTab === 'products' && (
+              {activeTab === 'products' && !isCashier && (
                 <div className="space-y-4">
                   {/* Add Product Button */}
                   <div className="flex justify-between items-center mb-6">
@@ -1240,7 +1269,7 @@ export default function SellerDashboard() {
               )}
 
               {/* Inventory Tab */}
-              {activeTab === 'inventory' && sellerInfo?.token ? (
+              {activeTab === 'inventory' && sellerInfo?.token && !isCashier ? (
                 <SellerWarehousePanel
                   token={sellerInfo.token}
                   isDark={isDark}
@@ -1254,7 +1283,7 @@ export default function SellerDashboard() {
               ) : null}
 
               {/* Payments Tab */}
-              {activeTab === 'payments' && sellerInfo?.token ? (
+              {activeTab === 'payments' && sellerInfo?.token && !isCashier ? (
                 <SellerPaymentsPanel
                   orders={orders}
                   isDark={isDark}
@@ -1268,16 +1297,32 @@ export default function SellerDashboard() {
               ) : null}
 
               {/* Statistics Tab */}
-              {activeTab === 'statistics' && sellerInfo?.token ? (
+              {activeTab === 'statistics' && sellerInfo?.token && !isCashier ? (
                 <SellerStatisticsPanel token={sellerInfo.token} isDark={isDark} accentColor={accentColor} />
               ) : null}
 
               {/* History Tab */}
-              {activeTab === 'history' && sellerInfo?.token ? (
+              {activeTab === 'history' && sellerInfo?.token && !isCashier ? (
                 <SellerHistoryPanel
                   token={sellerInfo.token}
                   shopId={String(sellerInfo?.shopId || '')}
                   shopName={String(sellerInfo?.shopName || '')}
+                  isDark={isDark}
+                  accentColor={accentColor}
+                />
+              ) : null}
+
+              {activeTab === 'workers' && sellerInfo?.token && !isCashier ? (
+                <SellerWorkersPanel
+                  token={sellerInfo.token}
+                  isDark={isDark}
+                  accentColor={accentColor}
+                />
+              ) : null}
+
+              {activeTab === 'expenses' && sellerInfo?.token && !isCashier ? (
+                <SellerExpensesPanel
+                  token={sellerInfo.token}
                   isDark={isDark}
                   accentColor={accentColor}
                 />

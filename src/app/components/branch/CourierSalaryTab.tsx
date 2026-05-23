@@ -1,9 +1,9 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
-import { API_BASE_URL, DEV_API_BASE_URL } from '../../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../../utils/edgeFunctionBaseUrl';
 import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
 import { toast } from 'sonner';
-import { CreditCard, DollarSign, RefreshCw, Wallet } from 'lucide-react';
+import { CheckCircle2, CreditCard, DollarSign, Loader2, RefreshCw, Wallet } from 'lucide-react';
 
 type PayoutRow = {
   id: string;
@@ -24,8 +24,7 @@ type PayoutRow = {
 export function CourierSalaryTab({ branchId }: { branchId: string }) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
-  const apiBaseUrl =
-    typeof window !== 'undefined' && window.location.hostname === 'localhost' ? DEV_API_BASE_URL : API_BASE_URL;
+  const apiBaseUrl = edgeFunctionBaseUrl();
 
   const [loading, setLoading] = useState(false);
   const [rows, setRows] = useState<PayoutRow[]>([]);
@@ -50,13 +49,17 @@ export function CourierSalaryTab({ branchId }: { branchId: string }) {
             Pragma: 'no-cache',
           },
         });
-        const data = (await res.json().catch(() => ({}))) as { success?: boolean; requests?: PayoutRow[]; error?: string };
+        const data = (await res.json().catch(() => ({}))) as {
+          success?: boolean;
+          requests?: PayoutRow[];
+          error?: string;
+        };
         if (!res.ok || !data.success) {
           if (!silent) toast.error(data.error || 'Oylik arizalarini olishda xatolik');
           return;
         }
         setRows(Array.isArray(data.requests) ? data.requests : []);
-      } catch (e) {
+      } catch {
         if (!silent) toast.error('Oylik arizalarini yuklashda xatolik');
       } finally {
         if (!silent) setLoading(false);
@@ -74,36 +77,39 @@ export function CourierSalaryTab({ branchId }: { branchId: string }) {
   const pending = useMemo(() => rows.filter((r) => r.status === 'pending'), [rows]);
   const paid = useMemo(() => rows.filter((r) => r.status === 'paid'), [rows]);
 
-  const pay = async (row: PayoutRow, method: 'cash' | 'card') => {
+  const confirmPaid = async (row: PayoutRow) => {
     if (payBusyId) return;
+    const method = row.requestedMethod === 'card' ? 'card' : 'cash';
     setPayBusyId(row.id);
     try {
       const params = new URLSearchParams({ branchId });
       const branchToken = getStoredBranchToken();
       if (branchToken) params.set('branchToken', branchToken);
-      const body = { method };
-      const res = await fetch(`${apiBaseUrl}/branch/courier-payout-requests/${encodeURIComponent(row.id)}/pay?${params}`, {
-        method: 'POST',
-        headers: {
-          ...buildBranchHeaders({ 'Content-Type': 'application/json' }),
+      const res = await fetch(
+        `${apiBaseUrl}/branch/courier-payout-requests/${encodeURIComponent(row.id)}/pay?${params}`,
+        {
+          method: 'POST',
+          headers: {
+            ...buildBranchHeaders({ 'Content-Type': 'application/json' }),
+          },
+          body: JSON.stringify({ method }),
         },
-        body: JSON.stringify(body),
-      });
+      );
       const data = (await res.json().catch(() => ({}))) as { success?: boolean; error?: string };
       if (!res.ok || !data.success) {
-        toast.error(data.error || 'To‘lashda xatolik');
+        toast.error(data.error || 'Tasdiqlashda xatolik');
         return;
       }
-      toast.success("To'landi");
+      toast.success('Kuryerga to‘lov berildi — qabul qilindi');
       await load(true);
     } catch {
-      toast.error('To‘lashda xatolik');
+      toast.error('Tasdiqlashda xatolik');
     } finally {
       setPayBusyId(null);
     }
   };
 
-  const money = (n: number) => `${Math.round(Number(n || 0)).toLocaleString('uz-UZ')} so'm`;
+  const money = (n: number) => `${Math.round(Number(n || 0)).toLocaleString('uz-UZ')} so‘m`;
 
   return (
     <div className="space-y-4">
@@ -111,7 +117,7 @@ export function CourierSalaryTab({ branchId }: { branchId: string }) {
         <div>
           <div className="text-lg font-bold">Oylik (kuryer arizalari)</div>
           <div className="text-sm" style={{ color: muted }}>
-            Kuryer balansidan pul yechish uchun ariza yuboradi. Bu yerda naqd/karta qilib to‘lanadi.
+            Kuryer «Tarix» bo‘limidan ariza yuboradi. Pul berganingizdan keyin «To‘ladim» ni bosing.
           </div>
         </div>
         <button
@@ -131,7 +137,12 @@ export function CourierSalaryTab({ branchId }: { branchId: string }) {
           <div className="px-4 py-3 border-b font-bold" style={{ borderColor: border }}>
             Kutilayotgan ({pending.length})
           </div>
-          {pending.length === 0 ? (
+          {loading && pending.length === 0 ? (
+            <div className="p-6 flex items-center gap-2 text-sm" style={{ color: muted }}>
+              <Loader2 className="w-4 h-4 animate-spin" />
+              Yuklanmoqda...
+            </div>
+          ) : pending.length === 0 ? (
             <div className="p-6 text-sm" style={{ color: muted }}>
               Hozircha ariza yo‘q.
             </div>
@@ -142,44 +153,47 @@ export function CourierSalaryTab({ branchId }: { branchId: string }) {
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="font-bold truncate">
-                        {r.courierName} <span className="text-xs" style={{ color: muted }}>({r.courierPhone})</span>
+                        {r.courierName}{' '}
+                        <span className="text-xs" style={{ color: muted }}>
+                          ({r.courierPhone})
+                        </span>
                       </div>
                       <div className="text-xs mt-1" style={{ color: muted }}>
                         Ariza: {new Date(r.createdAt).toLocaleString('uz-UZ')}
                       </div>
-                      <div className="mt-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
+                      <div
+                        className="mt-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-xs font-semibold"
                         style={{ background: `${accentColor.color}22`, color: accentColor.color }}
                       >
                         <Wallet className="w-3.5 h-3.5" />
                         {money(r.amountUzs)}
                       </div>
-                      <div className="mt-2 text-xs" style={{ color: muted }}>
+                      <div className="mt-2 text-xs flex items-center gap-1.5" style={{ color: muted }}>
+                        {r.requestedMethod === 'card' ? (
+                          <CreditCard className="w-3.5 h-3.5" />
+                        ) : (
+                          <DollarSign className="w-3.5 h-3.5" />
+                        )}
                         So‘rov: {r.requestedMethod === 'card' ? 'Karta' : 'Naqd'}
-                        {r.requestedMethod === 'card' && r.courierCardNumber ? ` · ${r.courierCardNumber}` : ''}
+                        {r.requestedMethod === 'card' && r.courierCardNumber
+                          ? ` · ${r.courierCardNumber}`
+                          : ''}
                       </div>
                     </div>
-                    <div className="shrink-0 flex flex-col gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void pay(r, 'cash')}
-                        disabled={payBusyId !== null}
-                        className="px-3 py-2 rounded-2xl text-sm font-semibold text-white inline-flex items-center gap-2"
-                        style={{ background: isDark ? '#16a34a' : '#22c55e' }}
-                      >
-                        <DollarSign className="w-4 h-4" />
-                        Naqd berish
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void pay(r, 'card')}
-                        disabled={payBusyId !== null}
-                        className="px-3 py-2 rounded-2xl text-sm font-semibold text-white inline-flex items-center gap-2"
-                        style={{ background: isDark ? '#2563eb' : '#3b82f6' }}
-                      >
-                        <CreditCard className="w-4 h-4" />
-                        Karta berish
-                      </button>
-                    </div>
+                    <button
+                      type="button"
+                      onClick={() => void confirmPaid(r)}
+                      disabled={payBusyId !== null}
+                      className="shrink-0 px-4 py-3 rounded-2xl text-sm font-semibold text-white inline-flex items-center gap-2 disabled:opacity-50"
+                      style={{ background: accentColor.gradient }}
+                    >
+                      {payBusyId === r.id ? (
+                        <Loader2 className="w-4 h-4 animate-spin" />
+                      ) : (
+                        <CheckCircle2 className="w-4 h-4" />
+                      )}
+                      To‘ladim
+                    </button>
                   </div>
                 </div>
               ))}
@@ -215,19 +229,18 @@ export function CourierSalaryTab({ branchId }: { branchId: string }) {
                         Usul: {r.paidMethod === 'card' ? 'Karta' : 'Naqd'}
                       </div>
                     </div>
-                    <div className="shrink-0 text-xs px-3 py-1 rounded-full"
-                      style={{ background: isDark ? 'rgba(16,185,129,0.14)' : 'rgba(16,185,129,0.12)', color: '#10b981' }}
+                    <div
+                      className="shrink-0 text-xs px-3 py-1 rounded-full font-semibold"
+                      style={{
+                        background: isDark ? 'rgba(16,185,129,0.14)' : 'rgba(16,185,129,0.12)',
+                        color: '#10b981',
+                      }}
                     >
-                      Paid
+                      Qabul qilindi
                     </div>
                   </div>
                 </div>
               ))}
-              {paid.length > 30 ? (
-                <div className="p-4 text-xs" style={{ color: muted }}>
-                  Oxirgi 30 ta ko‘rsatildi
-                </div>
-              ) : null}
             </div>
           )}
         </div>
@@ -235,4 +248,3 @@ export function CourierSalaryTab({ branchId }: { branchId: string }) {
     </div>
   );
 }
-

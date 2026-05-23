@@ -1,10 +1,20 @@
 import { useMemo, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
+import { floatingNavShellStyle } from '../../utils/floatingNavShellStyle';
 import { Payments } from './Payments';
 import { CashierCashReceiveTab } from './CashierCashReceiveTab';
-import { ArrowDownToLine, ArrowUpFromLine, RotateCcw, Store, Wallet } from 'lucide-react';
-import { BranchRefundsPanel } from './BranchRefundsPanel';
+import { CashierCollectBackTab } from './CashierCollectBackTab';
+import { CashierStatisticsPanel } from './CashierStatisticsPanel';
 import { CourierSalaryTab } from './CourierSalaryTab';
+import {
+  ArrowDownToLine,
+  ArrowUpFromLine,
+  BarChart3,
+  LogOut,
+  RotateCcw,
+  Store,
+  Wallet,
+} from 'lucide-react';
 
 type CashierPanelProps = {
   branchId?: string;
@@ -13,11 +23,22 @@ type CashierPanelProps = {
     district: string;
     phone: string;
   };
+  branchName?: string;
+  staffName?: string;
+  onLogout?: () => void;
 };
 
-type CashierTab = 'receive' | 'payout' | 'salary' | 'refunds';
+type CashierTab = 'receive' | 'send' | 'collect' | 'salary' | 'stats';
 
-export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
+const TAB_IDS: CashierTab[] = ['receive', 'send', 'collect', 'salary', 'stats'];
+
+export function CashierPanel({
+  branchId,
+  branchInfo,
+  branchName,
+  staffName,
+  onLogout,
+}: CashierPanelProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
@@ -29,6 +50,7 @@ export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
   );
   const border = isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
   const muted = isDark ? 'rgba(255,255,255,0.68)' : 'rgba(0,0,0,0.58)';
+  const shellStyle = floatingNavShellStyle(isDark);
 
   if (!branchId) {
     return (
@@ -40,138 +62,229 @@ export function CashierPanel({ branchId, branchInfo }: CashierPanelProps) {
         }}
       >
         <div className="app-panel-main-scroll p-4 min-h-0">
-        <div
-          className="p-10 rounded-3xl border text-center m-4"
-          style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff' }}
-        >
-          <div style={{ fontSize: 18, fontWeight: 700 }}>Filial tanlanmagan</div>
-          <div style={{ marginTop: 8, opacity: 0.7, fontSize: 13 }}>
-            Avval filial paneliga kiring yoki operator orqali filialni tanlang.
+          <div
+            className="p-10 rounded-3xl border text-center m-4"
+            style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff' }}
+          >
+            <div style={{ fontSize: 18, fontWeight: 700 }}>Filial tanlanmagan</div>
+            <div style={{ marginTop: 8, opacity: 0.7, fontSize: 13 }}>
+              Avval filial paneliga kiring yoki operator orqali filialni tanlang.
+            </div>
           </div>
-        </div>
         </div>
       </div>
     );
   }
 
-  const tabs: { id: CashierTab; label: string; hint: string; icon: typeof ArrowDownToLine }[] = [
+  const tabs: {
+    id: CashierTab;
+    label: string;
+    short: string;
+    hint: string;
+    icon: typeof ArrowDownToLine;
+  }[] = [
     {
       id: 'receive',
       label: 'Qabul qilish',
-      hint: 'Kuryer naqd mahsulot pulini topshiradi',
+      short: 'Qabul',
+      hint: 'Kuryer mijozdan olgan naqdni topshiradi',
       icon: ArrowDownToLine,
     },
     {
-      id: 'payout',
-      label: 'Berish',
-      hint: 'Do‘kon / taom — tadbirkorga to‘lov (QR, chek)',
+      id: 'send',
+      label: 'Yuborish',
+      short: 'Yuborish',
+      hint: 'Do‘kon / taom — tadbirkorga to‘lov',
       icon: ArrowUpFromLine,
+    },
+    {
+      id: 'collect',
+      label: 'Olish kerak',
+      short: 'Olish',
+      hint: 'Bekor buyurtma — pulni qaytarib olish',
+      icon: RotateCcw,
     },
     {
       id: 'salary',
       label: 'Oylik',
-      hint: 'Kuryer arizalari — naqd/karta qilib berish',
+      short: 'Oylik',
+      hint: 'Kuryer arizalari — to‘lash',
       icon: Wallet,
     },
     {
-      id: 'refunds',
-      label: 'Mijozga qaytarish',
-      hint: 'Onlayn to‘lagan, bekor — qaytarish va tasdiq',
-      icon: RotateCcw,
+      id: 'stats',
+      label: 'Statistika',
+      short: 'Stat',
+      hint: 'Analitika va ko‘rsatkichlar',
+      icon: BarChart3,
     },
   ];
 
+  const activeMeta = tabs.find((t) => t.id === tab)!;
+
   return (
     <div
-      className="app-panel-viewport app-safe-pad"
+      className="app-panel-viewport app-safe-pad flex flex-col min-h-0"
       style={{
         background: isDark ? '#000000' : '#f4f6f9',
         color: isDark ? '#ffffff' : '#111827',
       }}
     >
-      <div className="app-panel-main-scroll p-4 lg:p-8 max-w-6xl mx-auto space-y-6 min-h-0">
-        <header className="space-y-2">
-          <div className="flex items-center gap-3">
+      <header className="shrink-0 px-4 pt-4 lg:px-8 lg:pt-6 pb-3 max-w-6xl mx-auto w-full">
+        <div className="flex items-center justify-between gap-3">
+          <div className="flex items-center gap-3 min-w-0">
             <div
-              className="p-3 rounded-2xl"
+              className="p-2.5 rounded-2xl shrink-0"
               style={{ background: `${accentColor.color}22`, color: accentColor.color }}
             >
-              <Store className="w-7 h-7" />
+              <Store className="w-6 h-6" />
             </div>
-            <div>
-              <h1 className="text-2xl font-bold tracking-tight">Kassa</h1>
-              <p className="text-sm" style={{ color: muted }}>
-                Ikki yo‘nalish: mijozdan kelgan naqdni qabul qilish va tadbirkorga to‘lovlar
+            <div className="min-w-0">
+              <h1 className="text-xl lg:text-2xl font-bold tracking-tight truncate">Kassa</h1>
+              <p className="text-xs lg:text-sm truncate" style={{ color: muted }}>
+                {branchName || 'Filial'}
+                {staffName ? ` · ${staffName}` : ''}
               </p>
             </div>
           </div>
-        </header>
+          {onLogout ? (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="shrink-0 px-3 py-2 rounded-xl font-semibold text-sm inline-flex items-center gap-1.5"
+              style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}
+            >
+              <LogOut className="w-4 h-4" />
+              <span className="hidden sm:inline">Chiqish</span>
+            </button>
+          ) : null}
+        </div>
+      </header>
 
-        <div
-          className="grid grid-cols-1 sm:grid-cols-4 gap-3 p-1.5 rounded-2xl border"
-          style={{ background: surface, borderColor: border }}
-          role="tablist"
-          aria-label="Kassa bo‘limlari"
-        >
-          {tabs.map((t) => {
-            const Icon = t.icon;
-            const active = tab === t.id;
-            return (
-              <button
-                key={t.id}
-                type="button"
-                role="tab"
-                aria-selected={active}
-                onClick={() => setTab(t.id)}
-                className="flex items-start gap-3 rounded-xl px-4 py-3 text-left transition-all"
-                style={{
-                  background: active ? accentColor.gradient : 'transparent',
-                  color: active ? '#ffffff' : isDark ? '#f3f4f6' : '#111827',
-                  boxShadow: active ? `0 8px 24px ${accentColor.color}44` : 'none',
-                }}
-              >
-                <Icon className="w-5 h-5 shrink-0 mt-0.5" />
-                <span>
-                  <span className="block font-bold">{t.label}</span>
-                  <span
-                    className="block text-xs mt-0.5 leading-snug"
-                    style={{ opacity: active ? 0.95 : 0.75 }}
-                  >
-                    {t.hint}
-                  </span>
-                </span>
-              </button>
-            );
-          })}
+      <div
+        className="app-panel-main-scroll flex-1 min-h-0 p-4 lg:p-8 max-w-6xl mx-auto w-full"
+        style={{
+          paddingBottom: 'max(96px, calc(80px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px))))',
+        }}
+      >
+        <div className="mb-4">
+          <p className="text-xs uppercase tracking-wide font-semibold" style={{ color: muted }}>
+            {activeMeta.label}
+          </p>
+          <p className="text-sm">{activeMeta.hint}</p>
         </div>
 
         <div
-          className="rounded-3xl border overflow-hidden shadow-sm"
+          className="rounded-3xl border overflow-hidden shadow-sm min-h-[320px]"
           style={{ background: surface, borderColor: border }}
         >
           {tab === 'receive' ? (
             <div className="p-5 sm:p-6">
               <CashierCashReceiveTab branchId={branchId} />
             </div>
-          ) : tab === 'payout' ? (
+          ) : tab === 'send' ? (
             <div className="p-5 sm:p-6 space-y-4">
               <p className="text-sm" style={{ color: muted }}>
-                Taom va do‘kon buyurtmalari uchun to‘lovlar, QR va chek tasdiqlari — quyidagi jadvaldan boshqariladi.
-                Restoran / sotuvchi qabul qilgach, shu yerda «to‘lov kutilmoqda» ko‘rinishi kerak.
+                Sotuvchi yoki restoran buyurtmani qabul qilgach, shu yerda to‘lov kutiladi. QR yoki
+                chek yuborib tadbirkorga to‘lang.
               </p>
               <Payments variant="cashier" branchId={branchId} branchInfo={branchInfo} />
+            </div>
+          ) : tab === 'collect' ? (
+            <div className="p-5 sm:p-6">
+              <CashierCollectBackTab branchId={branchId} />
             </div>
           ) : tab === 'salary' ? (
             <div className="p-5 sm:p-6">
               <CourierSalaryTab branchId={branchId} />
             </div>
           ) : (
-            <div className="p-4 sm:p-5">
-              <BranchRefundsPanel variant="cashier" />
+            <div className="p-5 sm:p-6">
+              <CashierStatisticsPanel branchId={branchId} />
             </div>
           )}
+        </div>
+      </div>
+
+      <div
+        className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none"
+        style={{
+          paddingBottom:
+            'max(12px, calc(8px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px))))',
+        }}
+      >
+        <div className="mx-auto flex w-full max-w-lg flex-col px-4 pointer-events-auto sm:max-w-xl lg:max-w-3xl">
+          <nav
+            className="relative overflow-hidden px-1.5 py-1.5"
+            style={shellStyle}
+            role="tablist"
+            aria-label="Kassa navigatsiya"
+          >
+            <div
+              className="pointer-events-none absolute inset-x-6 top-0 h-px"
+              style={{
+                background: `linear-gradient(90deg, transparent, ${accentColor.color}55, transparent)`,
+              }}
+            />
+
+            <div className="flex items-center justify-between gap-0.5">
+              {tabs.map((t) => {
+                const Icon = t.icon;
+                const active = tab === t.id;
+                return (
+                  <button
+                    key={t.id}
+                    type="button"
+                    role="tab"
+                    aria-selected={active}
+                    onClick={() => setTab(t.id)}
+                    className="relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-[20px] py-1.5 transition-all duration-200 active:scale-[0.94] touch-manipulation"
+                  >
+                    {active ? (
+                      <span
+                        className="absolute inset-x-0.5 inset-y-0 rounded-[20px]"
+                        style={{
+                          background: isDark
+                            ? `${accentColor.color}24`
+                            : `${accentColor.color}18`,
+                          boxShadow: `inset 0 0.5px 0 rgba(255,255,255,${isDark ? '0.12' : '0.6'})`,
+                        }}
+                      />
+                    ) : null}
+
+                    <span
+                      className="relative flex items-center justify-center"
+                      style={{ width: 36, height: 36, borderRadius: 14 }}
+                    >
+                      <Icon
+                        style={{
+                          width: 22,
+                          height: 22,
+                          color: active ? accentColor.color : isDark ? '#a1a1aa' : '#71717a',
+                          strokeWidth: active ? 2.5 : 2,
+                          transition: 'color 0.22s ease',
+                        }}
+                      />
+                    </span>
+
+                    <span
+                      className="relative text-[9px] font-semibold truncate max-w-full px-0.5 sm:text-[10px]"
+                      style={{
+                        color: active ? accentColor.color : isDark ? '#a1a1aa' : '#71717a',
+                      }}
+                    >
+                      {t.short}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
         </div>
       </div>
     </div>
   );
 }
+
+export { TAB_IDS };
+export type { CashierTab };

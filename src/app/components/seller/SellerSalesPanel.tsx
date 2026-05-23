@@ -1,5 +1,5 @@
-import { useEffect, useMemo, useRef, useState, useCallback } from 'react';
-import { Search, Plus, Minus, Trash2, Loader2, CheckCircle2, CloudOff, RefreshCw, X, ShoppingCart } from 'lucide-react';
+import { useEffect, useMemo, useState, useCallback } from 'react';
+import { Search, Plus, Minus, Trash2, Loader2, CheckCircle2, CloudOff, RefreshCw, X, ShoppingCart, Printer } from 'lucide-react';
 import { toast } from 'sonner';
 import { offlineSalesAdd, type OfflineSale, type OfflineSaleItem } from '../../utils/offlineSalesDb';
 import { startOfflineSalesSyncWorker, syncPendingOfflineSales } from '../../utils/offlineSalesSync';
@@ -7,6 +7,13 @@ import { useDebouncedValue } from '../../hooks/useDebouncedValue';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { useIntersectionSentinel } from '../../hooks/useIntersectionSentinel';
+import SellerReceiptModal from './SellerReceiptModal';
+import {
+  dispatchPosReceiptAfterSale,
+  printPosReceipt,
+  type PosReceiptData,
+  isMobilePosDevice,
+} from '../../utils/posReceipt';
 
 type ProductRow = {
   id: string;
@@ -86,21 +93,11 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
       image?: string;
     }>;
   } | null>(null);
-  const [lastReceipt, setLastReceipt] = useState<{
-    saleId: string;
-    createdAt: string;
-    items: Array<{ name: string; qty: number; priceUzs: number; totalUzs: number }>;
-    subtotalUzs: number;
-    discountUzs: number;
-    totalUzs: number;
-    payMethod: 'cash' | 'card';
-  } | null>(null);
+  const [lastReceipt, setLastReceipt] = useState<PosReceiptData | null>(null);
+  const [receiptPreviewOpen, setReceiptPreviewOpen] = useState(false);
 
   const [posPrinterPort, setPosPrinterPort] = useState<SerialPort | null>(null);
   const [posPrinterReady, setPosPrinterReady] = useState(false);
-
-  // Auto-print support: open window on click to avoid popup blocker, then fill after save.
-  const pendingPrintWindowRef = useRef<Window | null>(null);
 
   const escposSafeText = (s: string) => {
     // XP-58C ESC/POS codepages often don't support full UTF-8 reliably.
@@ -133,7 +130,7 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
     return out.length ? out : [''];
   };
 
-  const makeEscposReceiptBytes = (receipt: NonNullable<typeof lastReceipt>) => {
+  const makeEscposReceiptBytes = (receipt: PosReceiptData) => {
     const encoder = new TextEncoder(); // UTF-8 (we already strip to ASCII-ish)
     const chunks: Uint8Array[] = [];
     const pushText = (t: string) => chunks.push(encoder.encode(t));
@@ -236,7 +233,7 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
   }, [posPrinterPort]);
 
   const printReceiptEscpos = useCallback(
-    async (receipt: NonNullable<typeof lastReceipt>) => {
+    async (receipt: PosReceiptData) => {
       const port = posPrinterPort;
       if (!port) {
         toast.error('Printer ulanmagan. Avval “Printerga ulash”ni bosing.');
@@ -260,21 +257,6 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
     },
     [posPrinterPort],
   );
-
-  const openPrintWindow58 = () => {
-    const w = window.open('', '', `width=240,height=900`);
-    if (!w) return null;
-    try {
-      w.document.open();
-      w.document.write(
-        `<!doctype html><html><head><meta charset="utf-8"><title>Chek</title></head><body style="margin:0;padding:8px;font-family:monospace;">Yuklanmoqda...</body></html>`,
-      );
-      w.document.close();
-    } catch {
-      // ignore
-    }
-    return w;
-  };
 
   useEffect(() => {
     if (!token || !shopId) return;
@@ -496,10 +478,6 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
       return;
     }
     setSubmitting(true);
-    // Auto print (XP-58C 58mm): open print window NOW (sync) to avoid popup blocker
-    if (!pendingPrintWindowRef.current) {
-      pendingPrintWindowRef.current = openPrintWindow58();
-    }
     try {
       const saleId = makeId();
       const createdAt = new Date().toISOString();
@@ -526,8 +504,9 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
         status: 'pending_sync',
       };
       await offlineSalesAdd(sale);
-      toast.success('Offline sotuv saqlandi. Internet bo‘lsa avtomatik yuboriladi.');
-      const receiptObj = {
+      toast.success('Sotuv saqlandi. Internet bo‘lsa avtomatik yuboriladi.');
+
+      const receiptObj: PosReceiptData = {
         saleId,
         createdAt,
         items: cart.map((l) => ({
@@ -540,31 +519,31 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
         discountUzs: discount,
         totalUzs,
         payMethod,
-      } as const;
+      };
       setLastReceipt(receiptObj);
 
-      // Preferred: ESC/POS direct receipt (no A4/print dialog)
-      if (posPrinterReady && posPrinterPort) {
-        void printReceiptEscpos(receiptObj);
-        if (pendingPrintWindowRef.current) {
-          try {
-            pendingPrintWindowRef.current.close();
-          } catch {
-            // ignore
-          }
-          pendingPrintWindowRef.current = null;
-        }
-      } else {
-        // Fallback: browser print window
-        if (pendingPrintWindowRef.current) {
-          printReceiptInWindow(pendingPrintWindowRef.current, receiptObj, 58);
-          pendingPrintWindowRef.current = null;
-        } else {
-          toast.message('Printer ulanmagan. “Printerga ulash” yoki “Chek chiqarish” tugmasini bosing.');
+      const dispatch = dispatchPosReceiptAfterSale({
+        receipt: receiptObj,
+        shopName,
+        posPrinterReady,
+        printEscpos: printReceiptEscpos,
+      });
+
+      if (dispatch.mode === 'escpos') {
+        toast.success('Chek termal printerga yuborildi');
+      } else if (dispatch.mode === 'browser_print' && dispatch.success) {
+        toast.success('Chek chop etish oynasi ochildi');
+      } else if (dispatch.mode === 'preview' || !dispatch.success) {
+        setReceiptPreviewOpen(true);
+        if (isMobilePosDevice()) {
+          toast.message('Chek tayyor — PDF yoki chop etishni tanlang');
+        } else if (!dispatch.success) {
+          toast.message('Chek oynasi ochilmadi — quyidagi tugmalardan foydalaning');
         }
       }
+
       clearCart();
-      onAfterSale?.(); // optimistic UI refresh (inventory/products panels)
+      onAfterSale?.();
 
       // try quick sync if online
       if (navigator.onLine) {
@@ -575,162 +554,10 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : 'Sotuvni saqlab bo‘lmadi');
-      if (pendingPrintWindowRef.current) {
-        try {
-          pendingPrintWindowRef.current.close();
-        } catch {
-          // ignore
-        }
-        pendingPrintWindowRef.current = null;
-      }
     } finally {
       setSyncBusy(false);
       setSubmitting(false);
     }
-  };
-
-  const buildReceiptHtml = (receipt: NonNullable<typeof lastReceipt>, paperWidthMm: 58 | 80 = 58) => {
-    const created = new Date(receipt.createdAt);
-    const payLabel = receipt.payMethod === 'cash' ? 'Naqd' : 'Karta';
-    return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width,initial-scale=1" />
-  <title>Chek #${receipt.saleId}</title>
-  <style>
-    :root {
-      --paper-width: ${paperWidthMm}mm;
-      --font-size: ${paperWidthMm === 58 ? '10px' : '11px'};
-      --pad-x: ${paperWidthMm === 58 ? '1.5mm' : '2.5mm'};
-      --pad-y: 0mm;
-    }
-    @page { size: var(--paper-width) auto; margin: 0; }
-    * { box-sizing: border-box; }
-    html, body {
-      margin: 0 !important;
-      padding: 0 !important;
-      width: var(--paper-width) !important;
-      height: auto !important;
-      background: #fff;
-      color: #000;
-      font-family: "Courier New", monospace;
-      font-size: var(--font-size);
-      line-height: 1.32;
-      -webkit-print-color-adjust: exact;
-      print-color-adjust: exact;
-    }
-    .receipt { width: 100%; margin: 0; padding: var(--pad-y) var(--pad-x); }
-    .row { display: flex; justify-content: space-between; gap: 4px; }
-    .header { text-align: center; border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 6px; }
-    .header h1 { margin: 0 0 3px; font-size: ${paperWidthMm === 58 ? '13px' : '15px'}; font-weight: 700; }
-    .header p { margin: 1px 0; font-size: ${paperWidthMm === 58 ? '9px' : '10px'}; }
-    .section { border-bottom: 1px dashed #000; padding-bottom: 6px; margin-bottom: 6px; }
-    .item { margin: 5px 0; }
-    .item-name { font-weight: 700; margin-bottom: 1px; word-break: break-word; }
-    .muted { opacity: 0.85; }
-    .total { border-top: 2px solid #000; margin-top: 6px; padding-top: 6px; font-weight: 700; font-size: ${paperWidthMm === 58 ? '12px' : '14px'}; }
-    .footer { text-align: center; margin-top: 6px; font-size: ${paperWidthMm === 58 ? '9px' : '10px'}; }
-    @media print { @page { size: var(--paper-width) auto; margin: 0 !important; } }
-  </style>
-</head>
-<body>
-  <div class="receipt" id="receipt">
-    <div class="header">
-      <h1>${String(shopName || 'Do‘kon')}</h1>
-      <p class="muted">Offline sotuv (POS)</p>
-      <p class="muted">Printer: XP-58C (58mm)</p>
-    </div>
-    <div class="section">
-      <div class="row"><span>Chek №:</span><strong>${receipt.saleId}</strong></div>
-      <div class="row"><span>Sana:</span><span>${created.toLocaleDateString('uz-UZ')}</span></div>
-      <div class="row"><span>Vaqt:</span><span>${created.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' })}</span></div>
-      <div class="row"><span>To‘lov:</span><span>${payLabel}</span></div>
-    </div>
-    <div class="section">
-      ${receipt.items
-        .map(
-          (it) => `
-        <div class="item">
-          <div class="item-name">${it.name}</div>
-          <div class="row muted">
-            <span>${it.qty} × ${it.priceUzs.toLocaleString('uz-UZ')}</span>
-            <span>${it.totalUzs.toLocaleString('uz-UZ')} so'm</span>
-          </div>
-        </div>
-      `,
-        )
-        .join('')}
-    </div>
-    <div class="section">
-      <div class="row"><span>Subtotal:</span><span>${receipt.subtotalUzs.toLocaleString('uz-UZ')} so'm</span></div>
-      <div class="row"><span>Chegirma:</span><span>${receipt.discountUzs.toLocaleString('uz-UZ')} so'm</span></div>
-      <div class="row total"><span>JAMI:</span><span>${receipt.totalUzs.toLocaleString('uz-UZ')} so'm</span></div>
-    </div>
-    <div class="footer">Rahmat!</div>
-  </div>
-  <script>
-    (function () {
-      function pxToMm(px) { return (px * 25.4) / 96; }
-      function computeAndInjectPageSize() {
-        const receiptEl = document.getElementById('receipt');
-        if (!receiptEl) return;
-        // Ensure we measure *content* height, not viewport
-        document.documentElement.style.height = 'auto';
-        document.body.style.height = 'auto';
-        const contentHeightMm = Math.max(18, pxToMm(receiptEl.scrollHeight) + 2);
-        const dynamicPageStyle = document.createElement('style');
-        dynamicPageStyle.textContent =
-          '@media print { @page { size: ${paperWidthMm}mm ' +
-          contentHeightMm.toFixed(2) +
-          'mm !important; margin: 0 !important; } }';
-        document.head.appendChild(dynamicPageStyle);
-      }
-
-      async function waitImages() {
-        const imgs = Array.from(document.images || []);
-        if (!imgs.length) return;
-        await Promise.all(
-          imgs.map((img) => (img.decode ? img.decode().catch(() => undefined) : Promise.resolve())),
-        );
-      }
-
-      (async function run() {
-        try { await waitImages(); } catch {}
-        // Give layout a tick before measuring
-        requestAnimationFrame(() => {
-          requestAnimationFrame(() => {
-            computeAndInjectPageSize();
-            window.focus();
-            setTimeout(() => { window.print(); window.close(); }, 240);
-          });
-        });
-      })();
-    })();
-  </script>
-</body>
-</html>`;
-  };
-
-  const printReceiptInWindow = (printWindow: Window, receipt: NonNullable<typeof lastReceipt>, paperWidthMm: 58 | 80 = 58) => {
-    const receiptHTML = buildReceiptHtml(receipt, paperWidthMm);
-    try {
-      printWindow.document.open();
-      printWindow.document.write(receiptHTML);
-      printWindow.document.close();
-    } catch {
-      // ignore
-    }
-  };
-
-  const printReceipt = (receipt: NonNullable<typeof lastReceipt>, paperWidthMm: 58 | 80 = 58) => {
-    const popupWidth = paperWidthMm === 58 ? 240 : 320;
-    const printWindow = window.open('', '', `width=${popupWidth},height=900`);
-    if (!printWindow) {
-      toast.error('Chek chiqarishda xatolik! Popup blocker tekshiring.');
-      return;
-    }
-    printReceiptInWindow(printWindow, receipt, paperWidthMm);
   };
 
   const cardStyle = {
@@ -806,17 +633,28 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
               {new Date(lastReceipt.createdAt).toLocaleString('uz-UZ')}
             </div>
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2 flex-wrap">
+            <button
+              type="button"
+              onClick={() => setReceiptPreviewOpen(true)}
+              className="px-3 py-2 rounded-xl text-xs font-extrabold text-white transition active:scale-95"
+              style={{ background: accentColor.gradient }}
+            >
+              Chekni ko'rish
+            </button>
             {'serial' in navigator ? (
               posPrinterReady ? (
                 <>
                   <button
                     type="button"
                     onClick={() => void printReceiptEscpos(lastReceipt)}
-                    className="px-3 py-2 rounded-xl text-xs font-extrabold text-white transition active:scale-95"
-                    style={{ background: accentColor.gradient }}
+                    className="px-3 py-2 rounded-xl border text-xs font-bold transition active:scale-95"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
+                      borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                    }}
                   >
-                    Chek yuborish (POS)
+                    POS printer
                   </button>
                   <button
                     type="button"
@@ -827,7 +665,7 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
                       borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
                     }}
                   >
-                    Printer ulangan
+                    Ulangan
                   </button>
                 </>
               ) : (
@@ -840,21 +678,23 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
                     borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
                   }}
                 >
-                  Printerga ulash (USB)
+                  Printerga ulash
                 </button>
               )
             ) : null}
-
             <button
               type="button"
-              onClick={() => printReceipt(lastReceipt, 58)}
+              onClick={() => {
+                const ok = printPosReceipt(lastReceipt, shopName, 58);
+                if (!ok) setReceiptPreviewOpen(true);
+              }}
               className="px-3 py-2 rounded-xl border text-xs font-bold transition active:scale-95"
               style={{
                 background: isDark ? 'rgba(255,255,255,0.06)' : '#fff',
                 borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
               }}
             >
-              Chek chiqarish (XP-58C 58mm)
+              Qayta chop etish
             </button>
             <button
               type="button"
@@ -1072,6 +912,22 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
                       })}
                     </div>
 
+                    {'serial' in navigator ? (
+                      <button
+                        type="button"
+                        onClick={() => void (posPrinterReady ? disconnectPosPrinter() : connectPosPrinter())}
+                        className="mt-3 w-full py-2.5 rounded-2xl border text-xs font-semibold flex items-center justify-center gap-2 transition active:scale-95"
+                        style={{
+                          background: posPrinterReady ? `${accentColor.color}18` : isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                          borderColor: posPrinterReady ? accentColor.color : isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                          color: posPrinterReady ? accentColor.color : undefined,
+                        }}
+                      >
+                        <Printer className="w-4 h-4" />
+                        {posPrinterReady ? 'Termal printer ulangan' : 'Termal printerga ulash (USB)'}
+                      </button>
+                    ) : null}
+
                     <button
                       type="button"
                       disabled={submitting || cart.length === 0}
@@ -1220,6 +1076,19 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
             </div>
           </div>
         </div>
+      ) : null}
+
+      {receiptPreviewOpen && lastReceipt ? (
+        <SellerReceiptModal
+          receipt={lastReceipt}
+          shopName={shopName}
+          isDark={isDark}
+          accentColor={accentColor}
+          posPrinterReady={posPrinterReady}
+          onPrintEscpos={() => printReceiptEscpos(lastReceipt)}
+          onClose={() => setReceiptPreviewOpen(false)}
+          autoOpened
+        />
       ) : null}
     </div>
   );

@@ -49,6 +49,7 @@ import {
 } from "./twoFactor.tsx";
 import relationalRoutes from "./relational-routes.ts";
 import { createCourierBagStore } from "./courier-bags-db.ts";
+import { runBranchCleanup, isValidCleanupTarget } from "./branch-cleanup.ts";
 import { syncRelationalOrderFromLegacy } from "../_shared/db/orders.ts";
 import {
   normalizeBranchId,
@@ -93,6 +94,13 @@ import { registerPublicReadRoutes } from "./routes/public-read.ts";
 import { registerRecommendationRoutes } from "./routes/recommendations-routes.ts";
 import { registerClickPaymentRoutes } from "./routes/payment-mounts.ts";
 import { registerAtmosPaymentRoutes } from "./routes/atmos-public-routes.ts";
+import {
+  authenticateShopStaffLogin,
+  registerSellerStaffRoutes,
+  sellerOwnerOnlyResponse,
+} from "./seller-staff-routes.ts";
+import { registerSellerExpenseRoutes } from "./seller-expenses-routes.ts";
+import { buildShopStaffKey } from "./seller-staff-routes.ts";
 
 const DEBUG_HTTP =
   Deno.env.get("DEBUG_HTTP") === "1" || Deno.env.get("DEBUG_HTTP") === "true";
@@ -10769,7 +10777,19 @@ const buildCourierVisibleOrder = async (
   const pickupPoint = merchantPoint || branchPoint;
 
   let pickupAddress = String(order.pickupAddress || "").trim();
-  if (merchantPoint && (ot === "shop" || ot === "food" || ot === "restaurant")) {
+  if (ot === "market") {
+    const bn = String(order.branchName || branch?.branchName || branch?.name || "Filial").trim();
+    const ba = String(branch?.address || order.branchAddress || "").trim();
+    const rackNum = String(order.pickupRackNumber || "").trim();
+    const rackName = String(order.pickupRackName || "").trim();
+    const rackTxt = rackNum
+      ? `Rasta #${rackNum}${rackName ? ` (${rackName})` : ""}`
+      : rackName;
+    const coordTxt = pickupPoint
+      ? `${pickupPoint.lat.toFixed(5)}, ${pickupPoint.lng.toFixed(5)}`
+      : "";
+    pickupAddress = [`Market — ${bn}`, rackTxt, ba, coordTxt].filter(Boolean).join(" · ");
+  } else if (merchantPoint && (ot === "shop" || ot === "food" || ot === "restaurant")) {
     const mName = (ot === "shop" ? shopName : restaurantName) || (ot === "shop" ? "Do'kon" : "Restoran");
     const mAddr =
       ot === "shop"
@@ -11366,6 +11386,57 @@ app.get("/make-server-27d0d16c/branch/dashboard/stats", async (c) => {
   } catch (error: any) {
     console.error("branch dashboard stats error:", error);
     return c.json({ success: false, error: "Statistika olishda xatolik" }, 500);
+  }
+});
+
+app.post("/make-server-27d0d16c/branch/cleanup", async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json(
+        { success: false, error: branchAuth.error || "Unauthorized" },
+        401,
+      );
+    }
+
+    const body = await parseOptionalJsonBody(c);
+    const securityCode = String(body?.securityCode || "").trim();
+    const expected = await getAdminSecondaryCode();
+    if (!securityCode || securityCode !== expected) {
+      return c.json(
+        { success: false, error: "Noto'g'ri xavfsizlik kodi" },
+        403,
+      );
+    }
+
+    const rawTargets = Array.isArray(body?.targets)
+      ? body.targets
+      : body?.target
+        ? [body.target]
+        : [];
+    const targets = rawTargets
+      .map((t: unknown) => String(t || "").trim())
+      .filter(isValidCleanupTarget);
+
+    if (!targets.length) {
+      return c.json(
+        { success: false, error: "Tozalash bo'limi tanlanmadi" },
+        400,
+      );
+    }
+
+    const result = await runBranchCleanup(branchAuth.branchId, targets, { supabase });
+    return c.json({
+      success: true,
+      message: "Tozalash yakunlandi",
+      ...result,
+    });
+  } catch (error: any) {
+    console.error("branch/cleanup error:", error);
+    return c.json(
+      { success: false, error: error?.message || "Tozalashda xatolik" },
+      500,
+    );
   }
 });
 
@@ -14156,8 +14227,53 @@ app.post("/make-server-27d0d16c/seller/login", async (c) => {
       s.login === login && s.password === password && !s.deleted
     );
 
+    const normalizeSellerShopId = (raw: unknown) =>
+      String(raw ?? "").trim().replace(/^shop:/i, "");
+
     if (!shop) {
-      return c.json({ error: 'Login yoki parol noto\'g\'ri' }, 401);
+      const staffAuth = await authenticateShopStaffLogin(
+        kv,
+        login,
+        password,
+        (a, b) => normalizeSellerShopId(a) === normalizeSellerShopId(b),
+      );
+      if (!staffAuth) {
+        return c.json({ error: 'Login yoki parol noto\'g\'ri' }, 401);
+      }
+
+      const { staff, shop: staffShop } = staffAuth;
+      const sessionToken = `seller-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`;
+      const staffName = `${staff.firstName} ${staff.lastName}`.trim();
+      const sessionData = {
+        shopId: staffShop.id,
+        shopName: staffShop.name,
+        branchId: staffShop.branchId,
+        role: 'cashier',
+        staffId: staff.id,
+        staffName,
+        permissions: ['orders', 'sales'],
+        createdAt: new Date().toISOString(),
+        expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000),
+      };
+
+      await kv.set(`seller_session:${sessionToken}`, sessionData);
+
+      return c.json({
+        success: true,
+        session: {
+          token: sessionToken,
+          role: 'cashier',
+          staffId: staff.id,
+          staffName,
+          permissions: ['orders', 'sales'],
+          shop: {
+            id: staffShop.id,
+            name: staffShop.name,
+            branchId: staffShop.branchId,
+          },
+        },
+        message: `Xush kelibsiz, ${staffName}!`,
+      });
     }
 
     // Create seller session token
@@ -14176,6 +14292,8 @@ app.post("/make-server-27d0d16c/seller/login", async (c) => {
       login: shop.login,
       shopName: shop.name,
       branchId: shop.branchId,
+      role: 'owner',
+      permissions: ['all'],
       createdAt: new Date().toISOString(),
       expiresAt: Date.now() + (30 * 24 * 60 * 60 * 1000), // 30 days
     };
@@ -14198,6 +14316,8 @@ app.post("/make-server-27d0d16c/seller/login", async (c) => {
       success: true,
       session: {
         token: sessionToken,
+        role: 'owner',
+        permissions: ['all'],
         shop: {
           id: shop.id,
           name: shop.name,
@@ -14211,6 +14331,25 @@ app.post("/make-server-27d0d16c/seller/login", async (c) => {
     return c.json({ error: `Kirishda xatolik: ${error.message}` }, 500);
   }
 });
+
+function sellerSessionToAuth(session: any) {
+  const role = session?.role === 'cashier' ? 'cashier' : 'owner';
+  const permissions = Array.isArray(session?.permissions)
+    ? session.permissions
+    : role === 'cashier'
+      ? ['orders', 'sales']
+      : ['all'];
+  return {
+    success: true as const,
+    shopId: session.shopId,
+    branchId: session.branchId,
+    shopName: session.shopName,
+    role,
+    staffId: session.staffId,
+    staffName: session.staffName,
+    permissions,
+  };
+}
 
 // Validate seller session
 async function validateSellerSession(c: any) {
@@ -14329,7 +14468,7 @@ async function validateSellerSession(c: any) {
           
           console.log('✅ Session valid, shopId:', exactMatch.value?.shopId);
           console.log('🔐 ===== validateSellerSession END (SUCCESS) =====\n');
-          return { success: true, shopId: exactMatch.value?.shopId, branchId: exactMatch.value?.branchId };
+          return sellerSessionToAuth(exactMatch.value);
         }
       } else {
         console.log('  No seller sessions found in database!');
@@ -14353,7 +14492,7 @@ async function validateSellerSession(c: any) {
 
   console.log('✅ Session valid, shopId:', session.shopId, 'branchId:', session.branchId);
   console.log('🔐 ===== validateSellerSession END (SUCCESS) =====\n');
-  return { success: true, shopId: session.shopId, branchId: session.branchId };
+  return sellerSessionToAuth(session);
 }
 
 // ==================== SHOP PRODUCTS (SELLER PANEL) ====================
@@ -14420,6 +14559,10 @@ app.post("/make-server-27d0d16c/seller/products", async (c) => {
     if (!auth.success) {
       console.error('❌ Auth failed:', auth.error);
       return c.json({ error: auth.error }, 401);
+    }
+    const ownerGate = sellerOwnerOnlyResponse(auth);
+    if (ownerGate.denied) {
+      return c.json({ error: ownerGate.error }, ownerGate.status as 401 | 403);
     }
 
     const productData = await c.req.json();
@@ -14524,6 +14667,10 @@ app.put("/make-server-27d0d16c/seller/products/:id", async (c) => {
     if (!auth.success) {
       return c.json({ error: auth.error }, 401);
     }
+    const ownerGate = sellerOwnerOnlyResponse(auth);
+    if (ownerGate.denied) {
+      return c.json({ error: ownerGate.error }, ownerGate.status as 401 | 403);
+    }
 
     const id = c.req.param('id');
     const product = await kv.get(`shop_product:${id}`);
@@ -14587,6 +14734,10 @@ app.delete("/make-server-27d0d16c/seller/products/:id", async (c) => {
     if (!auth.success) {
       return c.json({ error: auth.error }, 401);
     }
+    const ownerGate = sellerOwnerOnlyResponse(auth);
+    if (ownerGate.denied) {
+      return c.json({ error: ownerGate.error }, ownerGate.status as 401 | 403);
+    }
 
     const id = c.req.param('id');
     const product = await kv.get(`shop_product:${id}`);
@@ -14628,6 +14779,10 @@ app.patch("/make-server-27d0d16c/seller/products/:id/toggle", async (c) => {
     
     if (!auth.success) {
       return c.json({ error: auth.error }, 401);
+    }
+    const ownerGate = sellerOwnerOnlyResponse(auth);
+    if (ownerGate.denied) {
+      return c.json({ error: ownerGate.error }, ownerGate.status as 401 | 403);
     }
 
     const id = c.req.param('id');
@@ -14678,6 +14833,18 @@ app.get("/make-server-27d0d16c/seller/shop", async (c) => {
     console.error('Get seller shop error:', error);
     return c.json({ error: 'Do\'kon ma\'lumotlarini olishda xatolik' }, 500);
   }
+});
+
+registerSellerStaffRoutes(app, {
+  kv,
+  validateSellerSession,
+  sellerShopIdsMatchFn: sellerShopIdsMatch,
+});
+
+registerSellerExpenseRoutes(app, {
+  kv,
+  validateSellerSession,
+  sellerShopIdsMatchFn: sellerShopIdsMatch,
 });
 
 // ==================== SHOP ORDERS (SELLER PANEL) ====================
@@ -15150,6 +15317,7 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
           ? {
               inventoryRestoredOnCancel: true,
               ...(wasPaidLeg ? { refundPending: true, refundRequestedAt: nowLeg } : {}),
+              ...applyMerchantCollectFlagsOnCancel(legacy),
             }
           : {}),
         updatedAt: nowLeg,
@@ -15189,10 +15357,11 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
     const updatedOrder = {
       ...order,
       status,
-      ...(nextStatus === "cancelled" && prevStatus !== "cancelled"
+        ...(nextStatus === "cancelled" && prevStatus !== "cancelled"
         ? {
             inventoryRestoredOnCancel: true,
             ...(wasPaidOnCancel ? { refundPending: true, refundRequestedAt: now } : {}),
+            ...applyMerchantCollectFlagsOnCancel(order),
           }
         : {}),
       updatedAt: now,
@@ -15550,6 +15719,10 @@ app.get("/make-server-27d0d16c/seller/statistics", async (c) => {
     if (!auth.success) {
       return c.json({ error: auth.error }, 401);
     }
+    const ownerGate = sellerOwnerOnlyResponse(auth);
+    if (ownerGate.denied) {
+      return c.json({ error: ownerGate.error }, ownerGate.status as 401 | 403);
+    }
 
     // Get all shop orders
     const allOrders = await kv.getByPrefix('shop_order:');
@@ -15732,6 +15905,8 @@ app.post("/make-server-27d0d16c/pos/sales", async (c) => {
         totalUzs,
       },
       payment: body?.payment && typeof body.payment === 'object' ? body.payment : {},
+      staffId: auth.role === 'cashier' ? auth.staffId : body?.staffId,
+      staffName: auth.role === 'cashier' ? auth.staffName : body?.staffName,
       source: 'offline',
       syncedAt: new Date().toISOString(),
     };
@@ -15750,6 +15925,10 @@ app.get("/make-server-27d0d16c/pos/stats", async (c) => {
     const auth = await validateSellerSession(c);
     if (!auth.success) {
       return c.json({ success: false, error: auth.error }, 401);
+    }
+    const ownerGate = sellerOwnerOnlyResponse(auth);
+    if (ownerGate.denied) {
+      return c.json({ success: false, error: ownerGate.error }, ownerGate.status as 401 | 403);
     }
     const shopId = String(auth.shopId || '').trim();
     if (!shopId) return c.json({ success: false, error: 'shopId topilmadi' }, 400);
@@ -15990,6 +16169,10 @@ app.get("/make-server-27d0d16c/pos/stats/details", async (c) => {
       createdAt: string;
       paymentMethod?: string;
       status?: string;
+      staffId?: string;
+      staffName?: string;
+      soldBy?: string;
+      soldByRole?: "owner" | "worker" | "online";
       items: DetailItem[];
       totals: {
         subtotalUzs: number;
@@ -16004,6 +16187,20 @@ app.get("/make-server-27d0d16c/pos/stats/details", async (c) => {
     };
 
     const rows: DetailRow[] = [];
+
+    const shopStaffNameById = new Map<string, string>();
+    try {
+      const staffRows = await kv.getByPrefix("shop_staff:");
+      for (const st of Array.isArray(staffRows) ? staffRows : []) {
+        if (!st || st.deleted) continue;
+        if (!sellerShopIdsMatch(st?.shopId, shopId)) continue;
+        const sid = String(st?.id ?? "").trim();
+        if (!sid) continue;
+        shopStaffNameById.set(sid, `${String(st.firstName ?? "").trim()} ${String(st.lastName ?? "").trim()}`.trim());
+      }
+    } catch {
+      /* ignore staff lookup errors */
+    }
 
     // ONLINE: legacy + checkout orders
     if (kind === "all" || kind === "online") {
@@ -16086,6 +16283,8 @@ app.get("/make-server-27d0d16c/pos/stats/details", async (c) => {
           paymentMethod: String(o?.paymentMethod || o?.payment_method || ""),
           status: String(o?.status || ""),
           source: String((o as any)?.sellerOrderSource || ""),
+          soldBy: "Online",
+          soldByRole: "online",
           items,
           totals: {
             subtotalUzs: Math.max(0, orderTotal),
@@ -16160,6 +16359,25 @@ app.get("/make-server-27d0d16c/pos/stats/details", async (c) => {
         }
         const sellerNet = totalUzs;
         const grossProfit = sellerNet - costTotal;
+
+        const staffId = String((s as any)?.staffId ?? "").trim() || undefined;
+        let staffName = String((s as any)?.staffName ?? "").trim();
+        if (staffId && !staffName) {
+          staffName = shopStaffNameById.get(staffId) || "";
+          if (!staffName) {
+            try {
+              const staffRec = await kv.get(buildShopStaffKey(staffId));
+              if (staffRec && !staffRec.deleted) {
+                staffName = `${String(staffRec.firstName ?? "").trim()} ${String(staffRec.lastName ?? "").trim()}`.trim();
+              }
+            } catch {
+              /* ignore */
+            }
+          }
+        }
+        const soldBy = staffId ? (staffName || "Ishchi") : "Seller";
+        const soldByRole = staffId ? "worker" : "owner";
+
         rows.push({
           id: saleId,
           kind: "offline",
@@ -16167,6 +16385,10 @@ app.get("/make-server-27d0d16c/pos/stats/details", async (c) => {
           paymentMethod,
           status: "offline",
           source: "pos",
+          staffId,
+          staffName: staffName || undefined,
+          soldBy,
+          soldByRole,
           items,
           totals: {
             subtotalUzs,
@@ -16203,6 +16425,10 @@ app.get("/make-server-27d0d16c/seller/inventory", async (c) => {
     
     if (!auth.success) {
       return c.json({ error: auth.error }, 401);
+    }
+    const ownerGate = sellerOwnerOnlyResponse(auth);
+    if (ownerGate.denied) {
+      return c.json({ error: ownerGate.error }, ownerGate.status as 401 | 403);
     }
 
     const q = String(c.req.query("q") || "").trim();
@@ -16304,6 +16530,10 @@ app.put("/make-server-27d0d16c/seller/inventory/:id", async (c) => {
     
     if (!auth.success) {
       return c.json({ error: auth.error }, 401);
+    }
+    const ownerGate = sellerOwnerOnlyResponse(auth);
+    if (ownerGate.denied) {
+      return c.json({ error: ownerGate.error }, ownerGate.status as 401 | 403);
     }
 
     const id = c.req.param('id');
@@ -16541,6 +16771,10 @@ app.post("/make-server-27d0d16c/seller/upload-media", async (c) => {
     if (!auth.success) {
       console.log('❌ Auth failed:', auth.error);
       return c.json({ code: 401, error: auth.error, message: auth.error }, 401);
+    }
+    const ownerGate = sellerOwnerOnlyResponse(auth);
+    if (ownerGate.denied) {
+      return c.json({ code: ownerGate.status, error: ownerGate.error, message: ownerGate.error }, ownerGate.status as 401 | 403);
     }
 
     // FormData already retrieved above
@@ -21351,6 +21585,53 @@ app.post('/make-server-27d0d16c/branch/food-orders/:id/accept', async (c) => {
   }
 });
 
+/** Kassa yordamchi: tadbirkordan qaytarib olish / kuryer nomi */
+const applyMerchantCollectFlagsOnCancel = (order: Record<string, any>): Record<string, any> => {
+  const orderType = String(order.orderType || '').toLowerCase().trim();
+  const isMerchant = orderType === 'shop' || orderType === 'food' || orderType === 'restaurant';
+  if (!isMerchant) return {};
+  if (order.merchantCollectResolvedAt) return {};
+  const paidToMerchant = Boolean(
+    String(order.paymentConfirmedAt || order.paymentReceiptImageUrl || order.receiptUrl || '').trim(),
+  );
+  if (!paidToMerchant) return {};
+  const now = new Date().toISOString();
+  return {
+    merchantCollectPending: true,
+    merchantCollectRequestedAt: order.merchantCollectRequestedAt || now,
+  };
+};
+
+const orderNeedsMerchantCollectBack = (o: Record<string, any>): boolean => {
+  const st = String(o.status || '').toLowerCase().trim();
+  if (st !== 'cancelled' && st !== 'canceled') return false;
+  if (o.merchantCollectResolvedAt) return false;
+  const orderType = String(o.orderType || '').toLowerCase().trim();
+  if (orderType !== 'shop' && orderType !== 'food' && orderType !== 'restaurant') return false;
+  const paidToMerchant = Boolean(
+    String(o.paymentConfirmedAt || o.paymentReceiptImageUrl || o.receiptUrl || '').trim(),
+  );
+  return paidToMerchant;
+};
+
+const resolveCourierDisplay = async (courierId: string | null | undefined) => {
+  const id = String(courierId || '').trim();
+  if (!id) return { courierName: 'Kuryer', courierPhone: '' };
+  try {
+    const raw = await kv.get(buildCourierKey(id));
+    if (raw && typeof raw === 'object') {
+      const c = normalizeCourierRecord(raw);
+      return {
+        courierName: String(c.name || 'Kuryer').trim() || 'Kuryer',
+        courierPhone: String(c.phone || '').trim(),
+      };
+    }
+  } catch {
+    /* ignore */
+  }
+  return { courierName: 'Kuryer', courierPhone: '' };
+};
+
 /** Kassa: kuryer naqd pulini qabul qilish (mahsulot summasi, yetkazish kuryerda qoladi). */
 app.get('/make-server-27d0d16c/branch/courier-cash-handoffs', async (c) => {
   try {
@@ -21379,22 +21660,40 @@ app.get('/make-server-27d0d16c/branch/courier-cash-handoffs', async (c) => {
         new Date(a.deliveredAt || a.handedToCustomerAt || a.updatedAt || 0).getTime(),
     );
 
-    const marketHandoffs = orders.slice(0, 200).map((o: any) => ({
-      id: o.id,
-      orderNumber: o.orderNumber,
-      customerName: o.customerName || o.customer_name || '',
-      customerPhone: o.customerPhone || o.customer_phone || o.phone || '',
-      courierCashHandoffExpectedUzs: Number(o.courierCashHandoffExpectedUzs || 0),
-      courierCashHandoffStatus: o.courierCashHandoffStatus,
-      courierCashHandedToCashierAt: o.courierCashHandedToCashierAt || null,
-      assignedCourierId: o.assignedCourierId || null,
-      deliveredAt: o.deliveredAt || o.handedToCustomerAt || null,
-      paymentMethod: o.paymentMethod || o.payment_method || '',
-      finalTotal: Number(o.finalTotal ?? o.totalAmount ?? o.total ?? 0) || 0,
-      deliveryFee:
-        Number(o.deliveryPrice ?? o.deliveryFee ?? o.delivery_fee ?? 0) || 0,
-      handoffKind: 'market' as const,
-    }));
+    const courierNameCache = new Map<string, { courierName: string; courierPhone: string }>();
+    const resolveCachedCourier = async (courierId: string | null | undefined) => {
+      const id = String(courierId || '').trim();
+      if (!id) return { courierName: 'Kuryer', courierPhone: '' };
+      if (courierNameCache.has(id)) return courierNameCache.get(id)!;
+      const info = await resolveCourierDisplay(id);
+      courierNameCache.set(id, info);
+      return info;
+    };
+
+    const marketHandoffsRaw = orders.slice(0, 200);
+    const marketHandoffs = await Promise.all(
+      marketHandoffsRaw.map(async (o: any) => {
+        const courierInfo = await resolveCachedCourier(o.assignedCourierId || null);
+        return {
+          id: o.id,
+          orderNumber: o.orderNumber,
+          customerName: o.customerName || o.customer_name || '',
+          customerPhone: o.customerPhone || o.customer_phone || o.phone || '',
+          courierCashHandoffExpectedUzs: Number(o.courierCashHandoffExpectedUzs || 0),
+          courierCashHandoffStatus: o.courierCashHandoffStatus,
+          courierCashHandedToCashierAt: o.courierCashHandedToCashierAt || null,
+          assignedCourierId: o.assignedCourierId || null,
+          courierName: courierInfo.courierName,
+          courierPhone: courierInfo.courierPhone,
+          deliveredAt: o.deliveredAt || o.handedToCustomerAt || null,
+          paymentMethod: o.paymentMethod || o.payment_method || '',
+          finalTotal: Number(o.finalTotal ?? o.totalAmount ?? o.total ?? 0) || 0,
+          deliveryFee:
+            Number(o.deliveryPrice ?? o.deliveryFee ?? o.delivery_fee ?? 0) || 0,
+          handoffKind: 'market' as const,
+        };
+      }),
+    );
 
     const rentalRows = (await kv.getByPrefix(`rental_order_${branchId}_`)) || [];
     const rentalHandoffs: any[] = [];
@@ -21512,6 +21811,334 @@ app.post('/make-server-27d0d16c/branch/courier-cash-handoffs/:orderId/confirm', 
   } catch (error: any) {
     console.error('courier-cash-handoffs confirm:', error);
     return c.json({ error: 'Qabul qilishda xatolik' }, 500);
+  }
+});
+
+/** Kassa: tadbirkordan pul qaytarib olish (bekor buyurtma). */
+app.get('/make-server-27d0d16c/branch/cashier/merchant-collect', async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error }, 403);
+    }
+    const branchId = String(branchAuth.branchId || '');
+    const scope = String(c.req.query('scope') || 'pending').toLowerCase();
+
+    const rows = await kv.getByPrefixWithKeys('order:');
+    let orders = rows
+      .map(({ key, value }) => normalizeOrderRowForAdmin(value, key))
+      .filter((o): o is NonNullable<typeof o> => o != null)
+      .filter((o: any) => String(o.branchId || '') === branchId)
+      .filter((o: any) => orderNeedsMerchantCollectBack(o));
+
+    if (scope === 'pending') {
+      orders = orders.filter((o: any) => !o.merchantCollectResolvedAt);
+    } else if (scope === 'history') {
+      orders = orders.filter((o: any) => Boolean(o.merchantCollectResolvedAt));
+    }
+
+    orders.sort(
+      (a: any, b: any) =>
+        new Date(b.merchantCollectRequestedAt || b.updatedAt || 0).getTime() -
+        new Date(a.merchantCollectRequestedAt || a.updatedAt || 0).getTime(),
+    );
+
+    const items = orders.slice(0, 200).map((o: any) => {
+      const itemsArr = Array.isArray(o.items) ? o.items : [];
+      const metadataItems = itemsArr.map((it: any) => ({
+        price: Number(it.price || it.unitPrice || 0) || 0,
+        quantity: Number(it.quantity || it.qty || 0) || 0,
+      }));
+      const { amount } = computeCashierAmount(o, metadataItems);
+      const orderType = String(o.orderType || '').toLowerCase();
+      return {
+        id: o.id,
+        orderNumber: o.orderNumber,
+        orderType,
+        merchantName: String(o.shopName || o.restaurantName || o.merchantName || '').trim(),
+        customerName: o.customerName || o.customer_name || '',
+        customerPhone: o.customerPhone || o.customer_phone || o.phone || '',
+        amountUzs: Number(o.merchantGoodsPayoutUzs || amount || 0) || 0,
+        paymentConfirmedAt: o.paymentConfirmedAt || o.paymentCompletedAt || null,
+        cancelledAt: o.cancelledByBranchAt || o.updatedAt || null,
+        merchantCollectRequestedAt: o.merchantCollectRequestedAt || null,
+        merchantCollectResolvedAt: o.merchantCollectResolvedAt || null,
+        receiptUrl: String(o.receiptUrl || o.paymentReceiptImageUrl || '').trim() || null,
+      };
+    });
+
+    return c.json({ success: true, items, total: items.length });
+  } catch (error: any) {
+    console.error('merchant-collect GET:', error);
+    return c.json({ error: 'Ro‘yxatni olishda xatolik' }, 500);
+  }
+});
+
+app.post('/make-server-27d0d16c/branch/cashier/merchant-collect/:orderId/confirm', async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error }, 403);
+    }
+    const orderId = String(c.req.param('orderId') || '').trim();
+    if (!orderId) {
+      return c.json({ error: 'Buyurtma ID kerak' }, 400);
+    }
+
+    const record = await getOrderRecord(orderId);
+    if (!record?.order) {
+      return c.json({ error: 'Buyurtma topilmadi' }, 404);
+    }
+    if (String(record.order.branchId || '') !== String(branchAuth.branchId || '')) {
+      return c.json({ error: "Bu filial uchun ruxsat yo'q" }, 403);
+    }
+    if (!orderNeedsMerchantCollectBack(record.order)) {
+      return c.json({ error: 'Bu buyurtma uchun qaytarib olish kerak emas' }, 400);
+    }
+    if (record.order.merchantCollectResolvedAt) {
+      return c.json({ error: 'Allaqachon qaytarib olingan' }, 400);
+    }
+
+    const now = new Date().toISOString();
+    let primaryUpdated: Record<string, any> | null = null;
+    for (const key of getOrderKeys(orderId)) {
+      const existingRaw = await kv.get(key);
+      if (!existingRaw || typeof existingRaw !== 'object') continue;
+      const ex = existingRaw as Record<string, any>;
+      if (String(ex.branchId || '') !== String(branchAuth.branchId || '')) continue;
+      const merged = {
+        ...ex,
+        merchantCollectPending: false,
+        merchantCollectResolvedAt: now,
+        merchantCollectResolvedBy: branchAuth.branchId || null,
+        updatedAt: now,
+        statusHistory: [
+          ...(Array.isArray(ex.statusHistory) ? ex.statusHistory : []),
+          { status: ex.status, timestamp: now, note: 'Kassa tadbirkordan pulni qaytarib oldi' },
+        ],
+      };
+      await kv.set(key, merged);
+      if (key === record.key) primaryUpdated = merged;
+    }
+
+    if (!primaryUpdated) {
+      return c.json({ error: 'Buyurtma yangilanmadi' }, 500);
+    }
+
+    return c.json({ success: true, order: primaryUpdated });
+  } catch (error: any) {
+    console.error('merchant-collect confirm:', error);
+    return c.json({ error: 'Tasdiqlashda xatolik' }, 500);
+  }
+});
+
+/** Kassa: barcha bo‘limlar statistikasi. */
+app.get('/make-server-27d0d16c/branch/cashier/stats', async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error }, 403);
+    }
+    const branchId = String(branchAuth.branchId || '');
+    const branchNorm = normalizeBranchId(branchId);
+
+    const todayStart = new Date();
+    todayStart.setHours(0, 0, 0, 0);
+    const todayMs = todayStart.getTime();
+    const isToday = (iso: unknown) => {
+      const t = new Date(String(iso || '')).getTime();
+      return Number.isFinite(t) && t >= todayMs;
+    };
+
+    const merchantPayoutAmount = (o: Record<string, any>): number => {
+      const itemsArr = Array.isArray(o.items) ? o.items : [];
+      const metadataItems = itemsArr.map((it: any) => ({
+        price: Number(it.price || it.unitPrice || 0) || 0,
+        quantity: Number(it.quantity || it.qty || 0) || 0,
+      }));
+      const { amount } = computeCashierAmount(o, metadataItems);
+      return Number(o.merchantGoodsPayoutUzs || amount || 0) || 0;
+    };
+
+    const orderNeedsCashierMerchantPayment = (o: Record<string, any>): boolean => {
+      const orderType = String(o.orderType || '').toLowerCase().trim();
+      if (orderType !== 'shop' && orderType !== 'food' && orderType !== 'restaurant') return false;
+      const os = String(resolveOrderOperationalStatus(o) || o.status || '').toLowerCase().trim();
+      if (['cancelled', 'canceled', 'rejected'].includes(os)) return false;
+      if (!os || os === 'pending' || os === 'new') return false;
+      const paidToMerchant = Boolean(
+        String(o.paymentConfirmedAt || o.receiptUrl || o.paymentReceiptImageUrl || '').trim(),
+      );
+      return !paidToMerchant;
+    };
+
+    const orderPaidToMerchant = (o: Record<string, any>): boolean =>
+      Boolean(String(o.paymentConfirmedAt || o.receiptUrl || o.paymentReceiptImageUrl || '').trim());
+
+    const orderRows = await kv.getByPrefixWithKeys('order:');
+    const branchOrders = orderRows
+      .map(({ key, value }) => normalizeOrderRowForAdmin(value, key))
+      .filter((o): o is NonNullable<typeof o> => o != null)
+      .filter((o: any) => String(o.branchId || '') === branchId);
+
+    let receivePending = 0;
+    let receivePendingUzs = 0;
+    let receiveTodayCount = 0;
+    let receiveTodayUzs = 0;
+    let receiveTotalCount = 0;
+    let receiveTotalUzs = 0;
+
+    let sendPending = 0;
+    let sendPendingUzs = 0;
+    let sendTodayCount = 0;
+    let sendTodayUzs = 0;
+    let sendTotalCount = 0;
+    let sendTotalUzs = 0;
+
+    let collectPending = 0;
+    let collectPendingUzs = 0;
+    let collectTodayCount = 0;
+    let collectTodayUzs = 0;
+    let collectTotalCount = 0;
+    let collectTotalUzs = 0;
+
+    const bumpHandoff = (
+      status: string,
+      uzs: number,
+      handedAt: string | null | undefined,
+    ) => {
+      const amount = Number(uzs || 0) || 0;
+      if (status === 'pending_cashier') {
+        receivePending += 1;
+        receivePendingUzs += amount;
+      }
+      if (status === 'cashier_received') {
+        receiveTotalCount += 1;
+        receiveTotalUzs += amount;
+        if (isToday(handedAt)) {
+          receiveTodayCount += 1;
+          receiveTodayUzs += amount;
+        }
+      }
+    };
+
+    for (const o of branchOrders as any[]) {
+      bumpHandoff(
+        String(o.courierCashHandoffStatus || ''),
+        Number(o.courierCashHandoffExpectedUzs || 0) || 0,
+        o.courierCashHandedToCashierAt,
+      );
+
+      if (orderNeedsCashierMerchantPayment(o)) {
+        sendPending += 1;
+        sendPendingUzs += merchantPayoutAmount(o);
+      }
+
+      if (orderPaidToMerchant(o)) {
+        const orderType = String(o.orderType || '').toLowerCase().trim();
+        if (orderType === 'shop' || orderType === 'food' || orderType === 'restaurant') {
+          const amt = merchantPayoutAmount(o);
+          sendTotalCount += 1;
+          sendTotalUzs += amt;
+          const paidAt = o.paymentConfirmedAt || o.paymentCompletedAt || o.updatedAt;
+          if (isToday(paidAt)) {
+            sendTodayCount += 1;
+            sendTodayUzs += amt;
+          }
+        }
+      }
+
+      if (orderNeedsMerchantCollectBack(o)) {
+        collectPending += 1;
+        collectPendingUzs += merchantPayoutAmount(o);
+      }
+
+      if (o.merchantCollectResolvedAt) {
+        const amt = merchantPayoutAmount(o);
+        collectTotalCount += 1;
+        collectTotalUzs += amt;
+        if (isToday(o.merchantCollectResolvedAt)) {
+          collectTodayCount += 1;
+          collectTodayUzs += amt;
+        }
+      }
+    }
+
+    const rentalRows = (await kv.getByPrefix(`rental_order_${branchId}_`)) || [];
+    for (const ro of rentalRows) {
+      if (!ro || String(ro.branchId || '') !== branchId) continue;
+      bumpHandoff(
+        String(ro.courierCashHandoffStatus || ''),
+        Number(ro.courierCashHandoffExpectedUzs || 0) || 0,
+        ro.courierCashHandedToCashierAt,
+      );
+    }
+
+    let salaryPending = 0;
+    let salaryPendingUzs = 0;
+    let salaryPaidTodayCount = 0;
+    let salaryPaidTodayUzs = 0;
+    let salaryPaidTotalCount = 0;
+    let salaryPaidTotalUzs = 0;
+
+    const payoutRows = (await kv.getByPrefix('courier_payout_request:')) || [];
+    for (const r of payoutRows) {
+      if (!r || normalizeBranchId(String(r.branchId || '')) !== branchNorm) continue;
+      const st = String(r.status || '');
+      const amt = Number(r.amountUzs || 0) || 0;
+      if (st === 'pending') {
+        salaryPending += 1;
+        salaryPendingUzs += amt;
+      }
+      if (st === 'paid') {
+        salaryPaidTotalCount += 1;
+        salaryPaidTotalUzs += amt;
+        if (isToday(r.decidedAt)) {
+          salaryPaidTodayCount += 1;
+          salaryPaidTodayUzs += amt;
+        }
+      }
+    }
+
+    const todayInflowUzs = receiveTodayUzs + collectTodayUzs;
+    const todayOutflowUzs = sendTodayUzs + salaryPaidTodayUzs;
+    const todayNetUzs = todayInflowUzs - todayOutflowUzs;
+
+    return c.json({
+      success: true,
+      stats: {
+        receivePending,
+        receivePendingUzs,
+        receiveTodayCount,
+        receiveTodayUzs,
+        receiveTotalCount,
+        receiveTotalUzs,
+        sendPending,
+        sendPendingUzs,
+        sendTodayCount,
+        sendTodayUzs,
+        sendTotalCount,
+        sendTotalUzs,
+        collectPending,
+        collectPendingUzs,
+        collectTodayCount,
+        collectTodayUzs,
+        collectTotalCount,
+        collectTotalUzs,
+        salaryPending,
+        salaryPendingUzs,
+        salaryPaidTodayCount,
+        salaryPaidTodayUzs,
+        salaryPaidTotalCount,
+        salaryPaidTotalUzs,
+        todayInflowUzs,
+        todayOutflowUzs,
+        todayNetUzs,
+      },
+    });
+  } catch (error: any) {
+    console.error('cashier stats GET:', error);
+    return c.json({ error: 'Statistikani olishda xatolik' }, 500);
   }
 });
 
@@ -21729,6 +22356,7 @@ app.post('/make-server-27d0d16c/orders/:orderId/cancel-by-branch', async (c) => 
         cancellationSource: 'branch',
         cancellationReason: reason,
         updatedAt: now,
+        ...applyMerchantCollectFlagsOnCancel(ex),
         statusHistory: [
           ...hist,
           {
@@ -22591,11 +23219,13 @@ app.post('/make-server-27d0d16c/orders/cancel', async (c) => {
 
     await restoreInventoryFromOrder(orderRecord.order);
 
+    const collectFlags = applyMerchantCollectFlagsOnCancel(orderRecord.order);
     const updatedOrder = {
       ...orderRecord.order,
       status: 'cancelled',
       inventoryRestoredOnCancel: true,
       updatedAt: new Date().toISOString(),
+      ...collectFlags,
       statusHistory: [
         ...(Array.isArray(orderRecord.order.statusHistory) ? orderRecord.order.statusHistory : []),
         {

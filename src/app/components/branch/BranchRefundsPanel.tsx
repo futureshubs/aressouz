@@ -14,7 +14,7 @@ import {
   CheckCircle2,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
-import { API_BASE_URL, DEV_API_BASE_URL } from '../../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../../utils/edgeFunctionBaseUrl';
 import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
 import { useVisibilityRefetch, type VisibilityRefetchDetail } from '../../utils/visibilityRefetch';
 import { PendingOrderLineCard } from './PendingCashMarketBranchPanel';
@@ -104,10 +104,7 @@ export function BranchRefundsPanel({ variant = 'branch' }: BranchRefundsPanelPro
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const isCashier = variant === 'cashier';
-  const apiBaseUrl =
-    typeof window !== 'undefined' && window.location.hostname === 'localhost'
-      ? DEV_API_BASE_URL
-      : API_BASE_URL;
+  const apiBaseUrl = edgeFunctionBaseUrl();
 
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);

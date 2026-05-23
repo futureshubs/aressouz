@@ -2,7 +2,8 @@ import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { publicAnonKey } from '../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 import { Store, Lock, User, ArrowLeft, Building2, ChevronRight, Loader2 } from 'lucide-react';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 
@@ -62,17 +63,14 @@ export default function StaffLogin({ requiredRole }: { requiredRole?: StaffRole 
   const submit = async (branchId?: string) => {
     setLoading(true);
     try {
-      const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/staff/login`,
-        {
-          method: 'POST',
-          headers: {
-            Authorization: `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ login, password, branchId: branchId || '' }),
-        }
-      );
+      const res = await fetch(`${edgeFunctionBaseUrl()}/staff/login`, {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({ login, password, branchId: branchId || '' }),
+      });
 
       const data = await res.json();
 

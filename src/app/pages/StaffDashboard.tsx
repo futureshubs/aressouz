@@ -116,6 +116,23 @@ export default function StaffDashboard() {
     phone: branchSession?.phone || '',
   };
 
+  if (effectiveRole === 'cashier') {
+    return (
+      <CashierPanel
+        branchId={branchId}
+        branchInfo={branchInfo}
+        branchName={branchSession?.branchName || 'Filial'}
+        staffName={[session?.firstName, session?.lastName].filter(Boolean).join(' ')}
+        onLogout={() => {
+          localStorage.removeItem('staffSession');
+          localStorage.removeItem('branchSession');
+          toast.success('Chiqildi');
+          navigate(panelLoginPath);
+        }}
+      />
+    );
+  }
+
   return (
     <div
       className="app-panel-viewport app-safe-pad"
@@ -254,10 +271,6 @@ export default function StaffDashboard() {
 
         {(effectiveRole === 'operator' || effectiveRole === 'support') && (
           <OperatorSupportTabs branchId={branchId} branchInfo={branchInfo} role="support" />
-        )}
-
-        {effectiveRole === 'cashier' && (
-          <CashierPanel branchId={branchId} branchInfo={branchInfo} />
         )}
       </div>
     </div>

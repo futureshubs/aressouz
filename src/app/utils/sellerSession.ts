@@ -1,8 +1,14 @@
+export type SellerRole = 'owner' | 'cashier';
+
 export type StoredSellerSession = {
   token: string;
   shopId: string;
   shopName: string;
   branchId: string;
+  role?: SellerRole;
+  staffId?: string;
+  staffName?: string;
+  permissions?: string[];
 };
 
 /**
@@ -29,14 +35,27 @@ export function readValidSellerSession(): StoredSellerSession | null {
       localStorage.removeItem('sellerSession');
       return null;
     }
+    const role: SellerRole = sessionData.role === 'cashier' ? 'cashier' : 'owner';
     return {
       token: tok,
       shopId: String(sessionData.shopId),
       shopName: String(sessionData.shopName || ''),
       branchId: String(sessionData.branchId || ''),
+      role,
+      staffId: sessionData.staffId ? String(sessionData.staffId) : undefined,
+      staffName: sessionData.staffName ? String(sessionData.staffName) : undefined,
+      permissions: Array.isArray(sessionData.permissions) ? sessionData.permissions : undefined,
     };
   } catch {
     localStorage.removeItem('sellerSession');
     return null;
   }
+}
+
+export function isSellerCashier(session: StoredSellerSession | null | undefined): boolean {
+  return session?.role === 'cashier';
+}
+
+export function isSellerOwner(session: StoredSellerSession | null | undefined): boolean {
+  return !session || session.role !== 'cashier';
 }

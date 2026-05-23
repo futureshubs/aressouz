@@ -1,6 +1,7 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
+import type { LucideIcon } from 'lucide-react';
 import { 
   LayoutDashboard, 
   BarChart3, 
@@ -35,6 +36,14 @@ import {
   Loader2,
   RotateCcw,
   KeyRound,
+  Trash2,
+  ChevronDown,
+  ClipboardList,
+  Boxes,
+  UserCircle,
+  TruckIcon,
+  Cog,
+  BarChart2,
 } from 'lucide-react';
 import MarketView from '../components/branch/MarketView';
 import ShopView from '../components/branch/ShopView';
@@ -68,6 +77,7 @@ import { AutoCouriers } from '../components/branch/AutoCouriers';
 import { CourierBagsPanel } from '../components/branch/CourierBagsPanel';
 import { PickupRacksPanel } from '../components/branch/PickupRacksPanel';
 import { BranchRefundsPanel } from '../components/branch/BranchRefundsPanel';
+import { BranchCleanupPanel } from '../components/branch/BranchCleanupPanel';
 import { buildBranchHeaders } from '../utils/requestAuth';
 import { useVisibilityRefetch, type VisibilityRefetchDetail } from '../utils/visibilityRefetch';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
@@ -114,7 +124,219 @@ const KNOWN_BRANCH_DASHBOARD_TABS = new Set([
   'refunds',
   'employees',
   'reports',
+  'tozalash',
 ]);
+
+type BranchMenuItem = { id: string; label: string; icon: LucideIcon };
+
+type BranchMenuGroup = {
+  id: string;
+  label: string;
+  icon: LucideIcon;
+  items: BranchMenuItem[];
+};
+
+const BRANCH_MENU_GROUPS: BranchMenuGroup[] = [
+  {
+    id: 'asosiy',
+    label: 'Asosiy',
+    icon: LayoutDashboard,
+    items: [
+      { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
+      { id: 'analytics', label: 'Data Analitika', icon: BarChart3 },
+      { id: 'statistics', label: 'Statistika', icon: TrendingUp },
+    ],
+  },
+  {
+    id: 'buyurtmalar',
+    label: 'Buyurtmalar',
+    icon: ClipboardList,
+    items: [
+      { id: 'market-orders', label: 'Market buyurtmalar', icon: ShoppingBag },
+      { id: 'shop-orders', label: "Do'kon buyurtmalar", icon: Store },
+      { id: 'food-orders', label: 'Taom buyurtmalar', icon: UtensilsCrossed },
+      { id: 'rental-orders', label: 'Ijara buyurtmalar', icon: HomeIcon },
+    ],
+  },
+  {
+    id: 'mahsulotlar',
+    label: 'Mahsulotlar',
+    icon: Boxes,
+    items: [
+      { id: 'market', label: 'Market', icon: ShoppingCart },
+      { id: 'shop', label: "Do'kon", icon: Package },
+      { id: 'foods', label: 'Taomlar', icon: ChefHat },
+      { id: 'rentals', label: 'Ijara', icon: Car },
+      { id: 'rental-providers', label: 'Ijara beruvchi', icon: KeyRound },
+      { id: 'auction', label: 'Auksion', icon: TrendingUp },
+      { id: 'banner', label: 'Banner', icon: Image },
+      { id: 'services', label: 'Xizmatlar', icon: Settings },
+      { id: 'nearby', label: 'Atrof', icon: MapPin },
+    ],
+  },
+  {
+    id: 'mening',
+    label: 'Mening',
+    icon: UserCircle,
+    items: [
+      { id: 'profile', label: 'Mening', icon: User },
+      { id: 'house', label: 'Uy', icon: HomeIcon },
+      { id: 'car', label: 'Moshina', icon: Car },
+      { id: 'bank', label: 'Bank', icon: Building },
+    ],
+  },
+  {
+    id: 'hodimlar',
+    label: 'Hodimlar',
+    icon: TruckIcon,
+    items: [
+      { id: 'couriers', label: 'Kuryer', icon: Bike },
+      { id: 'auto-couriers', label: 'Avto-kuryer', icon: Truck },
+      { id: 'courier-bags', label: "So'mkalar", icon: BriefcaseBusiness },
+      { id: 'pickup-racks', label: 'Olib ketish rastasi', icon: MapPin },
+      { id: 'preparers', label: 'Tayyorlovchi', icon: ChefHat },
+    ],
+  },
+  {
+    id: 'tizim',
+    label: 'Tizim',
+    icon: Cog,
+    items: [
+      { id: 'delivery-zones', label: 'Yetkazib berish zonasi', icon: Map },
+      { id: 'chat', label: 'Chat', icon: MessageSquare },
+      { id: '2fa', label: '2FA', icon: Shield },
+      { id: 'payments', label: "To'lovlar tarixi", icon: CreditCard },
+      { id: 'refunds', label: "To'lov qaytarish", icon: RotateCcw },
+    ],
+  },
+  {
+    id: 'hisobotlar',
+    label: 'Hisobotlar',
+    icon: BarChart2,
+    items: [
+      { id: 'employees', label: 'Ishchilar', icon: Users },
+      { id: 'reports', label: 'Hisobboti', icon: FileBarChart },
+    ],
+  },
+  {
+    id: 'tozalash',
+    label: 'Tozalash',
+    icon: Trash2,
+    items: [{ id: 'tozalash', label: 'Ma\'lumotlarni tozalash', icon: Trash2 }],
+  },
+];
+
+function findMenuGroupIdForTab(tabId: string): string | null {
+  for (const group of BRANCH_MENU_GROUPS) {
+    if (group.items.some((item) => item.id === tabId)) return group.id;
+  }
+  return null;
+}
+
+function BranchSidebarNav({
+  activeTab,
+  onSelect,
+  isDark,
+  accentColor,
+  expandedGroups,
+  onToggleGroup,
+}: {
+  activeTab: string;
+  onSelect: (tabId: string) => void;
+  isDark: boolean;
+  accentColor: { color: string; gradient: string };
+  expandedGroups: Set<string>;
+  onToggleGroup: (groupId: string) => void;
+}) {
+  return (
+    <nav className="space-y-2">
+      {BRANCH_MENU_GROUPS.map((group) => {
+        const GroupIcon = group.icon;
+        const isExpanded = expandedGroups.has(group.id);
+        const hasActiveChild = group.items.some((item) => item.id === activeTab);
+        const isDangerGroup = group.id === 'tozalash';
+
+        return (
+          <div key={group.id} className="rounded-xl overflow-hidden">
+            <button
+              type="button"
+              onClick={() => onToggleGroup(group.id)}
+              className="w-full flex items-center gap-2.5 px-3 py-2.5 rounded-xl transition-all text-left"
+              style={{
+                background: hasActiveChild
+                  ? isDark
+                    ? `${accentColor.color}18`
+                    : `${accentColor.color}12`
+                  : isDark
+                    ? 'rgba(255,255,255,0.04)'
+                    : 'rgba(0,0,0,0.03)',
+                color: hasActiveChild
+                  ? accentColor.color
+                  : isDark
+                    ? 'rgba(255,255,255,0.85)'
+                    : '#374151',
+              }}
+            >
+              <GroupIcon
+                className="w-4 h-4 shrink-0"
+                style={{ color: isDangerGroup ? '#ef4444' : hasActiveChild ? accentColor.color : undefined }}
+              />
+              <span className="flex-1 text-xs font-bold uppercase tracking-wide truncate">
+                {group.label}
+              </span>
+              <span
+                className="text-[10px] font-semibold px-1.5 py-0.5 rounded-md shrink-0"
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                  color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)',
+                }}
+              >
+                {group.items.length}
+              </span>
+              <ChevronDown
+                className={`w-4 h-4 shrink-0 transition-transform duration-200 ${isExpanded ? 'rotate-0' : '-rotate-90'}`}
+                style={{ opacity: 0.65 }}
+              />
+            </button>
+
+            {isExpanded && (
+              <div
+                className="mt-1 ml-2 pl-2 space-y-0.5 border-l"
+                style={{ borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}
+              >
+                {group.items.map((item) => {
+                  const Icon = item.icon;
+                  const isActive = activeTab === item.id;
+                  return (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={() => onSelect(item.id)}
+                      className="w-full flex items-center gap-2.5 px-3 py-2 rounded-lg transition-all text-sm"
+                      style={{
+                        background: isActive ? accentColor.gradient : 'transparent',
+                        color: isActive
+                          ? '#ffffff'
+                          : isDangerGroup
+                            ? '#ef4444'
+                            : isDark
+                              ? 'rgba(255,255,255,0.75)'
+                              : '#4b5563',
+                      }}
+                    >
+                      <Icon className="w-4 h-4 shrink-0" />
+                      <span className="font-medium truncate text-left">{item.label}</span>
+                    </button>
+                  );
+                })}
+              </div>
+            )}
+          </div>
+        );
+      })}
+    </nav>
+  );
+}
 
 export default function BranchDashboard() {
   const navigate = useNavigate();
@@ -127,6 +349,9 @@ export default function BranchDashboard() {
       : API_BASE_URL;
 
   const [activeTab, setActiveTab] = useState('dashboard');
+  const [expandedGroups, setExpandedGroups] = useState<Set<string>>(
+    () => new Set(['asosiy']),
+  );
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [branchInfo, setBranchInfo] = useState<any>(null);
   const [isLoadingBranch, setIsLoadingBranch] = useState(true);
@@ -159,6 +384,31 @@ export default function BranchDashboard() {
       setActiveTab(resolved);
     }
   }, [searchParams]);
+
+  const allMenuItems = useMemo(
+    () => BRANCH_MENU_GROUPS.flatMap((group) => group.items),
+    [],
+  );
+  /** Eski sidebar kod bilan moslik (HMR / cache) */
+  const menuItems = allMenuItems;
+
+  useEffect(() => {
+    const groupId = findMenuGroupIdForTab(activeTab);
+    if (!groupId) return;
+    setExpandedGroups((prev) => {
+      if (prev.has(groupId)) return prev;
+      return new Set([...prev, groupId]);
+    });
+  }, [activeTab]);
+
+  const toggleMenuGroup = (groupId: string) => {
+    setExpandedGroups((prev) => {
+      const next = new Set(prev);
+      if (next.has(groupId)) next.delete(groupId);
+      else next.add(groupId);
+      return next;
+    });
+  };
 
   useEffect(() => {
     const loadBranchInfo = async () => {
@@ -347,54 +597,6 @@ export default function BranchDashboard() {
     navigate('/filyal');
   };
 
-  const menuItems = [
-    // Asosiy
-    { id: 'dashboard', label: 'Dashboard', icon: LayoutDashboard },
-    { id: 'analytics', label: 'Data Analitika', icon: BarChart3 },
-    { id: 'statistics', label: 'Statistika', icon: TrendingUp },
-    
-    // Buyurtmalar
-    { id: 'market-orders', label: 'Market Buyurtmalar', icon: ShoppingBag },
-    { id: 'shop-orders', label: "Do'kon buyurtmalar", icon: Store },
-    { id: 'food-orders', label: 'Taom Buyurtmalar', icon: UtensilsCrossed },
-    { id: 'rental-orders', label: 'Ijara Buyurtmalar', icon: HomeIcon },
-    
-    // Mahsulotlar/Xizmatlar
-    { id: 'market', label: 'Market', icon: ShoppingCart },
-    { id: 'shop', label: 'Do\'kon', icon: Package },
-    { id: 'foods', label: 'Taomlar', icon: ChefHat },
-    { id: 'rentals', label: 'Ijara', icon: Car },
-    { id: 'rental-providers', label: 'Ijara beruvchi', icon: KeyRound },
-    { id: 'auction', label: 'Auksion', icon: TrendingUp },
-    { id: 'banner', label: 'Banner', icon: Image },
-    { id: 'services', label: 'Xizmatlar', icon: Settings },
-    { id: 'nearby', label: 'Atrof', icon: MapPin },
-    
-    // Mening
-    { id: 'profile', label: 'Mening', icon: User },
-    { id: 'house', label: 'Uy', icon: HomeIcon },
-    { id: 'car', label: 'Moshina', icon: Car },
-    { id: 'bank', label: 'Bank', icon: Building },
-    
-    // Hodimlar
-    { id: 'couriers', label: 'Kuryer', icon: Bike },
-    { id: 'auto-couriers', label: 'Avto-kuryer', icon: Truck },
-    { id: 'courier-bags', label: 'So\'mkalar', icon: BriefcaseBusiness },
-    { id: 'pickup-racks', label: 'Olib ketish rastasi', icon: MapPin },
-    { id: 'preparers', label: 'Tayyorlovchi', icon: ChefHat },
-    
-    // Tizim
-    { id: 'delivery-zones', label: 'Yetkazib berish zonasi', icon: Map },
-    { id: 'chat', label: 'Chat', icon: MessageSquare },
-    { id: '2fa', label: '2FA', icon: Shield },
-    { id: 'payments', label: 'To\'lovlar tarixi', icon: CreditCard },
-    { id: 'refunds', label: 'To‘lov qaytarish', icon: RotateCcw },
-    
-    // Hisobotlar
-    { id: 'employees', label: 'Ishchilar', icon: Users },
-    { id: 'reports', label: 'Hisobboti', icon: FileBarChart },
-  ];
-
   return (
     <div
       className="app-panel-viewport app-safe-pad"
@@ -488,28 +690,14 @@ export default function BranchDashboard() {
             </p>
           </div>
 
-          <nav className="space-y-1.5">
-            {menuItems.map((item) => {
-              const Icon = item.icon;
-              const isActive = activeTab === item.id;
-              return (
-                <button
-                  key={item.id}
-                  onClick={() => setActiveTab(item.id)}
-                  className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all text-sm"
-                  style={{
-                    background: isActive 
-                      ? accentColor.gradient
-                      : isDark ? 'transparent' : 'transparent',
-                    color: isActive ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.8)' : '#111827'),
-                  }}
-                >
-                  <Icon className="w-4.5 h-4.5" />
-                  <span className="font-medium">{item.label}</span>
-                </button>
-              );
-            })}
-          </nav>
+          <BranchSidebarNav
+            activeTab={activeTab}
+            onSelect={setActiveTab}
+            isDark={isDark}
+            accentColor={accentColor}
+            expandedGroups={expandedGroups}
+            onToggleGroup={toggleMenuGroup}
+          />
         </div>
 
         <div
@@ -580,31 +768,17 @@ export default function BranchDashboard() {
                 </button>
               </div>
 
-              <nav className="space-y-1.5">
-                {menuItems.map((item) => {
-                  const Icon = item.icon;
-                  const isActive = activeTab === item.id;
-                  return (
-                    <button
-                      key={item.id}
-                      onClick={() => {
-                        setActiveTab(item.id);
-                        setSidebarOpen(false);
-                      }}
-                      className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all text-sm"
-                      style={{
-                        background: isActive 
-                          ? accentColor.gradient
-                          : 'transparent',
-                        color: isActive ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.8)' : '#111827'),
-                      }}
-                    >
-                      <Icon className="w-4.5 h-4.5" />
-                      <span className="font-medium">{item.label}</span>
-                    </button>
-                  );
-                })}
-              </nav>
+              <BranchSidebarNav
+                activeTab={activeTab}
+                onSelect={(tabId) => {
+                  setActiveTab(tabId);
+                  setSidebarOpen(false);
+                }}
+                isDark={isDark}
+                accentColor={accentColor}
+                expandedGroups={expandedGroups}
+                onToggleGroup={toggleMenuGroup}
+              />
             </div>
 
             <div
@@ -652,7 +826,7 @@ export default function BranchDashboard() {
               </button>
               <div>
                 <h2 className="text-xl lg:text-2xl font-bold">
-                  {menuItems.find(item => item.id === activeTab)?.label || 'Dashboard'}
+                  {menuItems.find((item) => item.id === activeTab)?.label || 'Dashboard'}
                 </h2>
                 <p 
                   className="text-sm"
@@ -1118,6 +1292,10 @@ export default function BranchDashboard() {
             />
           )}
 
+          {activeTab === 'tozalash' && branchInfo && (
+            <BranchCleanupPanel branchId={branchInfo.id} />
+          )}
+
           {activeTab !== 'dashboard' &&
             activeTab !== 'market' &&
             activeTab !== 'shop' &&
@@ -1149,7 +1327,8 @@ export default function BranchDashboard() {
             activeTab !== 'payments' &&
             activeTab !== 'refunds' &&
             activeTab !== 'employees' &&
-            activeTab !== 'reports' && (
+            activeTab !== 'reports' &&
+            activeTab !== 'tozalash' && (
               <div
                 className="flex items-center justify-center min-h-[60vh] rounded-3xl border p-6"
                 style={{

@@ -38,6 +38,7 @@ import {
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 import { getStoredCourierToken } from '../utils/requestAuth';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { formatOrderNumber } from '../utils/orderNumber';
@@ -53,6 +54,7 @@ import {
   RentalCourierDeliveryJobCard,
   RentalCourierDepositBlock,
 } from '../components/rental/RentalCourierDeliveryJobCard';
+import { CourierOrderLocationBlock } from '../components/courier/CourierOrderLocationBlock';
 
 type CourierBag = {
   id: string;
@@ -832,10 +834,7 @@ export default function CourierDashboard() {
         const courierToken = getStoredCourierToken();
         if (!courierToken) return;
         const tokenQuery = `?token=${encodeURIComponent(courierToken)}`;
-        const baseUrl =
-          typeof window !== 'undefined' && window.location.hostname === 'localhost'
-            ? DEV_API_BASE_URL
-            : API_BASE_URL;
+        const baseUrl = edgeFunctionBaseUrl();
         const res = await fetchWithRetry(`${baseUrl}/courier/payout-requests${tokenQuery}`, { cache: 'no-store' as any });
         const data = await readPayload(res);
         if (res.ok && data?.success) {
@@ -849,6 +848,42 @@ export default function CourierDashboard() {
     },
     [],
   );
+
+  const submitPayoutApplication = useCallback(async () => {
+    if (payoutSaving) return;
+    const amt = Number(String(payoutAmount || '').replace(/[^\d.]/g, ''));
+    if (!Number.isFinite(amt) || amt <= 0) {
+      toast.error('Summa noto‘g‘ri');
+      return;
+    }
+    setPayoutSaving(true);
+    try {
+      const courierToken = getStoredCourierToken();
+      if (!courierToken) {
+        toast.error('Sessiya topilmadi');
+        return;
+      }
+      const tokenQuery = `?token=${encodeURIComponent(courierToken)}`;
+      const res = await fetch(`${edgeFunctionBaseUrl()}/courier/payout-requests${tokenQuery}`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ amountUzs: amt, method: payoutMethod }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) {
+        toast.error(data?.error || 'Ariza yuborishda xatolik');
+        return;
+      }
+      toast.success('Ariza kassaga yuborildi');
+      setPayoutAmount('');
+      await loadPayoutRequests(true);
+      await loadDashboard(true);
+    } catch {
+      toast.error('Ariza yuborishda xatolik');
+    } finally {
+      setPayoutSaving(false);
+    }
+  }, [loadDashboard, loadPayoutRequests, payoutAmount, payoutMethod, payoutSaving]);
 
   const loadDashboardLight = useCallback(
     async (silent = true) => {
@@ -1218,6 +1253,15 @@ export default function CourierDashboard() {
     }, 12000);
     return () => window.clearInterval(t);
   }, [loadPayoutRequests]);
+
+  useEffect(() => {
+    if (mobileSection === 'history') void loadPayoutRequests(false);
+  }, [mobileSection, loadPayoutRequests]);
+
+  const pendingPayoutRequests = useMemo(
+    () => payoutRequests.filter((r) => r.status === 'pending'),
+    [payoutRequests],
+  );
 
   const executeCourierPost = useCallback(
     async (
@@ -2289,30 +2333,15 @@ export default function CourierDashboard() {
                             </>
                           ) : null}
                         </div>
-                        {(order.pickupRackNumber || order.pickupRackName) ? (
-                          <div
-                            className="mb-2 inline-flex items-center gap-2 rounded-full px-3 py-1 text-[11px] font-semibold"
-                            style={{
-                              background: isDark ? 'rgba(16,185,129,0.16)' : 'rgba(16,185,129,0.12)',
-                              color: '#10b981',
-                            }}
-                          >
-                            <span>Rasta</span>
-                            <span>
-                              #{order.pickupRackNumber || '—'}
-                              {order.pickupRackName ? ` (${order.pickupRackName})` : ''}
-                            </span>
-                          </div>
-                        ) : null}
-                        <div className="flex items-center gap-2 text-sm mb-2">
-                          <MapPin className="w-4 h-4 shrink-0" style={{ color: accentColor.color }} />
-                          <span className="leading-snug">{getAddressLine(order)}</span>
-                        </div>
-                        {formatCustomerCoords(order) ? (
-                          <div className="text-xs mb-2" style={{ color: mutedTextColor }}>
-                            GPS: {formatCustomerCoords(order)}
-                          </div>
-                        ) : null}
+                        <CourierOrderLocationBlock
+                          order={order}
+                          isDark={isDark}
+                          accentColor={accentColor.color}
+                          mutedTextColor={mutedTextColor}
+                          textColor={textColor}
+                          onOpenPickupMap={() => openMap('pickup', order)}
+                          onOpenCustomerMap={() => openMap('customer', order)}
+                        />
                         {Array.isArray(order.items) && order.items.length > 0 && (
                           <div className="text-xs mb-2 p-2 rounded-xl" style={{ background: isDark ? 'rgba(255,255,255,0.05)' : 'rgba(0,0,0,0.04)' }}>
                             <p className="font-semibold mb-1" style={{ color: accentColor.color }}>Tarkib</p>
@@ -2515,6 +2544,104 @@ export default function CourierDashboard() {
                   </p>
                 </div>
 
+                <div
+                  className="rounded-2xl border p-4 space-y-3"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
+                    borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
+                    boxShadow: isDark ? '0 8px 24px rgba(0,0,0,0.28)' : '0 8px 24px rgba(0,0,0,0.06)',
+                  }}
+                >
+                  <div>
+                    <p className="font-bold text-lg">Pul olish arizasi</p>
+                    <p className="text-sm mt-1" style={{ color: mutedTextColor }}>
+                      Summa yozib yuboring — kassa «Oylik» bo‘limida ko‘radi va to‘lagach tasdiqlaydi.
+                    </p>
+                  </div>
+                  <p className="text-sm">
+                    Balans:{' '}
+                    <span className="font-bold tabular-nums">
+                      {Number(profile?.balance || 0).toLocaleString('uz-UZ')} so'm
+                    </span>
+                  </p>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    <div>
+                      <label className="text-xs font-semibold" style={{ color: mutedTextColor }}>
+                        Summa (so'm)
+                      </label>
+                      <input
+                        value={payoutAmount}
+                        onChange={(e) => setPayoutAmount(e.target.value)}
+                        className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+                        style={{
+                          background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                          borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                          color: textColor,
+                        }}
+                        placeholder="100000"
+                        inputMode="numeric"
+                      />
+                    </div>
+                    <div>
+                      <label className="text-xs font-semibold" style={{ color: mutedTextColor }}>
+                        Qanday olasiz?
+                      </label>
+                      <select
+                        value={payoutMethod}
+                        onChange={(e) => setPayoutMethod(e.target.value === 'card' ? 'card' : 'cash')}
+                        className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+                        style={{
+                          background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                          borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                          color: textColor,
+                        }}
+                      >
+                        <option value="cash">Naqd</option>
+                        <option value="card">Karta</option>
+                      </select>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    disabled={payoutSaving}
+                    onClick={() => void submitPayoutApplication()}
+                    className="w-full py-3 rounded-2xl font-semibold text-white inline-flex items-center justify-center gap-2 disabled:opacity-50"
+                    style={{ background: accentColor.gradient }}
+                  >
+                    {payoutSaving ? (
+                      <Loader2 className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Wallet className="w-4 h-4" />
+                    )}
+                    Ariza yuborish
+                  </button>
+                  {payoutListLoading ? (
+                    <p className="text-xs" style={{ color: mutedTextColor }}>
+                      Arizalar yuklanmoqda...
+                    </p>
+                  ) : pendingPayoutRequests.length > 0 ? (
+                    <div className="space-y-2 pt-1 border-t" style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}>
+                      <p className="text-xs font-semibold" style={{ color: mutedTextColor }}>
+                        Kutilayotgan arizalar
+                      </p>
+                      {pendingPayoutRequests.slice(0, 5).map((r) => (
+                        <div
+                          key={r.id}
+                          className="flex items-center justify-between gap-2 text-sm rounded-xl px-3 py-2"
+                          style={{ background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }}
+                        >
+                          <span className="font-semibold tabular-nums">
+                            {Number(r.amountUzs || 0).toLocaleString('uz-UZ')} so'm
+                          </span>
+                          <span className="text-xs" style={{ color: mutedTextColor }}>
+                            {r.requestedMethod === 'card' ? 'Karta' : 'Naqd'} · kutilmoqda
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
+
                 {deliveredHistoryGroups.length === 0 && cancelledHistoryGroups.length === 0 ? (
                   <div className="rounded-2xl p-6 text-center" style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff' }}>
                     <p className="font-semibold">Hali tarixda buyurtmalar yo‘q</p>
@@ -2560,9 +2687,22 @@ export default function CourierDashboard() {
                                     <span>{Math.max(1, Math.round((order.distanceKm || 0) * 6))} min</span>
                                   </div>
                                   <div className="text-sm flex items-center gap-2 mt-1" style={{ color: mutedTextColor }}>
-                                    <MapPin className="w-3.5 h-3.5" />
-                                    <span>{getAddressLine(order)}</span>
+                                    <span>{getOrderTypeText(order.orderType)}</span>
+                                    {order.merchantName ? (
+                                      <>
+                                        <span>·</span>
+                                        <span className="truncate">{order.merchantName}</span>
+                                      </>
+                                    ) : null}
                                   </div>
+                                  <CourierOrderLocationBlock
+                                    order={order}
+                                    isDark={isDark}
+                                    accentColor={accentColor.color}
+                                    mutedTextColor={mutedTextColor}
+                                    textColor={textColor}
+                                    compact
+                                  />
                                   <div className="text-xs flex items-center gap-1.5 mt-1.5" style={{ color: mutedTextColor }}>
                                     <Wallet className="w-3.5 h-3.5 shrink-0" style={{ color: '#10b981' }} />
                                     <span>
@@ -2651,9 +2791,15 @@ export default function CourierDashboard() {
                                         <Clock3 className="w-3.5 h-3.5" />
                                         <span>{historyTimeFormatter.format(when)}</span>
                                       </div>
-                                      <div className="text-sm flex items-center gap-2 mt-1" style={{ color: mutedTextColor }}>
-                                        <MapPin className="w-3.5 h-3.5" />
-                                        <span>{getAddressLine(order)}</span>
+                                      <div className="mt-2">
+                                        <CourierOrderLocationBlock
+                                          order={order}
+                                          isDark={isDark}
+                                          accentColor={accentColor.color}
+                                          mutedTextColor={mutedTextColor}
+                                          textColor={textColor}
+                                          compact
+                                        />
                                       </div>
                                     </div>
                                     <span
@@ -3610,7 +3756,6 @@ export default function CourierDashboard() {
                       : 'Aktiv buyurtma'}
                 </p>
                 <h2 className="text-xl font-bold">{activeOrder.orderNumber || activeOrder.id}</h2>
-                <p style={{ color: mutedTextColor }}>{getAddressLine(activeOrder)}</p>
               </div>
               <div className="text-right">
                 <p className="text-sm" style={{ color: mutedTextColor }}>Holat</p>
@@ -3621,6 +3766,16 @@ export default function CourierDashboard() {
               </div>
             </div>
 
+            <CourierOrderLocationBlock
+              order={activeOrder}
+              isDark={isDark}
+              accentColor={accentColor.color}
+              mutedTextColor={mutedTextColor}
+              textColor={textColor}
+              onOpenPickupMap={() => openMap('pickup', activeOrder)}
+              onOpenCustomerMap={() => openMap('customer', activeOrder)}
+            />
+
             <div className="grid md:grid-cols-2 gap-4 mb-5">
               <div className="rounded-2xl p-4" style={{ background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)' }}>
                 <div className="flex items-center gap-2 mb-2">
@@ -3630,10 +3785,6 @@ export default function CourierDashboard() {
                 <div className="flex items-center gap-2 mb-2">
                   <Phone className="w-4 h-4" style={{ color: accentColor.color }} />
                   <span>{activeOrder.customerPhone}</span>
-                </div>
-                <div className="flex items-center gap-2">
-                  <MapPin className="w-4 h-4" style={{ color: accentColor.color }} />
-                  <span>{getAddressLine(activeOrder)}</span>
                 </div>
               </div>
 
@@ -3957,20 +4108,19 @@ export default function CourierDashboard() {
                         <span>Do‘kon / restoran: {order.merchantName}</span>
                       </div>
                     ) : null}
+                    <CourierOrderLocationBlock
+                      order={order}
+                      isDark={isDark}
+                      accentColor={accentColor.color}
+                      mutedTextColor={mutedTextColor}
+                      textColor={textColor}
+                      onOpenPickupMap={() => openMap('pickup', order)}
+                      onOpenCustomerMap={() => openMap('customer', order)}
+                    />
                     <div className="flex items-center gap-2 text-sm">
                       <Phone className="w-4 h-4" style={{ color: accentColor.color }} />
                       <span>{order.customerPhone}</span>
                     </div>
-                    <div className="flex items-start gap-2 text-sm">
-                      <MapPin className="w-4 h-4 mt-0.5 shrink-0" style={{ color: accentColor.color }} />
-                      <span>{getAddressLine(order)}</span>
-                    </div>
-                    {formatCustomerCoords(order) ? (
-                      <div className="flex items-center gap-2 text-sm">
-                        <Navigation className="w-4 h-4 shrink-0" style={{ color: accentColor.color }} />
-                        <span>Mijoz GPS: {formatCustomerCoords(order)}</span>
-                      </div>
-                    ) : null}
                     {order.deliveryZone ? (
                       <div className="text-xs px-2 py-1.5 rounded-lg" style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)', color: mutedTextColor }}>
                         Yetkazish zonasi: {order.deliveryZone}

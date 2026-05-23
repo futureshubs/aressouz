@@ -10,6 +10,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import { getSaleSoldByLabel, soldByBadgeStyle, type SaleSoldByFields } from './sellerSaleSoldBy';
 
 type RangePreset = 'lastHour' | 'today' | 'week' | 'month' | 'year' | 'custom';
 type Kind = 'offline' | 'online';
@@ -21,7 +22,7 @@ type PosStats = {
   combined: { totalUzs: number; count: number; avgCheckUzs: number; platformCommissionUzs: number; sellerNetUzs: number; costUzs: number; grossProfitUzs: number };
 };
 
-type SaleDetailsRow = {
+type SaleDetailsRow = SaleSoldByFields & {
   id: string;
   kind: 'online' | 'offline';
   createdAt?: string;
@@ -318,7 +319,8 @@ export default function SellerHistoryPanel({ token, shopId, shopName, isDark, ac
       doc.text(`ID: ${String(sale.id ?? '')}`, 40, 66);
       doc.text(`Vaqt: ${sale.createdAt ? new Date(sale.createdAt).toLocaleString('uz-UZ') : ''}`, 40, 82);
       doc.text(`To‘lov: ${String(sale.paymentMethod ?? '')}`, 40, 98);
-      doc.text(`Turi: ${sale.kind === 'online' ? 'Online' : 'Offline'}`, 40, 114);
+      doc.text(`Sotuvchi: ${getSaleSoldByLabel(sale)}`, 40, 114);
+      doc.text(`Turi: ${sale.kind === 'online' ? 'Online' : 'Offline'}`, 40, 130);
 
       const items = Array.isArray(sale.items) ? sale.items : [];
       const body = items.map((it) => [
@@ -329,7 +331,7 @@ export default function SellerHistoryPanel({ token, shopId, shopName, isDark, ac
       ]);
 
       autoTable(doc, {
-        startY: 136,
+        startY: 152,
         head: [['Mahsulot', 'Variant', 'Soni', 'Summa']],
         body,
         styles: { fontSize: 9, cellPadding: 3 },
@@ -639,6 +641,18 @@ export default function SellerHistoryPanel({ token, shopId, shopName, isDark, ac
                           {r.createdAt ? new Date(r.createdAt).toLocaleString('uz-UZ') : ''}
                         </div>
                         <div className="mt-1 flex flex-wrap items-center gap-2">
+                          {(() => {
+                            const label = getSaleSoldByLabel(r);
+                            const badge = soldByBadgeStyle(isDark, r.soldByRole, accentColor.color);
+                            return (
+                              <span
+                                className="inline-flex items-center px-2.5 py-1 rounded-full text-[11px] font-bold border"
+                                style={badge}
+                              >
+                                {label}
+                              </span>
+                            );
+                          })()}
                           <span
                             className="px-2.5 py-1 rounded-full text-[11px] font-bold border"
                             style={{
@@ -768,6 +782,8 @@ export default function SellerHistoryPanel({ token, shopId, shopName, isDark, ac
                 <div className="text-lg font-extrabold truncate">Chek · #{String(selected.id || '').slice(-14)}</div>
                 <div className="text-xs mt-1" style={{ opacity: 0.75 }}>
                   {selected.createdAt ? new Date(selected.createdAt).toLocaleString('uz-UZ') : ''} · To‘lov: {String(selected.paymentMethod ?? '')}
+                  {' · Sotuvchi: '}
+                  <span className="font-semibold">{getSaleSoldByLabel(selected)}</span>
                 </div>
               </div>
               <button

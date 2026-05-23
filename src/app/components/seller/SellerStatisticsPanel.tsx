@@ -17,6 +17,7 @@ import {
   Pie,
   Cell,
 } from 'recharts';
+import { getSaleSoldByLabel, soldByBadgeStyle, type SaleSoldByFields } from './sellerSaleSoldBy';
 
 type RangePreset = 'today' | 'week' | 'month' | 'year' | 'custom';
 
@@ -33,7 +34,7 @@ type Props = {
   accentColor: { color: string; gradient: string };
 };
 
-type SaleDetailsRow = {
+type SaleDetailsRow = SaleSoldByFields & {
   id: string;
   kind: 'online' | 'offline';
   createdAt?: string;
@@ -254,6 +255,7 @@ export default function SellerStatisticsPanel({ token, isDark, accentColor }: Pr
       const details = await fetchAllDetailsForExport({ kind: 'all', capRows: 800 });
       const detailsBody = details.map((r) => [
         r.kind === 'online' ? 'Online' : 'Offline',
+        getSaleSoldByLabel(r),
         String(r.id ?? '').slice(-14),
         r.createdAt ? new Date(r.createdAt).toLocaleString('uz-UZ') : '',
         String(r.paymentMethod ?? ''),
@@ -266,7 +268,7 @@ export default function SellerStatisticsPanel({ token, isDark, accentColor }: Pr
 
       autoTable(doc, {
         startY: (doc as any).lastAutoTable?.finalY ? (doc as any).lastAutoTable.finalY + 18 : 420,
-        head: [['Turi', 'Chek', 'Vaqt', 'To‘lov', 'Jami', 'Platforma', 'Seller net', 'Tannarx', 'Sof foyda']],
+        head: [['Turi', 'Sotuvchi', 'Chek', 'Vaqt', 'To‘lov', 'Jami', 'Platforma', 'Seller net', 'Tannarx', 'Sof foyda']],
         body: detailsBody,
         styles: { fontSize: 8, cellPadding: 3 },
         headStyles: { fillColor: [30, 30, 30] },
@@ -327,6 +329,7 @@ export default function SellerStatisticsPanel({ token, isDark, accentColor }: Pr
           return [
             {
               kind,
+              soldBy: getSaleSoldByLabel(sale),
               saleId,
               createdAt,
               paymentMethod: payment,
@@ -349,6 +352,7 @@ export default function SellerStatisticsPanel({ token, isDark, accentColor }: Pr
 
         return items.map((it) => ({
           kind,
+          soldBy: getSaleSoldByLabel(sale),
           saleId,
           createdAt,
           paymentMethod: payment,
@@ -962,8 +966,23 @@ export default function SellerStatisticsPanel({ token, isDark, accentColor }: Pr
               >
                 <div className="flex flex-wrap items-start justify-between gap-2">
                   <div className="min-w-0">
-                    <div className="text-sm font-bold truncate">
-                      {r.kind === 'online' ? 'Online' : 'Offline'} · #{String(r.id || '').slice(-10)}
+                    <div className="flex flex-wrap items-center gap-2">
+                      <div className="text-sm font-bold truncate">
+                        {r.kind === 'online' ? 'Online' : 'Offline'} · #{String(r.id || '').slice(-10)}
+                      </div>
+                      {(() => {
+                        const label = getSaleSoldByLabel(r);
+                        const badge = soldByBadgeStyle(isDark, r.soldByRole, accentColor.color);
+                        return (
+                          <span
+                            className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold border shrink-0"
+                            style={badge}
+                            title={r.kind === 'offline' ? 'Kim sotgan' : 'Manba'}
+                          >
+                            {label}
+                          </span>
+                        );
+                      })()}
                     </div>
                     <div className="text-xs mt-0.5" style={{ opacity: 0.7 }}>
                       {r.createdAt ? new Date(r.createdAt).toLocaleString('uz-UZ') : ''}
