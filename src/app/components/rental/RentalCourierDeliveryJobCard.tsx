@@ -1,4 +1,5 @@
-import { MapPin, Camera, Loader2 } from 'lucide-react';
+import { Camera, Loader2 } from 'lucide-react';
+import { CourierOrderLocationBlock } from '../courier/CourierOrderLocationBlock';
 
 type RentalJob = Record<string, unknown>;
 
@@ -105,8 +106,22 @@ export function RentalCourierDeliveryJobCard({
   onDepositPhoto: (job: RentalJob, file: File) => void;
 }) {
   const id = String(job.id || '');
-  const deliveryAddr = String(job.deliveryAddress || job.address || '').trim();
   const pickupAddr = String(job.pickupAddress || '').trim();
+  const deliveryAddr = String(job.deliveryAddress || job.address || '').trim();
+  const locationOrder = {
+    orderType: 'rental',
+    productName: String(job.productName || 'Ijara'),
+    pickupAddress: pickupAddr,
+    customerAddress: deliveryAddr,
+    customerLocation:
+      job.customerLocation && typeof job.customerLocation === 'object'
+        ? (job.customerLocation as { lat: number; lng: number })
+        : null,
+    branchCoordinates:
+      job.pickupCoordinates && typeof job.pickupCoordinates === 'object'
+        ? (job.pickupCoordinates as { lat: number; lng: number })
+        : null,
+  };
 
   return (
     <div
@@ -131,25 +146,14 @@ export function RentalCourierDeliveryJobCard({
       ) : job.duration ? (
         <p className="text-xs opacity-80">{String(job.duration)}</p>
       ) : null}
-      {pickupAddr ? (
-        <p className="text-xs flex gap-1 font-medium" style={{ color: '#0d9488' }}>
-          <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span>
-            <span className="opacity-80">Olib ketish:</span> {pickupAddr}
-          </span>
-        </p>
-      ) : null}
-      {deliveryAddr ? (
-        <p className="text-xs flex gap-1" style={{ color: mutedTextColor }}>
-          <MapPin className="w-3.5 h-3.5 shrink-0 mt-0.5" />
-          <span>
-            <span className="font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.75)' : '#374151' }}>
-              Mijozga:
-            </span>{' '}
-            {deliveryAddr}
-          </span>
-        </p>
-      ) : null}
+      <CourierOrderLocationBlock
+        order={locationOrder}
+        isDark={isDark}
+        accentColor="#0d9488"
+        mutedTextColor={mutedTextColor}
+        textColor={isDark ? '#f9fafb' : '#111827'}
+        compact
+      />
       <RentalCourierDepositBlock
         job={job}
         isDark={isDark}
