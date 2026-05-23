@@ -1,10 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
-import { X, Phone, ArrowLeft, Loader2, CheckCircle2, User, Calendar, Users } from 'lucide-react';
-import { motion } from 'motion/react';
+import { X, ChevronLeft, Loader2, CheckCircle2, User, Calendar, Users } from 'lucide-react';
+import { motion, AnimatePresence } from 'motion/react';
+import { Link } from 'react-router';
 import { publicAnonKey, API_BASE_URL } from '../../../utils/supabase/info';
-import { useThemePalette } from '../hooks/useThemePalette';
+import { useTheme } from '../context/ThemeContext';
 
-const API_URL = API_BASE_URL; // Use local backend in development
+const API_URL = API_BASE_URL;
 
 interface SMSAuthModalProps {
   isOpen: boolean;
@@ -13,6 +14,26 @@ interface SMSAuthModalProps {
 }
 
 type AuthStep = 'phone' | 'code' | 'details' | 'loading' | 'success';
+
+function formatPhoneLocal(digits: string) {
+  const d = digits.replace(/\D/g, '').slice(0, 9);
+  if (d.length <= 2) return d;
+  if (d.length <= 5) return `${d.slice(0, 2)} ${d.slice(2)}`;
+  if (d.length <= 7) return `${d.slice(0, 2)} ${d.slice(2, 5)}-${d.slice(5)}`;
+  return `${d.slice(0, 2)} ${d.slice(2, 5)}-${d.slice(5, 7)}-${d.slice(7, 9)}`;
+}
+
+function formatPhoneSent(phone: string) {
+  const d = phone.replace(/\D/g, '');
+  if (d.length !== 12) return `+${d}`;
+  return `+998 ${d.slice(3, 5)} ${d.slice(5, 8)} ${d.slice(8, 10)} ${d.slice(10, 12)}`;
+}
+
+function formatCountdown(seconds: number) {
+  const m = Math.floor(seconds / 60);
+  const s = seconds % 60;
+  return `${m.toString().padStart(2, '0')}:${s.toString().padStart(2, '0')}`;
+}
 
 export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) {
   const [step, setStep] = useState<AuthStep>('phone');
@@ -25,14 +46,16 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(false);
   const [countdown, setCountdown] = useState(0);
-  const [isNewUser, setIsNewUser] = useState(false); // Track if user is new
+  const [isNewUser, setIsNewUser] = useState(false);
   const [kbInsetPx, setKbInsetPx] = useState(0);
-  
+  const [focusedOtp, setFocusedOtp] = useState(0);
+
   const codeInputsRef = useRef<(HTMLInputElement | null)[]>([]);
   const otpHiddenInputRef = useRef<HTMLInputElement | null>(null);
-  const { tc, isLight } = useThemePalette('android');
+  const phoneInputRef = useRef<HTMLInputElement | null>(null);
+  const { theme } = useTheme();
+  const isLight = theme === 'light';
 
-  // Read CSS keyboard inset into React state (for iOS/Telegram alignment).
   useEffect(() => {
     if (typeof window === 'undefined' || typeof document === 'undefined') return;
     if (!isOpen) return;
@@ -43,8 +66,7 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
     const readInset = () => {
       try {
         const raw = getComputedStyle(root).getPropertyValue('--kb-inset').trim();
-        const px = Math.max(0, Math.round(parseFloat(raw) || 0));
-        setKbInsetPx(px);
+        setKbInsetPx(Math.max(0, Math.round(parseFloat(raw) || 0)));
       } catch {
         setKbInsetPx(0);
       }
@@ -71,7 +93,15 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
     };
   }, [isOpen]);
 
-  // SMS OTP auto-read (WebOTP on supported browsers)
+  useEffect(() => {
+    if (!isOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = 'hidden';
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, [isOpen]);
+
   useEffect(() => {
     if (!isOpen) return;
     if (step !== 'code') return;
@@ -89,19 +119,16 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         });
         const otp = String(cred?.code || '').replace(/\D/g, '').slice(0, 6);
         if (otp.length !== 6) return;
-        const digits = otp.split('');
-        setCode(digits);
-        // Trigger verify immediately
+        setCode(otp.split(''));
         handleVerifyCode(otp);
       } catch {
-        // ignore (unsupported, cancelled, timeout, or webview limitations)
+        /* ignore */
       }
     })();
 
     return () => ac.abort();
   }, [isOpen, step]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  // Countdown timer for resend
   useEffect(() => {
     if (countdown > 0) {
       const timer = setTimeout(() => setCountdown(countdown - 1), 1000);
@@ -110,7 +137,6 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
     return undefined;
   }, [countdown]);
 
-  // Reset modal state when closed
   useEffect(() => {
     if (!isOpen) {
       setTimeout(() => {
@@ -125,36 +151,30 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         setLoading(false);
         setCountdown(0);
         setIsNewUser(false);
+        setFocusedOtp(0);
       }, 300);
     }
   }, [isOpen]);
 
+  useEffect(() => {
+    if (isOpen && step === 'phone') {
+      setTimeout(() => phoneInputRef.current?.focus(), 120);
+    }
+  }, [isOpen, step]);
+
   if (!isOpen) return null;
 
-  const formatPhoneDisplay = (value: string) => {
-    // Format: +998 (XX) XXX-XX-XX
-    const cleaned = value.replace(/\D/g, '');
-    if (cleaned.length === 0) return '+998 ';
-    if (cleaned.length <= 3) return `+998 `;
-    if (cleaned.length <= 5) return `+998 (${cleaned.slice(3)})`;
-    if (cleaned.length <= 8) return `+998 (${cleaned.slice(3, 5)}) ${cleaned.slice(5)}`;
-    return `+998 (${cleaned.slice(3, 5)}) ${cleaned.slice(5, 8)}-${cleaned.slice(8, 10)}-${cleaned.slice(10, 12)}`;
-  };
+  const phoneLocal = phone.startsWith('998') ? phone.slice(3) : phone.replace(/\D/g, '').slice(3);
 
-  const handlePhoneChange = (value: string) => {
-    const cleaned = value.replace(/\D/g, '');
-    if (cleaned.startsWith('998')) {
-      setPhone(cleaned);
-    } else if (cleaned.length > 0) {
-      setPhone('998' + cleaned);
-    } else {
-      setPhone('998');
-    }
+  const handlePhoneLocalChange = (value: string) => {
+    const cleaned = value.replace(/\D/g, '').slice(0, 9);
+    setPhone(cleaned.length > 0 ? `998${cleaned}` : '');
+    setError('');
   };
 
   const sendSMS = async () => {
     setError('');
-    
+
     if (phone.length !== 12) {
       setError('Telefon raqam to\'liq emas');
       return;
@@ -167,8 +187,8 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'apikey': publicAnonKey,
+          Authorization: `Bearer ${publicAnonKey}`,
+          apikey: publicAnonKey,
         },
         body: JSON.stringify({ phone }),
       });
@@ -180,7 +200,7 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       }
 
       setStep('code');
-      setCountdown(300); // 5 minutes
+      setCountdown(300);
       setTimeout(() => codeInputsRef.current[0]?.focus(), 100);
     } catch (err: any) {
       console.error('Send SMS error:', err);
@@ -191,39 +211,74 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
   };
 
   const handleCodeChange = (index: number, value: string) => {
-    // Only allow numeric input
-    if (!/^\d*$/.test(value)) {
+    const cleaned = value.replace(/\D/g, '');
+    if (!cleaned) {
+      const cleared = [...code];
+      cleared[index] = '';
+      setCode(cleared);
+      setError('');
       return;
     }
 
-    if (value.length > 1) {
-      value = value.slice(0, 1);
+    if (cleaned.length > 1) {
+      const next = [...code];
+      let cursor = index;
+      for (const ch of cleaned.slice(0, 6 - index)) {
+        next[cursor] = ch;
+        cursor += 1;
+      }
+      setCode(next);
+      setError('');
+      const joined = next.join('');
+      if (joined.length === 6) {
+        handleVerifyCode(joined);
+      } else {
+        codeInputsRef.current[Math.min(cursor, 5)]?.focus();
+        setFocusedOtp(Math.min(cursor, 5));
+      }
+      return;
     }
 
     const newCode = [...code];
-    newCode[index] = value;
+    newCode[index] = cleaned;
     setCode(newCode);
+    setError('');
 
-    // Auto-focus next input
-    if (value && index < 5) {
+    if (index < 5) {
       codeInputsRef.current[index + 1]?.focus();
+      setFocusedOtp(index + 1);
     }
 
-    // Auto-submit when all 6 digits entered
-    if (index === 5 && value && newCode.every(c => c !== '')) {
+    if (index === 5 && newCode.every((c) => c !== '')) {
       handleVerifyCode(newCode.join(''));
+    }
+  };
+
+  const handleCodePaste = (e: React.ClipboardEvent) => {
+    e.preventDefault();
+    const otp = e.clipboardData.getData('text').replace(/\D/g, '').slice(0, 6);
+    if (!otp) return;
+    const digits = [...otp.split(''), ...Array(6).fill('')].slice(0, 6);
+    setCode(digits);
+    setError('');
+    if (otp.length === 6) {
+      handleVerifyCode(otp);
+    } else {
+      codeInputsRef.current[otp.length]?.focus();
+      setFocusedOtp(otp.length);
     }
   };
 
   const handleCodeKeyDown = (index: number, e: React.KeyboardEvent) => {
     if (e.key === 'Backspace' && !code[index] && index > 0) {
       codeInputsRef.current[index - 1]?.focus();
+      setFocusedOtp(index - 1);
     }
   };
 
   const handleVerifyCode = async (codeValue?: string) => {
     const fullCode = codeValue || code.join('');
-    
+
     if (fullCode.length !== 6) {
       setError('Kodni to\'liq kiriting');
       return;
@@ -233,13 +288,12 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
     setLoading(true);
 
     try {
-      // First, try to sign in
       const response = await fetch(`${API_URL}/auth/sms/signin`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'apikey': publicAnonKey,
+          Authorization: `Bearer ${publicAnonKey}`,
+          apikey: publicAnonKey,
         },
         body: JSON.stringify({ phone, code: fullCode }),
       });
@@ -247,7 +301,6 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       const data = await response.json();
 
       if (!response.ok) {
-        // If user doesn't exist, switch to signup mode
         const notRegistered =
           data.code === 'SMS_USER_NOT_REGISTERED' ||
           String(data.error || '').includes('ro\'yxatdan o\'tmagan') ||
@@ -262,12 +315,11 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
           data.code === 'SMS_CODE_WRONG'
             ? 'Kod noto‘g‘ri. SMS dagi 6 raqamni tekshiring.'
             : data.code === 'SMS_CODE_EXPIRED' || data.code === 'SMS_CODE_MISSING'
-              ? 'Kod eskirgan yoki yuborilmagan. «Qayta yuborish» bilan yangi kod oling.'
+              ? 'Kod eskirgan yoki yuborilmagan. Qayta so‘rash bilan yangi kod oling.'
               : data.error || 'Kirishda xatolik';
         throw new Error(hint);
       }
 
-      // Sign in successful - show success animation
       setStep('loading');
       setTimeout(() => {
         setStep('success');
@@ -289,14 +341,11 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
       return;
     }
 
-    // Check minimum age (16 years)
     const today = new Date();
     const birth = new Date(birthDate);
     let age = today.getFullYear() - birth.getFullYear();
     const monthDiff = today.getMonth() - birth.getMonth();
-    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) {
-      age--;
-    }
+    if (monthDiff < 0 || (monthDiff === 0 && today.getDate() < birth.getDate())) age--;
 
     if (age < 16) {
       setError('Ro\'yxatdan o\'tish uchun kamida 16 yoshda bo\'lishingiz kerak');
@@ -311,8 +360,8 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
-          'Authorization': `Bearer ${publicAnonKey}`,
-          'apikey': publicAnonKey,
+          Authorization: `Bearer ${publicAnonKey}`,
+          apikey: publicAnonKey,
         },
         body: JSON.stringify({
           phone,
@@ -330,7 +379,6 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         throw new Error(data.error || 'Ro\'yxatdan o\'tishda xatolik');
       }
 
-      // Show loading animation
       setStep('loading');
       setTimeout(() => {
         setStep('success');
@@ -347,120 +395,133 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
     }
   };
 
+  const handleBack = () => {
+    setError('');
+    if (step === 'code') setStep('phone');
+    if (step === 'details') setStep('code');
+  };
+
+  const pillBg = isLight ? '#f3f4f6' : 'rgba(255,255,255,0.08)';
+  const otpBoxBg = isLight ? '#f3f4f6' : 'rgba(255,255,255,0.1)';
+
+  const renderError = () =>
+    error ? (
+      <p className={`text-center text-sm ${isLight ? 'text-red-600' : 'text-red-400'}`}>{error}</p>
+    ) : null;
+
   const renderPhoneStep = () => (
     <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      className="space-y-6"
+      key="phone"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -12 }}
+      transition={{ duration: 0.25 }}
+      className="mx-auto flex w-full max-w-md flex-1 flex-col"
     >
-      <div className="text-center" style={{ color: tc.text.primary }}>
-        <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-[var(--accent-color)]/10 flex items-center justify-center">
-          <Phone className="w-10 h-10 text-[var(--accent-color)]" />
-        </div>
-        <h2 className="text-3xl font-bold mb-2" style={{ color: tc.text.primary }}>
-          {isNewUser ? 'Ro\'yxatdan o\'tish' : 'Kirish'}
-        </h2>
-        <p style={{ color: tc.text.secondary }}>Telefon raqamingizni kiriting</p>
-      </div>
+      <div className="flex flex-1 flex-col justify-center pt-6">
+        <h1 className="mb-2 text-center text-[26px] font-bold leading-tight tracking-tight text-foreground">
+          Telefon raqamingizni kiriting
+        </h1>
+        <p className="mb-10 text-center text-[15px] text-muted-foreground">
+          Kirish yoki ro&apos;yxatdan o&apos;tish uchun
+        </p>
 
-      <div className="space-y-4">
-        <div>
-          <label className="block mb-2 text-sm font-medium" style={{ color: tc.text.secondary }}>
-            Telefon raqam
-          </label>
+        <div
+          className="flex items-center gap-2.5 rounded-[20px] px-4 py-[18px]"
+          style={{ background: pillBg }}
+        >
+          <span className="text-[22px] leading-none" aria-hidden>
+            🇺🇿
+          </span>
+          <span className="shrink-0 text-[17px] font-medium text-foreground">+998</span>
           <input
+            ref={phoneInputRef}
             type="tel"
-            value={formatPhoneDisplay(phone)}
-            onChange={(e) => handlePhoneChange(e.target.value)}
-            placeholder="+998 (XX) XXX-XX-XX"
-            className="w-full px-4 py-4 border-2 rounded-2xl text-lg text-center tracking-wider focus:border-[var(--accent-color)] focus:outline-none transition-all"
-            style={{
-              background: tc.input.background,
-              borderColor: tc.input.border,
-              color: tc.text.primary,
-            }}
-            maxLength={20}
+            inputMode="numeric"
+            autoComplete="tel-national"
+            value={formatPhoneLocal(phoneLocal)}
+            onChange={(e) => handlePhoneLocalChange(e.target.value)}
+            placeholder="00 000-00-00"
+            className="min-w-0 flex-1 bg-transparent text-[17px] font-medium text-foreground outline-none placeholder:text-muted-foreground/70"
           />
         </div>
 
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-center ${isLight ? 'text-red-600' : 'text-red-400'}`}
-          >
-            {error}
-          </motion.div>
-        )}
+        {renderError()}
+      </div>
 
+      <div className="shrink-0 space-y-4 pb-2 pt-6">
         <button
+          type="button"
           onClick={sendSMS}
           disabled={loading || phone.length !== 12}
-          className="w-full py-4 bg-[var(--accent-color)] text-white rounded-2xl font-semibold text-lg shadow-lg disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-xl transition-all"
+          className="flex w-full items-center justify-center gap-2 rounded-[20px] bg-[var(--accent-color)] py-[18px] text-[17px] font-bold text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
         >
           {loading ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 className="w-5 h-5 animate-spin" />
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
               Yuborilmoqda...
-            </span>
+            </>
           ) : (
-            'SMS yuborish'
+            'Kodni olish'
           )}
         </button>
+
+        <p className="px-2 text-center text-[12px] leading-relaxed text-muted-foreground">
+          Tugmani bosish orqali quyidagiga rozilik berasiz:{' '}
+          <Link
+            to="/docs/terms"
+            onClick={onClose}
+            className="font-medium underline underline-offset-2"
+            style={{ color: 'var(--accent-color)' }}
+          >
+            savdo maydonchasidan foydalanish qoidalariga rozilik beraman.
+          </Link>
+        </p>
       </div>
     </motion.div>
   );
 
   const renderCodeStep = () => (
     <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      className="space-y-6"
+      key="code"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -12 }}
+      transition={{ duration: 0.25 }}
+      className="mx-auto flex w-full max-w-md flex-1 flex-col pt-4"
     >
-      <button
-        type="button"
-        onClick={() => setStep('phone')}
-        className="flex items-center gap-2 transition-colors"
-        style={{ color: tc.text.secondary }}
-      >
-        <ArrowLeft className="w-5 h-5" />
-        Orqaga
-      </button>
-
-      <div className="text-center">
-        <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-[var(--accent-color)]/10 flex items-center justify-center">
-          <Phone className="w-10 h-10 text-[var(--accent-color)]" />
-        </div>
-        <h2 className="text-3xl font-bold mb-2" style={{ color: tc.text.primary }}>
-          Kodni kiriting
-        </h2>
-        <p style={{ color: tc.text.secondary }}>
-          {formatPhoneDisplay(phone)} raqamiga yuborilgan 6 raqamli kodni kiriting
+      <div className="flex-1">
+        <h1 className="mb-3 text-[26px] font-bold leading-tight tracking-tight text-foreground">
+          Sms xabardagi kodni kiriting
+        </h1>
+        <p className="mb-10 text-[15px] text-muted-foreground">
+          <span className="font-medium text-foreground">{formatPhoneSent(phone)}</span> ga yubordik
         </p>
-      </div>
 
-      <div className="space-y-4">
-        {/* Hidden OTP input (iOS/Android autofill hint) */}
         <input
           ref={otpHiddenInputRef}
           value={code.join('')}
           onChange={(e) => {
             const otp = String(e.target.value || '').replace(/\D/g, '').slice(0, 6);
-            if (otp.length !== 6) return;
-            const digits = otp.split('');
+            if (otp.length === 0) {
+              setCode(['', '', '', '', '', '']);
+              return;
+            }
+            const digits = [...otp.split(''), ...Array(6).fill('')].slice(0, 6);
             setCode(digits);
-            handleVerifyCode(otp);
+            if (otp.length === 6) handleVerifyCode(otp);
           }}
           inputMode="numeric"
           autoComplete="one-time-code"
           aria-hidden="true"
           tabIndex={-1}
-          className="absolute opacity-0 pointer-events-none w-0 h-0"
+          className="sr-only"
         />
 
-        <div className="flex justify-center gap-2">
+        <div
+          className="relative flex items-center justify-between gap-1.5 sm:gap-2"
+          onPaste={handleCodePaste}
+        >
           {code.map((digit, index) => (
             <input
               key={index}
@@ -470,227 +531,155 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
               type="text"
               inputMode="numeric"
               pattern="[0-9]*"
-              autoComplete={index === 0 ? 'one-time-code' : 'off'}
+              autoComplete="off"
               maxLength={1}
               value={digit}
               onChange={(e) => handleCodeChange(index, e.target.value)}
               onKeyDown={(e) => handleCodeKeyDown(index, e)}
-              onFocus={() => {
-                // Encourage OS OTP autofill to target our hidden one-time-code field
-                otpHiddenInputRef.current?.focus();
-                // then keep UX on the visible cell
-                requestAnimationFrame(() => codeInputsRef.current[index]?.focus());
-              }}
-              className="w-12 h-14 border-2 rounded-2xl text-2xl text-center focus:border-[var(--accent-color)] focus:outline-none transition-all"
+              onFocus={() => setFocusedOtp(index)}
+              className="h-[52px] w-[46px] shrink-0 rounded-[14px] text-center text-[22px] font-semibold text-foreground caret-[var(--accent-color)] outline-none transition-all sm:h-[56px] sm:w-[50px] sm:text-[24px]"
               style={{
-                background: tc.input.background,
-                borderColor: tc.input.border,
-                color: tc.text.primary,
+                background: otpBoxBg,
+                boxShadow:
+                  focusedOtp === index
+                    ? '0 0 0 2px var(--accent-color)'
+                    : digit
+                      ? 'inset 0 0 0 1px rgba(0,0,0,0.04)'
+                      : 'none',
               }}
             />
           ))}
+
+          {loading ? (
+            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/40">
+              <Loader2 className="h-7 w-7 animate-spin text-[var(--accent-color)]" />
+            </div>
+          ) : null}
         </div>
 
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-center ${isLight ? 'text-red-600' : 'text-red-400'}`}
-          >
-            {error}
-          </motion.div>
-        )}
-
-        {countdown > 0 && (
-          <div className="text-center text-sm" style={{ color: tc.text.tertiary }}>
-            Qayta yuborish: {Math.floor(countdown / 60)}:{(countdown % 60).toString().padStart(2, '0')}
-          </div>
-        )}
-
-        <button
-          onClick={() => sendSMS()}
-          disabled={loading || countdown > 0}
-          className="w-full py-3 text-[var(--accent-color)] font-medium disabled:opacity-50 disabled:cursor-not-allowed hover:underline transition-all"
-        >
-          Kodni qayta yuborish
-        </button>
-
-        <button
-          onClick={() => handleVerifyCode()}
-          disabled={loading || code.some(c => c === '')}
-          className="w-full py-4 bg-[var(--accent-color)] text-white rounded-2xl font-semibold text-lg shadow-lg disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-xl transition-all"
-        >
-          {loading ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Tekshirilmoqda...
-            </span>
+        <div className="mt-8 text-center">
+          {countdown > 0 ? (
+            <p className="text-[14px] text-muted-foreground">
+              {formatCountdown(countdown)} dan keyin kodni qayta so&apos;rash
+            </p>
           ) : (
-            'Davom etish'
+            <button
+              type="button"
+              onClick={() => sendSMS()}
+              disabled={loading}
+              className="text-[14px] font-semibold text-[var(--accent-color)] disabled:opacity-40"
+            >
+              Kodni qayta so&apos;rash
+            </button>
           )}
-        </button>
+        </div>
+
+        {renderError()}
       </div>
     </motion.div>
   );
 
+  const fieldClass =
+    'w-full rounded-[16px] px-4 py-3.5 text-[16px] outline-none transition-all focus:ring-2 focus:ring-[var(--accent-color)]/25';
+
   const renderDetailsStep = () => (
     <motion.div
-      initial={{ opacity: 0, x: 20 }}
-      animate={{ opacity: 1, x: 0 }}
-      exit={{ opacity: 0, x: -20 }}
-      className="space-y-6"
+      key="details"
+      initial={{ opacity: 0, y: 12 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, y: -12 }}
+      transition={{ duration: 0.25 }}
+      className="mx-auto flex w-full max-w-md flex-1 flex-col pt-4"
     >
-      <button
-        type="button"
-        onClick={() => setStep('code')}
-        className="flex items-center gap-2 transition-colors"
-        style={{ color: tc.text.secondary }}
-      >
-        <ArrowLeft className="w-5 h-5" />
-        Orqaga
-      </button>
+      <div className="flex-1">
+        <h1 className="mb-3 text-[26px] font-bold leading-tight text-foreground">Ma&apos;lumotlaringiz</h1>
+        <p className="mb-8 text-[15px] text-muted-foreground">
+          Profilni yakunlash uchun shaxsiy ma&apos;lumotlarni kiriting
+        </p>
 
-      <div className="text-center">
-        <div className="w-20 h-20 mx-auto mb-6 rounded-full bg-[var(--accent-color)]/10 flex items-center justify-center">
-          <User className="w-10 h-10 text-[var(--accent-color)]" />
+        <div className="space-y-4">
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="mb-2 block text-[13px] font-medium text-muted-foreground">Ism</label>
+              <input
+                type="text"
+                value={firstName}
+                onChange={(e) => setFirstName(e.target.value)}
+                placeholder="Ismingiz"
+                className={fieldClass}
+                style={{ background: pillBg }}
+              />
+            </div>
+            <div>
+              <label className="mb-2 block text-[13px] font-medium text-muted-foreground">Familya</label>
+              <input
+                type="text"
+                value={lastName}
+                onChange={(e) => setLastName(e.target.value)}
+                placeholder="Familyangiz"
+                className={fieldClass}
+                style={{ background: pillBg }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-[13px] font-medium text-muted-foreground">Tug&apos;ilgan kun</label>
+            <div className="relative">
+              <Calendar className="pointer-events-none absolute left-4 top-1/2 h-5 w-5 -translate-y-1/2 text-muted-foreground" />
+              <input
+                type="date"
+                value={birthDate}
+                onChange={(e) => setBirthDate(e.target.value)}
+                autoComplete="bday"
+                max={new Date().toISOString().slice(0, 10)}
+                className={`${fieldClass} pl-12`}
+                style={{ background: pillBg }}
+              />
+            </div>
+          </div>
+
+          <div>
+            <label className="mb-2 block text-[13px] font-medium text-muted-foreground">Jins</label>
+            <div className="grid grid-cols-2 gap-3">
+              {(['male', 'female'] as const).map((value) => {
+                const active = gender === value;
+                return (
+                  <button
+                    key={value}
+                    type="button"
+                    onClick={() => setGender(value)}
+                    className={`rounded-[16px] px-4 py-3.5 text-[15px] font-semibold transition-all active:scale-[0.98] ${
+                      active ? 'bg-[var(--accent-color)] text-white' : 'text-muted-foreground'
+                    }`}
+                    style={active ? undefined : { background: pillBg }}
+                  >
+                    <span className="flex items-center justify-center gap-2">
+                      <Users className="h-5 w-5" />
+                      {value === 'male' ? 'Erkak' : 'Ayol'}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </div>
         </div>
-        <h2 className="text-3xl font-bold mb-2" style={{ color: tc.text.primary }}>
-          Ma'lumotlarni to'ldiring
-        </h2>
-        <p style={{ color: tc.text.secondary }}>Iltimos, shaxsiy ma'lumotlaringizni kiriting</p>
+
+        {renderError()}
       </div>
 
-      <div className="space-y-4">
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <label className="block mb-2 text-sm font-medium" style={{ color: tc.text.secondary }}>
-              Ism
-            </label>
-            <input
-              type="text"
-              value={firstName}
-              onChange={(e) => setFirstName(e.target.value)}
-              placeholder="Ismingiz"
-              className="w-full px-4 py-3 border-2 rounded-2xl focus:border-[var(--accent-color)] focus:outline-none transition-all placeholder:text-gray-400"
-              style={{
-                background: tc.input.background,
-                borderColor: tc.input.border,
-                color: tc.text.primary,
-              }}
-            />
-          </div>
-          <div>
-            <label className="block mb-2 text-sm font-medium" style={{ color: tc.text.secondary }}>
-              Familya
-            </label>
-            <input
-              type="text"
-              value={lastName}
-              onChange={(e) => setLastName(e.target.value)}
-              placeholder="Familyangiz"
-              className="w-full px-4 py-3 border-2 rounded-2xl focus:border-[var(--accent-color)] focus:outline-none transition-all placeholder:text-gray-400"
-              style={{
-                background: tc.input.background,
-                borderColor: tc.input.border,
-                color: tc.text.primary,
-              }}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block mb-2 text-sm font-medium" style={{ color: tc.text.secondary }}>
-            Tug'ilgan kun
-          </label>
-          <div className="relative pl-12">
-            <Calendar className="absolute left-4 top-1/2 -translate-y-1/2 w-5 h-5 z-10" style={{ color: tc.text.tertiary }} />
-            <input
-              type="date"
-              value={birthDate}
-              onChange={(e) => setBirthDate(e.target.value)}
-              inputMode="numeric"
-              autoComplete="bday"
-              max={new Date().toISOString().slice(0, 10)}
-              className="w-full px-4 py-3 border-2 rounded-2xl focus:border-[var(--accent-color)] focus:outline-none transition-all"
-              style={{
-                background: tc.input.background,
-                borderColor: tc.input.border,
-                color: tc.text.primary,
-              }}
-            />
-          </div>
-        </div>
-
-        <div>
-          <label className="block mb-2 text-sm font-medium" style={{ color: tc.text.secondary }}>
-            Jins
-          </label>
-          <div className="grid grid-cols-2 gap-3">
-            <button
-              type="button"
-              onClick={() => setGender('male')}
-              className={`py-3 px-4 rounded-2xl font-medium transition-all border-2 ${
-                gender === 'male' ? 'bg-[var(--accent-color)] text-white shadow-lg border-transparent' : ''
-              }`}
-              style={
-                gender === 'male'
-                  ? undefined
-                  : {
-                      background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)',
-                      borderColor: tc.border.primary,
-                      color: tc.text.secondary,
-                    }
-              }
-            >
-              <div className="flex items-center justify-center gap-2">
-                <Users className="w-5 h-5" />
-                Erkak
-              </div>
-            </button>
-            <button
-              type="button"
-              onClick={() => setGender('female')}
-              className={`py-3 px-4 rounded-2xl font-medium transition-all border-2 ${
-                gender === 'female' ? 'bg-[var(--accent-color)] text-white shadow-lg border-transparent' : ''
-              }`}
-              style={
-                gender === 'female'
-                  ? undefined
-                  : {
-                      background: isLight ? 'rgba(0,0,0,0.04)' : 'rgba(255,255,255,0.06)',
-                      borderColor: tc.border.primary,
-                      color: tc.text.secondary,
-                    }
-              }
-            >
-              <div className="flex items-center justify-center gap-2">
-                <Users className="w-5 h-5" />
-                Ayol
-              </div>
-            </button>
-          </div>
-        </div>
-
-        {error && (
-          <motion.div
-            initial={{ opacity: 0, y: -10 }}
-            animate={{ opacity: 1, y: 0 }}
-            className={`p-3 bg-red-500/10 border border-red-500/20 rounded-xl text-sm text-center ${isLight ? 'text-red-600' : 'text-red-400'}`}
-          > 
-            {error}
-          </motion.div>
-        )}
-
+      <div className="shrink-0 pb-2 pt-8">
         <button
+          type="button"
           onClick={handleSubmitDetails}
           disabled={loading}
-          className="w-full py-4 bg-[var(--accent-color)] text-white rounded-2xl font-semibold text-lg shadow-lg disabled:opacity-50 disabled:cursor-not-allowed hover:shadow-xl transition-all"
+          className="flex w-full items-center justify-center gap-2 rounded-[20px] bg-[var(--accent-color)] py-[18px] text-[17px] font-bold text-white transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-45"
         >
           {loading ? (
-            <span className="flex items-center justify-center gap-2">
-              <Loader2 className="w-5 h-5 animate-spin" />
-              Ro'yxatdan o'tilmoqda...
-            </span>
+            <>
+              <Loader2 className="h-5 w-5 animate-spin" />
+              Ro&apos;yxatdan o&apos;tilmoqda...
+            </>
           ) : (
             'Ro\'yxatdan o\'tish'
           )}
@@ -701,133 +690,85 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
 
   const renderLoadingStep = () => (
     <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
-      animate={{ opacity: 1, scale: 1 }}
-      className="flex flex-col items-center justify-center py-12"
+      key="loading"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      className="flex flex-1 flex-col items-center justify-center py-16"
     >
-      <motion.div
-        animate={{
-          rotate: 360,
-        }}
-        transition={{
-          duration: 1,
-          repeat: Infinity,
-          ease: 'linear',
-        }}
-        className="w-24 h-24 rounded-full border-4 border-[var(--accent-color)]/20 border-t-[var(--accent-color)] mb-6"
-      />
-      <h3 className="text-2xl font-bold mb-2" style={{ color: tc.text.primary }}>
+      <Loader2 className="mb-6 h-12 w-12 animate-spin text-[var(--accent-color)]" />
+      <h2 className="mb-2 text-xl font-bold text-foreground">
         {isNewUser ? 'Ro\'yxatdan o\'tilmoqda...' : 'Kirilmoqda...'}
-      </h3>
-      <p className="text-center" style={{ color: tc.text.secondary }}>
-        Iltimos, kuting
-      </p>
+      </h2>
+      <p className="text-muted-foreground">Iltimos, kuting</p>
     </motion.div>
   );
 
   const renderSuccessStep = () => (
     <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
+      key="success"
+      initial={{ opacity: 0, scale: 0.96 }}
       animate={{ opacity: 1, scale: 1 }}
-      className="flex flex-col items-center justify-center py-12"
+      className="flex flex-1 flex-col items-center justify-center py-16"
     >
-      <motion.div
-        initial={{ scale: 0 }}
-        animate={{ scale: 1 }}
-        transition={{
-          type: 'spring',
-          stiffness: 200,
-          damping: 15,
-        }}
-        className="w-24 h-24 rounded-full bg-green-500/20 flex items-center justify-center mb-6"
-      >
-        <CheckCircle2 className="w-16 h-16 text-green-500" />
-      </motion.div>
-      <motion.h3
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.2 }}
-        className="text-3xl font-bold mb-2"
-        style={{ color: tc.text.primary }}
-      >
-        Xush kelibsiz! 🎉
-      </motion.h3>
-      <motion.p
-        initial={{ opacity: 0, y: 20 }}
-        animate={{ opacity: 1, y: 0 }}
-        transition={{ delay: 0.3 }}
-        className="text-center"
-        style={{ color: tc.text.secondary }}
-      >
+      <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-green-500/15">
+        <CheckCircle2 className="h-12 w-12 text-green-500" />
+      </div>
+      <h2 className="mb-2 text-[26px] font-bold text-foreground">Xush kelibsiz!</h2>
+      <p className="text-center text-muted-foreground">
         Muvaffaqiyatli {isNewUser ? 'ro\'yxatdan o\'tdingiz' : 'kirdingiz'}
-      </motion.p>
+      </p>
     </motion.div>
   );
+
+  const showNav = step === 'phone' || step === 'code' || step === 'details';
 
   return (
     <motion.div
       initial={{ opacity: 0 }}
       animate={{ opacity: 1 }}
       exit={{ opacity: 0 }}
-      className={`fixed inset-0 app-safe-pad z-[100] flex justify-center backdrop-blur-sm p-4 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch] ${
-        kbInsetPx > 20 ? 'items-start' : 'items-center'
-      }`}
+      className="fixed inset-0 z-[120] flex flex-col bg-background text-foreground"
       style={{
-        background: tc.backdrop,
-        // Make the scroll container match the *visible* viewport.
         minHeight: 'var(--app-viewport-height, 100dvh)',
-        // Telegram WebApp top bar can be taller than safe-area on some devices.
-        paddingTop: 'calc(1rem + var(--app-safe-top, 0px))',
-        paddingBottom: 'calc(1rem + var(--kb-inset, 0px) + var(--app-safe-bottom, 0px))',
-      }}
-      onClick={(e) => {
-        if (e.target === e.currentTarget) onClose();
+        paddingTop: 'var(--app-safe-top, env(safe-area-inset-top, 0px))',
+        paddingBottom: `calc(var(--app-safe-bottom, env(safe-area-inset-bottom, 0px)) + ${kbInsetPx}px)`,
       }}
     >
-      <motion.div
-        initial={{ scale: 0.95, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        exit={{ scale: 0.95, opacity: 0 }}
-        className="relative w-full max-w-md rounded-3xl overflow-hidden border"
-        style={{
-          background: tc.background.modal,
-          borderColor: tc.border.primary,
-          boxShadow: tc.shadow.xl,
-          // Keep modal within the *visible* viewport when keyboard is open.
-          maxHeight:
-            'min(900px, calc(var(--app-viewport-height, 100dvh) - var(--app-safe-top, 0px) - var(--app-safe-bottom, 0px) - 2rem - var(--kb-inset, 0px)))',
-          // When keyboard opens we use items-start; keep transform neutral.
-          transform: 'translateY(0px)',
-        }}
-      >
-        {/* Close Button */}
-        <button
-          type="button"
-          onClick={onClose}
-          className="absolute top-6 right-6 w-10 h-10 rounded-full flex items-center justify-center transition-all z-10"
-          style={{
-            background: isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.08)',
-          }}
-        >
-          <X className="w-5 h-5" style={{ color: tc.text.primary }} />
-        </button>
+      {showNav && (
+        <header className="flex h-14 shrink-0 items-center justify-between px-4">
+          {step === 'code' || step === 'details' ? (
+            <button
+              type="button"
+              onClick={handleBack}
+              aria-label="Orqaga"
+              className="flex h-10 w-10 items-center justify-center transition-opacity active:opacity-60"
+            >
+              <ChevronLeft className="h-7 w-7 text-[var(--accent-color)]" strokeWidth={2.2} />
+            </button>
+          ) : (
+            <span className="w-10" />
+          )}
 
-        {/* Content */}
-        <div
-          className="p-8 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]"
-          style={{
-            maxHeight:
-              'calc(var(--app-viewport-height, 100dvh) - var(--app-safe-top, 0px) - var(--app-safe-bottom, 0px) - 120px - var(--kb-inset, 0px))',
-            paddingBottom: 'calc(1rem + var(--kb-inset, 0px) + var(--app-safe-bottom, 0px))',
-          }}
-        >
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Yopish"
+            className="flex h-10 w-10 items-center justify-center transition-opacity active:opacity-60"
+          >
+            <X className="h-6 w-6 text-[var(--accent-color)]" strokeWidth={2.2} />
+          </button>
+        </header>
+      )}
+
+      <div className="flex min-h-0 flex-1 flex-col overflow-y-auto overscroll-y-contain px-5 sm:px-6 [-webkit-overflow-scrolling:touch]">
+        <AnimatePresence mode="wait">
           {step === 'phone' && renderPhoneStep()}
           {step === 'code' && renderCodeStep()}
           {step === 'details' && renderDetailsStep()}
           {step === 'loading' && renderLoadingStep()}
           {step === 'success' && renderSuccessStep()}
-        </div>
-      </motion.div>
+        </AnimatePresence>
+      </div>
     </motion.div>
   );
 }

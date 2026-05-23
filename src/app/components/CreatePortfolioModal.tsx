@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { X, Upload, Plus, Trash2, Camera, Video, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { ProfessionPicker } from './ProfessionPicker';
+import { PROFESSION_OTHER, resolveProfessionForForm } from '../data/serviceProfessions';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -109,30 +111,6 @@ const districtsByRegion: Record<string, string[]> = {
   ],
 };
 
-const professions = [
-  'Santexnik',
-  'Elektrik',
-  'Usta (ta\'mirlash)',
-  'Bog\'bon',
-  'Tozalovchi',
-  'Bo\'yoqchi',
-  'Duradgor',
-  'Temirchi',
-  'Haydovchi',
-  'Oshpaz',
-  'Konditer',
-  'Stilist/Sartarosh',
-  'Kosmetolog',
-  'Massajist',
-  'Fotograf',
-  'Videograf',
-  'Dizayner',
-  'Dasturchi',
-  'O\'qituvchi',
-  'Tarjimon',
-  'Boshqa',
-];
-
 export function CreatePortfolioModal({ 
   isOpen, 
   onClose, 
@@ -170,8 +148,11 @@ export function CreatePortfolioModal({
   // Load portfolioToEdit data when modal opens
   useEffect(() => {
     if (isOpen && portfolioToEdit) {
-      setProfession(portfolioToEdit.profession || '');
-      setCustomProfession(portfolioToEdit.customProfession || '');
+      const resolved = resolveProfessionForForm(portfolioToEdit.profession);
+      setProfession(resolved.profession);
+      setCustomProfession(
+        resolved.customProfession || portfolioToEdit.customProfession || '',
+      );
       setRegion(portfolioToEdit.region || '');
       setDistrict(portfolioToEdit.district || '');
       setSkills(portfolioToEdit.skills || []);
@@ -355,8 +336,14 @@ export function CreatePortfolioModal({
       return;
     }
 
-    if (!profession || !region || !district || skills.length === 0) {
-      alert('Iltimos, barcha majburiy maydonlarni to\'ldiring');
+    if (
+      !profession ||
+      !region ||
+      !district ||
+      skills.length === 0 ||
+      (profession === PROFESSION_OTHER && !customProfession.trim())
+    ) {
+      alert("Iltimos, barcha majburiy maydonlarni to'ldiring");
       return;
     }
 
@@ -364,7 +351,7 @@ export function CreatePortfolioModal({
 
     try {
       const portfolioData = {
-        profession: profession === 'Boshqa' ? customProfession : profession,
+        profession: profession === PROFESSION_OTHER ? customProfession.trim() : profession,
         region,
         district,
         skills,
@@ -474,41 +461,16 @@ export function CreatePortfolioModal({
               <label className="block text-sm sm:text-base font-semibold mb-2.5" style={{ color: isDark ? '#fff' : '#000' }}>
                 Kasb *
               </label>
-              <select
+              <ProfessionPicker
                 value={profession}
-                onChange={(e) => setProfession(e.target.value)}
-                className="w-full px-4 py-3.5 sm:py-4 rounded-2xl border-2 focus:outline-none transition-colors text-base"
-                style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.98)',
-                  borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                  color: isDark ? '#fff' : '#000',
-                }}
-                required
-              >
-                <option value="" style={{ 
-                  background: isDark ? '#1a1a1a' : '#ffffff',
-                  color: isDark ? '#888' : '#666'
-                }}>
-                  Kasbni tanlang
-                </option>
-                {professions.map((prof) => (
-                  <option 
-                    key={prof} 
-                    value={prof}
-                    style={{ 
-                      background: isDark ? '#1a1a1a' : '#ffffff',
-                      color: isDark ? '#fff' : '#000',
-                      padding: '10px'
-                    }}
-                  >
-                    {prof}
-                  </option>
-                ))}
-              </select>
+                onChange={setProfession}
+                isDark={isDark}
+                accentColor={accentColor}
+              />
             </div>
 
             {/* Custom Profession */}
-            {profession === 'Boshqa' && (
+            {profession === PROFESSION_OTHER && (
               <div>
                 <label className="block text-sm sm:text-base font-semibold mb-2.5" style={{ color: isDark ? '#fff' : '#000' }}>
                   Kasb nomini kiriting *

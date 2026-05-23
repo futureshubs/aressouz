@@ -1,4 +1,4 @@
-import { Home, ShoppingBag, Menu as MenuIcon, UtensilsCrossed, Building2 } from 'lucide-react';
+import { Home, ShoppingBag, Menu as MenuIcon, UtensilsCrossed, Building2, X } from 'lucide-react';
 import { useState, useEffect, memo } from 'react';
 import { MenuModal } from './MenuModal';
 import { useTheme } from '../context/ThemeContext';
@@ -9,6 +9,19 @@ interface BottomNavProps {
   onTabChange: (tab: string) => void;
   onAddProductClick?: () => void;
   menuCloseRef?: React.MutableRefObject<(() => void) | null>;
+}
+
+function floatingShellStyle(isDark: boolean) {
+  return {
+    background: isDark ? 'rgba(28, 28, 30, 0.78)' : 'rgba(255, 255, 255, 0.78)',
+    backdropFilter: 'blur(44px) saturate(190%)',
+    WebkitBackdropFilter: 'blur(44px) saturate(190%)',
+    border: isDark ? '0.5px solid rgba(255,255,255,0.14)' : '0.5px solid rgba(255,255,255,0.85)',
+    boxShadow: isDark
+      ? '0 12px 48px rgba(0,0,0,0.55), 0 4px 16px rgba(0,0,0,0.35), inset 0 0.5px 0 rgba(255,255,255,0.1)'
+      : '0 12px 48px rgba(0,0,0,0.14), 0 4px 16px rgba(0,0,0,0.06), inset 0 0.5px 0 rgba(255,255,255,0.95)',
+    borderRadius: 28,
+  } as const;
 }
 
 export const BottomNav = memo(function BottomNav({
@@ -50,7 +63,6 @@ export const BottomNav = memo(function BottomNav({
     }
   };
 
-  /** Menu orqali ochilgan bo‘limlar — pastki «Menu» tabi faol ko‘rinsin */
   const menuRouteTabs = new Set([
     'auksion',
     'moshina',
@@ -78,102 +90,121 @@ export const BottomNav = memo(function BottomNav({
     }
   };
 
-  const barBg = isDark
-    ? 'linear-gradient(180deg, rgba(22,22,24,0.98) 0%, rgba(12,12,14,0.99) 100%)'
-    : 'linear-gradient(180deg, rgba(255,255,255,0.98) 0%, rgba(248,250,252,0.99) 100%)';
+  const shellStyle = floatingShellStyle(isDark);
 
   return (
     <>
-      <nav
-        className="fixed bottom-0 left-0 right-0 z-40 border-t"
+      {isMenuOpen ? (
+        <button
+          type="button"
+          aria-label="Menyuni yopish"
+          className="fixed inset-0 z-30 bg-black/25 backdrop-blur-[2px] transition-opacity duration-300"
+          style={{ animation: 'navBackdropIn 0.28s ease-out' }}
+          onClick={() => setIsMenuOpen(false)}
+        />
+      ) : null}
+
+      <div
+        className="fixed bottom-0 left-0 right-0 z-40 pointer-events-none"
         style={{
-          background: barBg,
-          backdropFilter: 'blur(24px)',
-          WebkitBackdropFilter: 'blur(24px)',
-          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-          boxShadow: isDark
-            ? `0 -8px 32px rgba(0,0,0,0.55), inset 0 1px 0 rgba(255,255,255,0.04)`
-            : `0 -8px 28px rgba(0,0,0,0.08), inset 0 1px 0 rgba(255,255,255,0.9)`,
-          paddingBottom: 'max(0.5rem, env(safe-area-inset-bottom, 0px))',
-          borderTopLeftRadius: '20px',
-          borderTopRightRadius: '20px',
+          paddingBottom: 'max(12px, calc(8px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px))))',
         }}
       >
-        <div
-          className="absolute top-0 left-0 right-0 h-px pointer-events-none"
-          style={{
-            background: `linear-gradient(90deg, transparent, ${accentColor.color}55, transparent)`,
-          }}
-        />
-        <div className="flex items-stretch justify-between gap-0 px-1 pt-1 min-h-[58px] max-w-[1600px] mx-auto sm:px-4">
-          {tabs.map((tab) => {
-            const isActive =
-              activeTab === tab.id ||
-              (tab.id === 'menu' && (isMenuOpen || menuRouteTabs.has(activeTab)));
-            const Icon = tab.icon;
+        <div className="mx-auto flex w-full max-w-lg flex-col gap-2.5 px-4 pointer-events-auto sm:max-w-xl">
+          {isMenuOpen ? (
+            <MenuModal
+              isOpen={isMenuOpen}
+              onClose={() => setIsMenuOpen(false)}
+              onMenuSelect={handleMenuSelect}
+              activeTab={activeTab}
+              shellStyle={shellStyle}
+              accentColor={accentColor.color}
+              isDark={isDark}
+            />
+          ) : null}
 
-            return (
-              <button
-                key={tab.id}
-                type="button"
-                onClick={() => handleTabClick(tab.id)}
-                className="relative flex flex-1 flex-col items-center justify-center gap-0.5 py-1.5 min-w-0 transition-transform active:scale-95 touch-manipulation"
-              >
-                <div
-                  className="relative flex items-center justify-center"
-                  style={{
-                    width: 40,
-                    height: 40,
-                    borderRadius: 14,
-                    background: isActive
-                      ? isDark
-                        ? `${accentColor.color}28`
-                        : `${accentColor.color}20`
-                      : 'transparent',
-                    boxShadow: isActive
-                      ? `0 0 20px ${accentColor.color}45, inset 0 1px 0 rgba(255,255,255,0.12)`
-                      : 'none',
-                  }}
-                >
-                  <Icon
-                    style={{
-                      width: 22,
-                      height: 22,
-                      color: isActive ? accentColor.color : isDark ? '#9ca3af' : '#6b7280',
-                      strokeWidth: isActive ? 2.5 : 2,
-                      filter: isActive ? `drop-shadow(0 0 6px ${accentColor.color}88)` : undefined,
-                    }}
-                  />
-                </div>
-                <span
-                  className="text-[9px] sm:text-[10px] font-semibold truncate max-w-full px-0.5"
-                  style={{
-                    color: isActive ? accentColor.color : isDark ? '#9ca3af' : '#6b7280',
-                  }}
-                >
-                  {tab.label}
-                </span>
-                {isActive ? (
-                  <span
-                    className="absolute bottom-1 left-1/2 -translate-x-1/2 w-1 h-1 rounded-full"
-                    style={{
-                      background: accentColor.color,
-                      boxShadow: `0 0 8px ${accentColor.color}`,
-                    }}
-                  />
-                ) : null}
-              </button>
-            );
-          })}
+          <nav
+            className="relative overflow-hidden px-1.5 py-1.5"
+            style={shellStyle}
+          >
+            <div
+              className="pointer-events-none absolute inset-x-6 top-0 h-px"
+              style={{
+                background: `linear-gradient(90deg, transparent, ${accentColor.color}55, transparent)`,
+              }}
+            />
+
+            <div className="flex items-center justify-between gap-0.5">
+              {tabs.map((tab) => {
+                const isMenuTab = tab.id === 'menu';
+                const isActive =
+                  activeTab === tab.id ||
+                  (isMenuTab && (isMenuOpen || menuRouteTabs.has(activeTab)));
+                const Icon = isMenuTab && isMenuOpen ? X : tab.icon;
+
+                return (
+                  <button
+                    key={tab.id}
+                    type="button"
+                    onClick={() => handleTabClick(tab.id)}
+                    className="relative flex min-w-0 flex-1 flex-col items-center justify-center gap-0.5 rounded-[20px] py-1.5 transition-all duration-200 active:scale-[0.94] touch-manipulation"
+                  >
+                    {isActive ? (
+                      <span
+                        className="absolute inset-x-0.5 inset-y-0 rounded-[20px]"
+                        style={{
+                          background: isDark
+                            ? `${accentColor.color}24`
+                            : `${accentColor.color}18`,
+                          boxShadow: isMenuTab && isMenuOpen
+                            ? `0 0 0 1px ${accentColor.color}35, 0 4px 16px ${accentColor.color}28`
+                            : `inset 0 0.5px 0 rgba(255,255,255,${isDark ? '0.12' : '0.6'})`,
+                        }}
+                      />
+                    ) : null}
+
+                    <span
+                      className="relative flex items-center justify-center"
+                      style={{
+                        width: 36,
+                        height: 36,
+                        borderRadius: 14,
+                      }}
+                    >
+                      <Icon
+                        style={{
+                          width: isMenuTab && isMenuOpen ? 20 : 22,
+                          height: isMenuTab && isMenuOpen ? 20 : 22,
+                          color: isActive ? accentColor.color : isDark ? '#a1a1aa' : '#71717a',
+                          strokeWidth: isActive ? 2.5 : 2,
+                          transition: 'transform 0.22s ease, color 0.22s ease',
+                          transform: isMenuTab && isMenuOpen ? 'rotate(90deg)' : 'none',
+                        }}
+                      />
+                    </span>
+
+                    <span
+                      className="relative text-[9px] font-semibold truncate max-w-full px-0.5 sm:text-[10px]"
+                      style={{
+                        color: isActive ? accentColor.color : isDark ? '#a1a1aa' : '#71717a',
+                      }}
+                    >
+                      {tab.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+          </nav>
         </div>
-      </nav>
+      </div>
 
-      <MenuModal
-        isOpen={isMenuOpen}
-        onClose={() => setIsMenuOpen(false)}
-        platform="ios"
-        onMenuSelect={handleMenuSelect}
-      />
+      <style>{`
+        @keyframes navBackdropIn {
+          from { opacity: 0; }
+          to { opacity: 1; }
+        }
+      `}</style>
     </>
   );
 });

@@ -1,18 +1,28 @@
 import { Gavel, Home, Car, Wrench, MapPin } from 'lucide-react';
-import { Platform } from '../utils/platform';
 import { useTheme } from '../context/ThemeContext';
 
 interface MenuModalProps {
   isOpen: boolean;
   onClose: () => void;
-  platform: Platform;
   onMenuSelect?: (menuId: string) => void;
+  activeTab?: string;
+  shellStyle?: React.CSSProperties;
+  accentColor?: string;
+  isDark?: boolean;
 }
 
-export function MenuModal({ isOpen, onClose, platform, onMenuSelect }: MenuModalProps) {
-  const { theme, accentColor } = useTheme();
-  const isDark = theme === 'dark';
-  const isIOS = platform === 'ios';
+export function MenuModal({
+  isOpen,
+  onClose,
+  onMenuSelect,
+  activeTab = '',
+  shellStyle,
+  accentColor: accentColorProp,
+  isDark: isDarkProp,
+}: MenuModalProps) {
+  const { theme, accentColor: themeAccent } = useTheme();
+  const isDark = isDarkProp ?? theme === 'dark';
+  const accentColor = accentColorProp ?? themeAccent.color;
 
   const menuItems = [
     { id: 'xizmatlar', label: 'Xizmatlar', icon: Wrench },
@@ -31,111 +41,103 @@ export function MenuModal({ isOpen, onClose, platform, onMenuSelect }: MenuModal
     return null;
   }
 
-  // Quick menu row - rendered directly above the bottom nav
+  const panelStyle =
+    shellStyle ??
+    ({
+      background: isDark ? 'rgba(28, 28, 30, 0.78)' : 'rgba(255, 255, 255, 0.78)',
+      backdropFilter: 'blur(44px) saturate(190%)',
+      WebkitBackdropFilter: 'blur(44px) saturate(190%)',
+      border: isDark ? '0.5px solid rgba(255,255,255,0.14)' : '0.5px solid rgba(255,255,255,0.85)',
+      boxShadow: isDark
+        ? '0 12px 48px rgba(0,0,0,0.55), 0 4px 16px rgba(0,0,0,0.35), inset 0 0.5px 0 rgba(255,255,255,0.1)'
+        : '0 12px 48px rgba(0,0,0,0.14), 0 4px 16px rgba(0,0,0,0.06), inset 0 0.5px 0 rgba(255,255,255,0.95)',
+      borderRadius: 28,
+    } as const);
+
   return (
-    <>
-      <div 
-        className="fixed bottom-24 left-4 right-4 z-40 sm:bottom-[7.25rem] sm:left-1/2 sm:w-auto sm:max-w-lg sm:-translate-x-1/2 md:max-w-xl lg:max-w-2xl"
+    <div
+      className="relative overflow-hidden px-2 py-2.5 sm:px-3"
+      style={{
+        ...panelStyle,
+        animation: 'navMenuReveal 0.32s cubic-bezier(0.22, 1, 0.36, 1)',
+        transformOrigin: 'bottom center',
+      }}
+    >
+      <div
+        className="pointer-events-none absolute inset-x-6 top-0 h-px"
         style={{
-          animation: isOpen ? 'menuRowReveal 0.24s ease-out' : 'none',
+          background: `linear-gradient(90deg, transparent, ${accentColor}55, transparent)`,
         }}
-      >
-        <div
-          className="rounded-[24px] px-2 py-2 sm:px-4 sm:py-3"
-          style={{
-            background: isDark
-              ? 'linear-gradient(135deg, rgba(30, 30, 30, 0.95), rgba(20, 20, 20, 0.98))'
-              : 'linear-gradient(135deg, rgba(255, 255, 255, 0.95), rgba(249, 250, 251, 0.98))',
-            backdropFilter: 'blur(30px)',
-            borderRadius: '24px',
-            border: isDark ? '0.5px solid rgba(255, 255, 255, 0.1)' : '0.5px solid rgba(0, 0, 0, 0.08)',
-            boxShadow: isDark
-              ? `0 20px 60px rgba(0, 0, 0, 0.9), 0 8px 24px rgba(0, 0, 0, 0.6), inset 0 1px 0 rgba(255, 255, 255, 0.08), 0 0 0 1px ${accentColor.color}18`
-              : `0 20px 60px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.12), inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 0 0 1px ${accentColor.color}12`,
-            paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))',
-          }}
-        >
-          <div className="flex items-center justify-around h-16 sm:h-18 md:h-20 px-1 sm:px-2 md:px-4">
-            {menuItems.map((item, index) => {
-              const Icon = item.icon;
+      />
 
-              return (
-                <button
-                  key={item.id}
-                  className="relative flex flex-1 flex-col items-center justify-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 md:px-3 py-2 transition-all duration-300 active:scale-95 touch-manipulation"
+      <div className="grid grid-cols-5 gap-1">
+        {menuItems.map((item, index) => {
+          const Icon = item.icon;
+          const isActive = activeTab === item.id;
+
+          return (
+            <button
+              key={item.id}
+              type="button"
+              className="relative flex flex-col items-center justify-center gap-1 rounded-[18px] px-1 py-2 transition-all duration-200 active:scale-[0.94] touch-manipulation"
+              style={{
+                animation: `navMenuItemRise 0.34s cubic-bezier(0.22, 1, 0.36, 1) ${index * 0.04}s backwards`,
+              }}
+              onClick={() => handleMenuItemClick(item.id)}
+            >
+              {isActive ? (
+                <span
+                  className="absolute inset-0 rounded-[18px]"
                   style={{
-                    maxWidth: '84px',
-                    minWidth: '52px',
-                    animation: `menuItemRise 0.28s ease-out ${index * 0.03}s backwards`,
+                    background: isDark ? `${accentColor}24` : `${accentColor}18`,
+                    boxShadow: `inset 0 0.5px 0 rgba(255,255,255,${isDark ? '0.12' : '0.6'})`,
                   }}
-                  onClick={() => handleMenuItemClick(item.id)}
-                >
-                  <div
-                    className="relative flex items-center justify-center transition-all duration-300"
-                    style={{
-                      width: '40px',
-                      height: '40px',
-                      borderRadius: '12px',
-                      background: isDark
-                        ? `linear-gradient(135deg, ${accentColor.color}30, ${accentColor.color}20)`
-                        : `linear-gradient(135deg, ${accentColor.color}25, ${accentColor.color}15)`,
-                      boxShadow: isIOS
-                        ? isDark
-                          ? `0 8px 24px ${accentColor.color}30, inset 0 1px 0 rgba(255, 255, 255, 0.08)`
-                          : `0 8px 24px ${accentColor.color}20, inset 0 1px 0 rgba(255, 255, 255, 0.5)`
-                        : 'none',
-                      transform: 'translateY(-4px) scale(1.05)',
-                    }}
-                  >
-                    <Icon
-                      className="transition-all duration-300"
-                      style={{
-                        width: '22px',
-                        height: '22px',
-                        color: accentColor.color,
-                        strokeWidth: 2.5,
-                        filter: `drop-shadow(0 2px 8px ${accentColor.color}50)`,
-                      }}
-                    />
-                  </div>
-                  <span
-                    className="text-[10px] sm:text-xs font-semibold transition-all duration-300 line-clamp-1"
-                    style={{
-                      color: accentColor.color,
-                      textShadow: `0 2px 8px ${accentColor.color}30`,
-                    }}
-                  >
-                    {item.label}
-                  </span>
+                />
+              ) : null}
 
-                  <div
-                    className="absolute -bottom-0.5 left-1/2 h-1 w-1 -translate-x-1/2 rounded-full"
-                    style={{
-                      background: accentColor.color,
-                      boxShadow: `0 0 12px ${accentColor.color}`,
-                      opacity: 0.9,
-                    }}
-                  />
-                </button>
-              );
-            })}
-          </div>
+              <span
+                className="relative flex items-center justify-center"
+                style={{
+                  width: 40,
+                  height: 40,
+                  borderRadius: 14,
+                  background: isActive
+                    ? isDark
+                      ? `${accentColor}30`
+                      : `${accentColor}22`
+                    : isDark
+                      ? 'rgba(255,255,255,0.06)'
+                      : 'rgba(0,0,0,0.04)',
+                }}
+              >
+                <Icon
+                  style={{
+                    width: 20,
+                    height: 20,
+                    color: isActive ? accentColor : isDark ? '#d4d4d8' : '#52525b',
+                    strokeWidth: isActive ? 2.5 : 2,
+                  }}
+                />
+              </span>
 
-          <div 
-            className="absolute top-0 left-0 right-0 h-px rounded-t-3xl"
-            style={{
-              background: `linear-gradient(90deg, transparent, ${accentColor.color}40 50%, transparent)`,
-              boxShadow: `0 0 16px ${accentColor.color}24`,
-            }}
-          />
-        </div>
+              <span
+                className="relative max-w-full truncate text-[9px] font-semibold leading-tight sm:text-[10px]"
+                style={{
+                  color: isActive ? accentColor : isDark ? '#d4d4d8' : '#52525b',
+                }}
+              >
+                {item.label}
+              </span>
+            </button>
+          );
+        })}
       </div>
 
       <style>{`
-        @keyframes menuRowReveal {
+        @keyframes navMenuReveal {
           0% {
             opacity: 0;
-            transform: translateY(10px) scale(0.98);
+            transform: translateY(14px) scale(0.96);
           }
           100% {
             opacity: 1;
@@ -143,17 +145,17 @@ export function MenuModal({ isOpen, onClose, platform, onMenuSelect }: MenuModal
           }
         }
 
-        @keyframes menuItemRise {
+        @keyframes navMenuItemRise {
           0% {
             opacity: 0;
-            transform: translateY(8px) scale(0.96);
+            transform: translateY(10px);
           }
           100% {
             opacity: 1;
-            transform: translateY(0) scale(1);
+            transform: translateY(0);
           }
         }
       `}</style>
-    </>
+    </div>
   );
 }

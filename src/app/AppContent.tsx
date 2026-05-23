@@ -1158,7 +1158,7 @@ export default function AppContent() {
       <div className={appScrollShellClass}>
       {/* Max-width container for desktop; mobil: scroll qobig‘i ichida */}
       <div className={appInnerColumnClass}>
-        {!isCommunityFullscreen && (
+        {!isCommunityFullscreen && !isProfileOpen && !isAuthOpen && (
           <Header
             cartCount={headerCartBadge}
             onCommunityClick={() => goTab('community')}
@@ -1746,7 +1746,7 @@ export default function AppContent() {
         />
 
         {/* Bottom Navigation - Always visible, responsive positioning */}
-        {!isCommunityFullscreen && !isProfileOpen && (
+        {!isCommunityFullscreen && !isProfileOpen && !isAuthOpen && (
           <BottomNav
             activeTab={activeTab}
             onTabChange={goTab}

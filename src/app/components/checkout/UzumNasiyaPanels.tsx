@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
-import { getUzumNasiyaCountdown, UZUM_NASIYA_LAUNCH_AT } from '../../utils/uzumNasiyaLaunch';
+import { ChevronRight } from 'lucide-react';
+import { getUzumNasiyaCountdown, UZUM_NASIYA_LAUNCH_AT, isUzumNasiyaAvailable } from '../../utils/uzumNasiyaLaunch';
 
 export type UzumNasiyaTerm = 3 | 6 | 12 | 24;
 
@@ -79,96 +80,125 @@ type InstallmentProps = {
   months: UzumNasiyaTerm;
   onMonthsChange: (m: UzumNasiyaTerm) => void;
   isDark: boolean;
-  accentHex: string;
+  accentHex?: string;
+  selected?: boolean;
+  onSelect?: () => void;
 };
 
-const TERMS: UzumNasiyaTerm[] = [3, 6, 12, 24];
+const TERMS: UzumNasiyaTerm[] = [24, 12, 6, 3];
+
+const UZUM_LOGO = '/payments/checkout-uzum-nasiya-square.png?v=1';
 
 export function UzumNasiyaInstallmentBlock({
   totalUzs,
   months,
   onMonthsChange,
   isDark,
-  accentHex,
+  selected = false,
+  onSelect,
 }: InstallmentProps) {
-  const sub = isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.62)';
-  const card = isDark ? 'rgba(124, 58, 237, 0.1)' : 'rgba(124, 58, 237, 0.06)';
-  const border = isDark ? 'rgba(124, 58, 237, 0.3)' : 'rgba(124, 58, 237, 0.2)';
+  const monthly = Math.ceil(Math.max(0, totalUzs) / months);
+
+  const cardBg = isDark ? '#18181b' : '#ffffff';
+  const cardBorder = selected ? 'rgba(124, 58, 237, 0.55)' : isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)';
+  const muted = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)';
+  const segmentTrack = isDark ? 'rgba(255,255,255,0.08)' : '#f3f4f6';
+  const segmentActive = isDark ? '#27272a' : '#ffffff';
 
   return (
     <div
-      className="rounded-2xl border p-4 space-y-4"
-      style={{ background: card, borderColor: border }}
+      role="button"
+      tabIndex={0}
+      onClick={onSelect}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter' || e.key === ' ') {
+          e.preventDefault();
+          onSelect?.();
+        }
+      }}
+      className="overflow-hidden rounded-2xl border transition-all active:scale-[0.99] cursor-pointer focus:outline-none focus-visible:ring-2 focus-visible:ring-violet-500/40"
+      style={{
+        background: selected
+          ? isDark
+            ? 'linear-gradient(145deg, rgba(124,58,237,0.18), rgba(24,24,27,1))'
+            : 'linear-gradient(145deg, rgba(124,58,237,0.08), #ffffff)'
+          : cardBg,
+        borderColor: cardBorder,
+        boxShadow: selected
+          ? '0 8px 28px rgba(124,58,237,0.22)'
+          : isDark
+            ? 'none'
+            : '0 2px 16px rgba(15,23,42,0.06)',
+      }}
     >
-      <div>
-        <p className="text-sm font-semibold mb-2" style={{ color: isDark ? '#e9d5ff' : '#5b21b6' }}>
-          Bo‘lib to‘lash muddati
-        </p>
-        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="p-4 space-y-4">
+        <div className="flex items-center gap-3">
+          <div
+            className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl"
+            style={{ background: '#ff6b00' }}
+          >
+            <img src={UZUM_LOGO} alt="Uzum Nasiya" className="h-9 w-9 object-contain" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <p className="text-[15px] font-bold leading-tight" style={{ color: isDark ? '#fff' : '#111827' }}>
+              Uzum Nasiya
+            </p>
+            <p className="text-[13px] leading-snug" style={{ color: muted }}>
+              Muddatli to&apos;lov kalkulyatori
+            </p>
+          </div>
+          <ChevronRight className="h-5 w-5 shrink-0" style={{ color: muted }} aria-hidden />
+        </div>
+
+        <div
+          className="flex gap-1 rounded-xl p-1"
+          style={{ background: segmentTrack }}
+          onClick={(e) => e.stopPropagation()}
+        >
           {TERMS.map((m) => {
-            const sel = months === m;
-            const per = Math.ceil(Math.max(0, totalUzs) / m);
+            const termSelected = months === m;
             return (
               <button
                 key={m}
                 type="button"
                 onClick={() => onMonthsChange(m)}
-                className="rounded-xl border py-3 px-2 text-center transition-all active:scale-[0.98]"
+                className="flex-1 rounded-lg py-2.5 text-center text-[14px] font-semibold transition-all active:scale-[0.98]"
                 style={{
-                  borderColor: sel ? accentHex : isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
-                  background: sel
+                  background: termSelected ? segmentActive : 'transparent',
+                  color: termSelected ? (isDark ? '#fff' : '#111827') : muted,
+                  boxShadow: termSelected
                     ? isDark
-                      ? `${accentHex}35`
-                      : `${accentHex}20`
-                    : isDark
-                      ? 'rgba(0,0,0,0.2)'
-                      : '#fff',
-                  boxShadow: sel ? `0 0 0 2px ${accentHex}55` : undefined,
+                      ? '0 1px 4px rgba(0,0,0,0.35)'
+                      : '0 1px 4px rgba(15,23,42,0.08)'
+                    : 'none',
                 }}
               >
-                <div className="text-sm font-bold" style={{ color: sel ? accentHex : undefined }}>
-                  {m} oy
-                </div>
-                <div className="text-[11px] mt-1 leading-tight" style={{ color: sub }}>
-                  ~{per.toLocaleString('uz-UZ')} / oy
-                </div>
+                {m} oy
               </button>
             );
           })}
         </div>
-      </div>
 
-      <div
-        className="rounded-xl border p-3 space-y-2 text-sm"
-        style={{
-          borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-          background: isDark ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.9)',
-        }}
-      >
-        <div className="flex justify-between gap-2">
-          <span style={{ color: sub }}>Buyurtma jami</span>
-          <span className="font-semibold tabular-nums">{Math.max(0, totalUzs).toLocaleString('uz-UZ')} so‘m</span>
-        </div>
-        <div className="flex justify-between gap-2">
-          <span style={{ color: sub }}>Tanlangan muddat</span>
-          <span className="font-semibold">{months} oy</span>
-        </div>
-        <div
-          className="flex justify-between gap-2 pt-2 border-t"
-          style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
-        >
-          <span style={{ color: sub }}>Oyiga taxminan</span>
-          <span className="font-bold tabular-nums" style={{ color: accentHex }}>
-            {Math.ceil(Math.max(0, totalUzs) / months).toLocaleString('uz-UZ')} so‘m
+        <div className="flex flex-wrap items-center gap-2 pt-1">
+          <span
+            className="inline-flex items-center rounded-xl px-3 py-2 text-[22px] font-bold tabular-nums leading-none"
+            style={{
+              background: '#ffe566',
+              color: '#111827',
+            }}
+          >
+            {monthly.toLocaleString('uz-UZ')} so&apos;m
+          </span>
+          <span
+            className="text-[18px] font-semibold tabular-nums"
+            style={{ color: isDark ? 'rgba(255,255,255,0.88)' : '#111827' }}
+          >
+            × {months} oy
           </span>
         </div>
-        <p className="text-[11px] leading-snug pt-1" style={{ color: sub }}>
-          Hisob oddiy bo‘lishi uchun jami summaning {months} ga bo‘linishi ko‘rsatilgan. Yakuniy foiz va to‘lov
-          jadvali Uzum Nasiya ilovasida tasdiqlanadi.
-        </p>
       </div>
     </div>
   );
 }
 
-export { isUzumNasiyaAvailable } from '../../utils/uzumNasiyaLaunch';
+export { isUzumNasiyaAvailable };

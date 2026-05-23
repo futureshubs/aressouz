@@ -16,15 +16,14 @@ import {
   Tag,
   Gift,
   Loader2,
+  Package,
+  Truck,
 } from 'lucide-react';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import ClickPayment from './ClickPayment';
 import PaymePayment from './PaymePayment';
-import AtmosPayment from './AtmosPayment';
 import {
-  UzumNasiyaCountdownBlock,
   UzumNasiyaInstallmentBlock,
-  isUzumNasiyaAvailable,
   type UzumNasiyaTerm,
 } from './checkout/UzumNasiyaPanels';
 import { buildUserHeaders } from '../utils/requestAuth';
@@ -39,7 +38,7 @@ import type { RentalCartItem } from '../context/RentalCartContext';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { reverseGeocodeDisplayLine } from '../utils/geolocationDetect';
 import { PAYMENT_LOGO_FRAME_SKEW_DEG } from './payment/PaymentMethodLogoFrame';
-import { CheckoutMapPickerModal } from './CheckoutMapPickerModal';
+import { CheckoutMapPickerModal, CHECKOUT_MAP_DEFAULT_CENTER } from './CheckoutMapPickerModal';
 import { CheckoutOrderSuccessAnimation } from './CheckoutOrderSuccessAnimation';
 import {
   evaluateMerchantHours,
@@ -90,13 +89,13 @@ const getZoneCenter = (zone: any) => {
 };
 
 type CheckoutPayMethodRow = {
-  id: 'cash' | 'click' | 'payme' | 'atmos' | 'uzum_nasiya';
+  id: 'cash' | 'uzum_nasiya';
   label: string;
   tagline: string;
   icon: ComponentType<{ className?: string; style?: CSSProperties }>;
   color: string;
   logoSrc?: string;
-  /** Logo qutisi foni: dark — oq yozuvli SVG (Click); light — yorqin ikonka */
+  /** Logo qutisi foni: dark — oq yozuvli SVG; light — yorqin ikonka */
   logoSlot?: 'light' | 'dark';
 };
 
@@ -109,57 +108,41 @@ const CHECKOUT_PAYMENT_METHODS: CheckoutPayMethodRow[] = [
     color: '#10b981',
     logoSrc: '/payments/cash-naqd.svg?v=2',
   },
-  {
-    id: 'click',
-    label: 'Click',
-    tagline: 'Click orqali — ilova yoki kartadan',
-    icon: CreditCard,
-    color: '#00a650',
-    logoSrc: '/payments/click-official.svg?v=2',
-    logoSlot: 'dark',
-  },
-  {
-    id: 'payme',
-    label: 'Payme',
-    tagline: 'Payme ilova yoki QR orqali',
-    icon: CreditCard,
-    color: '#00AACB',
-    logoSrc: '/payments/payme-official.png?v=4',
-    logoSlot: 'light',
-  },
-  {
-    id: 'atmos',
-    label: 'Atmos',
-    tagline: 'Uzcard / Humo onlayn to‘lov',
-    icon: CreditCard,
-    color: '#1e40af',
-    logoSrc: '/payments/checkout-atmos-square.png?v=1',
-  },
-  {
-    id: 'uzum_nasiya',
-    label: 'Uzum Nasiya',
-    tagline: 'Bo‘lib to‘lash — 3 / 6 / 12 / 24 oy',
-    icon: CreditCard,
-    color: '#7c3aed',
-    logoSrc: '/payments/checkout-uzum-nasiya-square.png?v=1',
-  },
 ];
+
+const UZUM_NASIYA_METHOD: CheckoutPayMethodRow = {
+  id: 'uzum_nasiya',
+  label: 'Uzum Nasiya',
+  tagline: 'Muddatli to‘lov kalkulyatori',
+  icon: CreditCard,
+  color: '#7c3aed',
+  logoSrc: '/payments/checkout-uzum-nasiya-square.png?v=1',
+};
+
+function resolveOrderPaymentMethod(
+  uiMethod: 'cash' | 'online' | 'click' | 'click_card' | 'payme' | 'uzum_nasiya',
+): 'cash' | 'online' | 'click' | 'click_card' | 'payme' {
+  if (uiMethod === 'uzum_nasiya') return 'cash';
+  return uiMethod;
+}
+
+function getCheckoutPaymentMethodRow(id: string): CheckoutPayMethodRow | undefined {
+  if (id === 'uzum_nasiya') return UZUM_NASIYA_METHOD;
+  return CHECKOUT_PAYMENT_METHODS.find((m) => m.id === id);
+}
 
 function CheckoutPaymentMethodCard({
   method,
   selected,
   isDark,
-  uzumNasiyaEnabled,
   onSelect,
 }: {
   method: CheckoutPayMethodRow;
   selected: boolean;
   isDark: boolean;
-  uzumNasiyaEnabled: boolean;
   onSelect: () => void;
 }) {
   const Icon = method.icon;
-  const showComingSoon = method.id === 'uzum_nasiya' && !uzumNasiyaEnabled;
   const [logoFailed, setLogoFailed] = useState(false);
   const logoSlot = method.logoSlot ?? 'light';
   const logoFrameSkewDeg = PAYMENT_LOGO_FRAME_SKEW_DEG;
@@ -269,17 +252,6 @@ function CheckoutPaymentMethodCard({
             >
               {method.label}
             </span>
-            {showComingSoon && (
-              <span
-                className="rounded-full px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide"
-                style={{
-                  background: 'rgba(234, 88, 12, 0.22)',
-                  color: '#fb923c',
-                }}
-              >
-                Tez orada
-              </span>
-            )}
           </div>
           <p
             className="mt-1 text-xs leading-snug sm:text-[13px]"
@@ -579,6 +551,46 @@ function checkoutSubtotalLines(items: any[]): number {
   }, 0);
 }
 
+function checkoutLineUnitPrice(item: any): number {
+  const basePrice = Number(item?.variantDetails?.price) || Number(item?.price) || 0;
+  const addonsTotal =
+    item.addons?.reduce((addonSum: number, addon: any) => {
+      return addonSum + (Number(addon.price) || 0) * (Number(addon.quantity) || 1);
+    }, 0) || 0;
+  return basePrice + addonsTotal;
+}
+
+function getCheckoutItemImage(item: any): string {
+  const variantId = item?.selectedVariantId;
+  const fromVariants = Array.isArray(item?.variants)
+    ? item.variants.find((v: any) => String(v?.id) === String(variantId))?.image
+    : undefined;
+  return String(fromVariants || item?.image || '').trim();
+}
+
+function getCheckoutItemSubtitle(item: any): string | null {
+  const parts: string[] = [];
+  const variantName = item?.variantDetails?.name || item?.selectedVariantName;
+  if (variantName) parts.push(String(variantName));
+  if (item?.dishDetails?.restaurantName) parts.push(String(item.dishDetails.restaurantName));
+  return parts.length > 0 ? parts.join(' • ') : null;
+}
+
+function formatCheckoutPhone(phone: string): string {
+  const digits = phone.replace(/\D/g, '');
+  if (digits.length === 12 && digits.startsWith('998')) {
+    return `+998 ${digits.slice(3, 5)} ${digits.slice(5, 8)} ${digits.slice(8, 10)} ${digits.slice(10, 12)}`;
+  }
+  return phone;
+}
+
+const RENTAL_PERIOD_LABEL: Record<string, string> = {
+  hourly: 'soat',
+  daily: 'kun',
+  weekly: 'hafta',
+  monthly: 'oy',
+};
+
 function groupFoodCartByRestaurant(items: any[]): Map<string, any[]> {
   const m = new Map<string, any[]>();
   for (const it of items) {
@@ -711,11 +723,11 @@ export default function Checkout({
     }
   }, [user]);
 
-  // Payment: naqd + onlayn (Click / Payme / Atmos). Kassa QR mijoz checkoutda emas — restoran qabul qilgach panelda chiqadi.
+  // Payment: naqd + Uzum Nasiya kalkulyatori (Click/Payme checkoutda ko‘rsatilmaydi).
   const [paymentMethod, setPaymentMethod] = useState<
-    'cash' | 'online' | 'click' | 'click_card' | 'payme' | 'atmos' | 'uzum_nasiya'
+    'cash' | 'online' | 'click' | 'click_card' | 'payme' | 'uzum_nasiya'
   >('cash');
-  const [uzumNasiyaMonths, setUzumNasiyaMonths] = useState<UzumNasiyaTerm>(6);
+  const [uzumNasiyaMonths, setUzumNasiyaMonths] = useState<UzumNasiyaTerm>(24);
   const [promoCode, setPromoCode] = useState('');
   const [bonusPoints, setBonusPoints] = useState(0);
   const [useBonus, setUseBonus] = useState(false);
@@ -1165,16 +1177,6 @@ export default function Checkout({
     }
   };
 
-  const fillTestData = async () => {
-    const testCoords = { lat: 40.7305, lng: 72.0425 };
-
-    setCurrentLocation(testCoords);
-    setAddressType('current');
-    toast.success('🧪 Test manzil yuklandi: Andijon, Shahrixon');
-
-    await notifyAndResolveZones(testCoords);
-  };
-
   const getCurrentLocation = () => {
     if (navigator.geolocation) {
       toast.info('Joylashuvingiz aniqlanmoqda...');
@@ -1344,6 +1346,16 @@ export default function Checkout({
     setOrderId(null);
   };
 
+  const goToConfirmStep = () => {
+    if (paymentMethod === 'uzum_nasiya') {
+      toast.info('Tez orada qo‘shiladi', {
+        description: 'Uzum Nasiya orqali to‘lov hozircha mavjud emas.',
+      });
+      return;
+    }
+    setStep(4);
+  };
+
   // Create order function (called after successful payment for CLICK)
   const createOrder = async () => {
     setIsProcessing(true);
@@ -1370,6 +1382,8 @@ export default function Checkout({
         setIsProcessing(false);
         return;
       }
+
+      const billPaymentMethod = resolveOrderPaymentMethod(paymentMethod);
 
       if (!hasMarketCart && !hasRentalLines) {
         toast.error('Savat bo‘sh');
@@ -1473,7 +1487,7 @@ export default function Checkout({
                 contractStartDate: contractIso,
                 deliveryZoneSummary: selectedZone?.name || '',
                 customerUserId: user?.id || undefined,
-                paymentMethod,
+                paymentMethod: billPaymentMethod,
                 deliveryPrice: Number(selectedZone?.deliveryPrice) || 0,
               }),
             },
@@ -1573,10 +1587,9 @@ export default function Checkout({
         const inferredBranchIdAll = inferredBranchId;
 
         const paymentStatusVal =
-          paymentMethod === 'click' ||
-          paymentMethod === 'click_card' ||
-          paymentMethod === 'payme' ||
-          paymentMethod === 'atmos'
+          billPaymentMethod === 'click' ||
+          billPaymentMethod === 'click_card' ||
+          billPaymentMethod === 'payme'
             ? 'paid'
             : 'pending';
 
@@ -1603,11 +1616,8 @@ export default function Checkout({
                   items: mapFoodCartLinesToRestaurantApi(job.items),
                   totalPrice: jobFinal,
                   deliveryFee: jobDelivery,
-                  paymentMethod,
+                  paymentMethod: billPaymentMethod,
                   paymentStatus: paymentStatusVal,
-                  ...(paymentMethod === 'uzum_nasiya'
-                    ? { uzumNasiyaInstallmentMonths: uzumNasiyaMonths }
-                    : {}),
                 }),
               },
             );
@@ -1637,7 +1647,7 @@ export default function Checkout({
               totalAmount: partSub,
               deliveryPrice: jobDelivery,
               finalTotal: jobFinal,
-              paymentMethod,
+              paymentMethod: billPaymentMethod,
               promoCode: promoCode || null,
               bonusUsed: Math.max(0, Math.round(jobBonus)),
               address: resolvedAddressPayload,
@@ -1650,9 +1660,6 @@ export default function Checkout({
               status: 'pending',
               paymentStatus: paymentStatusVal,
               createdAt: new Date().toISOString(),
-              ...(paymentMethod === 'uzum_nasiya'
-                ? { uzumNasiyaInstallmentMonths: uzumNasiyaMonths }
-                : {}),
             };
 
             const res = await fetch(
@@ -1690,7 +1697,7 @@ export default function Checkout({
                 cartItems: job.items,
                 finalTotal: jobFinal,
                 deliveryPrice: jobDelivery,
-                paymentMethod,
+                paymentMethod: billPaymentMethod,
                 promoCode: promoCode || null,
                 bonusUsed: Math.max(0, Math.round(jobBonus)),
                 computedAddressText,
@@ -1819,7 +1826,7 @@ export default function Checkout({
       return;
     }
 
-    // CLICK / Payme / Atmos: to‘lov overlay (Tasdiqlash bosilganda avtomatik boshlanadi)
+    // CLICK / Payme: to‘lov overlay (Tasdiqlash bosilganda avtomatik boshlanadi)
     if (paymentMethod === 'click' || paymentMethod === 'click_card') {
       const newOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
       setOrderId(newOrderId);
@@ -1834,23 +1841,6 @@ export default function Checkout({
       return;
     }
 
-    if (paymentMethod === 'atmos') {
-      const newOrderId = `order_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      setOrderId(newOrderId);
-      setCheckoutPaymentOpen(true);
-      return;
-    }
-
-    if (paymentMethod === 'uzum_nasiya') {
-      if (!isUzumNasiyaAvailable()) {
-        toast.error('Uzum Nasiya tez orada ochiladi. Hozir boshqa to‘lov usulini tanlang.');
-        return;
-      }
-      await createOrder();
-      return;
-    }
-
-    // For other payment methods - Create order immediately
     await createOrder();
   };
 
@@ -1891,55 +1881,81 @@ export default function Checkout({
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
         }}
       >
-        <div className="flex items-center justify-between p-4">
-          <h2 className="text-xl font-bold">Buyurtma rasmiylashtirish</h2>
+        <div className="mx-auto flex max-w-2xl items-center justify-between gap-2 px-3 py-2 sm:px-4 sm:py-2.5">
+          <h2 className="truncate text-base font-bold tracking-tight sm:text-lg">
+            Buyurtma rasmiylashtirish
+          </h2>
           <button
+            type="button"
             onClick={onClose}
-            className="p-2 rounded-xl"
+            className="shrink-0 rounded-lg p-1.5 sm:p-2"
             style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
+            aria-label="Yopish"
           >
-            <X className="w-6 h-6" />
+            <X className="h-5 w-5 sm:h-6 sm:w-6" />
           </button>
         </div>
 
-        {/* Progress Steps */}
-        <div className="flex items-center justify-between px-4 pb-4">
-          {[
-            { num: 1, label: 'Ma\'lumot' },
-            { num: 2, label: 'Manzil' },
-            { num: 3, label: 'To\'lov' },
-            { num: 4, label: 'Tasdiqlash' },
-          ].map((s, index) => (
-            <div key={s.num} className="flex items-center flex-1">
-              <div className="flex flex-col items-center flex-1">
-                <div
-                  className="w-10 h-10 rounded-full flex items-center justify-center font-bold mb-1 transition-all text-sm"
-                  style={{
-                    background: step >= s.num ? accentColor.gradient : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'),
-                    color: step >= s.num ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)'),
-                  }}
-                >
-                  {s.num}
+        <div className="mx-auto max-w-2xl px-3 pb-2.5 sm:px-4 sm:pb-3">
+          <div className="flex items-center justify-between">
+            {[
+              { num: 1, label: 'Ma\'lumot', short: 'Ma\'lumot' },
+              { num: 2, label: 'Manzil', short: 'Manzil' },
+              { num: 3, label: 'To\'lov', short: 'To\'lov' },
+              { num: 4, label: 'Tasdiqlash', short: 'Tasdiq' },
+            ].map((s, index) => (
+              <div key={s.num} className="flex min-w-0 flex-1 items-center">
+                <div className="flex min-w-0 flex-1 flex-col items-center">
+                  <div
+                    className="mb-0.5 flex h-7 w-7 items-center justify-center rounded-full text-[11px] font-bold transition-all sm:mb-1 sm:h-8 sm:w-8 sm:text-xs md:h-9 md:w-9"
+                    style={{
+                      background:
+                        step >= s.num
+                          ? accentColor.gradient
+                          : isDark
+                            ? 'rgba(255, 255, 255, 0.1)'
+                            : 'rgba(0, 0, 0, 0.05)',
+                      color:
+                        step >= s.num
+                          ? '#ffffff'
+                          : isDark
+                            ? 'rgba(255, 255, 255, 0.5)'
+                            : 'rgba(0, 0, 0, 0.5)',
+                    }}
+                  >
+                    {s.num}
+                  </div>
+                  <span
+                    className="max-w-full truncate px-0.5 text-center text-[10px] font-medium leading-tight sm:text-[11px] md:text-xs"
+                    style={{
+                      color:
+                        step >= s.num
+                          ? accentColor.color
+                          : isDark
+                            ? 'rgba(255, 255, 255, 0.5)'
+                            : 'rgba(0, 0, 0, 0.5)',
+                    }}
+                  >
+                    <span className="sm:hidden">{s.short}</span>
+                    <span className="hidden sm:inline">{s.label}</span>
+                  </span>
                 </div>
-                <span
-                  className="text-xs text-center"
-                  style={{
-                    color: step >= s.num ? accentColor.color : (isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)'),
-                  }}
-                >
-                  {s.label}
-                </span>
+                {index < 3 && (
+                  <div
+                    className="mx-1 h-px flex-1 transition-all sm:mx-1.5 sm:h-0.5 md:mx-2"
+                    style={{
+                      background:
+                        step > s.num
+                          ? accentColor.color
+                          : isDark
+                            ? 'rgba(255, 255, 255, 0.1)'
+                            : 'rgba(0, 0, 0, 0.1)',
+                    }}
+                  />
+                )}
               </div>
-              {index < 3 && (
-                <div
-                  className="flex-1 h-0.5 mx-2 transition-all"
-                  style={{
-                    background: step > s.num ? accentColor.color : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)'),
-                  }}
-                />
-              )}
-            </div>
-          ))}
+            ))}
+          </div>
         </div>
       </div>
 
@@ -2046,40 +2062,19 @@ export default function Checkout({
                   method={method}
                   selected={paymentMethod === method.id}
                   isDark={isDark}
-                  uzumNasiyaEnabled={isUzumNasiyaAvailable()}
                   onSelect={() => setPaymentMethod(method.id)}
                 />
               ))}
             </div>
 
-            {paymentMethod === 'uzum_nasiya' && (
-              <div className="space-y-3">
-                {!isUzumNasiyaAvailable() ? (
-                  <>
-                    <UzumNasiyaCountdownBlock isDark={isDark} />
-                    <p className="text-xs leading-relaxed" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
-                      Hozircha Uzum Nasiya orqali buyurtmani yakunlab bo‘lmaydi. Pastdagi hisoblashni reja uchun ko‘rishingiz
-                      mumkin; ochilgacha boshqa to‘lov usulini tanlang.
-                    </p>
-                    <UzumNasiyaInstallmentBlock
-                      totalUzs={calculateTotal()}
-                      months={uzumNasiyaMonths}
-                      onMonthsChange={setUzumNasiyaMonths}
-                      isDark={isDark}
-                      accentHex={accentColor.color}
-                    />
-                  </>
-                ) : (
-                  <UzumNasiyaInstallmentBlock
-                    totalUzs={calculateTotal()}
-                    months={uzumNasiyaMonths}
-                    onMonthsChange={setUzumNasiyaMonths}
-                    isDark={isDark}
-                    accentHex={accentColor.color}
-                  />
-                )}
-              </div>
-            )}
+            <UzumNasiyaInstallmentBlock
+              totalUzs={calculateTotal()}
+              months={uzumNasiyaMonths}
+              onMonthsChange={setUzumNasiyaMonths}
+              isDark={isDark}
+              selected={paymentMethod === 'uzum_nasiya'}
+              onSelect={() => setPaymentMethod('uzum_nasiya')}
+            />
 
             {/* Promo Code */}
             <div className="space-y-2">
@@ -2160,7 +2155,8 @@ export default function Checkout({
                 Orqaga
               </button>
               <button
-                onClick={() => setStep(4)}
+                type="button"
+                onClick={goToConfirmStep}
                 className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95"
                 style={{
                   background: accentColor.gradient,
@@ -2217,92 +2213,6 @@ export default function Checkout({
               </p>
             </button>
 
-            {/* Test Data Button (dev-only) */}
-            {import.meta.env.DEV && (
-              <button
-                onClick={fillTestData}
-                className="w-full p-6 rounded-xl border transition-all"
-                style={{
-                  background: 'rgba(255, 193, 7, 0.1)',
-                  borderColor: '#ff9900',
-                }}
-              >
-                <Navigation className="w-8 h-8 mx-auto mb-2" style={{ color: '#ff9900' }} />
-                <p className="text-base font-bold mb-1">Test manzilni yuklash</p>
-                <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                  Andijon Shahrixon test manzili
-                </p>
-              </button>
-            )}
-
-            {/* Current Location Display */}
-            {currentLocation && selectedZone && (
-              <div
-                className="p-4 rounded-xl border space-y-3"
-                style={{
-                  background: `${accentColor.color}10`,
-                  borderColor: accentColor.color,
-                }}
-              >
-                <div className="flex items-start gap-3">
-                  <div className="flex-1">
-                    <p className="text-sm font-bold mb-1">
-                      ✅ Joylashuvingiz aniqlandi
-                      {addressType === 'map' ? (
-                        <span
-                          className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-lg align-middle"
-                          style={{
-                            background: `${accentColor.color}28`,
-                            color: accentColor.color,
-                          }}
-                        >
-                          Xaritadan
-                        </span>
-                      ) : null}
-                      {addressType === 'current' ? (
-                        <span
-                          className="ml-2 text-xs font-semibold px-2 py-0.5 rounded-lg align-middle"
-                          style={{
-                            background: `${accentColor.color}28`,
-                            color: accentColor.color,
-                          }}
-                        >
-                          GPS
-                        </span>
-                      ) : null}
-                    </p>
-                    <p className="text-xs mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                      Lat: {currentLocation.lat.toFixed(6)}, Lng: {currentLocation.lng.toFixed(6)}
-                    </p>
-                    
-                    <div
-                      className="p-3 rounded-lg mt-2"
-                      style={{
-                        background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-                      }}
-                    >
-                      <p className="text-sm font-semibold mb-1">{selectedZone.name}</p>
-                      {gpsAddressLine ? (
-                        <p
-                          className="text-sm leading-snug mb-2"
-                          style={{ color: isDark ? 'rgba(255, 255, 255, 0.92)' : 'rgba(0, 0, 0, 0.88)' }}
-                        >
-                          {gpsAddressLine}
-                        </p>
-                      ) : (
-                        <p className="text-xs mb-2 flex items-center gap-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}>
-                          <Loader2 className="size-3.5 shrink-0 animate-spin opacity-70" aria-hidden />
-                        </p>
-                      )}
-                      <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                        Yetkazib berish: {selectedZone.deliveryPrice.toLocaleString()} so'm • {selectedZone.deliveryTime} daqiqa
-                      </p>
-                    </div>
-                  </div>
-                </div>
-              </div>
-            )}
-
             {/* Additional Note */}
             {currentLocation && (
               <div>
@@ -2351,146 +2261,316 @@ export default function Checkout({
 
         {/* Step 4: Confirm Order */}
         {step === 4 && (
-          <div className="space-y-4">
-            <h3 className="text-lg font-bold mb-4">Buyurtmani tasdiqlang</h3>
+          <div className="space-y-5">
+            <div>
+              <h3 className="text-xl font-bold tracking-tight">Buyurtmani tasdiqlang</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                Barcha ma&apos;lumotlarni tekshirib, tasdiqlang
+              </p>
+            </div>
 
-            {/* Order Summary */}
-            <div
-              className="p-4 rounded-xl border space-y-3"
+            {/* Mahsulotlar */}
+            {(cartItems.length > 0 || hasRentalLines) && (
+              <section
+                className="overflow-hidden rounded-2xl border"
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
+                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                  boxShadow: isDark ? 'none' : '0 4px 24px rgba(15,23,42,0.06)',
+                }}
+              >
+                <div
+                  className="flex items-center gap-2 border-b px-4 py-3"
+                  style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+                >
+                  <Package className="h-5 w-5 shrink-0" style={{ color: accentColor.color }} />
+                  <h4 className="text-sm font-bold">Mahsulotlar</h4>
+                  <span className="ml-auto text-xs text-muted-foreground">
+                    {cartItems.length + (rentalLineItems?.length ?? 0)} ta
+                  </span>
+                </div>
+
+                <div
+                  className="divide-y"
+                  style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)' }}
+                >
+                  {cartItems.map((item, index) => {
+                    const image = getCheckoutItemImage(item);
+                    const subtitle = getCheckoutItemSubtitle(item);
+                    const qty = Number(item?.quantity) || 1;
+                    const lineTotal = checkoutLineUnitPrice(item) * qty;
+                    const key = String(item?.cartLineKey || item?.id || index);
+
+                    return (
+                      <div key={key} className="flex gap-3 p-4">
+                        <div
+                          className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-xl"
+                          style={{ background: isDark ? 'rgba(255,255,255,0.06)' : '#f3f4f6' }}
+                        >
+                          {image ? (
+                            <img
+                              src={image}
+                              alt={String(item?.name || 'Mahsulot')}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center">
+                              <Package className="h-7 w-7 text-muted-foreground/50" />
+                            </div>
+                          )}
+                          <span
+                            className="absolute -right-1 -top-1 flex h-6 min-w-6 items-center justify-center rounded-full px-1 text-[11px] font-bold text-white"
+                            style={{ background: accentColor.color }}
+                          >
+                            {qty}
+                          </span>
+                        </div>
+
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-2 text-[15px] font-semibold leading-snug">
+                            {String(item?.name || 'Mahsulot')}
+                          </p>
+                          {subtitle ? (
+                            <p className="mt-0.5 line-clamp-1 text-xs text-muted-foreground">{subtitle}</p>
+                          ) : null}
+                          {item?.addons?.length ? (
+                            <p className="mt-1 line-clamp-1 text-[11px] text-muted-foreground">
+                              +{' '}
+                              {item.addons
+                                .map((a: any) => `${a.name}${a.quantity > 1 ? ` ×${a.quantity}` : ''}`)
+                                .join(', ')}
+                            </p>
+                          ) : null}
+                        </div>
+
+                        <p className="shrink-0 text-[15px] font-bold tabular-nums">
+                          {lineTotal.toLocaleString('uz-UZ')}
+                          <span className="block text-[10px] font-medium text-muted-foreground">so&apos;m</span>
+                        </p>
+                      </div>
+                    );
+                  })}
+
+                  {(rentalLineItems || []).map((line) => {
+                    const periodLabel = RENTAL_PERIOD_LABEL[line.rentalPeriod] || line.rentalPeriod;
+                    return (
+                      <div key={`rental-${line.item.id}`} className="flex gap-3 p-4">
+                        <div
+                          className="relative h-[72px] w-[72px] shrink-0 overflow-hidden rounded-xl"
+                          style={{ background: isDark ? 'rgba(255,255,255,0.06)' : '#f3f4f6' }}
+                        >
+                          {line.item.image ? (
+                            <img
+                              src={line.item.image}
+                              alt={line.item.name}
+                              className="h-full w-full object-cover"
+                              loading="lazy"
+                            />
+                          ) : (
+                            <div className="flex h-full w-full items-center justify-center">
+                              <Package className="h-7 w-7 text-muted-foreground/50" />
+                            </div>
+                          )}
+                        </div>
+                        <div className="min-w-0 flex-1">
+                          <p className="line-clamp-2 text-[15px] font-semibold leading-snug">{line.item.name}</p>
+                          <p className="mt-0.5 text-xs text-muted-foreground">
+                            Ijara • {line.rentalDuration} {periodLabel}
+                          </p>
+                        </div>
+                        <p className="shrink-0 text-[15px] font-bold tabular-nums">
+                          {Number(line.totalPrice).toLocaleString('uz-UZ')}
+                          <span className="block text-[10px] font-medium text-muted-foreground">so&apos;m</span>
+                        </p>
+                      </div>
+                    );
+                  })}
+                </div>
+              </section>
+            )}
+
+            {/* Buyurtmachi */}
+            <section
+              className="rounded-2xl border p-4"
               style={{
-                background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
+                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
               }}
             >
-              {totalAmount > 0 && (
-                <div className="flex items-center justify-between">
-                  <span style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>Mahsulotlar</span>
-                  <span className="font-semibold">{totalAmount.toLocaleString()} so'm</span>
+              <div className="mb-3 flex items-center gap-2">
+                <User className="h-5 w-5 shrink-0" style={{ color: accentColor.color }} />
+                <h4 className="text-sm font-bold">Buyurtmachi</h4>
+              </div>
+              <div className="flex items-center gap-3">
+                <div
+                  className="flex h-12 w-12 shrink-0 items-center justify-center rounded-full text-lg font-bold text-white"
+                  style={{ background: accentColor.gradient }}
+                >
+                  {customerName.trim().charAt(0).toUpperCase() || '?'}
                 </div>
-              )}
-              {rentalSubtotal > 0 && (
-                <div className="flex items-center justify-between">
-                  <span style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>Ijara</span>
-                  <span className="font-semibold">{rentalSubtotal.toLocaleString()} so'm</span>
+                <div className="min-w-0">
+                  <p className="truncate text-[16px] font-semibold">{customerName}</p>
+                  <p className="mt-0.5 text-sm text-muted-foreground">{formatCheckoutPhone(customerPhone)}</p>
                 </div>
-              )}
-              <div className="flex items-center justify-between">
-                <span style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>Yetkazib berish</span>
-                <span className="font-semibold">
-                  {selectedZone ? `${selectedZone.deliveryPrice.toLocaleString()} so'm` : '0 so\'m'}
+              </div>
+            </section>
+
+            {/* Manzil */}
+            <section
+              className="rounded-2xl border p-4"
+              style={{
+                background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
+                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+              }}
+            >
+              <div className="mb-3 flex items-center gap-2">
+                <MapPin className="h-5 w-5 shrink-0" style={{ color: accentColor.color }} />
+                <h4 className="text-sm font-bold">Yetkazish manzili</h4>
+                <span
+                  className="ml-auto rounded-lg px-2 py-0.5 text-[10px] font-semibold"
+                  style={{
+                    background: `${accentColor.color}18`,
+                    color: accentColor.color,
+                  }}
+                >
+                  {addressType === 'map' ? 'Xaritadan' : addressType === 'current' ? 'GPS' : 'Qo\'lda'}
                 </span>
               </div>
-              {useBonus && bonusPoints > 0 && (
-                <div className="flex items-center justify-between text-green-500">
-                  <span>Bonus chegirma</span>
-                  <span className="font-semibold">-{Math.min(bonusPoints, goodsAndRentalSubtotal * 0.5).toLocaleString()} so'm</span>
-                </div>
-              )}
-              <div className="pt-3 border-t flex items-center justify-between" style={{ borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }}>
-                <span className="font-bold">Jami</span>
-                <span className="text-2xl font-bold" style={{ color: accentColor.color }}>
-                  {calculateTotal().toLocaleString()} so'm
-                </span>
-              </div>
-            </div>
 
-            {/* Customer Info */}
-            <div
-              className="p-4 rounded-xl border space-y-2"
-              style={{
-                background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <p className="text-sm font-medium" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                Buyurtmachi
-              </p>
-              <p className="font-semibold">{customerName}</p>
-              <p className="font-semibold">{customerPhone}</p>
-            </div>
-
-            {/* Payment Method */}
-            <div
-              className="p-4 rounded-xl border"
-              style={{
-                background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <p className="text-sm font-medium mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                To'lov usuli
-              </p>
-              <p className="font-semibold">
-                {paymentMethod === 'cash' && '💵 Naqd to\'lov'}
-                {paymentMethod === 'click' && '💳 Click'}
-                {paymentMethod === 'click_card' && '💳 Click (karta)'}
-                {paymentMethod === 'payme' && '💳 Payme'}
-                {paymentMethod === 'atmos' && '💳 Atmos'}
-                {paymentMethod === 'uzum_nasiya' && '💳 Uzum Nasiya (bo‘lib to‘lash)'}
-              </p>
-              {paymentMethod === 'uzum_nasiya' && isUzumNasiyaAvailable() && (
-                <p className="text-sm mt-2" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.65)' }}>
-                  Muddat: {uzumNasiyaMonths} oy • Oyiga taxminan{' '}
-                  {Math.ceil(Math.max(0, calculateTotal()) / uzumNasiyaMonths).toLocaleString('uz-UZ')} so‘m
-                </p>
-              )}
-            </div>
-
-            {/* Address */}
-            <div
-              className="p-4 rounded-xl border"
-              style={{
-                background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <p className="text-sm font-medium mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                Manzil
-              </p>
               {addressType === 'manual' ? (
-                <>
-                  <p className="font-semibold">{address.street}</p>
+                <div className="space-y-1">
+                  <p className="text-[15px] font-semibold leading-snug">{address.street}</p>
                   {(address.building || address.apartment) && (
-                    <p className="text-sm mt-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.75)' }}>
+                    <p className="text-sm text-muted-foreground">
                       {[address.building, address.apartment].filter(Boolean).join(', ')}
                     </p>
                   )}
                   {address.note ? (
-                    <p className="text-sm mt-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.65)' }}>
-                      {address.note}
-                    </p>
+                    <p className="text-sm text-muted-foreground">Eslatma: {address.note}</p>
                   ) : null}
-                </>
+                </div>
               ) : (
-                <>
-                  {addressType === 'map' ? (
-                    <p className="text-xs font-medium mb-1" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.5)' }}>
-                      Xaritadan tanlangan nuqta
-                    </p>
-                  ) : null}
-                  <p className="font-semibold leading-snug">
+                <div className="space-y-1">
+                  <p className="text-[15px] font-semibold leading-snug">
                     {gpsAddressLine || selectedZone?.name || 'Joriy joylashuv'}
                   </p>
-                  {gpsAddressLine && selectedZone?.name && !gpsAddressLine.toLowerCase().includes(String(selectedZone.name).toLowerCase()) ? (
-                    <p className="text-sm mt-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}>
-                      Yetkazish zonasi: {selectedZone.name}
+                  {selectedZone?.name &&
+                  gpsAddressLine &&
+                  !gpsAddressLine.toLowerCase().includes(String(selectedZone.name).toLowerCase()) ? (
+                    <p className="text-sm text-muted-foreground">Zona: {selectedZone.name}</p>
+                  ) : null}
+                  {selectedZone ? (
+                    <p className="text-sm text-muted-foreground">
+                      Taxminiy yetkazish: {selectedZone.deliveryTime} daqiqa
                     </p>
                   ) : null}
-                  {selectedZone && (
-                    <p className="text-sm mt-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                      {selectedZone.deliveryTime} daqiqa
+                  {address.note ? (
+                    <p className="text-sm text-muted-foreground">Eslatma: {address.note}</p>
+                  ) : null}
+                </div>
+              )}
+            </section>
+
+            {/* To'lov usuli */}
+            {(() => {
+              const payRow = getCheckoutPaymentMethodRow(paymentMethod);
+              return (
+                <section
+                  className="rounded-2xl border p-4"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.03)' : '#ffffff',
+                    borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                  }}
+                >
+                  <div className="mb-3 flex items-center gap-2">
+                    <CreditCard className="h-5 w-5 shrink-0" style={{ color: accentColor.color }} />
+                    <h4 className="text-sm font-bold">To&apos;lov usuli</h4>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    {payRow?.logoSrc ? (
+                      <div
+                        className="flex h-11 w-11 shrink-0 items-center justify-center overflow-hidden rounded-xl"
+                        style={{ background: isDark ? 'rgba(255,255,255,0.06)' : '#f3f4f6' }}
+                      >
+                        <img src={payRow.logoSrc} alt="" className="h-9 w-9 object-contain" />
+                      </div>
+                    ) : (
+                      <div
+                        className="flex h-11 w-11 shrink-0 items-center justify-center rounded-xl"
+                        style={{ background: `${payRow?.color || accentColor.color}18` }}
+                      >
+                        <Banknote className="h-5 w-5" style={{ color: payRow?.color || accentColor.color }} />
+                      </div>
+                    )}
+                    <div>
+                      <p className="font-semibold">{payRow?.label || paymentMethod}</p>
+                      <p className="text-xs text-muted-foreground">{payRow?.tagline}</p>
+                    </div>
+                  </div>
+                  {paymentMethod === 'uzum_nasiya' && (
+                    <p className="mt-3 text-sm text-muted-foreground">
+                      Kalkulyator: {uzumNasiyaMonths} oy • Oyiga ~{' '}
+                      {Math.ceil(Math.max(0, calculateTotal()) / uzumNasiyaMonths).toLocaleString('uz-UZ')} so&apos;m
                     </p>
                   )}
-                  {address.note ? (
-                    <p className="text-sm mt-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.65)' }}>
-                      Eslatma: {address.note}
-                    </p>
-                  ) : null}
-                </>
-              )}
-            </div>
+                </section>
+              );
+            })()}
 
-            <div className="flex gap-3">
+            {/* Jami */}
+            <section
+              className="overflow-hidden rounded-2xl border"
+              style={{
+                background: isDark
+                  ? `linear-gradient(145deg, ${accentColor.color}18, rgba(255,255,255,0.03))`
+                  : `linear-gradient(145deg, ${accentColor.color}0d, #ffffff)`,
+                borderColor: `${accentColor.color}44`,
+              }}
+            >
+              <div className="space-y-2.5 p-4">
+                {totalAmount > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Mahsulotlar</span>
+                    <span className="font-semibold tabular-nums">{totalAmount.toLocaleString('uz-UZ')} so&apos;m</span>
+                  </div>
+                )}
+                {rentalSubtotal > 0 && (
+                  <div className="flex items-center justify-between text-sm">
+                    <span className="text-muted-foreground">Ijara</span>
+                    <span className="font-semibold tabular-nums">{rentalSubtotal.toLocaleString('uz-UZ')} so&apos;m</span>
+                  </div>
+                )}
+                <div className="flex items-center justify-between text-sm">
+                  <span className="flex items-center gap-1.5 text-muted-foreground">
+                    <Truck className="h-4 w-4" />
+                    Yetkazib berish
+                  </span>
+                  <span className="font-semibold tabular-nums">
+                    {selectedZone ? `${selectedZone.deliveryPrice.toLocaleString('uz-UZ')} so'm` : '0 so\'m'}
+                  </span>
+                </div>
+                {useBonus && bonusPoints > 0 && (
+                  <div className="flex items-center justify-between text-sm text-green-500">
+                    <span>Bonus chegirma</span>
+                    <span className="font-semibold tabular-nums">
+                      -{Math.min(bonusPoints, goodsAndRentalSubtotal * 0.5).toLocaleString('uz-UZ')} so&apos;m
+                    </span>
+                  </div>
+                )}
+              </div>
+              <div
+                className="flex items-center justify-between border-t px-4 py-4"
+                style={{ borderColor: `${accentColor.color}33` }}
+              >
+                <span className="text-base font-bold">Jami to&apos;lov</span>
+                <span className="text-2xl font-bold tabular-nums" style={{ color: accentColor.color }}>
+                  {calculateTotal().toLocaleString('uz-UZ')} so&apos;m
+                </span>
+              </div>
+            </section>
+
+            <div className="flex gap-3 pt-1">
               <button
                 type="button"
                 onClick={() => setStep(3)}
@@ -2509,8 +2589,7 @@ export default function Checkout({
                   isProcessing ||
                   checkoutPaymentOpen ||
                   !checkoutBusinessGate.allowed ||
-                  checkoutBusinessGate.pending ||
-                  (paymentMethod === 'uzum_nasiya' && !isUzumNasiyaAvailable())
+                  checkoutBusinessGate.pending
                 }
                 className="flex-1 py-4 rounded-2xl font-bold transition-all active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
                 style={{
@@ -2522,11 +2601,6 @@ export default function Checkout({
                 {isProcessing ? 'Yuborilmoqda...' : 'Tasdiqlash'}
               </button>
             </div>
-            {paymentMethod === 'uzum_nasiya' && !isUzumNasiyaAvailable() && (
-              <p className="text-center text-xs" style={{ color: '#ea580c' }}>
-                Uzum Nasiya hali faol emas — 3-bosqichda sanani kuzating yoki boshqa usulni tanlang.
-              </p>
-            )}
           </div>
         )}
       </div>
@@ -2538,7 +2612,11 @@ export default function Checkout({
         onConfirm={(coords) => {
           void applyMapPickedLocation(coords);
         }}
-        initialCenter={currentLocation}
+        initialCenter={
+          addressType === 'map' && currentLocation
+            ? currentLocation
+            : CHECKOUT_MAP_DEFAULT_CENTER
+        }
         isDark={isDark}
         accentColor={accentColor}
       />
@@ -2614,22 +2692,6 @@ export default function Checkout({
                   amount={calculateTotal()}
                   phone={customerPhone}
                   items={paymeReceiptItemsStable}
-                  autoOpenCheckout
-                  onSuccess={() => {
-                    closeCheckoutPayment();
-                    void createOrder();
-                  }}
-                  onError={(error) => {
-                    toast.error('To‘lov amalga oshmadi', { description: error });
-                  }}
-                />
-              )}
-              {paymentMethod === 'atmos' && (
-                <AtmosPayment
-                  orderId={orderId}
-                  amount={calculateTotal()}
-                  phone={customerPhone}
-                  customerName={customerName}
                   autoOpenCheckout
                   onSuccess={() => {
                     closeCheckoutPayment();

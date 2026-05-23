@@ -5,7 +5,12 @@ import { toast } from 'sonner';
 import { ArrowLeft, Home, Navigation, Search, Loader2 } from 'lucide-react';
 import { reverseGeocodeDisplayLine } from '../utils/geolocationDetect';
 
-const DEFAULT_CENTER: [number, number] = [41.2995, 69.2401];
+export const CHECKOUT_MAP_DEFAULT_CENTER = { lat: 40.692121, lng: 72.072769 } as const;
+
+const DEFAULT_CENTER: [number, number] = [
+  CHECKOUT_MAP_DEFAULT_CENTER.lat,
+  CHECKOUT_MAP_DEFAULT_CENTER.lng,
+];
 const NOMINATIM_HEADERS = { 'User-Agent': 'AresSouz/1.0 (marketplace)' } as const;
 
 type SearchHit = { lat: string; lon: string; display_name: string };
@@ -104,8 +109,14 @@ export function CheckoutMapPickerModal({
     };
     window.addEventListener('resize', resize);
     requestAnimationFrame(resize);
+    const recenterTimer = window.setTimeout(() => {
+      map.invalidateSize();
+      map.setView([lat0, lng0], 17, { animate: false });
+      scheduleReverse(lat0, lng0);
+    }, 120);
 
     return () => {
+      window.clearTimeout(recenterTimer);
       window.removeEventListener('resize', resize);
       map.off('moveend', onMoveEnd);
       map.remove();

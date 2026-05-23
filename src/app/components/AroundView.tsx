@@ -1,6 +1,6 @@
 import { useState, useEffect, memo, useRef, useCallback, useMemo } from 'react';
 import { MapPin, Map as MapIcon, Grid3x3, Plus, Loader2 } from 'lucide-react';
-import { placeCategories, Place, PlaceCategory } from '../data/places';
+import { placeCategories, Place, PlaceCategory, PLACE_CATEGORY_GROUPS } from '../data/places';
 import { PlaceCard } from './PlaceCard';
 import { CategoryCard } from './CategoryCard';
 import { PlaceDetailModal } from './PlaceDetailModal';
@@ -431,189 +431,32 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
 
                 {/* Category Groups */}
                 <div className="space-y-6 sm:space-y-8">
-                  {/* Emergency & Health */}
-                  <div>
-                    <h3 
-                      className="text-sm sm:text-base font-semibold mb-3 sm:mb-4 px-1"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)' }}
-                    >
-                      🏥 Shoshilinch & Sog'liq
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5 sm:gap-3 md:gap-4">
-                      {categoriesWithCounts
-                        .filter(cat => ['pharmacy', 'hospital', 'night'].includes(cat.id))
-                        .map((category) => (
-                          <CategoryCard
-                            key={category.id}
-                            category={category}
-                            onCategoryClick={handleCategoryClick}
-                            platform={platform}
-                          />
-                        ))
-                      }
-                    </div>
-                  </div>
-
-                  {/* Finance */}
-                  <div>
-                    <h3 
-                      className="text-sm sm:text-base font-semibold mb-3 sm:mb-4 px-1"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)' }}
-                    >
-                      💰 Moliya
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5 sm:gap-3 md:gap-4">
-                      {categoriesWithCounts
-                        .filter(cat => ['bank', 'atm'].includes(cat.id))
-                        .map((category) => (
-                          <CategoryCard
-                            key={category.id}
-                            category={category}
-                            onCategoryClick={handleCategoryClick}
-                            platform={platform}
-                          />
-                        ))
-                      }
-                    </div>
-                  </div>
-
-                  {/* Food & Dining */}
-                  <div>
-                    <h3 
-                      className="text-sm sm:text-base font-semibold mb-3 sm:mb-4 px-1"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)' }}
-                    >
-                      🍽️ Ovqatlanish
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5 sm:gap-3 md:gap-4">
-                      {categoriesWithCounts
-                        .filter(cat => ['restaurant', 'cafe', 'fastfood', 'bakery'].includes(cat.id))
-                        .map((category) => (
-                          <CategoryCard
-                            key={category.id}
-                            category={category}
-                            onCategoryClick={handleCategoryClick}
-                            platform={platform}
-                          />
-                        ))
-                      }
-                    </div>
-                  </div>
-
-                  {/* Shopping */}
-                  <div>
-                    <h3 
-                      className="text-sm sm:text-base font-semibold mb-3 sm:mb-4 px-1"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)' }}
-                    >
-                      🛍️ Xarid
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5 sm:gap-3 md:gap-4">
-                      {categoriesWithCounts
-                        .filter(cat => ['supermarket', 'grocery', 'clothing', 'stationery', 'butcher'].includes(cat.id))
-                        .map((category) => (
-                          <CategoryCard
-                            key={category.id}
-                            category={category}
-                            onCategoryClick={handleCategoryClick}
-                            platform={platform}
-                          />
-                        ))
-                      }
-                    </div>
-                  </div>
-
-                  {/* Services */}
-                  <div>
-                    <h3 
-                      className="text-sm sm:text-base font-semibold mb-3 sm:mb-4 px-1"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)' }}
-                    >
-                      🔧 Xizmatlar
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5 sm:gap-3 md:gap-4">
-                      {categoriesWithCounts
-                        .filter(cat => ['barbershop', 'hotel', 'workshop', 'carservice', 'motoservice', 'bikeservice', 'gasstation'].includes(cat.id))
-                        .map((category) => (
-                          <CategoryCard
-                            key={category.id}
-                            category={category}
-                            onCategoryClick={handleCategoryClick}
-                            platform={platform}
-                          />
-                        ))
-                      }
-                    </div>
-                  </div>
-
-                  {/* Entertainment */}
-                  <div>
-                    <h3 
-                      className="text-sm sm:text-base font-semibold mb-3 sm:mb-4 px-1"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)' }}
-                    >
-                      🎭 O'yin-kulgi
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5 sm:gap-3 md:gap-4">
-                      {categoriesWithCounts
-                        .filter(cat => ['cinema', 'entertainment', 'gym', 'theater'].includes(cat.id))
-                        .map((category) => (
-                          <CategoryCard
-                            key={category.id}
-                            category={category}
-                            onCategoryClick={handleCategoryClick}
-                            platform={platform}
-                          />
-                        ))
-                      }
-                    </div>
-                  </div>
-
-                  {/* Education */}
-                  <div>
-                    <h3 
-                      className="text-sm sm:text-base font-semibold mb-3 sm:mb-4 px-1"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)' }}
-                    >
-                      📚 Ta'lim
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5 sm:gap-3 md:gap-4">
-                      {categoriesWithCounts
-                        .filter(cat => ['school', 'university', 'library'].includes(cat.id))
-                        .map((category) => (
-                          <CategoryCard
-                            key={category.id}
-                            category={category}
-                            onCategoryClick={handleCategoryClick}
-                            platform={platform}
-                          />
-                        ))
-                      }
-                    </div>
-                  </div>
-
-                  {/* Transport & Others */}
-                  <div>
-                    <h3 
-                      className="text-sm sm:text-base font-semibold mb-3 sm:mb-4 px-1"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)' }}
-                    >
-                      🚇 Transport & Boshqalar
-                    </h3>
-                    <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 gap-2.5 sm:gap-3 md:gap-4">
-                      {categoriesWithCounts
-                        .filter(cat => ['metro', 'bus', 'taxi', 'police', 'park', 'parking'].includes(cat.id))
-                        .map((category) => (
-                          <CategoryCard
-                            key={category.id}
-                            category={category}
-                            onCategoryClick={handleCategoryClick}
-                            platform={platform}
-                          />
-                        ))
-                      }
-                    </div>
-                  </div>
+                  {PLACE_CATEGORY_GROUPS.map((group) => {
+                    const groupCategories = categoriesWithCounts.filter(
+                      (cat) => cat.groupId === group.id,
+                    );
+                    if (groupCategories.length === 0) return null;
+                    return (
+                      <div key={group.id}>
+                        <h3
+                          className="mb-3 px-1 text-sm font-semibold sm:mb-4 sm:text-base"
+                          style={{ color: isDark ? 'rgba(255, 255, 255, 0.8)' : 'rgba(0, 0, 0, 0.7)' }}
+                        >
+                          {group.label}
+                        </h3>
+                        <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 2xl:grid-cols-7 md:gap-4">
+                          {groupCategories.map((category) => (
+                            <CategoryCard
+                              key={category.id}
+                              category={category}
+                              onCategoryClick={handleCategoryClick}
+                              platform={platform}
+                            />
+                          ))}
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             )}

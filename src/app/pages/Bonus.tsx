@@ -513,9 +513,6 @@ export default function Bonus({ onClose }: BonusProps) {
     return { spentOrders, referral, tapAndExtras };
   }, [history]);
 
-  const remainingTaps = DAILY_LIMIT - dailyTaps + bonusTaps;
-  const dailyProgress = Math.min(100, (dailyTaps / DAILY_LIMIT) * 100).toFixed(1);
-
   const tabBtn = (id: BonusTab, label: string, Icon: typeof Home) => {
     const active = tab === id;
     return (
@@ -535,19 +532,44 @@ export default function Bonus({ onClose }: BonusProps) {
 
   const balanceChip = (
     <div
-      className="flex items-center justify-between gap-3 rounded-2xl px-4 py-3"
+      className="rounded-xl px-3 py-2.5"
       style={{
         background: isDark ? 'rgba(255,255,255,0.07)' : 'rgba(0,0,0,0.04)',
         border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)',
       }}
     >
-      <div>
-        <p className="text-[11px] font-bold uppercase tracking-wide opacity-60">Balans</p>
-        <p className="text-2xl font-black tabular-nums" style={{ color: accentColor.color }}>
-          {balance.toLocaleString()} <span className="text-sm font-bold opacity-70">soʻm</span>
-        </p>
+      <div className="flex items-center justify-between gap-2">
+        <div>
+          <p className="text-[10px] font-bold uppercase tracking-wide opacity-60">Balans</p>
+          <p className="text-xl font-black tabular-nums leading-tight" style={{ color: accentColor.color }}>
+            {balance.toLocaleString()} <span className="text-xs font-bold opacity-70">soʻm</span>
+          </p>
+        </div>
+        <TrendingUp className="size-5 shrink-0 opacity-75" style={{ color: accentColor.color }} />
       </div>
-      <TrendingUp className="size-8 shrink-0 opacity-80" style={{ color: accentColor.color }} />
+      <div
+        className="mt-2 flex items-center gap-2 border-t pt-2"
+        style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+      >
+        <div className="flex flex-1 items-center gap-1.5">
+          <Zap className="size-3 shrink-0" style={{ color: accentColor.color }} />
+          <span className="text-[10px] font-semibold opacity-55">Kunlik</span>
+          <span className="ml-auto text-xs font-black tabular-nums" style={{ color: isDark ? '#fff' : '#111' }}>
+            {dailyTaps}<span className="font-semibold opacity-45">/{DAILY_LIMIT}</span>
+          </span>
+        </div>
+        <div
+          className="h-3 w-px shrink-0"
+          style={{ background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}
+        />
+        <div className="flex flex-1 items-center gap-1.5">
+          <Gift className="size-3 shrink-0" style={{ color: accentColor.color }} />
+          <span className="text-[10px] font-semibold opacity-55">Bonus</span>
+          <span className="ml-auto text-xs font-black tabular-nums" style={{ color: isDark ? '#fff' : '#111' }}>
+            {bonusTaps.toLocaleString()}
+          </span>
+        </div>
+      </div>
     </div>
   );
 
@@ -615,64 +637,6 @@ export default function Bonus({ onClose }: BonusProps) {
           <div className="mx-auto flex max-w-lg flex-col gap-4 p-4 pb-28">
             {balanceChip}
 
-            <div className="grid grid-cols-2 gap-3">
-              <div
-                className="rounded-2xl p-4"
-                style={{
-                  background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
-                  border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
-                  boxShadow: isDark ? 'none' : '0 4px 20px rgba(0,0,0,0.05)',
-                }}
-              >
-                <Zap className="mb-2 size-5" style={{ color: accentColor.color }} />
-                <p className="text-xl font-black tabular-nums" style={{ color: isDark ? '#fff' : '#111' }}>
-                  {dailyTaps}/{DAILY_LIMIT}
-                </p>
-                <p className="text-[11px] font-semibold opacity-55">Kunlik taplar</p>
-              </div>
-              <div
-                className="rounded-2xl p-4"
-                style={{
-                  background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
-                  border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
-                  boxShadow: isDark ? 'none' : '0 4px 20px rgba(0,0,0,0.05)',
-                }}
-              >
-                <Gift className="mb-2 size-5" style={{ color: accentColor.color }} />
-                <p className="text-xl font-black tabular-nums" style={{ color: isDark ? '#fff' : '#111' }}>
-                  {bonusTaps.toLocaleString()}
-                </p>
-                <p className="text-[11px] font-semibold opacity-55">Bonus taplar</p>
-              </div>
-            </div>
-
-            <div
-              className="rounded-2xl p-4"
-              style={{
-                background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
-                border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
-              }}
-            >
-              <div className="mb-2 flex items-center justify-between">
-                <span className="text-xs font-bold opacity-70">Bugungi progress</span>
-                <span className="text-xs font-black" style={{ color: accentColor.color }}>
-                  {dailyProgress}%
-                </span>
-              </div>
-              <div
-                className="h-2.5 overflow-hidden rounded-full"
-                style={{ background: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)' }}
-              >
-                <div
-                  className="h-full rounded-full transition-all duration-300"
-                  style={{
-                    width: `${dailyProgress}%`,
-                    background: accentColor.gradient,
-                  }}
-                />
-              </div>
-            </div>
-
             <div className="flex flex-1 flex-col items-center justify-center py-4">
               <div
                 role="button"
@@ -722,22 +686,6 @@ export default function Bonus({ onClose }: BonusProps) {
                   +{TAP_VALUE}
                 </div>
               ))}
-            </div>
-
-            <div
-              className="flex items-center gap-3 rounded-2xl p-4"
-              style={{
-                background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
-                border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
-              }}
-            >
-              <ShoppingBag className="size-6 shrink-0" style={{ color: accentColor.color }} />
-              <div>
-                <p className="text-sm font-bold" style={{ color: isDark ? '#fff' : '#111' }}>
-                  Qolgan taplar: {remainingTaps.toLocaleString()}
-                </p>
-                <p className="text-xs opacity-60">Marketdan xarid — qo‘shimcha bonus taplar 💰</p>
-              </div>
             </div>
           </div>
         )}

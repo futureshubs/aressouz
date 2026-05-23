@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState, type CSSProperties } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
 import { Package, Sparkles } from 'lucide-react';
 import { Autoplay, Pagination } from 'swiper/modules';
 import { Swiper, SwiperSlide } from 'swiper/react';
@@ -16,6 +16,24 @@ import { customerOrderStatusFromOrder } from '../utils/customerOrderStatusUz';
 type Props = {
   onViewAll: () => void;
 };
+
+const PREVIEW_POLL_MS = 2000;
+const PREVIEW_AUTOPLAY_MS = 2000;
+
+function ordersFingerprint(list: any[]): string {
+  return list
+    .map((o) =>
+      [
+        o?.id ?? o?.orderNumber ?? '',
+        o?.orderStatus ?? '',
+        o?.customerStatusKey ?? '',
+        o?.status ?? '',
+        orderTotalAmount(o),
+        o?.createdAt ?? '',
+      ].join(':'),
+    )
+    .join('|');
+}
 
 function orderLineTitle(order: any): string {
   const items = Array.isArray(order.items) ? order.items : [];
@@ -119,6 +137,7 @@ type OrderCardProps = {
   isDark: boolean;
   accentHex: string;
   onOpen: () => void;
+  refreshTick: number;
   className?: string;
 };
 
@@ -127,6 +146,7 @@ function OrderPreviewCard({
   isDark,
   accentHex,
   onOpen,
+  refreshTick,
   className = '',
 }: OrderCardProps) {
   const title = orderLineTitle(order);
@@ -164,6 +184,7 @@ function OrderPreviewCard({
             <p
               className="text-[11px] mt-0.5"
               style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+              data-refresh={refreshTick}
             >
               {formatOrderTimeAgoUz(order.createdAt)}
             </p>
@@ -218,7 +239,9 @@ export function MarketOrdersPreview({ onViewAll }: Props) {
   const isDark = theme === 'dark';
   const [orders, setOrders] = useState<any[]>([]);
   const [loading, setLoading] = useState(false);
+  const [uiTick, setUiTick] = useState(0);
   const tick = useVisibilityTick();
+  const inflightRef = useRef(false);
 
   const token = accessToken || session?.access_token || null;
   const accentHex = accentColor.color;
@@ -228,25 +251,74 @@ export function MarketOrdersPreview({ onViewAll }: Props) {
     [orders],
   );
 
-  const load = useCallback(async () => {
+  const load = useCallback(async (opts?: { silent?: boolean }) => {
     if (!isAuthenticated || !token) {
       setOrders([]);
       return;
     }
-    setLoading(true);
+    if (inflightRef.current) return;
+    inflightRef.current = true;
+    if (!opts?.silent) setLoading(true);
     try {
       const list = await fetchMarketOrdersForPreview(token);
-      setOrders(list);
+      setOrders((prev) => {
+        if (ordersFingerprint(prev) === ordersFingerprint(list)) return prev;
+        return list;
+      });
     } catch {
-      setOrders([]);
+      if (!opts?.silent) setOrders([]);
     } finally {
-      setLoading(false);
+      if (!opts?.silent) setLoading(false);
+      inflightRef.current = false;
     }
   }, [isAuthenticated, token]);
 
   useEffect(() => {
     void load();
   }, [load, tick]);
+
+  useEffect(() => {
+    if (!isAuthenticated || !token) return;
+
+    let timer: ReturnType<typeof setInterval> | null = null;
+
+    const poll = () => {
+      if (document.visibilityState !== 'visible') return;
+      setUiTick((t) => t + 1);
+      void load({ silent: true });
+    };
+
+    const start = () => {
+      if (timer != null) return;
+      timer = window.setInterval(poll, PREVIEW_POLL_MS);
+    };
+
+    const stop = () => {
+      if (timer == null) return;
+      clearInterval(timer);
+      timer = null;
+    };
+
+    const onVisibility = () => {
+      if (document.visibilityState === 'visible') {
+        setUiTick((t) => t + 1);
+        void load({ silent: true });
+        start();
+      } else {
+        stop();
+      }
+    };
+
+    if (document.visibilityState === 'visible') {
+      start();
+    }
+    document.addEventListener('visibilitychange', onVisibility);
+
+    return () => {
+      stop();
+      document.removeEventListener('visibilitychange', onVisibility);
+    };
+  }, [isAuthenticated, token, load]);
 
   if (!isAuthenticated) return null;
   if (!loading && orders.length === 0) return null;
@@ -295,6 +367,8 @@ export function MarketOrdersPreview({ onViewAll }: Props) {
             modules={[Pagination, Autoplay]}
             slidesPerView={1}
             spaceBetween={14}
+            speed={480}
+            loop={orders.length > 1}
             pagination={{
               dynamicBullets: true,
               clickable: true,
@@ -303,8 +377,8 @@ export function MarketOrdersPreview({ onViewAll }: Props) {
             autoplay={
               orders.length > 1
                 ? {
-                    delay: 4500,
-                    disableOnInteraction: true,
+                    delay: PREVIEW_AUTOPLAY_MS,
+                    disableOnInteraction: false,
                     pauseOnMouseEnter: true,
                   }
                 : false
@@ -326,6 +400,7 @@ export function MarketOrdersPreview({ onViewAll }: Props) {
                   isDark={isDark}
                   accentHex={accentHex}
                   onOpen={onViewAll}
+                  refreshTick={uiTick}
                 />
               </SwiperSlide>
             ))}

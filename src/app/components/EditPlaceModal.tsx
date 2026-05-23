@@ -1,6 +1,7 @@
 import { useState, useEffect, useRef } from 'react';
 import { X, MapPin, Phone, Clock, FileText, Tag, Image as ImageIcon, Instagram, Youtube, Send, Key, Navigation, Loader2 } from 'lucide-react';
 import { Place, placeCategories } from '../data/places';
+import { PlaceCategoryPicker } from './PlaceCategoryPicker';
 import { useTheme } from '../context/ThemeContext';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { regions } from '../data/regions';
@@ -271,21 +272,12 @@ export function EditPlaceModal({ isOpen, onClose, place, onSuccess }: EditPlaceM
               <label className="block text-xs sm:text-sm font-semibold mb-1.5 sm:mb-2" style={{ color: isDark ? '#ffffff' : '#000000' }}>
                 Kategoriya *
               </label>
-              <select
+              <PlaceCategoryPicker
                 value={formData.categoryId}
-                onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-                className="w-full px-3 sm:px-4 py-2.5 sm:py-3 rounded-xl text-sm"
-                style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.03)',
-                  border: isDark ? '1px solid rgba(255, 255, 255, 0.1)' : '1px solid rgba(0, 0, 0, 0.08)',
-                  color: isDark ? '#ffffff' : '#000000',
-                  outline: 'none',
-                }}
-              >
-                {placeCategories.map(cat => (
-                  <option key={cat.id} value={cat.id}>{cat.icon} {cat.name}</option>
-                ))}
-              </select>
+                onChange={(categoryId) => setFormData({ ...formData, categoryId })}
+                isDark={isDark}
+                accentColor={accentColor}
+              />
             </div>
 
             {/* Phone */}

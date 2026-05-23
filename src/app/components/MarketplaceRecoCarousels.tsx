@@ -244,7 +244,7 @@ export function MarketplaceRecoCarousels({
                   alt={String(product.name ?? '')}
                   loading="lazy"
                   decoding="async"
-                  className="w-full h-full object-contain"
+                  className="absolute inset-0 h-full w-full object-cover object-center"
                 />
               );
             }
@@ -254,7 +254,7 @@ export function MarketplaceRecoCarousels({
                 alt={String(product.name ?? '')}
                 dotColor={accentColor.color}
                 onUserInteracted={() => onGallerySwipe(product)}
-                imgClassName="h-full w-full object-contain"
+                imgClassName="h-full w-full object-cover object-center"
               />
             );
           })()}

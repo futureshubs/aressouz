@@ -843,7 +843,7 @@ export default function OnlineShops({
                               alt={product.name}
                               loading="lazy"
                               decoding="async"
-                              className="w-full h-full object-contain"
+                              className="absolute inset-0 h-full w-full object-cover object-center"
                             />
                           );
                         }
@@ -853,7 +853,7 @@ export default function OnlineShops({
                             alt={product.name}
                             dotColor={accentColor.color}
                             onUserInteracted={() => onProductGallerySwipe(product)}
-                            imgClassName="h-full w-full object-contain"
+                            imgClassName="h-full w-full object-cover object-center"
                           />
                         );
                       })()}
@@ -1567,7 +1567,7 @@ function ShopDetailModal({
                             alt={product.name}
                             loading="lazy"
                             decoding="async"
-                            className="w-full h-full object-contain"
+                            className="absolute inset-0 h-full w-full object-cover object-center"
                             onError={(e) => {
                               e.currentTarget.style.display = 'none';
                             }}

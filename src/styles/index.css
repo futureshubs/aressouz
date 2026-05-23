@@ -10,3 +10,6 @@
 .market-orders-preview-swiper.swiper {
   padding-bottom: 2.25rem;
 }
+.market-orders-preview-swiper .swiper-slide {
+  transition: opacity 0.35s ease;
+}

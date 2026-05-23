@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useLayoutEffect, useRef } from 'react';
+import React, { useState, useEffect, useLayoutEffect, useRef, useCallback } from 'react';
 import {
   User,
   Settings,
@@ -1794,6 +1794,15 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
     }
   };
 
+  const handlePortfolioViewsUpdated = useCallback((portfolioId: string, views: number) => {
+    setMyPortfolios((prev) =>
+      prev.map((p) => (p.id === portfolioId ? { ...p, views } : p)),
+    );
+    setPortfolioDetail((prev) =>
+      prev?.id === portfolioId ? { ...prev, views } : prev,
+    );
+  }, []);
+
   const fetchMyListings = async () => {
     try {
       devLog('📋 ===== FETCHING MY LISTINGS =====');
@@ -2372,10 +2381,10 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
           </div>
         )}
 
-        {/* iOS Tabs */}
+        {/* iOS Tabs — bitta qator */}
         <div className="px-3 sm:px-4 mb-4 min-w-0">
           <div
-            className="w-full max-w-full min-w-0 grid grid-cols-2 sm:grid-cols-4 gap-2 p-1.5 sm:p-1.5 rounded-2xl overflow-hidden"
+            className="flex w-full max-w-full min-w-0 gap-1 rounded-2xl p-1"
             style={{
               background: isDark
                 ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.04))'
@@ -2387,118 +2396,48 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
               border: isDark ? '0.5px solid rgba(255, 255, 255, 0.1)' : '0.5px solid rgba(0, 0, 0, 0.08)',
             }}
           >
-            <button
-              onClick={() => setActiveTab('orders')}
-              className="w-full min-h-[3rem] sm:min-h-0 flex flex-col min-[400px]:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-2.5 px-1.5 sm:px-4 rounded-xl transition-all"
-              style={{
-                background: activeTab === 'orders'
-                  ? `linear-gradient(135deg, ${accentColor.color}4d, ${accentColor.color}33)`
-                  : 'transparent',
-                boxShadow:
-                  activeTab === 'orders'
-                    ? isDark
-                      ? `0 4px 12px ${accentColor.color}66, inset 0 1px 0 rgba(255, 255, 255, 0.2)`
-                      : `0 3px 10px ${accentColor.color}4d, inset 0 1px 0 rgba(255, 255, 255, 0.6)`
-                    : 'none',
-                border: activeTab === 'orders' ? `0.5px solid ${accentColor.color}4d` : '0.5px solid transparent',
-              }}
-            >
-              <Package
-                className="size-4 flex-shrink-0"
-                strokeWidth={2.5}
-                style={{ color: activeTab === 'orders' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
-              />
-              <span
-                className="text-[10px] min-[400px]:text-[11px] sm:text-xs font-semibold text-center leading-tight max-w-full px-0.5 line-clamp-2 min-[400px]:truncate"
-                style={{ color: activeTab === 'orders' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
-              >
-                {t('profile.tabOrders')}
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab('favorites')}
-              className="w-full min-h-[3rem] sm:min-h-0 flex flex-col min-[400px]:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-2.5 px-1.5 sm:px-4 rounded-xl transition-all"
-              style={{
-                background: activeTab === 'favorites'
-                  ? `linear-gradient(135deg, ${accentColor.color}4d, ${accentColor.color}33)`
-                  : 'transparent',
-                boxShadow:
-                  activeTab === 'favorites'
-                    ? isDark
-                      ? `0 4px 12px ${accentColor.color}66, inset 0 1px 0 rgba(255, 255, 255, 0.2)`
-                      : `0 3px 10px ${accentColor.color}4d, inset 0 1px 0 rgba(255, 255, 255, 0.6)`
-                    : 'none',
-                border: activeTab === 'favorites' ? `0.5px solid ${accentColor.color}4d` : '0.5px solid transparent',
-              }}
-            >
-              <Heart
-                className="size-4 flex-shrink-0"
-                strokeWidth={2.5}
-                style={{ color: activeTab === 'favorites' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
-              />
-              <span
-                className="text-[10px] min-[400px]:text-[11px] sm:text-xs font-semibold text-center leading-tight max-w-full px-0.5 line-clamp-2 min-[400px]:truncate"
-                style={{ color: activeTab === 'favorites' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
-              >
-                {t('profile.tabFavorites')}
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab('portfolio')}
-              className="w-full min-h-[3rem] sm:min-h-0 flex flex-col min-[400px]:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-2.5 px-1.5 sm:px-4 rounded-xl transition-all"
-              style={{
-                background: activeTab === 'portfolio'
-                  ? `linear-gradient(135deg, ${accentColor.color}4d, ${accentColor.color}33)`
-                  : 'transparent',
-                boxShadow:
-                  activeTab === 'portfolio'
-                    ? isDark
-                      ? `0 4px 12px ${accentColor.color}66, inset 0 1px 0 rgba(255, 255, 255, 0.2)`
-                      : `0 3px 10px ${accentColor.color}4d, inset 0 1px 0 rgba(255, 255, 255, 0.6)`
-                    : 'none',
-                border: activeTab === 'portfolio' ? `0.5px solid ${accentColor.color}4d` : '0.5px solid transparent',
-              }}
-            >
-              <Grid3x3
-                className="size-4 flex-shrink-0"
-                strokeWidth={2.5}
-                style={{ color: activeTab === 'portfolio' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
-              />
-              <span
-                className="text-[10px] min-[400px]:text-[11px] sm:text-xs font-semibold text-center leading-tight max-w-full px-0.5 line-clamp-2 min-[400px]:truncate"
-                style={{ color: activeTab === 'portfolio' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
-              >
-                {t('profile.tabPortfolio')}
-              </span>
-            </button>
-            <button
-              onClick={() => setActiveTab('ads')}
-              className="w-full min-h-[3rem] sm:min-h-0 flex flex-col min-[400px]:flex-row items-center justify-center gap-1 sm:gap-2 py-2 sm:py-2.5 px-1.5 sm:px-4 rounded-xl transition-all"
-              style={{
-                background: activeTab === 'ads'
-                  ? `linear-gradient(135deg, ${accentColor.color}4d, ${accentColor.color}33)`
-                  : 'transparent',
-                boxShadow:
-                  activeTab === 'ads'
-                    ? isDark
-                      ? `0 4px 12px ${accentColor.color}66, inset 0 1px 0 rgba(255, 255, 255, 0.2)`
-                      : `0 3px 10px ${accentColor.color}4d, inset 0 1px 0 rgba(255, 255, 255, 0.6)`
-                    : 'none',
-                border: activeTab === 'ads' ? `0.5px solid ${accentColor.color}4d` : '0.5px solid transparent',
-              }}
-            >
-              <DollarSign
-                className="size-4 flex-shrink-0"
-                strokeWidth={2.5}
-                style={{ color: activeTab === 'ads' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
-              />
-              <span
-                className="text-[10px] min-[400px]:text-[11px] sm:text-xs font-semibold text-center leading-tight max-w-full px-0.5 line-clamp-2 min-[400px]:truncate"
-                style={{ color: activeTab === 'ads' ? accentColor.color : (isDark ? '#ffffff' : '#374151') }}
-              >
-                {t('profile.tabAds')}
-              </span>
-            </button>
+            {(
+              [
+                { id: 'orders' as const, icon: Package, label: t('profile.tabOrders') },
+                { id: 'favorites' as const, icon: Heart, label: t('profile.tabFavorites') },
+                { id: 'portfolio' as const, icon: Grid3x3, label: t('profile.tabPortfolio') },
+                { id: 'ads' as const, icon: DollarSign, label: t('profile.tabAds') },
+              ] as const
+            ).map(({ id, icon: TabIcon, label }) => {
+              const isActive = activeTab === id;
+              const inactiveColor = isDark ? 'rgba(255,255,255,0.55)' : 'rgba(55,65,81,0.85)';
+              return (
+                <button
+                  key={id}
+                  type="button"
+                  onClick={() => setActiveTab(id)}
+                  className="flex min-w-0 flex-1 flex-col items-center justify-center gap-1 rounded-xl px-1 py-2.5 transition-all active:scale-[0.97] sm:py-3"
+                  style={{
+                    background: isActive
+                      ? `linear-gradient(135deg, ${accentColor.color}4d, ${accentColor.color}28)`
+                      : 'transparent',
+                    boxShadow: isActive
+                      ? isDark
+                        ? `0 4px 14px ${accentColor.color}55, inset 0 1px 0 rgba(255,255,255,0.18)`
+                        : `0 3px 10px ${accentColor.color}40, inset 0 1px 0 rgba(255,255,255,0.65)`
+                      : 'none',
+                    border: isActive ? `0.5px solid ${accentColor.color}55` : '0.5px solid transparent',
+                  }}
+                >
+                  <TabIcon
+                    className="size-[18px] shrink-0 sm:size-5"
+                    strokeWidth={isActive ? 2.5 : 2}
+                    style={{ color: isActive ? accentColor.color : inactiveColor }}
+                  />
+                  <span
+                    className="w-full truncate text-center text-[9px] font-semibold leading-tight sm:text-[11px]"
+                    style={{ color: isActive ? accentColor.color : inactiveColor }}
+                  >
+                    {label}
+                  </span>
+                </button>
+              );
+            })}
           </div>
         </div>
 
@@ -3577,6 +3516,7 @@ export function ProfileView({ onOpenBonus, initialOrderCategory }: ProfileViewPr
         portfolio={portfolioDetail}
         isOpen={!!portfolioDetail}
         onClose={() => setPortfolioDetail(null)}
+        onViewsUpdated={handlePortfolioViewsUpdated}
       />
 
       <ListingPreviewModal

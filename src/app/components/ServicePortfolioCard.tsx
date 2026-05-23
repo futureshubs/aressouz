@@ -1,27 +1,33 @@
 import React from 'react';
-import { MapPin, Eye, Phone, MessageSquare } from 'lucide-react';
+import { MapPin, Eye, MessageSquare, Briefcase } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 
 interface ServicePortfolio {
   id: string;
-  branchId: string;
-  title: string;
-  description: string;
-  category: string;
-  price: number | null;
-  priceType: 'fixed' | 'negotiable' | 'contact';
-  images: string[];
-  videos: string[];
-  phone: string;
-  whatsapp: string;
-  telegram: string;
+  branchId?: string;
+  userId?: string;
+  userName?: string;
+  title?: string;
+  description?: string;
+  profession?: string;
+  category?: string;
+  price?: number | null;
+  priceAmount?: number;
+  priceType?: string;
+  images?: string[];
+  videos?: string[];
+  media?: Array<{ url: string; type?: string }>;
+  phone?: string;
+  userPhone?: string;
+  whatsapp?: string;
+  telegram?: string;
   region: string;
   district: string;
-  address: string;
-  status: 'active' | 'inactive';
-  views: number;
-  createdAt: string;
-  updatedAt: string;
+  address?: string;
+  status?: 'active' | 'inactive';
+  views?: number;
+  createdAt?: string;
+  updatedAt?: string;
 }
 
 interface ServicePortfolioCardProps {
@@ -46,41 +52,84 @@ const CATEGORY_EMOJIS: Record<string, string> = {
   'other': '📦',
 };
 
-// Category names
-const CATEGORY_NAMES: Record<string, string> = {
-  'web': 'Web Dasturlash',
-  'mobile': 'Mobile Dasturlash',
-  'design': 'Dizayn',
-  'photo': 'Foto/Video',
-  'marketing': 'Marketing',
-  'education': 'Ta\'lim',
-  'repair': 'Ta\'mirlash',
-  'construction': 'Qurilish',
-  'beauty': 'Go\'zallik',
-  'health': 'Sog\'liqni saqlash',
-  'transport': 'Transport',
-  'cleaning': 'Tozalash',
-  'other': 'Boshqa',
+const PRICE_UNIT_LABELS: Record<string, string> = {
+  soat: 'soat',
+  kun: 'kun',
+  oy: 'oy',
+  ish: 'ish',
+  kv: 'm²',
+  m2: 'm',
 };
 
-export const ServicePortfolioCard = React.memo(function ServicePortfolioCard({ 
-  portfolio, 
-  onClick 
+function resolvePortfolioName(portfolio: ServicePortfolio): string {
+  const name = String(portfolio.userName || portfolio.title || '').trim();
+  return name || 'Usta';
+}
+
+function resolveWorkStyle(portfolio: ServicePortfolio, categoryName: string): string {
+  const profession = String(portfolio.profession || '').trim();
+  if (profession) return profession;
+  if (categoryName && categoryName !== portfolio.category) return categoryName;
+  return String(portfolio.category || '').trim() || 'Xizmat';
+}
+
+function resolveFirstImage(portfolio: ServicePortfolio): string | null {
+  if (portfolio.images?.length) return portfolio.images[0] || null;
+  const mediaUrl = portfolio.media?.find((m) => m?.url)?.url;
+  return mediaUrl || null;
+}
+
+// Category names
+const CATEGORY_NAMES: Record<string, string> = {
+  web: 'Web Dasturlash',
+  mobile: 'Mobile Dasturlash',
+  design: 'Dizayn',
+  photo: 'Foto/Video',
+  marketing: 'Marketing',
+  education: "Ta'lim",
+  repair: "Ta'mirlash",
+  construction: 'Qurilish',
+  beauty: "Go'zallik",
+  health: "Sog'liqni saqlash",
+  transport: 'Transport',
+  cleaning: 'Tozalash',
+  other: 'Boshqa',
+};
+
+export const ServicePortfolioCard = React.memo(function ServicePortfolioCard({
+  portfolio,
+  onClick,
 }: ServicePortfolioCardProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
-  const categoryName = CATEGORY_NAMES[portfolio.category] || portfolio.category;
-  const categoryEmoji = CATEGORY_EMOJIS[portfolio.category] || '📦';
-  const firstImage = portfolio.images && portfolio.images.length > 0 ? portfolio.images[0] : null;
+  const categoryKey = String(portfolio.category || '').trim();
+  const categoryName = CATEGORY_NAMES[categoryKey] || categoryKey || resolveWorkStyle(portfolio, '');
+  const categoryEmoji = CATEGORY_EMOJIS[categoryKey] || '👷';
+  const displayName = resolvePortfolioName(portfolio);
+  const workStyle = resolveWorkStyle(portfolio, categoryName);
+  const firstImage = resolveFirstImage(portfolio);
+  const mediaCount =
+    (portfolio.images?.length || 0) +
+    (portfolio.videos?.length || 0) +
+    (portfolio.media?.length || 0);
 
-  // Price display
   const getPriceText = () => {
-    if (!portfolio.price) {
-      return portfolio.priceType === 'contact' ? 'Bog\'lanish' : 'Narx kelishiladi';
+    const amount = Number(portfolio.priceAmount ?? portfolio.price ?? 0);
+    const priceType = String(portfolio.priceType || '').trim();
+
+    if (PRICE_UNIT_LABELS[priceType]) {
+      if (amount > 0) {
+        return `${amount.toLocaleString('uz-UZ')} so'm/${PRICE_UNIT_LABELS[priceType]}`;
+      }
+      return 'Narx kelishiladi';
     }
-    const basePrice = `${portfolio.price.toLocaleString()} so'm`;
-    if (portfolio.priceType === 'negotiable') {
+
+    if (!amount) {
+      return priceType === 'contact' ? "Bog'lanish" : 'Narx kelishiladi';
+    }
+    const basePrice = `${amount.toLocaleString('uz-UZ')} so'm`;
+    if (priceType === 'negotiable') {
       return `${basePrice} (kelishiladi)`;
     }
     return basePrice;
@@ -105,7 +154,7 @@ export const ServicePortfolioCard = React.memo(function ServicePortfolioCard({
         {firstImage ? (
           <img
             src={firstImage}
-            alt={portfolio.title}
+            alt={displayName}
             className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
           />
         ) : (
@@ -128,7 +177,7 @@ export const ServicePortfolioCard = React.memo(function ServicePortfolioCard({
           }}
         >
           <span>{categoryEmoji}</span>
-          <span>{categoryName}</span>
+          <span className="truncate max-w-[8rem] sm:max-w-[10rem]">{workStyle}</span>
         </div>
 
         {/* Views Counter */}
@@ -144,7 +193,7 @@ export const ServicePortfolioCard = React.memo(function ServicePortfolioCard({
         </div>
 
         {/* Media Count */}
-        {(portfolio.images && portfolio.images.length > 1 || portfolio.videos && portfolio.videos.length > 0) && (
+        {(mediaCount > 1) && (
           <div
             className="absolute bottom-2 right-2 px-2.5 py-1.5 rounded-lg text-xs font-bold backdrop-blur-xl"
             style={{
@@ -152,25 +201,31 @@ export const ServicePortfolioCard = React.memo(function ServicePortfolioCard({
               color: '#ffffff',
             }}
           >
-            📸 {(portfolio.images?.length || 0) + (portfolio.videos?.length || 0)}
+            📸 {mediaCount}
           </div>
         )}
       </div>
 
       {/* Content */}
       <div className="p-3 sm:p-4">
-        {/* Title */}
         <h3
-          className="text-sm sm:text-base font-bold mb-2 line-clamp-2"
+          className="text-sm sm:text-base font-bold mb-1 line-clamp-1"
           style={{ color: isDark ? '#ffffff' : '#111827' }}
         >
-          {portfolio.title}
+          {displayName}
         </h3>
 
-        {/* Description */}
+        <div
+          className="flex items-center gap-1.5 text-xs sm:text-sm mb-2 min-w-0"
+          style={{ color: accentColor.color }}
+        >
+          <Briefcase className="w-3.5 h-3.5 flex-shrink-0" />
+          <span className="truncate font-semibold">{workStyle}</span>
+        </div>
+
         {portfolio.description && (
           <p
-            className="text-xs sm:text-sm mb-3 line-clamp-2"
+            className="text-xs sm:text-sm mb-2 line-clamp-2"
             style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}
           >
             {portfolio.description}
@@ -190,22 +245,11 @@ export const ServicePortfolioCard = React.memo(function ServicePortfolioCard({
 
         {/* Price */}
         <div
-          className="text-base sm:text-lg font-bold mb-3"
+          className="text-sm sm:text-base font-bold mb-3"
           style={{ color: accentColor.color }}
         >
           {getPriceText()}
         </div>
-
-        {/* Contact Info */}
-        {portfolio.phone && (
-          <div
-            className="flex items-center gap-1.5 text-xs mb-3"
-            style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
-          >
-            <Phone className="w-3.5 h-3.5" />
-            <span className="font-medium">{portfolio.phone}</span>
-          </div>
-        )}
 
         {/* Contact Button */}
         <button

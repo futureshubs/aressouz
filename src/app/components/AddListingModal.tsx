@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { X, Upload, Plus, Trash2, Home, Car, ChevronRight, Loader2 } from 'lucide-react';
+import { X, Upload, Plus, Trash2, Home, Car, ChevronRight, Loader2, ArrowLeft, Smartphone, Wallet } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { houseCategories } from '../data/houses';
 import { carCategories } from '../data/cars';
@@ -10,6 +10,7 @@ import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
 import { openExternalUrlSync } from '../utils/openExternalUrl';
 import { LISTING_FEE_UZS } from '../constants/listingFee';
+import { PAYMENT_LOGO_FRAME_SKEW_DEG } from './payment/PaymentMethodLogoFrame';
 
 interface AddListingModalProps {
   isOpen: boolean;
@@ -22,7 +23,133 @@ interface AddListingModalProps {
   defaultType?: 'house' | 'car'; // Optional: Auto-select type
 }
 
+type ListingStep = 'type' | 'form' | 'payment';
 type ListingType = 'house' | 'car' | null;
+
+const LISTING_FEE_LOGOS = {
+  click: '/payments/click-official.svg?v=2',
+  payme: '/payments/payme-official.png?v=4',
+} as const;
+
+const LISTING_FEE_METHODS = {
+  click: {
+    color: '#00a0e3',
+    label: 'Click',
+    description: 'Click ilovasi orqali to‘lang',
+    logo: LISTING_FEE_LOGOS.click,
+    icon: Smartphone,
+    logoSlot: 'dark' as const,
+  },
+  payme: {
+    color: '#00AACB',
+    label: 'Payme',
+    description: 'Payme ilovasi orqali to‘lang',
+    logo: LISTING_FEE_LOGOS.payme,
+    icon: Wallet,
+    logoSlot: 'light' as const,
+  },
+} as const;
+
+function ListingFeeMethodCard({
+  method,
+  amountUzs,
+  isDark,
+  busy,
+  disabled,
+  onClick,
+}: {
+  method: keyof typeof LISTING_FEE_METHODS;
+  amountUzs: number;
+  isDark: boolean;
+  busy: boolean;
+  disabled: boolean;
+  onClick: () => void;
+}) {
+  const cfg = LISTING_FEE_METHODS[method];
+  const Icon = cfg.icon;
+  const [logoFailed, setLogoFailed] = useState(false);
+  const logoBoxSurface =
+    cfg.logo && !logoFailed
+      ? cfg.logoSlot === 'dark' && !isDark
+        ? { background: '#0a0a0a', border: 'none', boxShadow: 'none' }
+        : { background: 'transparent', border: 'none', boxShadow: 'none' }
+      : null;
+
+  return (
+    <button
+      type="button"
+      aria-label={`${cfg.label} — ${amountUzs.toLocaleString('uz-UZ')} so‘m`}
+      onClick={onClick}
+      disabled={disabled || busy}
+      className="group relative w-full overflow-visible rounded-2xl border text-left transition-all duration-200 active:scale-[0.99] disabled:opacity-50 disabled:cursor-not-allowed focus:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+      style={{
+        borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)',
+        background: isDark
+          ? 'linear-gradient(180deg, rgba(255,255,255,0.06) 0%, rgba(255,255,255,0.02) 100%)'
+          : 'linear-gradient(180deg, #ffffff 0%, #fafafa 100%)',
+        boxShadow: isDark
+          ? '0 4px 20px rgba(0,0,0,0.35), inset 0 1px 0 rgba(255,255,255,0.06)'
+          : '0 4px 20px rgba(15,23,42,0.07), inset 0 1px 0 rgba(255,255,255,0.9)',
+      }}
+    >
+      <div
+        className="pointer-events-none absolute -right-8 -top-10 h-32 w-32 rounded-full opacity-0 blur-2xl transition-opacity duration-300 group-hover:opacity-100 group-disabled:opacity-0"
+        style={{ background: cfg.color }}
+      />
+      <div className="relative flex items-center gap-4 p-4 sm:gap-5 sm:p-[1.125rem]">
+        <div
+          className="relative flex aspect-square h-[4.25rem] w-[4.25rem] shrink-0 items-center justify-center overflow-hidden rounded-2xl sm:h-[4.75rem] sm:w-[4.75rem]"
+          style={{
+            ...(logoBoxSurface ?? {
+              background: `linear-gradient(145deg, ${cfg.color}45, ${cfg.color}18)`,
+              border: `1px solid ${cfg.color}55`,
+              boxShadow: `inset 0 1px 0 rgba(255,255,255,0.35), 0 6px 18px ${cfg.color}35`,
+            }),
+            transform: `skewX(${PAYMENT_LOGO_FRAME_SKEW_DEG}deg)`,
+            transformOrigin: 'center',
+          }}
+        >
+          <div
+            className="flex h-full w-full items-center justify-center overflow-hidden rounded-2xl"
+            style={{
+              transform: `skewX(${-PAYMENT_LOGO_FRAME_SKEW_DEG}deg)`,
+              transformOrigin: 'center',
+            }}
+          >
+            {cfg.logo && !logoFailed ? (
+              <img
+                src={cfg.logo}
+                alt=""
+                className="h-full w-full rounded-2xl object-contain object-center"
+                draggable={false}
+                decoding="async"
+                onError={() => setLogoFailed(true)}
+              />
+            ) : (
+              <Icon className="h-9 w-9 sm:h-10 sm:w-10" style={{ color: cfg.color }} />
+            )}
+          </div>
+        </div>
+        <div className="min-w-0 flex-1">
+          <p className="text-lg font-bold" style={{ color: isDark ? '#ffffff' : '#111827' }}>
+            {cfg.label}
+          </p>
+          <p className="text-sm mt-0.5" style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}>
+            {cfg.description}
+          </p>
+          <p className="text-base font-semibold mt-2" style={{ color: cfg.color }}>
+            {amountUzs.toLocaleString('uz-UZ')} so‘m
+          </p>
+        </div>
+        {busy ? (
+          <Loader2 className="h-6 w-6 shrink-0 animate-spin" style={{ color: cfg.color }} />
+        ) : (
+          <ChevronRight className="h-6 w-6 shrink-0 opacity-60" style={{ color: cfg.color }} />
+        )}
+      </div>
+    </button>
+  );
+}
 
 function normalizeListingPhoneClient(value: string): string {
   const d = String(value || '').replace(/\D/g, '');
@@ -66,7 +193,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   
-  const [step, setStep] = useState<'type' | 'form'>(defaultType ? 'form' : 'type');
+  const [step, setStep] = useState<ListingStep>(defaultType ? 'form' : 'type');
   const [listingType, setListingType] = useState<ListingType>(defaultType || null);
   
   // Form state
@@ -129,7 +256,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
   const [error, setError] = useState('');
   const fileInputRef = useRef<HTMLInputElement>(null);
   const modalScrollRef = useRef<HTMLDivElement>(null);
-  const listingFeeBannerRef = useRef<HTMLDivElement>(null);
+  const pendingSubmitAfterPaymentRef = useRef(false);
   const fieldCategoryRef = useRef<HTMLSelectElement>(null);
   const fieldTitleRef = useRef<HTMLInputElement>(null);
   const fieldDescriptionRef = useRef<HTMLTextAreaElement>(null);
@@ -227,6 +354,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
 
   useEffect(() => {
     if (!isOpen) {
+      pendingSubmitAfterPaymentRef.current = false;
       setListingQuota(null);
       setListingFeeTransactionId(null);
       setFeePolling(false);
@@ -300,6 +428,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
     setCreditInterestRate('');
     setInitialPayment('');
     setError('');
+    pendingSubmitAfterPaymentRef.current = false;
   }, [defaultType]);
 
   /** Profil va boshqa joylarda modal o‘chmaydi — yopilganda barcha rasm state tozalanadi */
@@ -319,7 +448,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         if (await verifyListingFeeCredit(txId)) {
           setListingFeeTransactionId(txId);
           setFeePolling(false);
-          toast.success('To‘lov qabul qilindi — endi e‘lonni to‘ldiring va yuboring.');
+          toast.success('To‘lov qabul qilindi — e‘lon joylanmoqda…');
           return;
         }
       }
@@ -396,14 +525,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
     }
   };
 
-  const mustPayBeforeContinue =
-    Boolean(listingQuota?.requiresFeeForNext) && !listingFeeTransactionId?.trim();
-
   const goToFormWithType = (t: 'house' | 'car') => {
-    if (mustPayBeforeContinue) {
-      toast.error('Avval e‘lon uchun to‘lovni yakunlang (yuqoridagi blok).');
-      return;
-    }
     setListingType(t);
     setStep('form');
   };
@@ -587,10 +709,10 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
     }
 
     if (listingQuota?.requiresFeeForNext && !listingFeeTransactionId?.trim()) {
-      go(
-        `Bu telefon bo‘yicha ${listingQuota.freeLimit} tadan ortiq e‘lon uchun avval ${LISTING_FEE_UZS.toLocaleString('uz-UZ')} so‘m to‘lang (Click yoki Payme).`,
-        listingFeeBannerRef.current,
-      );
+      pendingSubmitAfterPaymentRef.current = true;
+      setError('');
+      setStep('payment');
+      modalScrollRef.current?.scrollTo({ top: 0, behavior: 'smooth' });
       return;
     }
 
@@ -762,6 +884,27 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
     }
   };
 
+  useEffect(() => {
+    if (!listingFeeTransactionId?.trim() || !pendingSubmitAfterPaymentRef.current) return;
+    pendingSubmitAfterPaymentRef.current = false;
+    void handleSubmit();
+    // handleSubmit — form holati bilan bog‘liq; faqat to‘lovdan keyin bir marta
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listingFeeTransactionId]);
+
+  const headerTitle =
+    step === 'payment'
+      ? 'E‘lon uchun to‘lov'
+      : step === 'form'
+        ? listingType === 'house'
+          ? 'Uy / kvartira e‘loni'
+          : listingType === 'car'
+            ? 'Avtomobil e‘loni'
+            : 'E‘lon joylash'
+        : 'E‘lon joylash';
+
+  const feeAmountUzs = listingQuota?.feeAmountUzs ?? LISTING_FEE_UZS;
+
   if (!isOpen) return null;
 
   return (
@@ -788,18 +931,45 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         >
           {/* Sticky Header */}
           <div
-            className="sticky top-0 z-10 flex items-center justify-between p-4 sm:p-6 border-b"
+            className="sticky top-0 z-10 flex items-center justify-between gap-3 p-4 sm:p-6 border-b"
             style={{
               background: isDark ? '#0a0a0a' : '#ffffff',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
             }}
           >
-          <h2
-            className="text-xl sm:text-2xl font-bold"
-            style={{ color: isDark ? '#ffffff' : '#111827' }}
-          >
-            E'lon joylash
-          </h2>
+          <div className="flex items-center gap-3 min-w-0">
+            {(step === 'form' || step === 'payment') && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (step === 'payment') {
+                    pendingSubmitAfterPaymentRef.current = false;
+                    setStep('form');
+                    setError('');
+                    return;
+                  }
+                  if (!defaultType) {
+                    setStep('type');
+                    setListingType(null);
+                  }
+                }}
+                disabled={isSubmitting || (step === 'form' && !!defaultType)}
+                className="p-2.5 rounded-full transition-all active:scale-95 disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
+                style={{
+                  background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                }}
+                aria-label="Orqaga"
+              >
+                <ArrowLeft className="w-5 h-5" style={{ color: isDark ? '#ffffff' : '#111827' }} />
+              </button>
+            )}
+            <h2
+              className="text-xl sm:text-2xl font-bold truncate"
+              style={{ color: isDark ? '#ffffff' : '#111827' }}
+            >
+              {headerTitle}
+            </h2>
+          </div>
           <button
             type="button"
             onClick={onClose}
@@ -815,80 +985,6 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
 
         {/* Content */}
         <div className="p-4 sm:p-6 space-y-5 pb-32">
-          {(quotaLoading || listingQuota) && (
-            <div
-              ref={listingFeeBannerRef}
-              tabIndex={-1}
-              className="p-4 rounded-2xl text-sm space-y-2 outline-none"
-              style={{
-                background: isDark ? 'rgba(255, 255, 255, 0.06)' : 'rgba(0, 0, 0, 0.04)',
-                border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-              }}
-            >
-              {quotaLoading && !listingQuota ? (
-                <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.65)' }}>
-                  Telefon bo&apos;yicha limit tekshirilmoqda…
-                </p>
-              ) : listingQuota ? (
-                listingQuota.requiresFeeForNext ? (
-                  <>
-                    <p className="font-semibold" style={{ color: isDark ? '#ffffff' : '#111827' }}>
-                      Bu telefon bo&apos;yicha {listingQuota.freeLimit} ta bepul e&apos;lon tugagan.
-                    </p>
-                    <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.7)' }}>
-                      Keyingi har bir e&apos;lon:{' '}
-                      <strong>
-                        {LISTING_FEE_UZS.toLocaleString('uz-UZ')} so&apos;m
-                      </strong>{' '}
-                      (Click yoki Payme). Avval to&apos;lang, keyin turini tanlang va e&apos;lonni yuboring.
-                    </p>
-                    {listingFeeTransactionId ? (
-                      <p className="font-medium" style={{ color: '#10b981' }}>
-                        To&apos;lov qabul qilindi. Endi turini tanlab e&apos;lonni joylashtirishingiz mumkin.
-                      </p>
-                    ) : (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
-                        <button
-                          type="button"
-                          onClick={startListingFeeClick}
-                          disabled={feePaymentBusy || feePolling}
-                          className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50"
-                          style={{ backgroundImage: accentColor.gradient }}
-                        >
-                          {feePaymentBusy
-                            ? 'Tayyorlanmoqda…'
-                            : feePolling
-                              ? 'To‘lov kutilmoqda…'
-                              : `${LISTING_FEE_UZS.toLocaleString('uz-UZ')} so‘m — Click`}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={startListingFeePayme}
-                          disabled={feePaymentBusy || feePolling}
-                          className="w-full py-3 rounded-xl font-semibold text-white disabled:opacity-50"
-                          style={{
-                            background: 'linear-gradient(135deg, #00AACB 0%, #008BA3 100%)',
-                          }}
-                        >
-                          {feePaymentBusy
-                            ? 'Tayyorlanmoqda…'
-                            : feePolling
-                              ? 'To‘lov kutilmoqda…'
-                              : `${LISTING_FEE_UZS.toLocaleString('uz-UZ')} so‘m — Payme`}
-                        </button>
-                      </div>
-                    )}
-                  </>
-                ) : (
-                  <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.75)' : 'rgba(0, 0, 0, 0.7)' }}>
-                    Bepul qolgan joylar: <strong>{listingQuota.remainingFreeSlots}</strong> (shu telefon bo&apos;yicha
-                    jami {listingQuota.freeLimit} ta).
-                  </p>
-                )
-              ) : null}
-            </div>
-          )}
-
           {step === 'type' ? (
             // Step 1: Choose type
             <div className="space-y-4">
@@ -901,8 +997,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
 
               <button
                 onClick={() => goToFormWithType('house')}
-                disabled={mustPayBeforeContinue}
-                className="w-full p-6 rounded-2xl transition-all active:scale-98 flex items-center justify-between disabled:opacity-45 disabled:cursor-not-allowed"
+                className="w-full p-6 rounded-2xl transition-all active:scale-98 flex items-center justify-between"
                 style={{
                   background: isDark
                     ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03))'
@@ -942,8 +1037,7 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
 
               <button
                 onClick={() => goToFormWithType('car')}
-                disabled={mustPayBeforeContinue}
-                className="w-full p-6 rounded-2xl transition-all active:scale-98 flex items-center justify-between disabled:opacity-45 disabled:cursor-not-allowed"
+                className="w-full p-6 rounded-2xl transition-all active:scale-98 flex items-center justify-between"
                 style={{
                   background: isDark
                     ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.08), rgba(255, 255, 255, 0.03))'
@@ -981,22 +1075,107 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
                 <ChevronRight className="size-6" style={{ color: accentColor.color }} />
               </button>
             </div>
+          ) : step === 'payment' ? (
+            <div className="space-y-5">
+              <div
+                className="p-4 sm:p-5 rounded-2xl space-y-3"
+                style={{
+                  background: isDark
+                    ? 'linear-gradient(145deg, rgba(255,255,255,0.08), rgba(255,255,255,0.03))'
+                    : 'linear-gradient(145deg, #ffffff, #f8fafc)',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.1)' : 'rgba(15,23,42,0.08)'}`,
+                }}
+              >
+                <div className="flex items-start gap-3">
+                  <div
+                    className="p-3 rounded-2xl shrink-0"
+                    style={{ background: `${accentColor.color}20` }}
+                  >
+                    {listingType === 'car' ? (
+                      <Car className="size-7" style={{ color: accentColor.color }} strokeWidth={2} />
+                    ) : (
+                      <Home className="size-7" style={{ color: accentColor.color }} strokeWidth={2} />
+                    )}
+                  </div>
+                  <div>
+                    <p className="font-semibold text-base" style={{ color: isDark ? '#ffffff' : '#111827' }}>
+                      Bepul limit tugagan
+                    </p>
+                    <p className="text-sm mt-1 leading-relaxed" style={{ color: isDark ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.65)' }}>
+                      Bu telefon bo‘yicha {listingQuota?.freeLimit ?? 2} ta bepul e‘lon ishlatilgan.
+                      Keyingi e‘lon uchun to‘lov qiling — shundan so‘ng e‘lon avtomatik joylanadi.
+                    </p>
+                  </div>
+                </div>
+                <div
+                  className="flex items-center justify-between rounded-xl px-4 py-3"
+                  style={{
+                    background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  }}
+                >
+                  <span className="text-sm font-medium" style={{ color: isDark ? 'rgba(255,255,255,0.75)' : 'rgba(0,0,0,0.6)' }}>
+                    To‘lov summasi
+                  </span>
+                  <span className="text-xl font-bold" style={{ color: accentColor.color }}>
+                    {feeAmountUzs.toLocaleString('uz-UZ')} so‘m
+                  </span>
+                </div>
+              </div>
+
+              {(feePolling || isSubmitting) && (
+                <div
+                  className="flex items-center gap-3 p-4 rounded-2xl text-sm font-medium"
+                  style={{
+                    background: isDark ? 'rgba(16, 185, 129, 0.12)' : 'rgba(16, 185, 129, 0.08)',
+                    color: '#10b981',
+                  }}
+                >
+                  <Loader2 className="h-5 w-5 shrink-0 animate-spin" />
+                  <span>
+                    {isSubmitting
+                      ? 'To‘lov qabul qilindi — e‘lon joylanmoqda…'
+                      : 'To‘lov tasdiqlanmoqda. Click yoki Payme ilovasida to‘lovni yakunlang.'}
+                  </span>
+                </div>
+              )}
+
+              <div className="space-y-3">
+                <p className="text-sm font-semibold" style={{ color: isDark ? 'rgba(255,255,255,0.8)' : 'rgba(0,0,0,0.7)' }}>
+                  To‘lov usulini tanlang
+                </p>
+                <ListingFeeMethodCard
+                  method="click"
+                  amountUzs={feeAmountUzs}
+                  isDark={isDark}
+                  busy={feePaymentBusy || feePolling}
+                  disabled={feePaymentBusy || feePolling || isSubmitting}
+                  onClick={startListingFeeClick}
+                />
+                <ListingFeeMethodCard
+                  method="payme"
+                  amountUzs={feeAmountUzs}
+                  isDark={isDark}
+                  busy={feePaymentBusy || feePolling}
+                  disabled={feePaymentBusy || feePolling || isSubmitting}
+                  onClick={startListingFeePayme}
+                />
+              </div>
+
+              {error && (
+                <div
+                  className="p-4 rounded-xl text-sm font-medium"
+                  style={{
+                    background: 'rgba(239, 68, 68, 0.1)',
+                    color: '#ef4444',
+                  }}
+                >
+                  {error}
+                </div>
+              )}
+            </div>
           ) : (
             // Step 2: Form
             <div className="space-y-6">
-              {/* Back button */}
-              <button
-                onClick={() => {
-                  setStep('type');
-                  setListingType(null);
-                }}
-                className="text-sm font-medium flex items-center gap-2 mb-4"
-                style={{ color: accentColor.color }}
-              >
-                ← Orqaga
-              </button>
-
-              {/* Category */}
               <div>
                 <label className="block text-sm font-bold mb-2" style={{ color: isDark ? '#ffffff' : '#111827' }}>
                   Kategoriya *

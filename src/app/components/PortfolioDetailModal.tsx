@@ -1,4 +1,4 @@
-import { X, MapPin, Briefcase, Phone, Star, MessageSquare, Check, Award, Clock, Globe, Calendar, Edit, Trash2, Plus, Loader2 } from 'lucide-react';
+import { X, MapPin, Briefcase, Phone, Star, MessageSquare, Check, Award, Clock, Globe, Calendar, Edit, Trash2, Plus, Loader2, Eye } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useState, useEffect } from 'react';
@@ -6,6 +6,7 @@ import { AddCompletedProjectModal } from './AddCompletedProjectModal';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { devLog } from '../utils/devLog';
+import { recordPortfolioView } from '../utils/portfolioViews';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -39,6 +40,7 @@ interface Portfolio {
   workDays?: string[];
   workStartTime?: string;
   workEndTime?: string;
+  views?: number;
 }
 
 interface PortfolioDetailModalProps {
@@ -49,6 +51,7 @@ interface PortfolioDetailModalProps {
   onDelete?: (portfolioId: string) => void | Promise<void>;
   /** Ota komponentda o‘chirish fetch davomida */
   portfolioDeletePending?: boolean;
+  onViewsUpdated?: (portfolioId: string, views: number) => void;
 }
 
 export function PortfolioDetailModal({
@@ -58,6 +61,7 @@ export function PortfolioDetailModal({
   onEdit,
   onDelete,
   portfolioDeletePending = false,
+  onViewsUpdated,
 }: PortfolioDetailModalProps) {
   const { theme, accentColor } = useTheme();
   const { user, session } = useAuth();
@@ -73,9 +77,33 @@ export function PortfolioDetailModal({
   const [newReview, setNewReview] = useState({ rating: 5, comment: '' });
   const [submittingReview, setSubmittingReview] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
+  const [displayViews, setDisplayViews] = useState(0);
   const visibilityRefetchTick = useVisibilityTick();
 
   console.log('PortfolioDetailModal rendered:', { portfolio, isOpen });
+
+  useEffect(() => {
+    setDisplayViews(portfolio?.views ?? 0);
+  }, [portfolio?.id, portfolio?.views]);
+
+  useEffect(() => {
+    if (!isOpen || !portfolio?.id) return;
+
+    let cancelled = false;
+    void (async () => {
+      const views = await recordPortfolioView(portfolio.id, {
+        viewerUserId: user?.id,
+        portfolioUserId: portfolio.userId,
+      });
+      if (cancelled || views == null) return;
+      setDisplayViews(views);
+      onViewsUpdated?.(portfolio.id, views);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [isOpen, portfolio?.id, portfolio?.userId, user?.id, onViewsUpdated]);
 
   // Fetch projects when projects tab is active
   useEffect(() => {
@@ -441,18 +469,30 @@ export function PortfolioDetailModal({
           {/* Content */}
           <div className="p-5 md:p-6 space-y-5">
             {/* User Info */}
-            <div>
-              <h3 className="text-2xl md:text-3xl font-bold mb-1.5" style={{ color: textPrimary }}>
-                {portfolio.userName || 'Usta'}
-              </h3>
-              <p
-                className="text-base md:text-lg font-semibold"
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <h3 className="text-2xl md:text-3xl font-bold mb-1.5" style={{ color: textPrimary }}>
+                  {portfolio.userName || 'Usta'}
+                </h3>
+                <p
+                  className="text-base md:text-lg font-semibold"
+                  style={{
+                    color: accentColor.color,
+                  }}
+                >
+                  {portfolio.profession}
+                </p>
+              </div>
+              <div
+                className="shrink-0 flex items-center gap-1.5 px-3 py-1.5 rounded-xl text-sm font-medium backdrop-blur-xl"
                 style={{
-                  color: accentColor.color,
+                  background: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.06)',
+                  color: textSecondary,
                 }}
               >
-                {portfolio.profession}
-              </p>
+                <Eye className="w-4 h-4" />
+                <span>{displayViews}</span>
+              </div>
             </div>
 
             {/* Tab Navigation */}

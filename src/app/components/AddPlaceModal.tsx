@@ -1,11 +1,13 @@
 import { useMemo, useRef, useState, useEffect } from 'react';
-import { X, Upload, MapPin, Phone, FileText, Key, Instagram, Youtube, Send, Loader2 } from 'lucide-react';
+import { X, Upload, MapPin, Phone, FileText, Key, Instagram, Youtube, Send, Loader2, Navigation } from 'lucide-react';
 import { Platform } from '../utils/platform';
 import { useTheme } from '../context/ThemeContext';
 import { placeCategories } from '../data/places';
+import { PlaceCategoryPicker } from './PlaceCategoryPicker';
 import { regions, type Region, type District } from '../data/regions';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { resolveRegionDistrictFromCoords, reverseGeocodeDisplayLine } from '../utils/geolocationDetect';
 
 interface AddPlaceModalProps {
   isOpen: boolean;
@@ -52,6 +54,8 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
   const [uploadProgress, setUploadProgress] = useState<number | null>(null);
   const [perFileProgress, setPerFileProgress] = useState<number[]>([]);
   const [isUploading, setIsUploading] = useState(false);
+  const [locating, setLocating] = useState(false);
+  const [locationHint, setLocationHint] = useState('');
   const uploadAbortRef = useRef<AbortController | null>(null);
 
   const overallPct = useMemo(() => {
@@ -75,6 +79,73 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
       setAvailableDistricts([]);
     }
   }, [formData.region]);
+
+  const detectCurrentLocation = () => {
+    if (!navigator.geolocation) {
+      setError('Brauzer joylashuvni qo‘llab-quvvatlamaydi');
+      return;
+    }
+
+    setLocating(true);
+    setError('');
+    setLocationHint('');
+
+    navigator.geolocation.getCurrentPosition(
+      (pos) => {
+        void (async () => {
+          const lat = pos.coords.latitude;
+          const lng = pos.coords.longitude;
+          const latStr = lat.toFixed(6);
+          const lngStr = lng.toFixed(6);
+
+          try {
+            const [resolved, addressLine] = await Promise.all([
+              resolveRegionDistrictFromCoords(lat, lng),
+              reverseGeocodeDisplayLine(lat, lng),
+            ]);
+
+            const region = regions.find((r) => r.id === resolved.regionId);
+            setAvailableDistricts(region?.districts || []);
+
+            setFormData((prev) => ({
+              ...prev,
+              latitude: latStr,
+              longitude: lngStr,
+              region: resolved.regionId,
+              district: resolved.districtId,
+            }));
+
+            if (addressLine) {
+              setLocationHint(addressLine);
+            } else if (region) {
+              const district = region.districts.find((d) => d.id === resolved.districtId);
+              setLocationHint(district ? `${region.name}, ${district.name}` : region.name);
+            }
+          } catch {
+            setFormData((prev) => ({
+              ...prev,
+              latitude: latStr,
+              longitude: lngStr,
+            }));
+            setError('Koordinatalar olindi, viloyat/tuman avtomatik tanlanmadi.');
+          } finally {
+            setLocating(false);
+          }
+        })();
+      },
+      (geoError) => {
+        setLocating(false);
+        if (geoError.code === geoError.PERMISSION_DENIED) {
+          setError('Joylashuv ruxsati berilmadi. Brauzer sozlamalaridan ruxsat bering.');
+        } else if (geoError.code === geoError.TIMEOUT) {
+          setError('Joylashuv so‘rovi vaqti tugadi. Qayta urinib ko‘ring.');
+        } else {
+          setError('Joylashuv aniqlanmadi. GPS yoqilganligini tekshiring.');
+        }
+      },
+      { enableHighAccuracy: true, timeout: 15000, maximumAge: 60000 },
+    );
+  };
 
   const handleImageSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
@@ -176,6 +247,12 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
       const todayCode = getTodayCode().toString();
       if (!formData.securityCode || formData.securityCode !== todayCode) {
         setError(`Noto'g'ri maxfiy kod!`);
+        setLoading(false);
+        return;
+      }
+
+      if (!formData.categoryId) {
+        setError('Kategoriyani tanlang');
         setLoading(false);
         return;
       }
@@ -300,6 +377,8 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
       setImagePreviews([]);
       setUploadedImageUrls([]);
       setPerFileProgress([]);
+      setLocationHint('');
+      setLocating(false);
     } catch (err: any) {
       console.error('Error creating place:', err);
       setError(err.message || 'Xatolik yuz berdi');
@@ -502,30 +581,12 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
             >
               Kategoriya *
             </label>
-            <select
-              required
+            <PlaceCategoryPicker
               value={formData.categoryId}
-              onChange={(e) => setFormData({ ...formData, categoryId: e.target.value })}
-              className="w-full px-4 py-3 rounded-xl transition-all"
-              style={{
-                background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                color: isDark ? '#ffffff' : '#000000',
-              }}
-            >
-              <option value="" style={{ background: isDark ? '#1c1c1e' : '#ffffff', color: isDark ? '#ffffff' : '#000000' }}>
-                Kategoriya tanlang
-              </option>
-              {placeCategories.map((category) => (
-                <option 
-                  key={category.id} 
-                  value={category.id}
-                  style={{ background: isDark ? '#1c1c1e' : '#ffffff', color: isDark ? '#ffffff' : '#000000' }}
-                >
-                  {category.icon} {category.name}
-                </option>
-              ))}
-            </select>
+              onChange={(categoryId) => setFormData({ ...formData, categoryId })}
+              isDark={isDark}
+              accentColor={accentColor}
+            />
           </div>
 
           {/* Region */}
@@ -597,44 +658,105 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
           </div>
 
           {/* Coordinates */}
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="block text-sm font-semibold mb-2"
-                style={{ color: isDark ? '#ffffff' : '#000000' }}
-              >
-                Kenglik (Latitude)
-              </label>
-              <input
-                type="text"
-                value={formData.latitude}
-                onChange={(e) => setFormData({ ...formData, latitude: e.target.value })}
-                className="w-full px-4 py-3 rounded-xl transition-all"
+          <div>
+            <label
+              className="mb-2 flex items-center gap-2 text-sm font-semibold"
+              style={{ color: isDark ? '#ffffff' : '#000000' }}
+            >
+              <MapPin className="size-4" style={{ color: accentColor.color }} />
+              Joylashuv (GPS)
+            </label>
+            <p
+              className="mb-3 text-xs leading-relaxed"
+              style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
+            >
+              «Joylashuvni aniqlash» tugmasini bosing — hozir turgan joyingiz avtomatik aniqlanadi,
+              viloyat, tuman va koordinatalar to‘ldiriladi.
+            </p>
+
+            <button
+              type="button"
+              onClick={detectCurrentLocation}
+              disabled={locating}
+              className="mb-3 flex w-full items-center justify-center gap-2 rounded-2xl px-4 py-3.5 text-sm font-semibold transition-all active:scale-[0.98] disabled:opacity-70"
+              style={{
+                background: isDark
+                  ? `linear-gradient(135deg, ${accentColor.color}33, ${accentColor.color}18)`
+                  : `linear-gradient(135deg, ${accentColor.color}22, ${accentColor.color}10)`,
+                border: `1px solid ${accentColor.color}44`,
+                color: accentColor.color,
+              }}
+            >
+              {locating ? (
+                <>
+                  <Loader2 className="size-4 animate-spin" />
+                  Joylashuv aniqlanmoqda…
+                </>
+              ) : (
+                <>
+                  <Navigation className="size-4" />
+                  Joylashuvni aniqlash
+                </>
+              )}
+            </button>
+
+            {locationHint ? (
+              <div
+                className="mb-3 flex items-start gap-2 rounded-xl px-3 py-2.5 text-xs leading-relaxed"
                 style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                  border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                  color: isDark ? '#ffffff' : '#000000',
+                  background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
+                  border: `1px solid ${isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)'}`,
+                  color: isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.75)',
                 }}
-                placeholder="41.311"
-              />
-            </div>
-            <div>
-              <label className="block text-sm font-semibold mb-2"
-                style={{ color: isDark ? '#ffffff' : '#000000' }}
               >
-                Uzunlik (Longitude)
-              </label>
-              <input
-                type="text"
-                value={formData.longitude}
-                onChange={(e) => setFormData({ ...formData, longitude: e.target.value })}
-                className="w-full px-4 py-3 rounded-xl transition-all"
-                style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
-                  border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
-                  color: isDark ? '#ffffff' : '#000000',
-                }}
-                placeholder="69.279"
-              />
+                <MapPin className="mt-0.5 size-3.5 shrink-0" style={{ color: accentColor.color }} />
+                <span>{locationHint}</span>
+              </div>
+            ) : null}
+
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label
+                  className="mb-2 block text-xs font-medium"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}
+                >
+                  Kenglik (Latitude)
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={formData.latitude}
+                  onChange={(e) => setFormData({ ...formData, latitude: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl transition-all"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                    color: isDark ? '#ffffff' : '#000000',
+                  }}
+                  placeholder="41.311151"
+                />
+              </div>
+              <div>
+                <label
+                  className="mb-2 block text-xs font-medium"
+                  style={{ color: isDark ? 'rgba(255,255,255,0.65)' : 'rgba(0,0,0,0.55)' }}
+                >
+                  Uzunlik (Longitude)
+                </label>
+                <input
+                  type="text"
+                  inputMode="decimal"
+                  value={formData.longitude}
+                  onChange={(e) => setFormData({ ...formData, longitude: e.target.value })}
+                  className="w-full px-4 py-3 rounded-xl transition-all"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)',
+                    border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.2)' : 'rgba(0, 0, 0, 0.1)'}`,
+                    color: isDark ? '#ffffff' : '#000000',
+                  }}
+                  placeholder="69.279737"
+                />
+              </div>
             </div>
           </div>
 

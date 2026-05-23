@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useCallback } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useLocation } from '../context/LocationContext';
@@ -11,7 +11,8 @@ import { CreatePortfolioModal } from './CreatePortfolioModal';
 import { PortfolioCard } from './PortfolioCard';
 import { ServicePortfolioCard } from './ServicePortfolioCard';
 import { PortfolioDetailModal } from './PortfolioDetailModal';
-import { LayoutGrid, Users, ArrowLeft, Briefcase, Plus } from 'lucide-react';
+import { ProfessionIcon } from './ProfessionIcon';
+import { LayoutGrid, Users, ArrowLeft, Briefcase, Plus, Search } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { BannerCarousel } from './BannerCarousel';
 import { regions as allRegions } from '../data/regions';
@@ -20,138 +21,13 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
+import {
+  filterProfessionGridCategories,
+  isKnownProfession,
+  PROFESSION_OTHER,
+} from '../data/serviceProfessions';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
-
-// Professions with images
-const professions = [
-  { 
-    id: 'santexnik', 
-    name: 'Santexnik', 
-    icon: '🔧',
-    image: 'https://images.unsplash.com/photo-1759757707824-4e5f54b7a43c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwbHVtYmVyJTIwcmVwYWlyJTIwcGlwZSUyMHdyZW5jaHxlbnwxfHx8fDE3NzMwODkzNDl8MA&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'elektrik', 
-    name: 'Elektrik', 
-    icon: '⚡',
-    image: 'https://images.unsplash.com/photo-1767961124255-0211254231a6?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxlbGVjdHJpY2lhbiUyMHdvcmtpbmclMjB3aXJlcyUyMGNhYmxlc3xlbnwxfHx8fDE3NzMwODkzNDl8MA&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'usta', 
-    name: "Usta (ta'mirlash)", 
-    icon: '🔨',
-    image: 'https://images.unsplash.com/photo-1645651964715-d200ce0939cc?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxoYW5keW1hbiUyMGNvbnN0cnVjdGlvbiUyMHRvb2xzJTIwcmVwYWlyfGVufDF8fHx8MTc3MzA4OTM0OXww&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'bogbon', 
-    name: "Bog'bon", 
-    icon: '🌱',
-    image: 'https://images.unsplash.com/photo-1630937109872-e64a41a4ecc9?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxnYXJkZW5lciUyMHBsYW50cyUyMGdhcmRlbiUyMGZsb3dlcnN8ZW58MXx8fHwxNzczMDg5MzQ5fDA&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'tozalovchi', 
-    name: 'Tozalovchi', 
-    icon: '🧹',
-    image: 'https://images.unsplash.com/photo-1581578949510-fa7315c4c350?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxob3VzZSUyMGNsZWFuaW5nJTIwc2VydmljZSUyMHByb2Zlc3Npb25hbHxlbnwxfHx8fDE3NzI5OTU5MzZ8MA&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'boyoqchi', 
-    name: "Bo'yoqchi", 
-    icon: '🎨',
-    image: 'https://images.unsplash.com/photo-1745092707630-c00ef0a006c4?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwYWludGVyJTIwcGFpbnRpbmclMjB3YWxsJTIwYnJ1c2h8ZW58MXx8fHwxNzczMDg5MzUwfDA&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'duradgor', 
-    name: 'Duradgor', 
-    icon: '🪚',
-    image: 'https://images.unsplash.com/photo-1769430838012-8e1270d41f46?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxjYXJwZW50ZXIlMjB3b29kJTIwZnVybml0dXJlJTIwY3JhZnRpbmd8ZW58MXx8fHwxNzczMDg5MzUxfDA&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'temirchi', 
-    name: 'Temirchi', 
-    icon: '⚒️',
-    image: 'https://images.unsplash.com/photo-1582649831749-e2d634f55cf3?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx3ZWxkZXIlMjBtZXRhbHdvcmslMjBzcGFya3MlMjB3ZWxkaW5nfGVufDF8fHx8MTc3MzA4OTM1MXww&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'haydovchi', 
-    name: 'Haydovchi', 
-    icon: '🚗',
-    image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/Katalog%20avto%20katalog/uy%20katigorya/Gemini_Generated_Image_6q15fn6q15fn6q15.png'
-  },
-  { 
-    id: 'oshpaz', 
-    name: 'Oshpaz', 
-    icon: '👨‍🍳',
-    image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/Katalog%20avto%20katalog/uy%20katigorya/Gemini_Generated_Image_xckco8xckco8xckc.png'
-  },
-  { 
-    id: 'konditer', 
-    name: 'Konditer', 
-    icon: '🧁',
-    image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/Katalog%20avto%20katalog/uy%20katigorya/Gemini_Generated_Image_x2ys40x2ys40x2ys.png'
-  },
-  { 
-    id: 'kosmetolog', 
-    name: 'Kosmetolog', 
-    icon: '💄',
-    image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/Katalog%20avto%20katalog/uy%20katigorya/Gemini_Generated_Image_tga32jtga32jtga3.png'
-  },
-  { 
-    id: 'stilist', 
-    name: 'Stilist/Sartarosh', 
-    icon: '✂️',
-    image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/Katalog%20avto%20katalog/uy%20katigorya/5deeecfdf112f9ff386ca4e5f411cade.jpg'
-  },
-  { 
-    id: 'massajist', 
-    name: 'Massajist', 
-    icon: '💆',
-    image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/Katalog%20avto%20katalog/uy%20katigorya/7203.jpg'
-  },
-  { 
-    id: 'fotograf', 
-    name: 'Fotograf', 
-    icon: '📷',
-    image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/Katalog%20avto%20katalog/uy%20katigorya/photographer-man-taking-photos-village_53876-121297.avif'
-  },
-  { 
-    id: 'videograf', 
-    name: 'Videograf', 
-    icon: '🎥',
-    image: 'https://pub-1c027d2f9750410cb661aea454f4861c.r2.dev/Katalog%20avto%20katalog/uy%20katigorya/filming-in-action-stockcake.webp'
-  },
-  { 
-    id: 'dizayner', 
-    name: 'Dizayner', 
-    icon: '🎨',
-    image: 'https://images.unsplash.com/photo-1732120529252-6829835e7468?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxncmFwaGljJTIwZGVzaWduZXIlMjB3b3Jrc3BhY2UlMjBjcmVhdGl2ZXxlbnwxfHx8fDE3NzMwODkyNDd8MA&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'dasturchi', 
-    name: 'Dasturchi', 
-    icon: '💻',
-    image: 'https://images.unsplash.com/photo-1618388607276-6dfb062c75a1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9ncmFtbWVyJTIwY29kaW5nJTIwbGFwdG9wJTIwc2NyZWVufGVufDF8fHx8MTc3MzA4OTI0OHww&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'oqituvchi', 
-    name: "O'qituvchi", 
-    icon: '📚',
-    image: 'https://images.unsplash.com/photo-1758270704925-fa59d93119c1?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0ZWFjaGVyJTIwY2xhc3Nyb29tJTIwc3R1ZGVudHMlMjBsZWFybmluZ3xlbnwxfHx8fDE3NzMwODkyNDh8MA&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'tarjimon', 
-    name: 'Tarjimon', 
-    icon: '🌍',
-    image: 'https://images.unsplash.com/photo-1543282949-ffbf6a0f263c?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHx0cmFuc2xhdG9yJTIwbGFuZ3VhZ2UlMjBpbnRlcnByZXRlcnxlbnwxfHx8fDE3NzMwODkyNDh8MA&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-  { 
-    id: 'boshqa', 
-    name: 'Boshqa', 
-    icon: '⭐',
-    image: 'https://images.unsplash.com/photo-1759521296013-559479e2a891?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxwcm9mZXNzaW9uYWwlMjBzZXJ2aWNlJTIwd29ya2VyJTIwZXhwZXJ0fGVufDF8fHx8MTc3MzA4OTI0OXww&ixlib=rb-4.1.0&q=80&w=1080'
-  },
-];
 
 interface ServicesViewProps {
   platform?: Platform;
@@ -177,6 +53,7 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
   const [portfolioToEdit, setPortfolioToEdit] = useState<any>(null);
   const [deletingPortfolioId, setDeletingPortfolioId] = useState<string | null>(null);
   const [visibilityTick, setVisibilityTick] = useState(0);
+  const [professionQuery, setProfessionQuery] = useState('');
 
   // Convert region ID to name for banners
   const selectedRegionData = allRegions.find(r => r.id === selectedRegion);
@@ -240,6 +117,64 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'general' });
   }, [filteredServices, headerSearch]);
 
+  const effectiveProfessionQuery = useMemo(() => {
+    const header = normalizeHeaderSearch(headerSearch);
+    return header || professionQuery.trim();
+  }, [headerSearch, professionQuery]);
+
+  const professionGridCategories = useMemo(
+    () => filterProfessionGridCategories(effectiveProfessionQuery),
+    [effectiveProfessionQuery],
+  );
+
+  const selectedProfessionVisual = useMemo(() => {
+    if (!selectedProfession) return null;
+    if (selectedProfession === PROFESSION_OTHER) {
+      return { name: PROFESSION_OTHER, categoryId: 'other' };
+    }
+    for (const cat of professionGridCategories) {
+      const item = cat.items.find((p) => p.name === selectedProfession);
+      if (item) return { name: item.name, categoryId: item.categoryId };
+    }
+    return { name: selectedProfession, categoryId: 'other' };
+  }, [selectedProfession, professionGridCategories]);
+
+  const professionCountTotal = useMemo(
+    () => professionGridCategories.reduce((n, c) => n + c.items.length, 0),
+    [professionGridCategories],
+  );
+
+  const portfolioCountByProfession = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const p of portfolios) {
+      const key = String(p?.profession || '').trim();
+      if (!key) continue;
+      map.set(key, (map.get(key) || 0) + 1);
+    }
+    return map;
+  }, [portfolios]);
+
+  const countPortfoliosForProfession = (name: string) => {
+    if (name === PROFESSION_OTHER) {
+      return portfolios.filter((p) => {
+        const prof = String(p?.profession || '').trim();
+        return prof && !isKnownProfession(prof) && prof !== PROFESSION_OTHER;
+      }).length;
+    }
+    return portfolioCountByProfession.get(name) || 0;
+  };
+
+  const portfoliosForSelectedProfession = useMemo(() => {
+    if (!selectedProfession) return [];
+    if (selectedProfession === PROFESSION_OTHER) {
+      return portfolios.filter((p) => {
+        const prof = String(p?.profession || '').trim();
+        return prof && !isKnownProfession(prof);
+      });
+    }
+    return portfolios.filter((p) => p.profession === selectedProfession);
+  }, [portfolios, selectedProfession]);
+
   const handleCatalogSelect = (catalogId: string) => {
     setSelectedCatalogId(catalogId);
     setSelectedCategoryId(null);
@@ -254,6 +189,15 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
     setSelectedCatalogId(null);
     setSelectedCategoryId(null);
   };
+
+  const handlePortfolioViewsUpdated = useCallback((portfolioId: string, views: number) => {
+    setPortfolios((prev) =>
+      prev.map((p) => (p.id === portfolioId ? { ...p, views } : p)),
+    );
+    setSelectedPortfolio((prev) =>
+      prev?.id === portfolioId ? { ...prev, views } : prev,
+    );
+  }, []);
 
   useEffect(() => {
     const loadPortfolios = async () => {
@@ -514,69 +458,128 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
       {/* Categories View - Professions List */}
       {activeView === 'categories' && !selectedProfession && (
         <div className="px-4 py-6">
-          <h2 
-            className="text-lg mb-4 font-bold"
-            style={{ color: isDark ? '#ffffff' : '#111827' }}
-          >
-            Kasblar
-          </h2>
-          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 sm:gap-4">
-            {professions.map((prof) => (
-              <button
-                key={prof.id}
-                onClick={() => setSelectedProfession(prof.name)}
-                className="group relative overflow-hidden rounded-2xl sm:rounded-3xl transition-all duration-300 active:scale-95"
+          <div className="mb-4 flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+            <div>
+              <h2 className="text-lg font-bold" style={{ color: isDark ? '#ffffff' : '#111827' }}>
+                Kasblar
+              </h2>
+              <p className="mt-1 text-xs sm:text-sm" style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                {professionCountTotal} ta kasb
+              </p>
+            </div>
+            <div className="relative w-full sm:max-w-xs">
+              <Search
+                className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2"
+                style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+              />
+              <input
+                type="search"
+                value={professionQuery}
+                onChange={(e) => setProfessionQuery(e.target.value)}
+                placeholder="Kasb qidirish..."
+                className="w-full rounded-2xl border py-2.5 pl-9 pr-3 text-sm outline-none"
                 style={{
-                  background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 1)',
-                  border: `1px solid ${isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)'}`,
-                  boxShadow: isDark 
-                    ? '0 4px 16px rgba(0, 0, 0, 0.3)' 
-                    : '0 4px 16px rgba(0, 0, 0, 0.08)',
+                  background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',
+                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
+                  color: isDark ? '#fff' : '#111',
                 }}
-              >
-                <div className="relative h-32 sm:h-36 md:h-40 overflow-hidden">
-                  <img 
-                    src={prof.image} 
-                    alt={prof.name}
-                    className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
-                  />
-                  <div 
-                    className="absolute inset-0"
-                    style={{
-                      background: `linear-gradient(to top, ${isDark ? 'rgba(0,0,0,0.95)' : 'rgba(0,0,0,0.7)'}, transparent)`,
-                    }}
-                  />
-                  
-                  <div className="absolute top-2 left-2">
-                    <div 
-                      className="size-9 sm:size-10 rounded-xl flex items-center justify-center backdrop-blur-xl border"
-                      style={{
-                        background: `${accentColor.color}33`,
-                        borderColor: `${accentColor.color}66`,
-                      }}
-                    >
-                      <span className="text-lg sm:text-xl">{prof.icon}</span>
-                    </div>
-                  </div>
-                </div>
-
-                <div className="p-2 sm:p-2.5">
-                  <h3 
-                    className="text-xs sm:text-sm font-semibold mb-0.5 text-left line-clamp-1"
-                    style={{ color: isDark ? '#ffffff' : '#111827' }}
-                  >
-                    {prof.name}
-                  </h3>
-                  <p 
-                    className="text-[10px] sm:text-xs text-left font-medium line-clamp-1"
-                    style={{ color: accentColor.color }}
-                  >
-                    {portfolios.filter(p => p.profession === prof.name).length} ta usta
-                  </p>
-                </div>
-              </button>
-            ))}
+              />
+            </div>
           </div>
+
+          {professionGridCategories.length === 0 ? (
+            <div className="py-12 text-center">
+              <p style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}>
+                Kasb topilmadi
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-8">
+              {professionGridCategories.map((cat) => (
+                <section key={cat.id}>
+                  <div className="mb-3 flex items-center gap-2.5">
+                    <span
+                      className="h-1 w-5 shrink-0 rounded-full"
+                      style={{ background: accentColor.color }}
+                    />
+                    <h3
+                      className="text-[11px] font-bold uppercase tracking-[0.14em] sm:text-xs"
+                      style={{ color: isDark ? 'rgba(255,255,255,0.72)' : 'rgba(0,0,0,0.62)' }}
+                    >
+                      {cat.label}
+                    </h3>
+                  </div>
+                  <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 sm:gap-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6">
+                    {cat.items.map((prof) => {
+                      const ustaCount = countPortfoliosForProfession(prof.name);
+                      return (
+                        <button
+                          key={prof.id}
+                          type="button"
+                          onClick={() => setSelectedProfession(prof.name)}
+                          className="group flex flex-col items-center gap-2.5 rounded-2xl border p-3.5 text-center transition-all duration-300 hover:-translate-y-0.5 hover:scale-[1.02] active:scale-[0.98] sm:gap-3 sm:rounded-3xl sm:p-4"
+                          style={{
+                            background: isDark
+                              ? 'linear-gradient(160deg, rgba(255,255,255,0.07) 0%, rgba(255,255,255,0.03) 100%)'
+                              : 'linear-gradient(160deg, #ffffff 0%, #f8fafc 100%)',
+                            borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                            boxShadow: isDark
+                              ? '0 2px 12px rgba(0,0,0,0.22)'
+                              : '0 2px 12px rgba(15,23,42,0.06)',
+                          }}
+                        >
+                          <div
+                            className="relative flex size-14 items-center justify-center rounded-2xl transition-transform duration-300 group-hover:scale-110 sm:size-[3.75rem]"
+                            style={{
+                              background: isDark
+                                ? `linear-gradient(145deg, ${accentColor.color}28, ${accentColor.color}10)`
+                                : `linear-gradient(145deg, ${accentColor.color}18, ${accentColor.color}06)`,
+                              border: `1px solid ${accentColor.color}30`,
+                              boxShadow: `0 8px 22px ${accentColor.color}20`,
+                            }}
+                          >
+                            <div
+                              className="absolute inset-0 rounded-2xl opacity-60"
+                              style={{
+                                background: `radial-gradient(circle at 30% 20%, ${accentColor.color}35, transparent 55%)`,
+                              }}
+                            />
+                            <ProfessionIcon
+                              name={prof.name}
+                              categoryId={prof.categoryId}
+                              className="relative size-6 sm:size-7"
+                              style={{ color: accentColor.color }}
+                              strokeWidth={2}
+                            />
+                          </div>
+
+                          <h3
+                            className="line-clamp-2 min-h-[2.35rem] w-full text-[11px] font-bold leading-snug sm:min-h-[2.5rem] sm:text-xs"
+                            style={{ color: isDark ? '#ffffff' : '#111827' }}
+                          >
+                            {prof.name}
+                          </h3>
+
+                          <span
+                            className="inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-semibold sm:text-[11px]"
+                            style={{
+                              background: isDark
+                                ? `${accentColor.color}22`
+                                : `${accentColor.color}14`,
+                              color: accentColor.color,
+                            }}
+                          >
+                            <Users className="size-3 shrink-0 opacity-80" />
+                            {ustaCount} ta usta
+                          </span>
+                        </button>
+                      );
+                    })}
+                  </div>
+                </section>
+              ))}
+            </div>
+          )}
         </div>
       )}
 
@@ -601,16 +604,53 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
             </span>
           </button>
 
-          <h2 
-            className="text-lg font-semibold mb-3 sm:mb-4"
-            style={{ color: isDark ? '#ffffff' : '#111827' }}
+          <div
+            className="mb-4 flex items-center gap-3 rounded-2xl border px-4 py-3 sm:mb-5 sm:rounded-3xl sm:px-5 sm:py-4"
+            style={{
+              background: isDark
+                ? `linear-gradient(135deg, ${accentColor.color}18, rgba(255,255,255,0.04))`
+                : `linear-gradient(135deg, ${accentColor.color}12, #ffffff)`,
+              borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+            }}
           >
-            {selectedProfession} - {portfolios.filter(p => p.profession === selectedProfession).length} ta usta
-          </h2>
+            {selectedProfessionVisual ? (
+              <div
+                className="flex size-12 shrink-0 items-center justify-center rounded-2xl sm:size-14"
+                style={{
+                  background: isDark ? `${accentColor.color}28` : `${accentColor.color}14`,
+                  border: `1px solid ${accentColor.color}35`,
+                  boxShadow: `0 8px 20px ${accentColor.color}22`,
+                }}
+              >
+                <ProfessionIcon
+                  name={selectedProfessionVisual.name}
+                  categoryId={selectedProfessionVisual.categoryId}
+                  className="size-6 sm:size-7"
+                  style={{ color: accentColor.color }}
+                  strokeWidth={2}
+                />
+              </div>
+            ) : null}
+            <div className="min-w-0">
+              <h2
+                className="truncate text-base font-bold sm:text-lg"
+                style={{ color: isDark ? '#ffffff' : '#111827' }}
+              >
+                {selectedProfession}
+              </h2>
+              <p
+                className="mt-0.5 flex items-center gap-1.5 text-xs font-semibold sm:text-sm"
+                style={{ color: accentColor.color }}
+              >
+                <Users className="size-3.5 shrink-0" />
+                {portfoliosForSelectedProfession.length} ta usta
+              </p>
+            </div>
+          </div>
 
-          {portfolios.filter(p => p.profession === selectedProfession).length > 0 ? (
+          {portfoliosForSelectedProfession.length > 0 ? (
             <div className="grid grid-cols-1 xs:grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-3 sm:gap-4 md:gap-5">
-              {portfolios.filter(p => p.profession === selectedProfession).map((portfolio) => (
+              {portfoliosForSelectedProfession.map((portfolio) => (
                 <PortfolioCard
                   key={portfolio.id}
                   portfolio={portfolio}
@@ -861,6 +901,7 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
           onEdit={handleEditPortfolio}
           onDelete={handleDeletePortfolio}
           portfolioDeletePending={deletingPortfolioId === selectedPortfolio.id}
+          onViewsUpdated={handlePortfolioViewsUpdated}
         />
       )}
       {console.log('selectedPortfolio:', selectedPortfolio)}

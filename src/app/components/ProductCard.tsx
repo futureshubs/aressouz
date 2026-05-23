@@ -151,8 +151,12 @@ export const ProductCard = memo(function ProductCard({
             />
           )}
 
-          {/* Image — kvadrat (1:1), rasm to‘liq ko‘rinsin (contain) */}
-          <div className="relative aspect-square w-full max-w-[500px] mx-auto overflow-hidden bg-gradient-to-br from-zinc-900 to-black">
+          {/* Image — kvadrat (1:1), rasm ramkani to‘liq to‘ldiradi */}
+          <div
+            className={`relative aspect-square w-full max-w-[500px] mx-auto overflow-hidden ${
+              isDark ? 'bg-zinc-900' : 'bg-zinc-100'
+            }`}
+          >
             {imageStrip.length > 1 ? (
               <CardImageScroll
                 images={imageStrip}
@@ -164,7 +168,7 @@ export const ProductCard = memo(function ProductCard({
                     skipCardOpenRef.current = false;
                   }, 400);
                 }}
-                imgClassName="h-full w-full object-contain"
+                imgClassName="h-full w-full object-cover object-center"
               />
             ) : (
               <img
@@ -172,32 +176,26 @@ export const ProductCard = memo(function ProductCard({
                 alt={product.name}
                 loading="lazy"
                 decoding="async"
-                className="w-full h-full object-contain transition-all duration-500"
+                className="absolute inset-0 h-full w-full object-cover object-center transition-transform duration-500"
                 style={{
                   transform:
                     source === 'shop'
                       ? isHovered
-                        ? 'scale(1.06) rotate(1deg)'
-                        : 'scale(1) rotate(0deg)'
+                        ? 'scale(1.05)'
+                        : 'scale(1)'
                       : isHovered
-                        ? 'scale(1.15) rotate(3deg)'
-                        : 'scale(1) rotate(0deg)',
+                        ? 'scale(1.08)'
+                        : 'scale(1)',
                 }}
               />
             )}
-            
-            {/* Multiple Gradient Overlays for Depth */}
-            <div 
-              className="absolute inset-0 bg-gradient-to-t from-black/90 via-black/30 to-transparent"
+
+            {/* Pastki qism — badge va matn o‘qilishi uchun yengil gradient */}
+            <div
+              className="pointer-events-none absolute inset-x-0 bottom-0 h-1/3 bg-gradient-to-t from-black/70 via-black/25 to-transparent"
               style={{
-                opacity: isHovered ? 0.8 : 0.6,
+                opacity: isHovered ? 0.95 : 0.75,
                 transition: 'opacity 0.3s',
-              }}
-            />
-            <div 
-              className="absolute inset-0"
-              style={{
-                background: 'radial-gradient(circle at 30% 30%, rgba(20, 184, 166, 0.2), transparent 60%)',
               }}
             />
 
