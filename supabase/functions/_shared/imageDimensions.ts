@@ -1,5 +1,4 @@
-export const REQUIRED_IMAGE_WIDTH = 500;
-export const REQUIRED_IMAGE_HEIGHT = 500;
+/** Rasm yuklash: kvadrat nisbat (1:1). Masalan 512×512, 1024×1024, 2048×2048. */
 
 type DimRead =
   | { ok: true; width: number; height: number }
@@ -94,9 +93,18 @@ export function readImageDimensionsFromBuffer(buffer: Uint8Array, mimeType: stri
   return { ok: false, error: 'Rasm formati qo‘llab-quvvatlanmaydi' };
 }
 
+export function isSquareImageDimensions(width: number, height: number): boolean {
+  return width > 0 && height > 0 && width === height;
+}
+
+export function assertImageSquareAspect(width: number, height: number): string | null {
+  if (isSquareImageDimensions(width, height)) return null;
+  return `Rasm kvadrat (1:1) bo‘lishi kerak. Sizda: ${width}×${height} px.`;
+}
+
+/** @deprecated Nom tarixiy; endi faqat 1:1 kvadrat tekshiriladi. */
 export function assertImage500x500(width: number, height: number): string | null {
-  if (width === REQUIRED_IMAGE_WIDTH && height === REQUIRED_IMAGE_HEIGHT) return null;
-  return `Rasm faqat ${REQUIRED_IMAGE_WIDTH}×${REQUIRED_IMAGE_HEIGHT} px bo‘lishi kerak. Sizda: ${width}×${height} px.`;
+  return assertImageSquareAspect(width, height);
 }
 
 /** Rasm bufferini tekshiradi; video/audio uchun null (ruxsat). */
@@ -107,5 +115,5 @@ export function validateImageBuffer500x500(
   if (!mimeType.startsWith('image/')) return null;
   const dim = readImageDimensionsFromBuffer(buffer, mimeType);
   if (!dim.ok) return dim.error;
-  return assertImage500x500(dim.width, dim.height);
+  return assertImageSquareAspect(dim.width, dim.height);
 }

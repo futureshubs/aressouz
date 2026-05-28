@@ -48,6 +48,7 @@ import SellerStatisticsPanel from '../components/seller/SellerStatisticsPanel';
 import SellerHistoryPanel from '../components/seller/SellerHistoryPanel';
 import SellerWorkersPanel from '../components/seller/SellerWorkersPanel';
 import SellerExpensesPanel from '../components/seller/SellerExpensesPanel';
+import SellerBottomNav, { type SellerNavTabId } from '../components/seller/SellerBottomNav';
 import {
   sellerOrderPaymentStatusNorm,
   sellerOrderTotal,
@@ -63,9 +64,9 @@ export default function SellerDashboard() {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
-  const [activeTab, setActiveTab] = useState(() => {
+  const [activeTab, setActiveTab] = useState<SellerNavTabId>(() => {
     const saved = readValidSellerSession();
-    return isSellerCashier(saved) ? 'sales' : 'dashboard';
+    return 'sales';
   });
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [sellerInfo, setSellerInfo] = useState<any>(null);
@@ -86,12 +87,31 @@ export default function SellerDashboard() {
 
   const sellerToken = String(sellerInfo?.token || '').trim();
   const isCashier = isSellerCashier(sellerInfo);
-  const cashierTabIds = useMemo(() => ['orders', 'sales'], []);
+  const cashierTabIds = useMemo(() => ['orders', 'sales'] as SellerNavTabId[], []);
+
+  const mobileNavLabel = useMemo(() => {
+    const map: Record<string, string> = {
+      sales: 'Savdo',
+      orders: 'Buyurtmalar',
+      debts: 'Qarz',
+      products: 'Mahsulotlar',
+      inventory: 'Ombor',
+      expenses: 'Harajatlar',
+      statistics: 'Statistika',
+      sms: 'SMS statistikasi',
+      payments: "To'lovlar",
+      workers: 'Ishchilar',
+      dashboard: 'Dashboard',
+      history: 'Tarix',
+    };
+    return map[activeTab] || 'Savdo';
+  }, [activeTab]);
   const sellerHeaders = useMemo(() => {
     if (!sellerToken) return null;
     return {
       'Content-Type': 'application/json',
       Authorization: `Bearer ${publicAnonKey}`,
+      apikey: publicAnonKey,
       'X-Seller-Token': sellerToken,
     } as const;
   }, [sellerToken]);
@@ -711,21 +731,23 @@ export default function SellerDashboard() {
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
           }}
         >
-          <div className="flex items-center justify-between p-4 lg:p-6">
-            <div className="flex items-center gap-4">
+          <div className="flex items-center justify-between px-3 py-2.5 sm:px-4 lg:p-6">
+            <div className="flex items-center gap-3 min-w-0 flex-1">
               <button
+                type="button"
                 onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 rounded-xl"
+                className="hidden sm:flex lg:hidden p-2 rounded-xl shrink-0"
                 style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
+                aria-label="Menyu"
               >
-                <MenuIcon className="w-6 h-6" />
+                <MenuIcon className="w-5 h-5" />
               </button>
-              <div>
-                <h2 className="text-xl lg:text-2xl font-bold">
-                  {menuItems.find(item => item.id === activeTab)?.label || 'Dashboard'}
+              <div className="min-w-0 flex-1">
+                <h2 className="text-base sm:text-xl lg:text-2xl font-bold truncate">
+                  {mobileNavLabel}
                 </h2>
-                <p 
-                  className="text-sm"
+                <p
+                  className="text-xs sm:text-sm truncate"
                   style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
                 >
                   {sellerInfo?.shopName}
@@ -749,7 +771,9 @@ export default function SellerDashboard() {
         </header>
 
         {/* Content */}
-        <div className="app-panel-main-scroll p-4 lg:p-6">
+        <div
+          className="app-panel-main-scroll p-3 sm:p-4 lg:p-6 max-lg:pb-[calc(10.5rem+var(--app-safe-bottom,0px))]"
+        >
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
               <div className="animate-spin rounded-full h-12 w-12 border-4 border-t-transparent" 
@@ -1378,6 +1402,12 @@ export default function SellerDashboard() {
         }}
         token={sellerInfo?.token || ''}
         product={editingProduct}
+      />
+
+      <SellerBottomNav
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        isCashier={isCashier}
       />
     </div>
   );

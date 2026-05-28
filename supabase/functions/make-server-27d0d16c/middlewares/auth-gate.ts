@@ -67,8 +67,9 @@ export function registerAuthGateMiddleware(app: Hono): void {
     if (!hasAnyAuthHeader) {
       const isCourierPath = path.includes("/courier/");
       const isAutoCourierPath = path.includes("/auto-courier/");
+      const isSellerPath = path.includes("/seller/");
       const queryToken = c.req.query("token");
-      if ((isCourierPath || isAutoCourierPath) && queryToken) {
+      if ((isCourierPath || isAutoCourierPath || isSellerPath) && queryToken) {
         await next();
         return;
       }

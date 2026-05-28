@@ -14,7 +14,8 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 import { platformCommissionHintUz, validateVariantCommissionsClient } from '../../utils/platformCommission';
-import { validateImageForUpload } from '../../utils/imageDimensionRules';
+import { uploadSellerMediaFile } from '../../utils/sellerMediaUpload';
+import { uploadDebugError } from '../../utils/uploadDebugLog';
 
 interface Variant {
   id: string;
@@ -159,40 +160,20 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
     setVariants(newVariants);
 
     try {
-      const uploadPromises = Array.from(files).map(async (file, fileIndex) => {
-        const dim = await validateImageForUpload(file);
-        if (!dim.valid) {
-          toast.error(dim.error || `${file.name}: rasm o‘lchami noto‘g‘ri`);
-          return null;
-        }
+      const uploadPromises = Array.from(files).map(async (file) => {
         if (file.size > 10 * 1024 * 1024) {
           toast.error(`${file.name} juda katta (maksimal 10MB)`);
           return null;
         }
-
-        const formData = new FormData();
-        formData.append('file', file);
-        formData.append('token', token);
-
-        const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/upload-media?token=${token}`,
-          {
-            method: 'POST',
-            headers: {
-              'Authorization': `Bearer ${publicAnonKey}`,
-              'X-Seller-Token': token,
-            },
-            body: formData,
-          }
-        );
-
-        if (!response.ok) {
-          const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-          throw new Error(errorData.error || errorData.message || 'Rasm yuklanmadi');
+        try {
+          const { url } = await uploadSellerMediaFile(file, token);
+          return url;
+        } catch (err) {
+          const msg = err instanceof Error ? err.message : 'Rasm yuklanmadi';
+          toast.error(`${file.name}: ${msg}`);
+          uploadDebugError('variant_rasm', { fayl: file.name, xato: msg });
+          return null;
         }
-
-        const data = await response.json();
-        return data.url;
       });
 
       const uploadedUrls = await Promise.all(uploadPromises);
@@ -205,8 +186,9 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
 
       toast.success(`${validUrls.length} ta rasm yuklandi`);
     } catch (error) {
-      console.error('Upload error:', error);
-      toast.error('Rasmlarni yuklashda xatolik');
+      const msg = error instanceof Error ? error.message : 'Rasmlarni yuklashda xatolik';
+      uploadDebugError('umumiy', { xato: msg });
+      toast.error(msg);
       const updatedVariants = [...variants];
       updatedVariants[index].uploadingImages = [];
       setVariants(updatedVariants);
@@ -227,37 +209,18 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
     setVariants(newVariants);
 
     try {
-      const formData = new FormData();
-      formData.append('file', file);
+      const { url } = await uploadSellerMediaFile(file, token, { skipDimensionCheck: true });
 
-      const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/upload-media?token=${token}`,
-        {
-          method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'X-Seller-Token': token,
-          },
-          body: formData,
-        }
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({ error: 'Unknown error' }));
-        throw new Error(errorData.error || errorData.message || 'Video yuklanmadi');
-      }
-
-      const data = await response.json();
-      
       const updatedVariants = [...variants];
-      updatedVariants[index].video = data.url;
+      updatedVariants[index].video = url;
       updatedVariants[index].uploadingVideo = false;
       setVariants(updatedVariants);
 
       toast.success('Video yuklandi');
     } catch (error) {
-      console.error('Upload error:', error);
-      toast.error('Videoni yuklashda xatolik');
+      const msg = error instanceof Error ? error.message : 'Videoni yuklashda xatolik';
+      uploadDebugError('variant_video', { xato: msg });
+      toast.error(msg);
       const updatedVariants = [...variants];
       updatedVariants[index].uploadingVideo = false;
       setVariants(updatedVariants);

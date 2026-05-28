@@ -1,14 +1,15 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
-import { validateStrictImage500x500 } from '../utils/imageDimensionRules';
+import { validateSquareImageForUpload } from '../utils/imageDimensionRules';
 
 export {
-  REQUIRED_IMAGE_WIDTH,
-  REQUIRED_IMAGE_HEIGHT,
+  REQUIRED_IMAGE_ASPECT_LABEL,
   REQUIRED_IMAGE_SIZE_LABEL,
   REQUIRED_IMAGE_SIZE_HINT,
   validateImageForUpload,
+  validateSquareImageForUpload,
   validateStrictImage500x500,
   rejectImageUploadUnless500x500,
+  isSquareImageDimensions,
 } from '../utils/imageDimensionRules';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
@@ -36,7 +37,7 @@ export async function uploadImage(
 ): Promise<UploadResponse> {
   try {
     if (file.type.startsWith('image/')) {
-      const dim = await validateStrictImage500x500(file);
+      const dim = await validateSquareImageForUpload(file);
       if (!dim.valid) {
         throw new Error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
       }
