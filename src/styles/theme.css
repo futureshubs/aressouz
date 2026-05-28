@@ -335,6 +335,8 @@
 
 /* Filial / admin / sotuvchi / restoran panellar: faqat kontent zonasi scroll */
 .app-panel-viewport {
+  width: 100%;
+  max-width: 100%;
   height: 100dvh;
   max-height: 100dvh;
   min-height: 0;
@@ -342,6 +344,16 @@
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  overflow-x: hidden;
+}
+
+/* Tab kontenti: yonboshga siljmasin, faqat ustki scroll zonada */
+.app-panel-content {
+  min-width: 0;
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+  box-sizing: border-box;
 }
 
 .app-panel-main-scroll {

@@ -295,7 +295,7 @@ export default function SellerWorkersPanel({ token, isDark, accentColor }: Props
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 w-full max-w-full overflow-x-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <div>
           <h2 className="text-xl font-bold">Ishchilar</h2>
@@ -314,7 +314,7 @@ export default function SellerWorkersPanel({ token, isDark, accentColor }: Props
         </button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-5 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {statCards.map((card) => {
           const Icon = card.icon;
           return (

@@ -114,8 +114,8 @@ function SmsEntriesTable({
 
   return (
     <div className="rounded-2xl border overflow-hidden">
-      <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
-        <table className="w-full text-sm">
+      <div className="max-h-[420px] overflow-y-auto overflow-x-hidden">
+        <table className="w-full text-sm table-fixed">
           <thead className="sticky top-0 z-10">
             <tr style={{ background: isDark ? 'rgba(30,30,30,0.98)' : 'rgba(249,250,251,0.98)' }}>
               <th className="text-left p-3 font-bold">Vaqt</th>
@@ -133,10 +133,10 @@ function SmsEntriesTable({
                 className="border-t"
                 style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}
               >
-                <td className="p-3 whitespace-nowrap text-xs">
+                <td className="p-3 text-xs break-words">
                   {new Date(e.at).toLocaleString('uz-UZ')}
                 </td>
-                <td className="p-3 font-medium tabular-nums whitespace-nowrap">
+                <td className="p-3 font-medium tabular-nums break-all text-xs">
                   {formatUzPhoneDisplay(e.phone) || e.phone}
                 </td>
                 <td className="p-3">{operatorLabel(e.operator)}</td>
@@ -343,7 +343,7 @@ export default function MerchantSmsBillingPanel({
   }, [load, isBranch]);
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0 w-full max-w-full overflow-x-hidden">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold flex items-center gap-2">

@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { Search, Plus, Minus, Trash2, Loader2, CheckCircle2, CloudOff, RefreshCw, X, ShoppingCart, Printer, User, Phone, Calendar } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Loader2, CheckCircle2, CloudOff, RefreshCw, X, ShoppingCart, User, Phone, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { offlineSalesAdd, type OfflineSale, type OfflineSaleItem } from '../../utils/offlineSalesDb';
 import { startOfflineSalesSyncWorker, syncPendingOfflineSales } from '../../utils/offlineSalesSync';
@@ -615,7 +615,7 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
   } as const;
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0 w-full max-w-full overflow-x-hidden">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
           <h2 className="text-xl font-bold">Savdo (POS)</h2>
@@ -761,19 +761,19 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
       {/* POS Modal (filial panel MarketView -> Ombor -> Sotuv UX) */}
       {isPOSOpen ? (
         <div
-          className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-start justify-center overflow-hidden p-3 pb-[max(1rem,var(--app-safe-bottom,0px))] pt-[max(0.5rem,var(--app-safe-top,0px))] sm:items-center sm:p-4"
           style={{ background: 'rgba(0, 0, 0, 0.7)' }}
           onClick={() => setIsPOSOpen(false)}
         >
           <div
-            className="w-full max-w-4xl rounded-3xl border p-6 max-h-[90vh] overflow-y-auto"
+            className="w-full max-w-full sm:max-w-4xl shrink-0 rounded-3xl border p-4 sm:p-6 max-h-[min(calc(100dvh-var(--app-safe-top,0px)-var(--app-safe-bottom,0px)-1rem),90vh)] sm:max-h-[90vh] overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch]"
             style={{
               background: isDark ? '#0a0a0a' : '#ffffff',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
             }}
             onClick={(e) => e.stopPropagation()}
           >
-            <div className="flex items-center justify-between mb-6">
+            <div className="flex items-center justify-between mb-4 sm:mb-6 sticky top-0 z-10 pb-2 -mx-1 px-1 sm:static sm:pb-0 sm:mx-0 sm:px-0" style={{ background: isDark ? '#0a0a0a' : '#ffffff' }}>
               <h3 className="text-xl font-bold">POS Sistemi</h3>
               <button
                 type="button"
@@ -806,8 +806,8 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
               />
             </div>
 
-            <div className="space-y-3 mb-4">
-              <div className="rounded-3xl border p-4" style={cardStyle}>
+              <div className="space-y-3 mb-4 min-w-0">
+              <div className="rounded-3xl border p-4 min-w-0" style={cardStyle}>
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <h3 className="font-bold">Savat</h3>
                     {cart.length ? (
@@ -913,14 +913,14 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
                       <span style={{ opacity: 0.7 }}>Jami</span>
                       <span className="font-bold tabular-nums">{subtotalUzs.toLocaleString('uz-UZ')} so‘m</span>
                     </div>
-                    <div className="flex items-center justify-between text-sm gap-2">
-                      <span style={{ opacity: 0.7 }}>Chegirma</span>
+                    <div className="flex items-center justify-between text-sm gap-2 min-w-0">
+                      <span className="shrink-0" style={{ opacity: 0.7 }}>Chegirma</span>
                       <input
                         type="number"
                         min={0}
                         value={discountUzs}
                         onChange={(e) => setDiscountUzs(Math.max(0, Math.floor(Number(e.target.value) || 0)))}
-                        className="w-28 text-right rounded-xl border px-3 py-2 text-sm font-bold tabular-nums"
+                        className="w-full max-w-[9rem] min-w-0 text-right rounded-xl border px-3 py-2 text-sm font-bold tabular-nums"
                         style={{
                           background: isDark ? '#111' : '#fff',
                           borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
@@ -934,15 +934,15 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
                         {totalUzs.toLocaleString('uz-UZ')} so‘m
                       </span>
                     </div>
-                    <div className="flex items-center justify-between text-sm gap-2">
-                      <span style={{ opacity: 0.7 }}>Hozir to‘langan</span>
+                    <div className="flex items-center justify-between text-sm gap-2 min-w-0">
+                      <span className="shrink-0" style={{ opacity: 0.7 }}>Hozir to‘langan</span>
                       <input
                         type="number"
                         min={0}
                         max={totalUzs}
                         value={paid}
                         onChange={(e) => setPaidUzs(Math.min(totalUzs, Math.max(0, Math.floor(Number(e.target.value) || 0))))}
-                        className="w-32 text-right rounded-xl border px-3 py-2 text-sm font-bold tabular-nums"
+                        className="w-full max-w-[9rem] min-w-0 text-right rounded-xl border px-3 py-2 text-sm font-bold tabular-nums"
                         style={{
                           background: isDark ? '#111' : '#fff',
                           borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
@@ -1020,22 +1020,6 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
                         );
                       })}
                     </div>
-
-                    {'serial' in navigator ? (
-                      <button
-                        type="button"
-                        onClick={() => void (posPrinterReady ? disconnectPosPrinter() : connectPosPrinter())}
-                        className="mt-3 w-full py-2.5 rounded-2xl border text-xs font-semibold flex items-center justify-center gap-2 transition active:scale-95"
-                        style={{
-                          background: posPrinterReady ? `${accentColor.color}18` : isDark ? 'rgba(255,255,255,0.05)' : '#fff',
-                          borderColor: posPrinterReady ? accentColor.color : isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
-                          color: posPrinterReady ? accentColor.color : undefined,
-                        }}
-                      >
-                        <Printer className="w-4 h-4" />
-                        {posPrinterReady ? 'Termal printer ulangan' : 'Termal printerga ulash (USB)'}
-                      </button>
-                    ) : null}
 
                     <button
                       type="button"

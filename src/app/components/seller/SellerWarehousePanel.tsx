@@ -159,7 +159,7 @@ export default function SellerWarehousePanel({
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 w-full max-w-full overflow-x-hidden">
       {loadError ? (
         <div
           className="rounded-2xl border p-4 text-sm"
@@ -278,7 +278,7 @@ export default function SellerWarehousePanel({
       ) : (
         <div className="rounded-3xl border overflow-hidden" style={cardStyle}>
           {/* Mobile: cards (no horizontal scroll) */}
-          <div className="sm:hidden p-3 space-y-2">
+          <div className="lg:hidden p-3 space-y-2">
             {progressiveLines.map((line) => {
               const k = rowKey(line);
               const st = displayStock(line);
@@ -391,8 +391,8 @@ export default function SellerWarehousePanel({
           </div>
 
           {/* Desktop: table */}
-          <div className="hidden sm:block overflow-x-auto">
-            <table className="w-full text-sm min-w-[860px]">
+          <div className="hidden lg:block">
+            <table className="w-full text-sm table-fixed">
               <thead>
                 <tr style={{ background: isDark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.03)' }}>
                   <th className="text-left p-3 font-semibold w-16"> </th>

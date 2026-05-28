@@ -141,7 +141,7 @@ export default function SellerPaymentsPanel({
   ];
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6 min-w-0 w-full max-w-full overflow-x-hidden">
       <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-4">
         <p className="text-sm" style={{ opacity: 0.65 }}>
           Buyurtmalar bo‘yicha to‘lovlar — kassa cheki rasmi (kasprinter) mavjud bo‘lsa ko‘rinadi
@@ -161,7 +161,7 @@ export default function SellerPaymentsPanel({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 sm:grid-cols-2 lg:grid-cols-4 gap-3">
         {[
           {
             label: "To'langan buyurtmalar",

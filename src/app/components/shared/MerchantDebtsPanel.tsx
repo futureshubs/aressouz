@@ -284,7 +284,7 @@ export default function MerchantDebtsPanel({
   };
 
   return (
-    <div className="space-y-4">
+    <div className="space-y-4 min-w-0 w-full max-w-full overflow-x-hidden">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
           <h2 className="text-xl font-bold flex items-center gap-2">
@@ -531,7 +531,7 @@ export default function MerchantDebtsPanel({
 
                 {d.status !== 'paid' ? (
                   <div className="mt-3 space-y-2">
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center gap-2 min-w-0">
                       <input
                         type="number"
                         min={1}
@@ -539,7 +539,7 @@ export default function MerchantDebtsPanel({
                         placeholder="Qisman to'lov summasi"
                         value={payVal}
                         onChange={(e) => setPayDraft((p) => ({ ...p, [d.id]: e.target.value }))}
-                        className="flex-1 min-w-[140px] rounded-xl border px-3 py-2 text-sm font-bold tabular-nums"
+                        className="flex-1 min-w-0 w-full rounded-xl border px-3 py-2 text-sm font-bold tabular-nums"
                         style={{
                           background: isDark ? '#111' : '#fff',
                           borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',

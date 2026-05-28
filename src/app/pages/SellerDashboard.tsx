@@ -722,7 +722,7 @@ export default function SellerDashboard() {
       )}
 
       {/* Main Content */}
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:ml-64">
+      <main className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden lg:ml-64">
         {/* Header */}
         <header
           className="shrink-0 border-b z-40"
@@ -731,7 +731,7 @@ export default function SellerDashboard() {
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
           }}
         >
-          <div className="flex items-center justify-between px-3 py-2.5 sm:px-4 lg:p-6">
+          <div className="flex items-center justify-between gap-2 min-w-0 px-3 py-2.5 sm:px-4 lg:p-6">
             <div className="flex items-center gap-3 min-w-0 flex-1">
               <button
                 type="button"
@@ -782,13 +782,13 @@ export default function SellerDashboard() {
             </div>
           ) : (
             <RouteErrorBoundary resetKeys={[activeTab]} embedded>
-            <>
+            <div className="app-panel-content">
               {/* Dashboard Tab */}
               {activeTab === 'dashboard' && !isCashier && (
-                <div className="space-y-6">
+                <div className="space-y-6 min-w-0">
                   {/* Welcome */}
                   <div
-                    className="p-8 rounded-3xl border"
+                    className="p-4 sm:p-8 rounded-3xl border"
                     style={{
                       background: isDark 
                         ? `linear-gradient(145deg, ${accentColor.color}15, ${accentColor.color}08)`
@@ -857,7 +857,7 @@ export default function SellerDashboard() {
 
               {/* Products Tab */}
               {activeTab === 'products' && !isCashier && (
-                <div className="space-y-4">
+                <div className="space-y-4 min-w-0">
                   {/* Add Product Button */}
                   <div className="flex justify-between items-center mb-6">
                     <h3 className="text-xl font-bold">Mahsulotlar</h3>
@@ -1098,7 +1098,7 @@ export default function SellerDashboard() {
 
               {/* Orders Tab — mijozlar ilovadan bergan do‘kon buyurtmalari + eski shop_order */}
               {activeTab === 'orders' && (
-                <div className="space-y-4">
+                <div className="space-y-4 min-w-0">
                   {sellerRefundPendingOrders.length > 0 ? (
                     <div
                       className="p-4 rounded-2xl border flex flex-wrap items-start gap-3"
@@ -1377,7 +1377,7 @@ export default function SellerDashboard() {
                   accentColor={accentColor}
                 />
               ) : null}
-            </>
+            </div>
             </RouteErrorBoundary>
           )}
         </div>

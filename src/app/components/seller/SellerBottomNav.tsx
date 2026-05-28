@@ -146,7 +146,7 @@ export default function SellerBottomNav({ activeTab, onTabChange, isCashier }: P
         paddingBottom: 'max(10px, calc(6px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px))))',
       }}
     >
-      <div className="mx-auto flex w-full max-w-lg flex-col gap-2 px-3 pointer-events-auto sm:max-w-xl">
+      <div className="mx-auto flex w-full min-w-0 max-w-lg flex-col gap-2 px-2 pointer-events-auto sm:max-w-xl sm:px-3">
         {!isCashier && submenuOpen ? (
           <nav className="relative overflow-hidden px-1 py-1.5" style={shellStyle}>
             <div className="grid grid-cols-4 gap-0.5">
@@ -174,7 +174,7 @@ export default function SellerBottomNav({ activeTab, onTabChange, isCashier }: P
               background: `linear-gradient(90deg, transparent, ${accentColor.color}55, transparent)`,
             }}
           />
-          <div className="flex items-center justify-between gap-0.5">
+          <div className="flex w-full min-w-0 max-w-full items-center justify-between gap-0.5">
             {isCashier ? (
               cashierTabs.map((tab) => (
                 <NavTabButton
