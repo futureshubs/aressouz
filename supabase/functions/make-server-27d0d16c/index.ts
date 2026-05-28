@@ -51,6 +51,7 @@ import relationalRoutes from "./relational-routes.ts";
 import { createCourierBagStore } from "./courier-bags-db.ts";
 import { runBranchCleanup, isValidCleanupTarget } from "./branch-cleanup.ts";
 import { syncRelationalOrderFromLegacy } from "../_shared/db/orders.ts";
+import { validateImageBuffer500x500 } from "../_shared/imageDimensions.ts";
 import {
   normalizeBranchId,
   mapMethodToUI,
@@ -101,6 +102,8 @@ import {
 } from "./seller-staff-routes.ts";
 import { registerSellerExpenseRoutes } from "./seller-expenses-routes.ts";
 import { buildShopStaffKey } from "./seller-staff-routes.ts";
+import { registerSellerDebtRoutes, createShopDebtFromSale } from "./seller-debt-routes.ts";
+import { registerSmsBillingRoutes } from "./sms-billing-routes.ts";
 
 const DEBUG_HTTP =
   Deno.env.get("DEBUG_HTTP") === "1" || Deno.env.get("DEBUG_HTTP") === "true";
@@ -2399,14 +2402,17 @@ async function handleUpload(c: any) {
       return c.json({ error: `Fayl hajmi ${isVideo ? '50MB' : '10MB'} dan oshmasligi kerak` }, 400);
     }
 
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    if (!isVideo) {
+      const dimErr = validateImageBuffer500x500(buffer, file.type);
+      if (dimErr) return c.json({ error: dimErr, message: dimErr }, 400);
+    }
+
     // Generate unique filename
     const ext = file.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
     const folder = isVideo ? 'videos' : 'profiles';
     const filename = `${folder}/${userId}-${Date.now()}.${ext}`;
-
-    // Convert file to buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = new Uint8Array(arrayBuffer);
 
     // Check R2 configuration
     const r2Config = r2.checkR2Config();
@@ -2464,14 +2470,17 @@ app.post("/make-server-27d0d16c/public/upload", async (c) => {
       return c.json({ error: `Fayl hajmi ${isVideo ? '50MB' : '10MB'} dan oshmasligi kerak` }, 400);
     }
 
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    if (!isVideo) {
+      const dimErr = validateImageBuffer500x500(buffer, file.type);
+      if (dimErr) return c.json({ error: dimErr, message: dimErr }, 400);
+    }
+
     // Generate unique filename
     const ext = file.name.split('.').pop() || (isVideo ? 'mp4' : 'jpg');
     const folder = isVideo ? 'videos' : 'places';
     const filename = `${folder}/public-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
-
-    // Convert file to buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = new Uint8Array(arrayBuffer);
 
     // Check R2 configuration
     const r2Config = r2.checkR2Config();
@@ -2534,13 +2543,14 @@ app.post("/make-server-27d0d16c/upload/r2", async (c) => {
       return c.json({ error: 'Fayl hajmi 10MB dan oshmasligi kerak' }, 400);
     }
 
+    const arrayBuffer = await file.arrayBuffer();
+    const buffer = new Uint8Array(arrayBuffer);
+    const dimErr = validateImageBuffer500x500(buffer, file.type);
+    if (dimErr) return c.json({ error: dimErr, message: dimErr }, 400);
+
     // Generate unique filename for rentals
     const ext = file.name.split('.').pop() || 'jpg';
     const filename = `rentals/rental-${Date.now()}-${Math.random().toString(36).substr(2, 9)}.${ext}`;
-
-    // Convert file to buffer
-    const arrayBuffer = await file.arrayBuffer();
-    const buffer = new Uint8Array(arrayBuffer);
 
     // Check R2 configuration
     const r2Config = r2.checkR2Config();
@@ -2920,6 +2930,10 @@ app.post("/make-server-27d0d16c/community/upload-media", async (c) => {
 
     const arrayBuffer = await file.arrayBuffer();
     const buffer = new Uint8Array(arrayBuffer);
+    if (isImage) {
+      const dimErr = validateImageBuffer500x500(buffer, file.type);
+      if (dimErr) return c.json({ error: dimErr, message: dimErr }, 400);
+    }
 
     const r2Config = r2.checkR2Config();
     if (!r2Config.configured) {
@@ -6092,10 +6106,11 @@ app.post("/make-server-27d0d16c/upload-image", async (c) => {
     const prefixedFilename = `${type || 'place'}/${filename}`;
     console.log('📝 Generated filename:', prefixedFilename);
 
-    // Convert to buffer
     console.log('🔄 Converting file to buffer...');
     const arrayBuffer = await file.arrayBuffer();
     const buffer = new Uint8Array(arrayBuffer);
+    const dimErr = validateImageBuffer500x500(buffer, file.type);
+    if (dimErr) return c.json({ error: dimErr, message: dimErr }, 400);
     console.log('✅ Buffer created, size:', buffer.length);
 
     // Upload to R2
@@ -6148,10 +6163,11 @@ app.post("/make-server-27d0d16c/upload-place-image", async (c) => {
     const prefixedFilename = `place/${filename}`;
     console.log('📝 Generated filename:', prefixedFilename);
 
-    // Convert to buffer
     console.log('🔄 Converting file to buffer...');
     const arrayBuffer = await file.arrayBuffer();
     const buffer = new Uint8Array(arrayBuffer);
+    const dimErr = validateImageBuffer500x500(buffer, file.type);
+    if (dimErr) return c.json({ error: dimErr, message: dimErr }, 400);
     console.log('✅ Buffer created, size:', buffer.length);
 
     // Upload to R2
@@ -14847,6 +14863,35 @@ registerSellerExpenseRoutes(app, {
   sellerShopIdsMatchFn: sellerShopIdsMatch,
 });
 
+registerSellerDebtRoutes(app, {
+  kv,
+  validateSellerSession,
+  sellerShopIdsMatchFn: sellerShopIdsMatch,
+});
+
+registerSmsBillingRoutes(app, {
+  kv,
+  validateSellerSession,
+  validateBranchSession: async (c, branchId) => {
+    const auth = await validateBranchSession(c);
+    if (!auth.success) return { ok: false, error: auth.error };
+    if (!sellerShopIdsMatch(auth.branchId, branchId)) {
+      return { ok: false, error: "Bu filial uchun ruxsat yo'q" };
+    }
+    return { ok: true };
+  },
+  listBranchShops: async (branchId) => {
+    const shops = await kv.getByPrefix("shop:");
+    return (Array.isArray(shops) ? shops : [])
+      .filter((s: any) => s && !s.deleted && sellerShopIdsMatch(s.branchId, branchId))
+      .map((s: any) => ({
+        id: String(s.id || "").trim(),
+        name: String(s.name || "Do'kon").trim(),
+      }))
+      .filter((s) => s.id);
+  },
+});
+
 // ==================== SHOP ORDERS (SELLER PANEL) ====================
 
 const normalizeShopIdForSeller = (raw: unknown) =>
@@ -15912,7 +15957,33 @@ app.post("/make-server-27d0d16c/pos/sales", async (c) => {
     };
 
     await kv.set(key, rec);
-    return c.json({ success: true, saleId });
+
+    let debtResult: { debt?: unknown; smsError?: string | null } = {};
+    const debtPayload = body?.debt && typeof body.debt === "object" ? body.debt : null;
+    if (debtPayload) {
+      const remainingUzs = Math.max(0, Math.floor(Number((debtPayload as any).remainingUzs) || 0));
+      if (remainingUzs > 0) {
+        const shopName = String(auth.shopName || "Do'kon");
+        const created = await createShopDebtFromSale(
+          { kv, validateSellerSession, sellerShopIdsMatchFn: sellerShopIdsMatch },
+          {
+            shopId,
+            shopName,
+            saleId,
+            customerName: String((debtPayload as any).customerName || ""),
+            customerPhone: String((debtPayload as any).customerPhone || ""),
+            remainingUzs,
+            paidUzs: Math.max(0, Math.floor(Number((body?.payment as any)?.paidUzs) || 0)),
+            totalUzs,
+            dueDate: (debtPayload as any).dueDate ? String((debtPayload as any).dueDate) : null,
+            items,
+          },
+        );
+        debtResult = { debt: created.debt, smsError: created.smsError ?? null, merged: created.merged === true };
+      }
+    }
+
+    return c.json({ success: true, saleId, ...debtResult });
   } catch (e: any) {
     console.error('[pos/sales] error', e);
     return c.json({ success: false, error: 'POS sotuvni saqlashda xatolik' }, 500);
@@ -16792,6 +16863,15 @@ app.post("/make-server-27d0d16c/seller/upload-media", async (c) => {
       return c.json({ code: 400, error: 'Fayl hajmi 50MB dan kichik bo\'lishi kerak', message: 'Fayl juda katta' }, 400);
     }
 
+    const arrayBuffer = await file.arrayBuffer();
+    const uploadBuffer = new Uint8Array(arrayBuffer);
+    if (file.type.startsWith('image/')) {
+      const dimErr = validateImageBuffer500x500(uploadBuffer, file.type);
+      if (dimErr) {
+        return c.json({ code: 400, error: dimErr, message: dimErr }, 400);
+      }
+    }
+
     // Check if R2 is configured
     const r2Config = r2.checkR2Config();
     
@@ -16806,8 +16886,7 @@ app.post("/make-server-27d0d16c/seller/upload-media", async (c) => {
 
       console.log('📤 Generated filename:', fileName);
 
-      const arrayBuffer = await file.arrayBuffer();
-      const uploadResult = await r2.uploadFile(new Uint8Array(arrayBuffer), fileName, file.type);
+      const uploadResult = await r2.uploadFile(uploadBuffer, fileName, file.type);
 
       if (!uploadResult.success) {
         console.log('❌ R2 upload failed:', uploadResult.error);
@@ -16830,8 +16909,7 @@ app.post("/make-server-27d0d16c/seller/upload-media", async (c) => {
       // R2 NOT CONFIGURED - Use base64 in KV store (TEMP solution)
       console.log('⚠️ R2 not configured, using base64 in KV store (TEMP)');
       
-      const arrayBuffer = await file.arrayBuffer();
-      const uint8Array = new Uint8Array(arrayBuffer);
+      const uint8Array = uploadBuffer;
       
       // Convert to base64
       let binary = '';
@@ -17548,10 +17626,13 @@ const userChatUploadMediaHandler = async (c: any) => {
       return c.json({ error: 'Rasm hajmi 8MB dan oshmasligi kerak' }, 400);
     }
 
-    const ext = file.name.split('.').pop() || 'jpg';
-    const filename = `support_chat/${auth.userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
     const arrayBuffer = await file.arrayBuffer();
     const buffer = new Uint8Array(arrayBuffer);
+    const dimErr = validateImageBuffer500x500(buffer, file.type);
+    if (dimErr) return c.json({ error: dimErr, message: dimErr }, 400);
+
+    const ext = file.name.split('.').pop() || 'jpg';
+    const filename = `support_chat/${auth.userId}/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
 
     const r2Config = r2.checkR2Config();
     if (!r2Config.configured) {

@@ -659,9 +659,9 @@ export const ProductDetailModal = memo(function ProductDetailModal({
             </div>
           )}
 
-          {/* Main Image — 500×500 kvadrat, rasm to‘liq */}
+          {/* Main Image — modal kengligida, balandligi ekranga mos */}
           <div 
-            className="relative w-full max-w-[500px] aspect-square rounded-xl sm:rounded-2xl overflow-hidden mb-3 sm:mb-4 mx-auto"
+            className="relative w-full shrink-0 overflow-hidden flex items-center justify-center rounded-xl sm:rounded-2xl mb-3 sm:mb-4 -mx-3 sm:-mx-4 md:-mx-6 w-[calc(100%+1.5rem)] sm:w-[calc(100%+2rem)] md:w-[calc(100%+3rem)] h-[clamp(220px,min(52dvh,100vw),720px)]"
             style={{
               background: isDark ? '#1a1a1a' : '#f9fafb',
             }}
@@ -672,7 +672,8 @@ export const ProductDetailModal = memo(function ProductDetailModal({
             <img 
               src={currentImage} 
               alt={product.name}
-              className="w-full h-full object-contain object-center"
+              className="w-full h-full max-w-full max-h-full object-contain object-center"
+              decoding="async"
             />
             
             {/* Image Indicators (Dots) - only for shop products with multiple images */}

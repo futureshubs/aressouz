@@ -3,6 +3,7 @@ import { X, Upload, Plus, Trash2, Camera, Video, Loader2 } from 'lucide-react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { ProfessionPicker } from './ProfessionPicker';
 import { PROFESSION_OTHER, resolveProfessionForForm } from '../data/serviceProfessions';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -287,6 +288,14 @@ export function CreatePortfolioModal({
         if (file.size > maxSize) {
           alert(`Fayl hajmi ${isVideo ? '50MB' : '10MB'} dan oshmasligi kerak`);
           continue;
+        }
+
+        if (isImage) {
+          const dim = await validateImageForUpload(file);
+          if (!dim.valid) {
+            alert(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+            continue;
+          }
         }
 
         // Upload to server

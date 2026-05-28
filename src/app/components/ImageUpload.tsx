@@ -1,6 +1,11 @@
 import React, { useState, useRef } from 'react';
 import { Upload, X, Image as ImageIcon, Loader2 } from 'lucide-react';
-import { uploadImage, validateImageFile, formatFileSize } from '../services/imageService';
+import {
+  uploadImage,
+  validateImageForUpload,
+  REQUIRED_IMAGE_SIZE_HINT,
+  formatFileSize,
+} from '../services/imageService';
 import { useAuth } from '../context/AuthContext';
 
 interface ImageUploadProps {
@@ -43,8 +48,7 @@ export function ImageUpload({
       for (let i = 0; i < files.length; i++) {
         const file = files[i];
 
-        // Validate file
-        const validation = validateImageFile(file);
+        const validation = await validateImageForUpload(file);
         if (!validation.valid) {
           onUploadError?.(validation.error || 'Fayl noto\'g\'ri');
           continue;
@@ -138,7 +142,7 @@ export function ImageUpload({
                 Rasmlarni yuklash uchun bosing yoki torting
               </p>
               <p className="text-white/40 text-sm">
-                PNG, JPG, WebP, GIF (Maksimal 10MB)
+                PNG, JPG, WebP, GIF — {REQUIRED_IMAGE_SIZE_HINT} (maks. 10MB)
               </p>
               <p className="text-white/40 text-xs mt-1">
                 {previewUrls.length} / {maxFiles} rasm yuklandi

@@ -5,6 +5,7 @@ import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { regions, getDistrictsByRegionId } from '../data/regions';
 import { CheckoutMapPickerModal } from './CheckoutMapPickerModal';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 
 const RESTAURANT_TYPES = [
   'Milliy taomlar',
@@ -153,6 +154,11 @@ export function AddRestaurantModal({
   const availableDistricts = selectedRegion?.districts || [];
 
   const handleImageUpload = async (type: 'logo' | 'banner' | 'paymentQrImage', file: File) => {
+    const dim = await validateImageForUpload(file);
+    if (!dim.valid) {
+      toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+      return;
+    }
     setUploadingField(type);
     try {
       const uploadFormData = new FormData();

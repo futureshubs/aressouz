@@ -19,6 +19,7 @@ import {
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
+import { validateImageForUpload } from '../../utils/imageDimensionRules';
 
 interface Portfolio {
   id: string;
@@ -161,6 +162,11 @@ export default function ServicesManagement({ branchId, branchInfo }: ServicesMan
       const uploadedUrls: string[] = [];
 
       for (const file of Array.from(files)) {
+        const dim = await validateImageForUpload(file);
+        if (!dim.valid) {
+          toast.error(dim.error || `${file.name}: rasm o‘lchami noto‘g‘ri`);
+          continue;
+        }
         const formData = new FormData();
         formData.append('file', file);
 

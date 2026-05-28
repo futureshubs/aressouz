@@ -370,9 +370,9 @@ export function ProductDetailModal({
       </div>
 
       <div className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
-      {/* Image Gallery — 500×500 kvadrat, rasm to‘liq (contain) */}
+      {/* Image Gallery — modal kengligida, balandligi ekranga mos (contain) */}
       <div
-        className="relative w-full max-w-[500px] aspect-square mx-auto bg-black/30 overflow-hidden rounded-xl sm:rounded-2xl"
+        className="relative w-full shrink-0 overflow-hidden bg-black/30 flex items-center justify-center max-sm:rounded-none sm:rounded-b-2xl h-[clamp(220px,min(52dvh,100vw),720px)]"
         onTouchStart={onTouchStart}
         onTouchMove={onTouchMove}
         onTouchEnd={onTouchEnd}
@@ -382,7 +382,8 @@ export function ProductDetailModal({
             <img 
               src={images[Math.min(currentImageIndex, images.length - 1)]} 
               alt={product.name}
-              className="w-full h-full object-contain object-center"
+              className="w-full h-full max-w-full max-h-full object-contain object-center"
+              decoding="async"
             />
             
             {/* Navigation Arrows */}
@@ -444,7 +445,7 @@ export function ProductDetailModal({
             </div>
           </>
         ) : (
-          <div className="w-full h-full min-h-[inherit] flex items-center justify-center px-4 py-6">
+          <div className="w-full h-full min-h-[220px] flex items-center justify-center px-4 py-6">
             <div className="text-center">
               <div
                 className="w-20 h-20 sm:w-24 sm:h-24 mx-auto mb-3 rounded-full flex items-center justify-center"

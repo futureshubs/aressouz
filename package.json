@@ -13,7 +13,7 @@
     "supabase:deploy": "npx --yes supabase functions deploy make-server-27d0d16c --project-ref wnondmqmuvjugbomyolz && npx --yes supabase functions deploy payment-webhooks --project-ref wnondmqmuvjugbomyolz && npx --yes supabase functions deploy api --project-ref wnondmqmuvjugbomyolz && npx --yes supabase functions deploy supabase-edge-function --project-ref wnondmqmuvjugbomyolz",
     "deploy": "npm run build && npm run supabase:deploy",
     "deploy:supabase": "npm run supabase:deploy",
-    "supabase:deploy:server": "npx --yes supabase functions deploy make-server-27d0d16c --project-ref wnondmqmuvjugbomyolz",
+    "supabase:deploy:server": "supabase functions deploy make-server-27d0d16c --project-ref wnondmqmuvjugbomyolz --no-verify-jwt",
     "supabase:deploy:payment-webhooks": "npx --yes supabase functions deploy payment-webhooks --project-ref wnondmqmuvjugbomyolz"
   },
   "dependencies": {

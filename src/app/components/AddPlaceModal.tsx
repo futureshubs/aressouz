@@ -6,7 +6,8 @@ import { placeCategories } from '../data/places';
 import { PlaceCategoryPicker } from './PlaceCategoryPicker';
 import { regions, type Region, type District } from '../data/regions';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
-import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 import { resolveRegionDistrictFromCoords, reverseGeocodeDisplayLine } from '../utils/geolocationDetect';
 
 interface AddPlaceModalProps {
@@ -192,7 +193,12 @@ export function AddPlaceModal({ isOpen, onClose, platform, onSuccess }: AddPlace
 
           const results: string[] = [];
           for (let i = 0; i < newFiles.length; i++) {
-            const file = await compressImageIfNeeded(newFiles[i]);
+            const dim = await validateImageForUpload(newFiles[i]);
+            if (!dim.valid) {
+              toast.error(dim.error || `${newFiles[i].name}: rasm o‘lchami noto‘g‘ri`);
+              continue;
+            }
+            const file = newFiles[i];
             const form = new FormData();
             form.append('file', file);
 

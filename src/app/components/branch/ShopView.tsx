@@ -21,7 +21,10 @@ import {
   XCircle,
   Loader2,
   Navigation,
+  MessageSquare,
 } from 'lucide-react';
+import MerchantSmsBillingPanel from '../shared/MerchantSmsBillingPanel';
+import { currentBillingMonth, formatUzs } from '../../utils/smsOperatorRates';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { regions } from '../../data/regions';
@@ -30,6 +33,7 @@ import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { getVariantStockQuantity, getEffectiveProductStockQuantity } from '../../utils/cartStock';
 import { branchIdsEqual } from '../../utils/branchIdNormalize';
 import { CheckoutMapPickerModal } from '../CheckoutMapPickerModal';
+import { validateImageForUpload } from '../../utils/imageDimensionRules';
 
 interface ShopViewProps {
   branchId: string;
@@ -116,6 +120,10 @@ export default function ShopView({ branchId }: ShopViewProps) {
   const [isLoadingDeliveryOptions, setIsLoadingDeliveryOptions] = useState(true);
   const [inventorySearch, setInventorySearch] = useState('');
   const [inventoryShopFilter, setInventoryShopFilter] = useState<string>('all');
+  const [smsMonth] = useState(currentBillingMonth());
+  const [branchShopSms, setBranchShopSms] = useState<
+    Array<{ shopId: string; shopName: string; billing: any }>
+  >([]);
 
   const tabs = [
     { id: 'products', label: 'Mahsulotlar', icon: Package },
@@ -123,11 +131,54 @@ export default function ShopView({ branchId }: ShopViewProps) {
     { id: 'orders', label: 'Buyurtmalar', icon: ShoppingBag },
     { id: 'inventory', label: 'Ombor', icon: Warehouse },
     { id: 'statistics', label: 'Statistika', icon: BarChart3 },
+    { id: 'sms', label: 'SMS hisobi', icon: MessageSquare },
   ];
+
+  const loadBranchSmsBilling = useCallback(async () => {
+    try {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch/${encodeURIComponent(branchId)}/sms-billing?month=${encodeURIComponent(smsMonth)}`,
+        { headers: buildBranchHeaders({ 'Content-Type': 'application/json' }) },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) return;
+      setBranchShopSms(Array.isArray(data.shops) ? data.shops : []);
+    } catch {
+      setBranchShopSms([]);
+    }
+  }, [branchId, smsMonth]);
+
+  const shopSmsMap = useMemo(() => {
+    const m = new Map<string, any>();
+    for (const row of branchShopSms) m.set(row.shopId, row.billing);
+    return m;
+  }, [branchShopSms]);
+
+  const markShopSmsPaid = useCallback(
+    async (shopId: string, paid: boolean) => {
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/branch/${encodeURIComponent(branchId)}/sms-billing/pay`,
+        {
+          method: 'POST',
+          headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({ shopId, month: smsMonth, paid }),
+        },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data?.success) throw new Error(data?.error || 'Xatolik');
+      await loadBranchSmsBilling();
+      toast.success(paid ? "SMS to'lovi belgilandi" : 'Holat yangilandi');
+    },
+    [branchId, smsMonth, loadBranchSmsBilling],
+  );
 
   useEffect(() => {
     void loadDeliveryOptions();
   }, []);
+
+  useEffect(() => {
+    if (activeTab === 'shops' || activeTab === 'sms') void loadBranchSmsBilling();
+  }, [activeTab, loadBranchSmsBilling]);
 
   const fetchBranchShops = useCallback(async () => {
     const response = await fetch(
@@ -747,6 +798,31 @@ export default function ShopView({ branchId }: ShopViewProps) {
                           )}
                         </div>
 
+                        {(() => {
+                          const sms = shopSmsMap.get(shop.id);
+                          return sms ? (
+                            <div
+                              className="mt-4 p-3 rounded-xl border text-xs space-y-1"
+                              style={{
+                                borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                                background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
+                              }}
+                            >
+                              <p className="font-bold flex items-center gap-1">
+                                <MessageSquare className="w-3.5 h-3.5" style={{ color: accentColor.color }} />
+                                SMS ({smsMonth})
+                              </p>
+                              <p>
+                                Yuborilgan: <b>{sms.totalCount}</b> ta · Summa:{' '}
+                                <b style={{ color: accentColor.color }}>{formatUzs(sms.totalCostUzs)}</b>
+                              </p>
+                              <p style={{ color: sms.paid ? '#22c55e' : '#f59e0b' }}>
+                                {sms.paid ? "✓ Oylik to'lov qilindi" : "○ Oylik to'lov qilinmagan"}
+                              </p>
+                            </div>
+                          ) : null;
+                        })()}
+
                         <div className="flex gap-2 pt-4 border-t" style={{ borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }}>
                           <div className="flex-1 text-center">
                             <p className="text-xs mb-1" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
@@ -1351,6 +1427,19 @@ export default function ShopView({ branchId }: ShopViewProps) {
               </div>
             </div>
           )}
+
+          {activeTab === 'sms' && (
+            <MerchantSmsBillingPanel
+              mode="branch"
+              branchId={branchId}
+              merchantLabel="Filial do'konlari"
+              isDark={isDark}
+              accentColor={accentColor}
+              shopBillings={branchShopSms}
+              onRefreshBranch={() => void loadBranchSmsBilling()}
+              onMarkShopPaid={markShopSmsPaid}
+            />
+          )}
         </>
       )}
 
@@ -1470,6 +1559,12 @@ function AddShopModal({
       return;
     }
 
+    const dim = await validateImageForUpload(file);
+    if (!dim.valid) {
+      toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+      return;
+    }
+
     if (file.size > 10 * 1024 * 1024) {
       toast.error('Rasm hajmi 10MB dan oshmasligi kerak');
       return;
@@ -1517,6 +1612,12 @@ function AddShopModal({
 
     if (file.size > 10 * 1024 * 1024) {
       toast.error('Rasm hajmi 10MB dan oshmasligi kerak');
+      return;
+    }
+
+    const dim = await validateImageForUpload(file);
+    if (!dim.valid) {
+      toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
       return;
     }
 

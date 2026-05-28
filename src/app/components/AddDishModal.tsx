@@ -4,6 +4,7 @@ import { X, Upload, Utensils, Plus, Trash2, Star, Leaf, Loader2 } from 'lucide-r
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '/utils/supabase/info';
 import { platformCommissionHintUz, validateVariantCommissionsClient } from '../utils/platformCommission';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 
 export function AddDishModal({ 
   restaurantId, 
@@ -74,6 +75,11 @@ export function AddDishModal({
 
   const handleImageUpload = async (file: File, type: 'main' | 'variant', variantIndex?: number) => {
     try {
+      const dim = await validateImageForUpload(file);
+      if (!dim.valid) {
+        toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+        return;
+      }
       setUploading(true);
       
       const uploadFormData = new FormData();

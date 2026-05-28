@@ -294,7 +294,7 @@ export default function SellerPaymentsPanel({
                         <span className="font-mono text-xs opacity-70">Payme: {paymeId.slice(0, 24)}…</span>
                       ) : null}
                     </div>
-                    {completedAt && paidEffective ? (
+                    {completedAt && isPaid ? (
                       <p className="text-xs opacity-55">
                         To‘lov vaqti: {new Date(completedAt).toLocaleString('uz-UZ')}
                       </p>

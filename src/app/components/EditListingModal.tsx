@@ -1,11 +1,13 @@
 import { useMemo, useRef, useEffect, useState } from 'react';
+import { toast } from 'sonner';
 import { X, Upload, Plus, Trash2, Home, Car, ChevronRight, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import { houseCategories } from '../data/houses';
 import { carCategories } from '../data/cars';
 import { regions } from '../data/regions';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
-import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 
 interface EditListingModalProps {
@@ -139,7 +141,12 @@ export function EditListingModal({ isOpen, onClose, listing, accessToken, onSucc
 
         const urls: string[] = [];
         for (let i = 0; i < files.length; i++) {
-          const file = await compressImageIfNeeded(files[i]);
+          const dim = await validateImageForUpload(files[i]);
+          if (!dim.valid) {
+            toast.error(dim.error || `${files[i].name}: rasm o‘lchami noto‘g‘ri`);
+            continue;
+          }
+          const file = files[i];
           const formData = new FormData();
           formData.append('file', file);
           formData.append('type', listingType === 'house' ? 'house' : 'car');

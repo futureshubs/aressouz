@@ -9,6 +9,40 @@ import {
 } from './platform-commission.ts';
 import * as telegram from './telegram.tsx';
 import { getOrderKeys } from './services/order-kv-lookup.ts';
+import * as eskiz from './eskiz-sms.tsx';
+import {
+  appendDebtPurchase,
+  applyDebtPayment,
+  computeDebtStatus,
+  debtSmsNew,
+  debtSmsPaid,
+  debtSmsReminder,
+  findOpenDebtByPhone,
+  hydrateDebtRecord,
+  makeDebtId,
+  merchantDebtKey,
+  merchantDebtPrefix,
+  normalizeMerchantDebtPhone,
+  sendDebtSms,
+  type MerchantDebtPurchaseEntry,
+  type DebtSmsBillingCtx,
+  type MerchantDebtRecord,
+} from './merchant-debt.ts';
+import { registerRestaurantSmsBillingRoutes } from './sms-billing-routes.ts';
+
+function restaurantSmsBilling(
+  restaurantId: string,
+  restaurantName: string,
+  smsKind: string,
+): DebtSmsBillingCtx {
+  return {
+    kv,
+    merchantKind: 'restaurant',
+    merchantId: restaurantId,
+    merchantName: restaurantName,
+    smsKind,
+  };
+}
 
 const app = new Hono();
 
@@ -1777,5 +1811,206 @@ app.post('/restaurants/:id/reviews', async (c) => {
     return c.json({ success: false, error: String(error) }, 500);
   }
 });
+
+// ==================== QARZLAR (RESTORAN / TAOM PANEL) ====================
+
+async function resolveRestaurantForDebt(rawId: string) {
+  const resolved = await resolveRestaurantRecord(rawId);
+  if (!resolved) return null;
+  return { id: resolved.id, record: resolved.record as Record<string, unknown> };
+}
+
+function normalizeRestaurantDebtRow(raw: any, restaurantName: string): MerchantDebtRecord | null {
+  return hydrateDebtRecord(raw, {
+    merchantKind: 'restaurant',
+    merchantName: restaurantName || 'Restoran',
+  });
+}
+
+app.get('/restaurants/:restaurantId/debts', async (c) => {
+  try {
+    const hit = await resolveRestaurantForDebt(c.req.param('restaurantId'));
+    if (!hit) return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
+    const name = String((hit.record as any)?.name || 'Restoran');
+    const prefix = merchantDebtPrefix('restaurant', hit.id);
+    const rows = await kv.getByPrefix(prefix);
+    const debts: MerchantDebtRecord[] = [];
+    for (const raw of Array.isArray(rows) ? rows : []) {
+      const rec = normalizeRestaurantDebtRow(raw, name);
+      if (!rec) continue;
+      const status = computeDebtStatus(rec);
+      if (status !== rec.status) {
+        rec.status = status;
+        await kv.set(merchantDebtKey('restaurant', hit.id, rec.id), rec);
+      }
+      debts.push(rec);
+    }
+    debts.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+    const summary = {
+      total: debts.length,
+      open: debts.filter((d) => d.status === 'open' || d.status === 'overdue').length,
+      overdue: debts.filter((d) => d.status === 'overdue').length,
+      paid: debts.filter((d) => d.status === 'paid').length,
+      remainingUzs: debts.filter((d) => d.status !== 'paid').reduce((s, d) => s + d.remainingUzs, 0),
+    };
+    return c.json({ success: true, debts, summary, smsConfigured: eskiz.isEskizConfigured() });
+  } catch (error) {
+    console.error('Restaurant debts list:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+app.post('/restaurants/:restaurantId/debts', async (c) => {
+  try {
+    const hit = await resolveRestaurantForDebt(c.req.param('restaurantId'));
+    if (!hit) return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
+    const body = await c.req.json().catch(() => ({}));
+    const customerName = String(body?.customerName || '').trim();
+    const phone = normalizeMerchantDebtPhone(body?.customerPhone);
+    const amountUzs = Math.max(0, Math.floor(Number(body?.amountUzs) || 0));
+    const paidUzs = Math.max(0, Math.floor(Number(body?.paidUzs) || 0));
+    const dueDate = body?.dueDate ? String(body.dueDate) : null;
+    if (!customerName) return c.json({ success: false, error: 'Mijoz ismi kerak' }, 400);
+    if (!phone) return c.json({ success: false, error: "Telefon 998XXXXXXXXX formatida bo'lsin" }, 400);
+    if (amountUzs <= 0) return c.json({ success: false, error: "Qarz summasi 0 dan katta bo'lsin" }, 400);
+    const remainingUzs = Math.max(0, amountUzs - paidUzs);
+    if (remainingUzs <= 0) return c.json({ success: false, error: "Qolgan qarz 0 dan katta bo'lishi kerak" }, 400);
+
+    const restaurantName = String((hit.record as any)?.name || 'Restoran');
+    const prefix = merchantDebtPrefix('restaurant', hit.id);
+    const rows = await kv.getByPrefix(prefix);
+    const existingDebts: MerchantDebtRecord[] = [];
+    for (const raw of Array.isArray(rows) ? rows : []) {
+      const rec = normalizeRestaurantDebtRow(raw, restaurantName);
+      if (rec) existingDebts.push(rec);
+    }
+    const now = new Date().toISOString();
+    const purchaseEntry: MerchantDebtPurchaseEntry = {
+      saleId: body?.saleId ? String(body.saleId) : null,
+      at: now,
+      totalUzs: amountUzs,
+      paidAtSaleUzs: paidUzs,
+      debtAddedUzs: remainingUzs,
+      itemsSummary: body?.note ? String(body.note) : "Qo'lda qo'shilgan qarz",
+    };
+
+    const openExisting = findOpenDebtByPhone(existingDebts, phone);
+    let rec: MerchantDebtRecord;
+    let merged = false;
+    if (openExisting) {
+      merged = true;
+      rec = appendDebtPurchase(openExisting, purchaseEntry, { dueDate, customerName });
+      await kv.set(merchantDebtKey('restaurant', hit.id, rec.id), rec);
+    } else {
+      const debtId = makeDebtId();
+      rec = {
+        id: debtId,
+        merchantKind: 'restaurant',
+        merchantId: hit.id,
+        merchantName: restaurantName,
+        customerName,
+        customerPhone: phone,
+        amountUzs,
+        paidUzs,
+        remainingUzs,
+        dueDate,
+        saleId: purchaseEntry.saleId,
+        saleIds: purchaseEntry.saleId ? [purchaseEntry.saleId] : [],
+        purchases: [purchaseEntry],
+        payments: [],
+        status: 'open',
+        createdAt: now,
+        updatedAt: now,
+        smsLog: {},
+      };
+      rec.status = computeDebtStatus(rec);
+      await kv.set(merchantDebtKey('restaurant', hit.id, debtId), rec);
+    }
+
+    const sms = await sendDebtSms(
+      phone,
+      debtSmsNew({ shop: restaurantName, amountUzs: rec.remainingUzs, dueDate: rec.dueDate, kind: 'restaurant' }),
+      restaurantSmsBilling(hit.id, restaurantName, openExisting ? 'debt_merge' : 'debt_new'),
+    );
+    let smsError: string | null = null;
+    if (sms.ok) {
+      rec.smsLog = { ...rec.smsLog, createdAt: new Date().toISOString() };
+      await kv.set(merchantDebtKey('restaurant', hit.id, rec.id), rec);
+    } else {
+      smsError = sms.error || 'SMS yuborilmadi';
+    }
+    return c.json({ success: true, debt: rec, smsError, merged });
+  } catch (error) {
+    console.error('Restaurant debt create:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+app.post('/restaurants/:restaurantId/debts/:debtId/pay', async (c) => {
+  try {
+    const hit = await resolveRestaurantForDebt(c.req.param('restaurantId'));
+    if (!hit) return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
+    const debtId = String(c.req.param('debtId') || '').trim();
+    const body = await c.req.json().catch(() => ({}));
+    const payUzs = Math.max(0, Math.floor(Number(body?.amountUzs) || 0));
+    const key = merchantDebtKey('restaurant', hit.id, debtId);
+    const raw = await kv.get(key);
+    const rec = normalizeRestaurantDebtRow(raw, String((hit.record as any)?.name || 'Restoran'));
+    if (!rec) return c.json({ success: false, error: 'Qarz topilmadi' }, 404);
+    if (rec.status === 'paid') return c.json({ success: true, debt: rec, alreadyPaid: true });
+
+    const appliedAmount = payUzs > 0 ? payUzs : rec.remainingUzs;
+    const { rec: updated, applied, fullyPaid } = applyDebtPayment(rec, appliedAmount);
+    let smsError: string | null = null;
+    if (fullyPaid) {
+      const sms = await sendDebtSms(
+        updated.customerPhone,
+        debtSmsPaid({ shop: updated.merchantName, kind: 'restaurant' }),
+        restaurantSmsBilling(hit.id, String((hit.record as any)?.name || 'Restoran'), 'debt_paid'),
+      );
+      if (sms.ok) updated.smsLog = { ...updated.smsLog, paidAt: new Date().toISOString() };
+      else smsError = sms.error || null;
+    }
+    await kv.set(key, updated);
+    return c.json({ success: true, debt: updated, appliedUzs: applied, fullyPaid, smsError });
+  } catch (error) {
+    console.error('Restaurant debt pay:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+app.post('/restaurants/:restaurantId/debts/:debtId/remind', async (c) => {
+  try {
+    const hit = await resolveRestaurantForDebt(c.req.param('restaurantId'));
+    if (!hit) return c.json({ success: false, error: 'Restoran topilmadi' }, 404);
+    const debtId = String(c.req.param('debtId') || '').trim();
+    const key = merchantDebtKey('restaurant', hit.id, debtId);
+    const raw = await kv.get(key);
+    const rec = normalizeRestaurantDebtRow(raw, String((hit.record as any)?.name || 'Restoran'));
+    if (!rec) return c.json({ success: false, error: 'Qarz topilmadi' }, 404);
+    if (rec.status === 'paid') return c.json({ success: false, error: 'Qarz allaqachon yopilgan' }, 400);
+    rec.status = computeDebtStatus(rec);
+    const sms = await sendDebtSms(
+      rec.customerPhone,
+      debtSmsReminder({
+        shop: rec.merchantName,
+        amountUzs: rec.remainingUzs,
+        dueDate: rec.dueDate,
+        kind: 'restaurant',
+      }),
+      restaurantSmsBilling(hit.id, String((hit.record as any)?.name || 'Restoran'), 'debt_reminder'),
+    );
+    if (!sms.ok) return c.json({ success: false, error: sms.error || 'SMS yuborilmadi' }, 500);
+    rec.smsLog = { ...rec.smsLog, reminderAt: new Date().toISOString() };
+    rec.updatedAt = new Date().toISOString();
+    await kv.set(key, rec);
+    return c.json({ success: true, debt: rec });
+  } catch (error) {
+    console.error('Restaurant debt remind:', error);
+    return c.json({ success: false, error: String(error) }, 500);
+  }
+});
+
+registerRestaurantSmsBillingRoutes(app, { kv, resolveRestaurantForDebt });
 
 export default app;

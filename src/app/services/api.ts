@@ -3,6 +3,7 @@
  * — timeout, qayta urinish va sarlavha birligi.
  */
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -290,6 +291,10 @@ export const healthCheck = async () => {
 export const uploadAPI = {
   // Upload image
   uploadImage: async (file: File) => {
+    const dim = await validateImageForUpload(file);
+    if (!dim.valid) {
+      throw new Error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+    }
     const formData = new FormData();
     formData.append('file', file);
 

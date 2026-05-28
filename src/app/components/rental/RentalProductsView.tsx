@@ -12,6 +12,7 @@ import { regions as allRegions } from '../../data/regions';
 import { rentalCatalogs, rentalCategories } from '../../data/rentals';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useIntersectionSentinel } from '../../hooks/useIntersectionSentinel';
+import { validateImageForUpload } from '../../utils/imageDimensionRules';
 
 // Extract regions and districts from structured data
 const regions = allRegions.map(r => r.name);
@@ -112,6 +113,11 @@ export function RentalProductsView({ branchId }: { branchId: string }) {
       console.log('📤 Uploading images...', files.length);
       
       const uploadPromises = files.map(async (file) => {
+        const dim = await validateImageForUpload(file);
+        if (!dim.valid) {
+          toast.error(dim.error || `${file.name}: rasm o‘lchami noto‘g‘ri`);
+          return null;
+        }
         const uploadFormData = new FormData();
         uploadFormData.append('file', file);
 

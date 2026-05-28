@@ -41,7 +41,8 @@ import { edgeFunctionBaseUrl } from '../../utils/edgeFunctionBaseUrl';
 import { publicAnonKey } from '../../../../utils/supabase/info';
 import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
-import { compressImageIfNeeded, uploadFormDataWithProgress } from '../../utils/uploadWithProgress';
+import { uploadFormDataWithProgress } from '../../utils/uploadWithProgress';
+import { validateImageForUpload } from '../../utils/imageDimensionRules';
 import { formatOrderNumber } from '../../utils/orderNumber';
 
 interface Payment {
@@ -635,9 +636,13 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
       try {
         setConfirmingReceipt(true);
         setReceiptUploadPct(0);
-        const compressed = await compressImageIfNeeded(cashierReceiptFile);
+        const dim = await validateImageForUpload(cashierReceiptFile);
+        if (!dim.valid) {
+          toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+          return;
+        }
         const fd = new FormData();
-        fd.append('file', compressed);
+        fd.append('file', cashierReceiptFile);
         const { data: uploadData, status: uploadStatus } = await uploadFormDataWithProgress<{
           url?: string;
           error?: string;
@@ -1906,9 +1911,13 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
                                 setConfirmingReceipt(true);
                                 setReceiptUploadPct(0);
 
-                                const compressed = await compressImageIfNeeded(file);
+                                const dim = await validateImageForUpload(file);
+                                if (!dim.valid) {
+                                  toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+                                  return;
+                                }
                                 const fd = new FormData();
-                                fd.append('file', compressed);
+                                fd.append('file', file);
 
                                 const { data: uploadData, status: uploadStatus } = await uploadFormDataWithProgress<{
                                   url?: string;

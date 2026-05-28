@@ -132,6 +132,40 @@ export function generateVerificationCode(): string {
   return Math.floor(100000 + Math.random() * 900000).toString();
 }
 
+/** Ixtiyoriy matnli SMS (qarz, eslatma va h.k.) */
+export async function sendCustomSMS(
+  phone: string,
+  message: string,
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  try {
+    const token = await getAuthToken();
+    const formData = new FormData();
+    formData.append('mobile_phone', phone);
+    formData.append('message', String(message || '').trim());
+    formData.append('from', '4546');
+
+    const response = await fetch(`${ESKIZ_API_URL}/message/sms/send`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}` },
+      body: formData,
+    });
+
+    const data: EskizSMSResponse = await response.json();
+    if (!response.ok) {
+      if (response.status === 401) {
+        authToken = null;
+        tokenExpiry = 0;
+        return sendCustomSMS(phone, message);
+      }
+      return { success: false, error: data.message || 'SMS yuborishda xatolik' };
+    }
+    return { success: true, messageId: data.id };
+  } catch (error: any) {
+    console.error('Send custom SMS exception:', error);
+    return { success: false, error: error.message || 'SMS yuborishda xatolik' };
+  }
+}
+
 /**
  * Check if Eskiz is configured
  */

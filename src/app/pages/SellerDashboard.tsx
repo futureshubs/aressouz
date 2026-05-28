@@ -26,7 +26,11 @@ import {
   RotateCcw,
   Users,
   Wallet,
+  HandCoins,
+  MessageSquare,
 } from 'lucide-react';
+import MerchantDebtsPanel from '../components/shared/MerchantDebtsPanel';
+import MerchantSmsBillingPanel from '../components/shared/MerchantSmsBillingPanel';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
@@ -498,6 +502,8 @@ export default function SellerDashboard() {
     { id: 'statistics', label: 'Statistika', icon: BarChart3, ownerOnly: true },
     { id: 'history', label: 'Tarix', icon: History, ownerOnly: true },
     { id: 'workers', label: 'Ishchilar', icon: Users, ownerOnly: true },
+    { id: 'debts', label: 'Qarz', icon: HandCoins, ownerOnly: true },
+    { id: 'sms', label: 'SMS statistikasi', icon: MessageSquare, ownerOnly: true },
     { id: 'expenses', label: 'Harajatlar', icon: Wallet, ownerOnly: true },
   ];
 
@@ -1315,6 +1321,26 @@ export default function SellerDashboard() {
               {activeTab === 'workers' && sellerInfo?.token && !isCashier ? (
                 <SellerWorkersPanel
                   token={sellerInfo.token}
+                  isDark={isDark}
+                  accentColor={accentColor}
+                />
+              ) : null}
+
+              {activeTab === 'debts' && sellerInfo?.token && !isCashier ? (
+                <MerchantDebtsPanel
+                  mode="seller"
+                  merchantName={String(sellerInfo?.shopName || sellerInfo?.name || 'Do\'kon')}
+                  sellerToken={sellerInfo.token}
+                  isDark={isDark}
+                  accentColor={accentColor}
+                />
+              ) : null}
+
+              {activeTab === 'sms' && sellerInfo?.token && !isCashier ? (
+                <MerchantSmsBillingPanel
+                  mode="seller"
+                  merchantLabel={String(sellerInfo?.shopName || sellerInfo?.name || 'Do\'kon')}
+                  sellerToken={sellerInfo.token}
                   isDark={isDark}
                   accentColor={accentColor}
                 />

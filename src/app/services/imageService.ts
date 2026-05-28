@@ -1,4 +1,15 @@
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { validateStrictImage500x500 } from '../utils/imageDimensionRules';
+
+export {
+  REQUIRED_IMAGE_WIDTH,
+  REQUIRED_IMAGE_HEIGHT,
+  REQUIRED_IMAGE_SIZE_LABEL,
+  REQUIRED_IMAGE_SIZE_HINT,
+  validateImageForUpload,
+  validateStrictImage500x500,
+  rejectImageUploadUnless500x500,
+} from '../utils/imageDimensionRules';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -24,6 +35,13 @@ export async function uploadImage(
   token?: string
 ): Promise<UploadResponse> {
   try {
+    if (file.type.startsWith('image/')) {
+      const dim = await validateStrictImage500x500(file);
+      if (!dim.valid) {
+        throw new Error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+      }
+    }
+
     const formData = new FormData();
     formData.append('file', file);
 

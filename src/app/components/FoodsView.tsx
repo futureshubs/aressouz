@@ -2432,12 +2432,22 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           >
             <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain touch-pan-y [-webkit-overflow-scrolling:touch]">
             <div className="min-h-0" style={{ background: isDark ? '#000000' : '#ffffff' }}>
-              {/* Image Header */}
-              <div className="relative h-96">
-                {selectedDish.images[currentImageIndex] && (
-                  <img src={selectedDish.images[currentImageIndex]} alt="" className="w-full h-full object-cover" />
-                )}
-                <div className="absolute inset-0 bg-gradient-to-b from-black/40 via-transparent to-black/60" />
+              {/* Image Header — modal kengligida, balandligi ekranga mos */}
+              <div
+                className="relative w-full shrink-0 overflow-hidden sm:rounded-t-3xl h-[clamp(220px,min(52dvh,100vw),720px)]"
+                style={{ background: isDark ? '#0c0c0c' : '#ececee' }}
+              >
+                {selectedDish.images[currentImageIndex] ? (
+                  <div className="absolute inset-0 z-0 flex items-center justify-center">
+                    <img
+                      src={selectedDish.images[currentImageIndex]}
+                      alt={selectedDish.name}
+                      className="h-full w-full max-h-full max-w-full object-contain object-center"
+                      decoding="async"
+                    />
+                  </div>
+                ) : null}
+                <div className="pointer-events-none absolute inset-0 z-[1] bg-gradient-to-b from-black/40 via-transparent to-black/60" />
                 
                 {/* Close Button */}
                 <button

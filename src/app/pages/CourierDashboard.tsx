@@ -44,7 +44,8 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { distanceKmForCourierUi, getOrderMapPoint } from '../utils/courierOrderGeo';
 import { COURIER_MAP_ROUTE_STORAGE_KEY } from '../utils/courierMapRouteSession';
-import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 import { openExternalUrlSync } from '../utils/openExternalUrl';
 import { RentalLiveCountdown } from '../components/rental/RentalLiveCountdown';
 import { normalizeRentalProductImageUrl } from '../utils/rentalProductImage';
@@ -1398,9 +1399,13 @@ export default function CourierDashboard() {
         setIsUploadingAvatar(true);
         setAvatarUploadPct(0);
 
-        const compressed = await compressImageIfNeeded(file);
+        const dim = await validateImageForUpload(file);
+        if (!dim.valid) {
+          toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+          return;
+        }
         const formData = new FormData();
-        formData.append('file', compressed);
+        formData.append('file', file);
         formData.append('type', 'courier');
 
         const { data, status } = await uploadFormDataWithProgress<{ url?: string; error?: string; message?: string }>({

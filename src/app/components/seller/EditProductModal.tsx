@@ -14,6 +14,7 @@ import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 import { platformCommissionHintUz, validateVariantCommissionsClient } from '../../utils/platformCommission';
+import { validateImageForUpload } from '../../utils/imageDimensionRules';
 
 interface Variant {
   id: string;
@@ -159,7 +160,11 @@ export default function EditProductModal({ isOpen, onClose, onSuccess, token, pr
 
     try {
       const uploadPromises = Array.from(files).map(async (file, fileIndex) => {
-        // Check file size (max 10MB)
+        const dim = await validateImageForUpload(file);
+        if (!dim.valid) {
+          toast.error(dim.error || `${file.name}: rasm o‘lchami noto‘g‘ri`);
+          return null;
+        }
         if (file.size > 10 * 1024 * 1024) {
           toast.error(`${file.name} juda katta (maksimal 10MB)`);
           return null;

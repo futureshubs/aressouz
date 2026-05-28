@@ -1,6 +1,7 @@
 import { X, Upload, Trash2, Loader2 } from 'lucide-react';
 import { useState } from 'react';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -54,6 +55,12 @@ export function AddCompletedProjectModal({
         // Validate file size (max 10MB)
         if (file.size > 10 * 1024 * 1024) {
           alert('Rasm hajmi 10MB dan oshmasligi kerak');
+          continue;
+        }
+
+        const dim = await validateImageForUpload(file);
+        if (!dim.valid) {
+          alert(dim.error || 'Rasm o‘lchami noto‘g‘ri');
           continue;
         }
 

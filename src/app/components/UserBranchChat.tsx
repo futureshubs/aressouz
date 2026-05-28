@@ -5,7 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import { useTheme } from '../context/ThemeContext';
 import { projectId } from '../../../utils/supabase/info';
 import { buildUserHeaders } from '../utils/requestAuth';
-import { compressImageIfNeeded } from '../utils/uploadWithProgress';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 
 type UserBranchChatMode = 'split' | 'single';
@@ -192,9 +192,13 @@ export function UserBranchChat({ mode = 'split', embedTarget = 'default' }: User
 
     setUploadingImage(true);
     try {
-      const compressed = await compressImageIfNeeded(file, { maxSide: 2048, quality: 0.85, minBytes: 400_000 });
+      const dim = await validateImageForUpload(file);
+      if (!dim.valid) {
+        toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+        return;
+      }
       const fd = new FormData();
-      fd.append('file', compressed);
+      fd.append('file', file);
       const up = await fetch(`${baseUrl}/user/chats/upload-media`, {
         method: 'POST',
         headers: buildUserHeaders(),

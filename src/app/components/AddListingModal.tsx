@@ -7,7 +7,8 @@ import { carCategories } from '../data/cars';
 import { regions } from '../data/regions';
 import { publicAnonKey } from '/utils/supabase/info';
 import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
-import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 import { openExternalUrlSync } from '../utils/openExternalUrl';
 import { LISTING_FEE_UZS } from '../constants/listingFee';
 import { PAYMENT_LOGO_FRAME_SKEW_DEG } from './payment/PaymentMethodLogoFrame';
@@ -568,7 +569,12 @@ export function AddListingModal({ isOpen, onClose, userId, userName, userPhone, 
         for (let i = 0; i < files.length; i++) {
           if (sessionId !== uploadSessionRef.current) return;
 
-          const file = await compressImageIfNeeded(files[i]);
+          const dim = await validateImageForUpload(files[i]);
+          if (!dim.valid) {
+            toast.error(dim.error || `${files[i].name}: rasm o‘lchami noto‘g‘ri`);
+            continue;
+          }
+          const file = files[i];
           const formData = new FormData();
           formData.append('file', file);
           formData.append('type', listingType === 'house' ? 'house' : 'car');

@@ -22,6 +22,12 @@ export type OfflineSale = {
     method: 'cash' | 'card' | 'mixed';
     paidUzs?: number;
   };
+  debt?: {
+    customerName: string;
+    customerPhone: string;
+    remainingUzs: number;
+    dueDate?: string | null;
+  };
   source: 'offline';
   status: 'pending_sync' | 'synced' | 'failed';
   lastError?: string;

@@ -3,7 +3,8 @@ import { X, User, Calendar, Users, Loader2, Camera, Upload } from 'lucide-react'
 import { motion } from 'motion/react';
 import { WheelDatePicker } from './WheelDatePicker';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
-import { compressImageIfNeeded, uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { uploadFormDataWithProgress } from '../utils/uploadWithProgress';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -62,14 +63,17 @@ export function ProfileEditModal({
     setImageFile(file);
     setError('');
 
-    // Auto-upload immediately
     void (async () => {
+      const dim = await validateImageForUpload(file);
+      if (!dim.valid) {
+        setError(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+        return;
+      }
       setUploadingImage(true);
       setUploadPct(0);
       try {
-        const compressed = await compressImageIfNeeded(file);
         const formData = new FormData();
-        formData.append('file', compressed);
+        formData.append('file', file);
 
         const { data, status } = await uploadFormDataWithProgress<{ url?: string; error?: string }>({
           url: `${API_BASE_URL}/api/upload`,

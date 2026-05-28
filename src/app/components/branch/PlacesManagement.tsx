@@ -23,6 +23,7 @@ import {
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
+import { validateImageForUpload } from '../../utils/imageDimensionRules';
 
 // Dynamic place categories state
 interface PlaceCategory {
@@ -133,32 +134,6 @@ export default function PlacesManagement({ branchId, branchInfo }: PlacesManagem
     }
   };
 
-  const compressImageIfNeeded = async (file: File) => {
-    // Skip tiny images
-    if (file.size <= 600_000) return file;
-    if (!file.type.startsWith('image/')) return file;
-
-    const bitmap = await createImageBitmap(file);
-    const maxSide = 1600;
-    const scale = Math.min(1, maxSide / Math.max(bitmap.width, bitmap.height));
-    const width = Math.max(1, Math.round(bitmap.width * scale));
-    const height = Math.max(1, Math.round(bitmap.height * scale));
-
-    const canvas = document.createElement('canvas');
-    canvas.width = width;
-    canvas.height = height;
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return file;
-    ctx.drawImage(bitmap, 0, 0, width, height);
-
-    const blob: Blob | null = await new Promise((resolve) =>
-      canvas.toBlob(resolve, 'image/jpeg', 0.82)
-    );
-    if (!blob) return file;
-    const compressed = new File([blob], file.name.replace(/\.(png|webp|jpeg|jpg)$/i, '.jpg'), { type: 'image/jpeg' });
-    return compressed.size < file.size ? compressed : file;
-  };
-
   const uploadPlaceImage = async (file: File) => {
     const form = new FormData();
     form.append('file', file);
@@ -239,8 +214,9 @@ export default function PlacesManagement({ branchId, branchInfo }: PlacesManagem
       while (idx < files.length) {
         const current = files[idx];
         idx += 1;
-        const compressed = await compressImageIfNeeded(current);
-        const url = await uploadPlaceImage(compressed);
+        const dim = await validateImageForUpload(current);
+        if (!dim.valid) throw new Error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+        const url = await uploadPlaceImage(current);
         results.push(url);
       }
     });
@@ -257,8 +233,9 @@ export default function PlacesManagement({ branchId, branchInfo }: PlacesManagem
         idx += 1;
 
         try {
-          const compressed = await compressImageIfNeeded(current.file);
-          const remoteUrl = await uploadPlaceImageWithProgress(current.id, compressed);
+          const dim = await validateImageForUpload(current.file);
+          if (!dim.valid) throw new Error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+          const remoteUrl = await uploadPlaceImageWithProgress(current.id, current.file);
 
           setRemoteImageUrls((prev) => (prev.length >= 5 ? prev : [...prev, remoteUrl].slice(0, 5)));
           setUploadItems((prev) => prev.filter((it) => it.id !== current.id));

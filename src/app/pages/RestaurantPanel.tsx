@@ -30,7 +30,11 @@ import {
   Menu,
   Armchair,
   CalendarDays,
+  HandCoins,
+  MessageSquare,
 } from 'lucide-react';
+import MerchantDebtsPanel from '../components/shared/MerchantDebtsPanel';
+import MerchantSmsBillingPanel from '../components/shared/MerchantSmsBillingPanel';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { LineChart, Line, BarChart, Bar, PieChart, Pie, Cell, XAxis, YAxis, CartesianGrid, Tooltip, Legend, ResponsiveContainer } from 'recharts';
@@ -38,6 +42,7 @@ import { formatOrderNumber } from '../utils/orderNumber';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
 import { useBodyScrollLock } from '../utils/useBodyScrollLock';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 import {
   clampPlatformCommissionPercentClient,
   platformCommissionHintUz,
@@ -62,7 +67,7 @@ export default function RestaurantPanel() {
   
   const [restaurant, setRestaurant] = useState<any>(null);
   const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'orders' | 'dishes' | 'rooms' | 'stats' | 'analytics' | 'payment'
+    'dashboard' | 'orders' | 'dishes' | 'rooms' | 'stats' | 'analytics' | 'payment' | 'debts' | 'sms'
   >('dashboard');
   const [orders, setOrders] = useState<any[]>([]);
   const [ordersCategory, setOrdersCategory] = useState<'all' | 'new' | 'accepted' | 'completed' | 'cancelled'>('all');
@@ -110,7 +115,7 @@ export default function RestaurantPanel() {
   const [sidebarOpen, setSidebarOpen] = useState(false);
 
   const restaurantMenuTabs: Array<{
-    id: 'dashboard' | 'orders' | 'dishes' | 'rooms' | 'stats' | 'analytics' | 'payment';
+    id: 'dashboard' | 'orders' | 'dishes' | 'rooms' | 'stats' | 'analytics' | 'payment' | 'debts' | 'sms';
     label: string;
     icon: typeof Package;
   }> = [
@@ -118,6 +123,8 @@ export default function RestaurantPanel() {
     { id: 'orders', label: 'Buyurtmalar', icon: ShoppingCart },
     { id: 'dishes', label: 'Taomlar', icon: ChefHat },
     { id: 'rooms', label: 'Xonalar / bron', icon: Armchair },
+    { id: 'debts', label: 'Qarz', icon: HandCoins },
+    { id: 'sms', label: 'SMS statistikasi', icon: MessageSquare },
     { id: 'stats', label: 'Statistika', icon: BarChart3 },
     { id: 'analytics', label: 'Data Analitika', icon: TrendingUp },
     { id: 'payment', label: "To'lov qabul qilish", icon: DollarSign },
@@ -514,6 +521,11 @@ export default function RestaurantPanel() {
       }
       const slice = filesArray.slice(0, remaining);
       for (const file of slice) {
+        const dim = await validateImageForUpload(file);
+        if (!dim.valid) {
+          toast.error(dim.error || `${file.name}: rasm o‘lchami noto‘g‘ri`);
+          continue;
+        }
         const formData = new FormData();
         formData.append('file', file);
         try {
@@ -828,6 +840,11 @@ export default function RestaurantPanel() {
       
       for (let i = 0; i < filesArray.length; i++) {
         const file = filesArray[i];
+        const dim = await validateImageForUpload(file);
+        if (!dim.valid) {
+          toast.error(dim.error || `${file.name}: rasm o‘lchami noto‘g‘ri`);
+          continue;
+        }
         const formData = new FormData();
         formData.append('file', file);
         
@@ -876,6 +893,11 @@ export default function RestaurantPanel() {
 
   // Upload variant image
   const uploadVariantImage = async (file: File, variantIndex: number) => {
+    const dim = await validateImageForUpload(file);
+    if (!dim.valid) {
+      toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+      return;
+    }
     setUploadingImages(true);
     
     try {
@@ -2141,6 +2163,26 @@ export default function RestaurantPanel() {
             </div>
           </div>
         )}
+
+        {activeTab === 'debts' && restaurant?.id ? (
+          <MerchantDebtsPanel
+            mode="restaurant"
+            merchantName={String(restaurant?.name || 'Restoran')}
+            restaurantId={String(restaurant.id)}
+            isDark={isDark}
+            accentColor={accentColor}
+          />
+        ) : null}
+
+        {activeTab === 'sms' && restaurant?.id ? (
+          <MerchantSmsBillingPanel
+            mode="restaurant"
+            merchantLabel={String(restaurant?.name || 'Restoran')}
+            restaurantId={String(restaurant.id)}
+            isDark={isDark}
+            accentColor={accentColor}
+          />
+        ) : null}
 
         {/* TO'LOV QABUL QILISH */}
         {activeTab === 'payment' && (

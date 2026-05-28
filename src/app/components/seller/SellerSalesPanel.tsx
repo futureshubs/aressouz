@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState, useCallback } from 'react';
-import { Search, Plus, Minus, Trash2, Loader2, CheckCircle2, CloudOff, RefreshCw, X, ShoppingCart, Printer } from 'lucide-react';
+import { Search, Plus, Minus, Trash2, Loader2, CheckCircle2, CloudOff, RefreshCw, X, ShoppingCart, Printer, User, Phone, Calendar } from 'lucide-react';
 import { toast } from 'sonner';
 import { offlineSalesAdd, type OfflineSale, type OfflineSaleItem } from '../../utils/offlineSalesDb';
 import { startOfflineSalesSyncWorker, syncPendingOfflineSales } from '../../utils/offlineSalesSync';
@@ -14,6 +14,7 @@ import {
   type PosReceiptData,
   isMobilePosDevice,
 } from '../../utils/posReceipt';
+import UzPhoneInput from '../shared/UzPhoneInput';
 
 type ProductRow = {
   id: string;
@@ -76,6 +77,10 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
   const [query, setQuery] = useState('');
   const [cart, setCart] = useState<CartLine[]>([]);
   const [discountUzs, setDiscountUzs] = useState(0);
+  const [paidUzs, setPaidUzs] = useState(0);
+  const [debtCustomerName, setDebtCustomerName] = useState('');
+  const [debtCustomerPhone, setDebtCustomerPhone] = useState('');
+  const [debtDueDate, setDebtDueDate] = useState('');
   const [payMethod, setPayMethod] = useState<'cash' | 'card'>('cash');
   const [submitting, setSubmitting] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
@@ -404,6 +409,17 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
   const subtotalUzs = useMemo(() => cart.reduce((s, l) => s + safeMoney(l.priceUzs) * Math.max(1, l.qty), 0), [cart]);
   const discount = Math.min(Math.max(0, Math.floor(Number(discountUzs) || 0)), subtotalUzs);
   const totalUzs = Math.max(0, subtotalUzs - discount);
+  const paid = Math.min(totalUzs, Math.max(0, Math.floor(Number(paidUzs) || 0)));
+  const debtRemainingUzs = Math.max(0, totalUzs - paid);
+  const hasDebt = debtRemainingUzs > 0;
+
+  useEffect(() => {
+    setPaidUzs((prev) => {
+      const p = Math.floor(Number(prev) || 0);
+      if (p === 0 || p > totalUzs) return totalUzs;
+      return p;
+    });
+  }, [totalUzs]);
 
   const addToCart = (p: (typeof normalizedProducts)[number], v?: (typeof normalizedProducts)[number]['variants'][number]) => {
     const productId = p.id;
@@ -465,6 +481,10 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
   const clearCart = () => {
     setCart([]);
     setDiscountUzs(0);
+    setPaidUzs(0);
+    setDebtCustomerName('');
+    setDebtCustomerPhone('');
+    setDebtDueDate('');
   };
 
   const submitSale = async () => {
@@ -476,6 +496,16 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
     if (cart.length === 0) {
       toast.error('Savat bo‘sh');
       return;
+    }
+    if (hasDebt) {
+      if (!debtCustomerName.trim()) {
+        toast.error('Qarz uchun mijoz ismini kiriting');
+        return;
+      }
+      if (debtCustomerPhone.replace(/\D/g, '').length < 12) {
+        toast.error('Telefon raqamini to\'liq kiriting (+998 va 9 ta raqam)');
+        return;
+      }
     }
     setSubmitting(true);
     try {
@@ -499,12 +529,26 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
           discountUzs: discount,
           totalUzs,
         },
-        payment: { method: payMethod },
+        payment: { method: payMethod, paidUzs: paid },
+        ...(hasDebt
+          ? {
+              debt: {
+                customerName: debtCustomerName.trim(),
+                customerPhone: debtCustomerPhone.trim(),
+                remainingUzs: debtRemainingUzs,
+                dueDate: debtDueDate || null,
+              },
+            }
+          : {}),
         source: 'offline',
         status: 'pending_sync',
       };
       await offlineSalesAdd(sale);
-      toast.success('Sotuv saqlandi. Internet bo‘lsa avtomatik yuboriladi.');
+      toast.success(
+        hasDebt
+          ? 'Sotuv saqlandi. Qarz yozildi — SMS internet bilan yuboriladi.'
+          : 'Sotuv saqlandi. Internet bo‘lsa avtomatik yuboriladi.',
+      );
 
       const receiptObj: PosReceiptData = {
         saleId,
@@ -550,6 +594,9 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
         setSyncBusy(true);
         const r = await syncPendingOfflineSales({ token, shopId, limit: 10 });
         setSyncInfo((p) => ({ ...p, last: r, error: undefined }));
+        if (hasDebt && r.synced > 0) {
+          toast.message('Qarz ro\'yxatga qo\'shildi, mijozga SMS yuborildi');
+        }
         onAfterSale?.(); // server stock decreased -> refresh again
       }
     } catch (e) {
@@ -882,11 +929,73 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
                       />
                     </div>
                     <div className="flex items-center justify-between text-base">
-                      <span className="font-bold">To‘lov</span>
+                      <span className="font-bold">Jami to‘lov</span>
                       <span className="font-extrabold tabular-nums" style={{ color: accentColor.color }}>
                         {totalUzs.toLocaleString('uz-UZ')} so‘m
                       </span>
                     </div>
+                    <div className="flex items-center justify-between text-sm gap-2">
+                      <span style={{ opacity: 0.7 }}>Hozir to‘langan</span>
+                      <input
+                        type="number"
+                        min={0}
+                        max={totalUzs}
+                        value={paid}
+                        onChange={(e) => setPaidUzs(Math.min(totalUzs, Math.max(0, Math.floor(Number(e.target.value) || 0))))}
+                        className="w-32 text-right rounded-xl border px-3 py-2 text-sm font-bold tabular-nums"
+                        style={{
+                          background: isDark ? '#111' : '#fff',
+                          borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                          color: isDark ? '#fff' : '#111',
+                        }}
+                      />
+                    </div>
+                    {hasDebt ? (
+                      <div
+                        className="rounded-2xl border p-3 space-y-2 text-sm"
+                        style={{
+                          borderColor: `${accentColor.color}44`,
+                          background: isDark ? `${accentColor.color}12` : `${accentColor.color}08`,
+                        }}
+                      >
+                        <div className="font-bold" style={{ color: accentColor.color }}>
+                          Qarz: {debtRemainingUzs.toLocaleString('uz-UZ')} so‘m
+                        </div>
+                        <label className="block">
+                          <span className="opacity-70 flex items-center gap-1 mb-1 text-xs"><User className="w-3.5 h-3.5" /> Ism</span>
+                          <input
+                            value={debtCustomerName}
+                            onChange={(e) => setDebtCustomerName(e.target.value)}
+                            className="w-full rounded-xl border px-3 py-2 text-sm"
+                            style={{
+                              background: isDark ? '#111' : '#fff',
+                              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                            }}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="opacity-70 flex items-center gap-1 mb-1 text-xs"><Phone className="w-3.5 h-3.5" /> Telefon</span>
+                          <UzPhoneInput
+                            value={debtCustomerPhone}
+                            onChange={setDebtCustomerPhone}
+                            isDark={isDark}
+                          />
+                        </label>
+                        <label className="block">
+                          <span className="opacity-70 flex items-center gap-1 mb-1 text-xs"><Calendar className="w-3.5 h-3.5" /> Qaytarish sanasi (ixtiyoriy)</span>
+                          <input
+                            type="date"
+                            value={debtDueDate}
+                            onChange={(e) => setDebtDueDate(e.target.value)}
+                            className="w-full rounded-xl border px-3 py-2 text-sm"
+                            style={{
+                              background: isDark ? '#111' : '#fff',
+                              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                            }}
+                          />
+                        </label>
+                      </div>
+                    ) : null}
 
                     <div className="mt-3 grid grid-cols-2 gap-2">
                       {([

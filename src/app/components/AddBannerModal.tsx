@@ -4,6 +4,7 @@ import { X, Upload, Image as ImageIcon, Tag, Link, MapPin, FileText, Loader2 } f
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { regions } from '../data/regions';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 
 const BANNER_CATEGORIES = [
   { value: 'market', label: 'Market' },
@@ -45,6 +46,11 @@ export function AddBannerModal({ branchId, category, onClose, onSuccess }: AddBa
   const availableDistricts = selectedRegion?.districts || [];
 
   const handleImageUpload = async (file: File) => {
+    const dim = await validateImageForUpload(file);
+    if (!dim.valid) {
+      toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+      return;
+    }
     try {
       setUploading(true);
       

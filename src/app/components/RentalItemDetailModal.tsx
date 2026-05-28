@@ -241,12 +241,10 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
         {/* Bitta scroll: rasm + batafsil birgalikda; pastki CTA alohida */}
         <div className="flex min-h-0 flex-1 flex-col overflow-hidden">
           <div className="min-h-0 flex-1 overflow-y-auto overscroll-y-contain [-webkit-overflow-scrolling:touch]">
-        {/* Image — 6:5 (600×500 ga mos), to‘liq ko‘rinish (contain), ramka nisbatga mos */}
+        {/* Image — modal kengligida, balandligi ekranga mos (contain) */}
         <div
-          className="relative mx-auto w-full max-w-[600px] shrink-0 overflow-hidden sm:rounded-t-3xl"
+          className="relative w-full shrink-0 overflow-hidden sm:rounded-t-3xl h-[clamp(220px,min(52dvh,100vw),720px)]"
           style={{
-            aspectRatio: '6 / 5',
-            maxHeight: 'min(500px, 48dvh)',
             background: isDark ? '#0c0c0c' : '#ececee',
           }}
         >
@@ -264,11 +262,11 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
           >
             <X className="size-5 text-white" strokeWidth={2.5} />
           </button>
-          <div className="absolute inset-0 flex min-h-[min(180px,35dvh)] items-center justify-center p-2 sm:p-3">
+          <div className="absolute inset-0 z-0 flex items-center justify-center">
             <img
               src={allImages[currentImageIndex]}
               alt={item.name}
-              className="max-h-full max-w-full object-contain object-center"
+              className="h-full w-full max-h-full max-w-full object-contain object-center"
               decoding="async"
             />
           </div>

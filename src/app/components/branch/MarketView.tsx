@@ -45,6 +45,7 @@ import { useInfiniteQuery } from '@tanstack/react-query';
 import { useIntersectionSentinel } from '../../hooks/useIntersectionSentinel';
 import { fetchPagedBranchProducts } from '../../services/pagedCatalogApi';
 import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
+import { validateImageForUpload } from '../../utils/imageDimensionRules';
 import { ReceiptModal } from '../ReceiptModal';
 
 // Dynamic categories state
@@ -780,6 +781,11 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
   };
 
   const handleImageUpload = async (variantId: string, file: File) => {
+    const dim = await validateImageForUpload(file);
+    if (!dim.valid) {
+      toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+      return;
+    }
     setVariantImageUploadingId(variantId);
     try {
       console.log('📤 Uploading image to R2:', file.name);

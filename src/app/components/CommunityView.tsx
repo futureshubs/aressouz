@@ -31,7 +31,7 @@ import { regions } from '../data/regions';
 import { API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ChatMessagesSkeleton, CommunityRoomSkeleton } from './skeletons';
-import { compressImageIfNeeded } from '../utils/uploadWithProgress';
+import { validateImageForUpload } from '../utils/imageDimensionRules';
 import {
   clearCommunityMembership,
   saveCommunityMembership,
@@ -534,6 +534,10 @@ export function CommunityView({ onBack }: CommunityViewProps) {
 
   const uploadCommunityMediaFile = useCallback(
     async (file: File) => {
+      if (file.type.startsWith('image/')) {
+        const dim = await validateImageForUpload(file);
+        if (!dim.valid) throw new Error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
+      }
       const formData = new FormData();
       formData.append('file', file);
       const response = await fetch(`${API_BASE_URL}/community/upload-media`, {
@@ -689,8 +693,7 @@ export function CommunityView({ onBack }: CommunityViewProps) {
 
     setSending(true);
     try {
-      const compressed = await compressImageIfNeeded(file, { maxSide: 1920, quality: 0.85, minBytes: 350_000 });
-      const url = await uploadCommunityMediaFile(compressed);
+      const url = await uploadCommunityMediaFile(file);
       const caption = draft.trim();
       if (caption) {
         await sendCommunityPayload({ type: 'image', mediaUrl: url, content: caption });
