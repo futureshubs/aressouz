@@ -357,7 +357,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
       onClick={onClose}
     >
       <div 
-        className="w-full max-w-4xl max-h-[90vh] overflow-y-auto rounded-3xl border"
+        className="w-full max-w-[calc(100vw-1.5rem)] sm:max-w-2xl md:max-w-4xl lg:max-w-5xl xl:max-w-6xl 2xl:max-w-7xl max-h-[90vh] overflow-y-auto overflow-x-hidden rounded-3xl border"
         style={{
           background: isDark ? '#0a0a0a' : '#ffffff',
           borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -660,7 +660,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
                     {variant.images.map((image, imgIndex) => (
                       <div
                         key={imgIndex}
-                        className="relative aspect-square w-full max-w-[500px] rounded-xl overflow-hidden group bg-zinc-100 dark:bg-zinc-800/90"
+                        className="relative aspect-square w-full max-w-full rounded-xl overflow-hidden group bg-zinc-100 dark:bg-zinc-800/90"
                       >
                         <img src={image} alt="" className="w-full h-full object-contain" />
                         <button

@@ -420,7 +420,7 @@ export default function SellerHistoryPanel({ token, shopId, shopName, isDark, ac
   }, [stats, kind, cardStyle]);
 
   return (
-    <div className="space-y-6 max-w-full overflow-x-hidden">
+    <div className="space-y-6 min-w-0 w-full max-w-full overflow-x-hidden">
       <div
         className="p-6 rounded-3xl border"
         style={{

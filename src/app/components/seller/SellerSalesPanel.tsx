@@ -761,12 +761,12 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
       {/* POS Modal (filial panel MarketView -> Ombor -> Sotuv UX) */}
       {isPOSOpen ? (
         <div
-          className="fixed inset-0 app-safe-pad z-50 flex items-start justify-center overflow-hidden p-3 pb-[max(1rem,var(--app-safe-bottom,0px))] pt-[max(0.5rem,var(--app-safe-top,0px))] sm:items-center sm:p-4"
+          className="fixed inset-0 app-safe-pad z-50 flex items-start justify-center overflow-hidden p-3 pb-[max(1rem,var(--app-safe-bottom,0px))] pt-[max(0.5rem,var(--app-safe-top,0px))] sm:items-center sm:p-4 lg:p-6 xl:p-8"
           style={{ background: 'rgba(0, 0, 0, 0.7)' }}
           onClick={() => setIsPOSOpen(false)}
         >
           <div
-            className="w-full max-w-full sm:max-w-4xl shrink-0 rounded-3xl border p-4 sm:p-6 max-h-[min(calc(100dvh-var(--app-safe-top,0px)-var(--app-safe-bottom,0px)-1rem),90vh)] sm:max-h-[90vh] overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch]"
+            className="w-full max-w-[calc(100vw-1.5rem)] sm:max-w-2xl md:max-w-4xl lg:max-w-6xl xl:max-w-7xl 2xl:max-w-[min(92rem,calc(100vw-18rem))] shrink-0 rounded-3xl border p-4 sm:p-6 lg:p-8 max-h-[min(calc(100dvh-var(--app-safe-top,0px)-var(--app-safe-bottom,0px)-1rem),92vh)] overflow-y-auto overflow-x-hidden overscroll-contain [-webkit-overflow-scrolling:touch]"
             style={{
               background: isDark ? '#0a0a0a' : '#ffffff',
               borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -785,12 +785,12 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
               </button>
             </div>
 
-            <div className="relative mb-4">
+            <div className="relative mb-4 min-w-0 w-full">
               <input
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
                 placeholder="Mahsulot nomini yoki shtrix kodini kiriting..."
-                className="w-full px-4 py-3 rounded-2xl border outline-none transition-all"
+                className="w-full min-w-0 px-4 py-3 rounded-2xl border outline-none transition-all"
                 style={{
                   background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
                   borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
@@ -806,8 +806,67 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
               />
             </div>
 
-              <div className="space-y-3 mb-4 min-w-0">
-              <div className="rounded-3xl border p-4 min-w-0" style={cardStyle}>
+            <div className="min-w-0 grid grid-cols-1 lg:grid-cols-[minmax(0,1fr)_minmax(280px,32rem)] xl:grid-cols-[minmax(0,1fr)_minmax(340px,28rem)] 2xl:grid-cols-[minmax(0,1fr)_minmax(400px,26rem)] gap-4 lg:gap-6 items-start">
+              {query.trim() && filtered.length > 0 ? (
+                <div className="min-w-0 order-2 lg:order-1 space-y-2 mb-0 lg:mb-0">
+                  <h4 className="font-semibold mb-2">Mahsulotlar</h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2 max-h-52 sm:max-h-60 lg:max-h-[min(calc(92vh-14rem),520px)] overflow-y-auto overflow-x-hidden overscroll-contain pr-0.5">
+                    {filtered.map((p) => (
+                      <button
+                        key={p.id}
+                        type="button"
+                        onClick={() => {
+                          if ((p.variantsCount || 0) > 1) {
+                            setVariantPicker({
+                              productId: p.id,
+                              productName: p.name,
+                              image: p.image,
+                              variants: p.variants,
+                            });
+                            return;
+                          }
+                          addToCart(p, p.variants?.[0]);
+                        }}
+                        className="p-3 rounded-xl border text-left transition-all active:scale-95 min-w-0 w-full"
+                        style={{
+                          background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                          borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                        }}
+                      >
+                        <div className="flex items-center gap-2 min-w-0">
+                          {p.image ? <img src={p.image} alt={p.name} className="w-10 h-10 rounded-lg object-cover shrink-0" /> : null}
+                          <div className="flex-1 min-w-0">
+                            <h5 className="font-semibold text-sm truncate">{p.name}</h5>
+                            <p className="text-xs truncate" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
+                              {p.variantsCount > 1 ? `${p.variantsCount} variant` : 'Standart'}
+                            </p>
+                            <p className="text-sm font-bold" style={{ color: accentColor.color }}>
+                              {p.priceUzs.toLocaleString('uz-UZ')} so'm
+                            </p>
+                          </div>
+                          <Plus className="w-5 h-5 shrink-0" style={{ color: accentColor.color }} />
+                        </div>
+                      </button>
+                    ))}
+                    {searchQuery.hasNextPage ? (
+                      <div ref={searchSentinel} className="h-1 w-full sm:col-span-2 xl:col-span-3 2xl:col-span-4" aria-hidden />
+                    ) : null}
+                    {searchQuery.isFetchingNextPage ? (
+                      <div className="text-xs opacity-70 sm:col-span-2 xl:col-span-3 2xl:col-span-4 py-2 text-center">
+                        <Loader2 className="w-4 h-4 animate-spin inline-block mr-2" />
+                        Yuklanmoqda...
+                      </div>
+                    ) : null}
+                  </div>
+                </div>
+              ) : (
+                <div className="hidden lg:block min-w-0 order-2 lg:order-1 rounded-2xl border p-6 text-center text-sm" style={{ ...cardStyle, opacity: 0.85 }}>
+                  Qidiruv orqali mahsulot qo‘shing
+                </div>
+              )}
+
+              <div className="min-w-0 order-1 lg:order-2 lg:sticky lg:top-0 space-y-3">
+              <div className="rounded-3xl border p-4 min-w-0 w-full" style={cardStyle}>
                   <div className="flex items-center justify-between gap-2 mb-3">
                     <h3 className="font-bold">Savat</h3>
                     {cart.length ? (
@@ -1037,60 +1096,8 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
                   </div>
                 </div>
               </div>
-
-            {query.trim() && filtered.length > 0 ? (
-              <div className="mb-4 space-y-2">
-                <h4 className="font-semibold mb-2">Mahsulotlar</h4>
-                <div className="grid grid-cols-1 md:grid-cols-2 gap-2 max-h-60 overflow-y-auto">
-                  {filtered.map((p) => (
-                    <button
-                      key={p.id}
-                      type="button"
-                      onClick={() => {
-                        if ((p.variantsCount || 0) > 1) {
-                          setVariantPicker({
-                            productId: p.id,
-                            productName: p.name,
-                            image: p.image,
-                            variants: p.variants,
-                          });
-                          return;
-                        }
-                        addToCart(p, p.variants?.[0]);
-                      }}
-                      className="p-3 rounded-xl border text-left transition-all active:scale-95"
-                      style={{
-                        background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
-                        borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      }}
-                    >
-                      <div className="flex items-center gap-2">
-                        {p.image ? <img src={p.image} alt={p.name} className="w-10 h-10 rounded-lg object-cover" /> : null}
-                        <div className="flex-1 min-w-0">
-                          <h5 className="font-semibold text-sm truncate">{p.name}</h5>
-                          <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-                            {p.variantsCount > 1 ? `${p.variantsCount} variant` : 'Standart'}
-                          </p>
-                          <p className="text-sm font-bold" style={{ color: accentColor.color }}>
-                            {p.priceUzs.toLocaleString('uz-UZ')} so'm
-                          </p>
-                        </div>
-                        <Plus className="w-5 h-5" style={{ color: accentColor.color }} />
-                      </div>
-                    </button>
-                  ))}
-                  {searchQuery.hasNextPage ? (
-                    <div ref={searchSentinel} className="h-1 w-full md:col-span-2" aria-hidden />
-                  ) : null}
-                  {searchQuery.isFetchingNextPage ? (
-                    <div className="text-xs opacity-70 md:col-span-2 py-2 text-center">
-                      <Loader2 className="w-4 h-4 animate-spin inline-block mr-2" />
-                      Yuklanmoqda...
-                    </div>
-                  ) : null}
-                </div>
               </div>
-            ) : null}
+            </div>
           </div>
         </div>
       ) : null}

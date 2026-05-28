@@ -358,6 +358,8 @@
 
 .app-panel-main-scroll {
   flex: 1 1 0%;
+  width: 100%;
+  max-width: 100%;
   min-height: 0;
   min-width: 0;
   overflow-x: hidden;
@@ -367,6 +369,14 @@
   /* Root scroll faqat vertikal: gorizontal "yonboshga siljish" bo‘lmasin */
   touch-action: pan-y;
   overscroll-behavior-x: none;
+}
+
+/* Katta ekran: kontent maydoni sidebar dan keyin qolgan kenglikni to‘ldiradi */
+@media (min-width: 1024px) {
+  .app-panel-content {
+    width: 100%;
+    max-width: none;
+  }
 }
 
 .app-panel-sidebar-scroll {

@@ -554,7 +554,7 @@ export default function SellerDashboard() {
 
   return (
     <div
-      className="app-panel-viewport app-safe-pad"
+      className="app-panel-viewport app-safe-pad w-full"
       style={{
         background: isDark ? '#000000' : '#f9fafb',
         color: isDark ? '#ffffff' : '#111827',
@@ -772,7 +772,7 @@ export default function SellerDashboard() {
 
         {/* Content */}
         <div
-          className="app-panel-main-scroll p-3 sm:p-4 lg:p-6 max-lg:pb-[calc(10.5rem+var(--app-safe-bottom,0px))]"
+          className="app-panel-main-scroll w-full min-h-0 flex-1 p-3 sm:p-4 lg:p-6 xl:p-8 max-lg:pb-[calc(10.5rem+var(--app-safe-bottom,0px))]"
         >
           {isLoading ? (
             <div className="flex items-center justify-center py-12">
@@ -782,7 +782,7 @@ export default function SellerDashboard() {
             </div>
           ) : (
             <RouteErrorBoundary resetKeys={[activeTab]} embedded>
-            <div className="app-panel-content">
+            <div className="app-panel-content w-full">
               {/* Dashboard Tab */}
               {activeTab === 'dashboard' && !isCashier && (
                 <div className="space-y-6 min-w-0">
@@ -805,7 +805,7 @@ export default function SellerDashboard() {
                   </div>
 
                   {/* Stats */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5 gap-4">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-5 gap-3 sm:gap-4">
                     {[
                       { label: 'Bugungi buyurtmalar', value: String(ordersToday), icon: ShoppingCart, color: '#14b8a6' },
                       { label: 'Bekor buyurtmalar', value: String(sellerOrderCounts.cancelled), icon: XCircle, color: '#ef4444' },
@@ -896,7 +896,7 @@ export default function SellerDashboard() {
                       </button>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
                       {products.map((product: any) => {
                         // Get first variant for display
                         const firstVariant = product.variants?.[0];

@@ -506,7 +506,7 @@ export default function SellerStatisticsPanel({ token, isDark, accentColor }: Pr
   }, [rowsForAnalytics]);
 
   return (
-    <div className="space-y-6 max-w-full overflow-x-hidden">
+    <div className="space-y-6 min-w-0 w-full max-w-full overflow-x-hidden">
       <div
         className="p-6 rounded-3xl border"
         style={{
@@ -653,7 +653,7 @@ export default function SellerStatisticsPanel({ token, isDark, accentColor }: Pr
       </div>
 
       {posStats ? (
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-4">
           <div className="p-5 rounded-3xl border space-y-3" style={cardStyle}>
             <div className="flex items-start justify-between gap-3">
               <div>
@@ -764,7 +764,7 @@ export default function SellerStatisticsPanel({ token, isDark, accentColor }: Pr
       )}
 
       {/* Analytics charts */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
         <div className="rounded-3xl border p-4 lg:col-span-2" style={cardStyle}>
           <div className="flex items-start justify-between gap-3">
             <div className="min-w-0">
@@ -827,7 +827,7 @@ export default function SellerStatisticsPanel({ token, isDark, accentColor }: Pr
         </div>
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-4">
         <div className="rounded-3xl border p-4 lg:col-span-2" style={cardStyle}>
           <p className="font-bold">Sof foyda / Tannarx</p>
           <p className="text-xs mt-0.5" style={{ opacity: 0.7 }}>

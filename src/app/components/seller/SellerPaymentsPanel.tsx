@@ -191,7 +191,7 @@ export default function SellerPaymentsPanel({
         className="flex flex-col lg:flex-row gap-3 lg:items-center lg:justify-between p-4 rounded-2xl border"
         style={cardStyle}
       >
-        <div className="relative flex-1 max-w-md">
+        <div className="relative flex-1 w-full min-w-0 max-w-full lg:max-w-xl xl:max-w-2xl">
           <Search
             className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4"
             style={{ opacity: 0.45 }}
