@@ -200,7 +200,7 @@ export default function SellerWarehousePanel({
       </div>
 
       {summary ? (
-        <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        <div className="panel-grid-stats">
           {[
             { label: 'Pozitsiyalar (SKU)', value: summary.totalLines, icon: Package, color: accentColor.color },
             { label: 'Jami dona', value: summary.totalUnits, icon: Warehouse, color: '#f59e0b' },

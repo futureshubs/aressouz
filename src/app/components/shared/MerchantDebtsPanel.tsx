@@ -312,7 +312,7 @@ export default function MerchantDebtsPanel({
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+      <div className="panel-grid-stats">
         {([
           { id: 'all', label: 'Hammasi' },
           { id: 'open', label: 'Ochiq' },

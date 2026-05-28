@@ -810,7 +810,7 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
               {query.trim() && filtered.length > 0 ? (
                 <div className="min-w-0 order-2 lg:order-1 space-y-2 mb-0 lg:mb-0">
                   <h4 className="font-semibold mb-2">Mahsulotlar</h4>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4 gap-2 max-h-52 sm:max-h-60 lg:max-h-[min(calc(92vh-14rem),520px)] overflow-y-auto overflow-x-hidden overscroll-contain pr-0.5">
+                  <div className="panel-grid-pos-products max-h-52 sm:max-h-60 lg:max-h-[min(calc(92vh-14rem),520px)] overflow-y-auto overflow-x-hidden overscroll-contain pr-0.5">
                     {filtered.map((p) => (
                       <button
                         key={p.id}
@@ -849,7 +849,7 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
                       </button>
                     ))}
                     {searchQuery.hasNextPage ? (
-                      <div ref={searchSentinel} className="h-1 w-full sm:col-span-2 xl:col-span-3 2xl:col-span-4" aria-hidden />
+                      <div ref={searchSentinel} className="h-1 w-full" style={{ gridColumn: '1 / -1' }} aria-hidden />
                     ) : null}
                     {searchQuery.isFetchingNextPage ? (
                       <div className="text-xs opacity-70 sm:col-span-2 xl:col-span-3 2xl:col-span-4 py-2 text-center">

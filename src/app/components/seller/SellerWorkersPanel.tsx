@@ -314,7 +314,7 @@ export default function SellerWorkersPanel({ token, isDark, accentColor }: Props
         </button>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="panel-grid-stats">
         {statCards.map((card) => {
           const Icon = card.icon;
           return (

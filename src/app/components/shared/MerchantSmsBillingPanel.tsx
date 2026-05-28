@@ -236,7 +236,7 @@ function BillingCard({
             <BarChart3 className="w-3.5 h-3.5" />
             Operator bo&apos;yicha analitika
           </p>
-          <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
+          <div className="panel-grid-stats">
             {ops.map((o) => (
               <div
                 key={o.label}

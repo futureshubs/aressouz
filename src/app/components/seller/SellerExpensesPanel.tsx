@@ -395,7 +395,7 @@ export default function SellerExpensesPanel({ token, isDark, accentColor }: Prop
         </div>
       </div>
 
-      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
+      <div className="panel-grid-stats">
         {statCards.map((card) => {
           const Icon = card.icon;
           return (
@@ -466,7 +466,7 @@ export default function SellerExpensesPanel({ token, isDark, accentColor }: Prop
                 <PieChart className="w-4 h-4" style={{ color: accentColor.color }} />
                 Oy bo'yicha kategoriya
               </div>
-              <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-2">
+              <div className="panel-grid-cards-compact">
                 {byCategory.filter((c) => c.totalUzs > 0).map((c) => (
                   <div key={c.id} className="rounded-xl px-3 py-2 border text-sm" style={{ borderColor: border }}>
                     <div className="flex items-center gap-2 mb-1">

@@ -356,6 +356,57 @@
   box-sizing: border-box;
 }
 
+/* Desktop: fixed sidebar + main — w-full + ml-64 overflow bermasligi uchun */
+@media (min-width: 1024px) {
+  .app-panel-main-with-sidebar {
+    margin-left: 16rem;
+    width: calc(100% - 16rem);
+    max-width: calc(100% - 16rem);
+  }
+}
+
+/* Kartochka gridlari: faqat konteynerga sig‘adigan ustunlar (mahsulot, statistika) */
+.panel-grid-cards {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  box-sizing: border-box;
+  gap: clamp(0.75rem, 1.5vw, 1.25rem);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 280px), 1fr));
+}
+
+.panel-grid-cards-compact {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 0.75rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 220px), 1fr));
+}
+
+.panel-grid-stats {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: clamp(0.5rem, 1.2vw, 1rem);
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 160px), 1fr));
+}
+
+.panel-grid-charts {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 1rem;
+  grid-template-columns: repeat(auto-fit, minmax(min(100%, 340px), 1fr));
+}
+
+.panel-grid-pos-products {
+  display: grid;
+  width: 100%;
+  min-width: 0;
+  gap: 0.5rem;
+  grid-template-columns: repeat(auto-fill, minmax(min(100%, 200px), 1fr));
+}
+
 .app-panel-main-scroll {
   flex: 1 1 0%;
   width: 100%;

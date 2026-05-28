@@ -722,7 +722,7 @@ export default function SellerDashboard() {
       )}
 
       {/* Main Content */}
-      <main className="flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden lg:ml-64">
+      <main className="app-panel-main-with-sidebar flex min-h-0 min-w-0 w-full max-w-full flex-1 flex-col overflow-hidden">
         {/* Header */}
         <header
           className="shrink-0 border-b z-40"
@@ -805,7 +805,7 @@ export default function SellerDashboard() {
                   </div>
 
                   {/* Stats */}
-                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-5 gap-3 sm:gap-4">
+                  <div className="panel-grid-stats">
                     {[
                       { label: 'Bugungi buyurtmalar', value: String(ordersToday), icon: ShoppingCart, color: '#14b8a6' },
                       { label: 'Bekor buyurtmalar', value: String(sellerOrderCounts.cancelled), icon: XCircle, color: '#ef4444' },
@@ -859,11 +859,11 @@ export default function SellerDashboard() {
               {activeTab === 'products' && !isCashier && (
                 <div className="space-y-4 min-w-0">
                   {/* Add Product Button */}
-                  <div className="flex justify-between items-center mb-6">
-                    <h3 className="text-xl font-bold">Mahsulotlar</h3>
+                  <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between mb-4 sm:mb-6 min-w-0">
+                    <h3 className="text-xl font-bold shrink-0">Mahsulotlar</h3>
                     <button
                       onClick={() => setIsProductModalOpen(true)}
-                      className="flex items-center gap-2 px-6 py-3 rounded-2xl font-medium transition-all active:scale-95"
+                      className="flex items-center justify-center gap-2 px-4 sm:px-6 py-3 rounded-2xl font-medium transition-all active:scale-95 w-full sm:w-auto shrink-0"
                       style={{ background: accentColor.gradient, color: '#ffffff' }}
                     >
                       <Plus className="w-5 h-5" />
@@ -896,7 +896,7 @@ export default function SellerDashboard() {
                       </button>
                     </div>
                   ) : (
-                    <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-3 sm:gap-4">
+                    <div className="panel-grid-cards">
                       {products.map((product: any) => {
                         // Get first variant for display
                         const firstVariant = product.variants?.[0];
@@ -930,7 +930,7 @@ export default function SellerDashboard() {
                         return (
                           <div
                             key={product.id}
-                            className="p-5 rounded-2xl border"
+                            className="min-w-0 p-4 sm:p-5 rounded-2xl border h-full flex flex-col"
                             style={{
                               background: isDark 
                                 ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
@@ -944,7 +944,7 @@ export default function SellerDashboard() {
                                 <img 
                                   src={displayImage} 
                                   alt={product.name}
-                                  className="w-full h-48 object-cover rounded-xl"
+                                  className="w-full aspect-[4/3] object-cover rounded-xl"
                                 />
                                 {(totalStock === 0 || hasPartialOutOfStock) && (
                                   <div
@@ -985,8 +985,8 @@ export default function SellerDashboard() {
                               </div>
 
                               {/* Price */}
-                              <div className="flex items-baseline gap-2">
-                                <span className="text-xl font-bold" style={{ color: accentColor.color }}>
+                              <div className="flex flex-wrap items-baseline gap-x-2 gap-y-1 min-w-0">
+                                <span className="text-lg sm:text-xl font-bold tabular-nums break-all" style={{ color: accentColor.color }}>
                                   {displayPrice?.toLocaleString()} so'm
                                 </span>
                                 {firstVariant?.oldPrice > 0 && (
@@ -1040,13 +1040,13 @@ export default function SellerDashboard() {
                               )}
 
                               {/* Action Buttons */}
-                              <div className="flex gap-2 pt-2">
+                              <div className="flex flex-col sm:flex-row gap-2 pt-2 mt-auto">
                                 <button
                                   onClick={() => {
                                     setEditingProduct(product);
                                     setIsEditModalOpen(true);
                                   }}
-                                  className="flex-1 px-3 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all active:scale-95"
+                                  className="flex-1 min-w-0 px-3 py-2.5 rounded-xl text-sm font-medium flex items-center justify-center gap-2 transition-all active:scale-95"
                                   style={{ background: `${accentColor.color}20`, color: accentColor.color }}
                                 >
                                   <Edit className="w-4 h-4" />
@@ -1072,7 +1072,7 @@ export default function SellerDashboard() {
                         );
                       })}
                       {productsQuery.hasNextPage ? (
-                        <div ref={productsSentinel} className="h-1 w-full md:col-span-2 lg:col-span-3" aria-hidden />
+                        <div ref={productsSentinel} className="h-1 w-full col-span-full" style={{ gridColumn: '1 / -1' }} aria-hidden />
                       ) : null}
                     </div>
                   )}

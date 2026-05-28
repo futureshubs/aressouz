@@ -656,7 +656,7 @@ export default function AddProductModal({ isOpen, onClose, onSuccess, token }: A
                 {/* Images */}
                 <div>
                   <label className="block text-sm font-medium mb-2">Rasmlar (maksimal 5 ta)</label>
-                  <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+                  <div className="panel-grid-cards-compact">
                     {variant.images.map((image, imgIndex) => (
                       <div
                         key={imgIndex}
