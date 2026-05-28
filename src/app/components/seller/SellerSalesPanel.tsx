@@ -1099,7 +1099,6 @@ export default function SellerSalesPanel({ token, shopId, shopName, isDark, acce
               </div>
             </div>
           </div>
-        </div>
       ) : null}
 
       {variantPicker ? (
