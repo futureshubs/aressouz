@@ -1,46 +1,67 @@
-import { ARESSO_PANEL_LOGO_SRC } from '../components/brand/AressoPanelBrand';
+import { aressoMainIconSrc } from './aressoBrandAssets';
 
 type RouteBrand = {
   prefix: string;
   title: string;
-  icon: string;
+  /** Panelga xos yoki null = asosiy kun/tun ikonka */
+  icon?: string;
   appleTitle?: string;
 };
 
 const DEFAULT_TITLE = 'ARESSO';
-const DEFAULT_ICON = '/icons/icon-192.png';
 
 const ROUTE_BRANDS: RouteBrand[] = [
   { prefix: '/kuryer', title: 'Kuryer — ARESSO', icon: '/icons/icon-kuryer.png', appleTitle: 'Kuryer' },
   { prefix: '/avtokuryer', title: 'Avtokuryer — ARESSO', icon: '/icons/icon-kuryer.png', appleTitle: 'Avtokuryer' },
-  { prefix: '/tayyorlovchi', title: 'Tayyorlovchi — ARESSO', icon: '/icons/icon-tayyorlovchi.png', appleTitle: 'Tayyorlovchi' },
-  { prefix: '/seller', title: 'Seller — ARESSO', icon: ARESSO_PANEL_LOGO_SRC.seller, appleTitle: 'Seller' },
-  { prefix: '/restaurant', title: 'Taom — ARESSO', icon: ARESSO_PANEL_LOGO_SRC.taom, appleTitle: 'Taom' },
-  { prefix: '/filyal', title: 'Filial — ARESSO', icon: DEFAULT_ICON, appleTitle: 'Filial' },
-  { prefix: '/admin', title: 'Admin — ARESSO', icon: DEFAULT_ICON, appleTitle: 'Admin' },
+  {
+    prefix: '/tayyorlovchi',
+    title: 'Tayyorlovchi — ARESSO',
+    icon: '/icons/icon-tayyorlovchi.png',
+    appleTitle: 'Tayyorlovchi',
+  },
+  { prefix: '/seller', title: 'Seller — ARESSO', appleTitle: 'Seller' },
+  { prefix: '/restaurant', title: 'Taom — ARESSO', appleTitle: 'Taom' },
+  { prefix: '/filyal', title: 'Filial — ARESSO', appleTitle: 'Filial' },
+  { prefix: '/admin', title: 'Admin — ARESSO', appleTitle: 'Admin' },
 ];
 
-function resolveBrand(pathname: string): RouteBrand {
+function resolveBrand(pathname: string, isDark: boolean): RouteBrand & { icon: string } {
   const hit = ROUTE_BRANDS.find((r) => pathname === r.prefix || pathname.startsWith(`${r.prefix}/`));
-  if (hit) return hit;
-  return { prefix: '/', title: DEFAULT_TITLE, icon: DEFAULT_ICON, appleTitle: DEFAULT_TITLE };
+
+  if (hit) {
+    return {
+      ...hit,
+      icon: hit.icon ?? aressoMainIconSrc(isDark),
+    };
+  }
+
+  return {
+    prefix: '/',
+    title: DEFAULT_TITLE,
+    icon: aressoMainIconSrc(isDark),
+    appleTitle: DEFAULT_TITLE,
+  };
 }
 
 function setLinkRel(rel: string, href: string) {
   const selector =
-    rel === 'icon'
-      ? 'link[rel="icon"], link[rel~="icon"]'
-      : `link[rel="${rel}"]`;
-  let el = document.querySelector(selector) as HTMLLinkElement | null;
-  if (!el) {
-    el = document.createElement('link');
-    el.rel = rel;
-    document.head.appendChild(el);
-  }
+    rel === 'icon' ? 'link[rel="icon"], link[rel~="icon"]' : `link[rel="${rel}"]`;
+  const nodes = document.querySelectorAll(selector) as NodeListOf<HTMLLinkElement>;
   const next = href.split('?')[0];
-  if (el.getAttribute('href')?.split('?')[0] !== next) {
+
+  if (nodes.length === 0) {
+    const el = document.createElement('link');
+    el.rel = rel;
     el.setAttribute('href', `${next}?v=${Date.now()}`);
+    document.head.appendChild(el);
+    return;
   }
+
+  nodes.forEach((el) => {
+    if (el.getAttribute('href')?.split('?')[0] !== next) {
+      el.setAttribute('href', `${next}?v=${Date.now()}`);
+    }
+  });
 }
 
 function setMetaName(name: string, content: string) {
@@ -55,11 +76,11 @@ function setMetaName(name: string, content: string) {
   }
 }
 
-/** Brauzer tab / PWA: sarlavha va favicon (panel yo‘liga qarab). */
-export function applyDocumentBrand(pathname: string): void {
+/** Brauzer tab / PWA: sarlavha va favicon (yo‘l + kun/tun). */
+export function applyDocumentBrand(pathname: string, isDark: boolean): void {
   if (typeof document === 'undefined') return;
 
-  const brand = resolveBrand(pathname);
+  const brand = resolveBrand(pathname, isDark);
   if (document.title !== brand.title) {
     document.title = brand.title;
   }

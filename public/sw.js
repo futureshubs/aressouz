@@ -1,5 +1,5 @@
 /* ARESSO PWA — precache shell + build assets + runtime cache + offline support */
-const VERSION = 'aressouz-sw-14';
+const VERSION = 'aressouz-sw-15';
 const PRECACHE = `precache-${VERSION}`;
 const RUNTIME = `runtime-${VERSION}`;
 
@@ -11,9 +11,15 @@ const PRECACHE_URLS = [
   '/manifest.json',
   '/icons/icon-192.png',
   '/icons/icon-512.png',
+  '/icons/icon-192-day.png',
+  '/icons/icon-512-day.png',
+  '/icons/icon-192-night.png',
+  '/icons/icon-512-night.png',
   '/icons/icon-kuryer.png',
   '/icons/icon-tayyorlovchi.png',
   '/branding/aresso-logo.png',
+  '/branding/aresso-logo-day.png',
+  '/branding/aresso-logo-night.png',
   '/widgets/ares-template.json',
   '/widgets/ares-data.json',
 ];

@@ -1,17 +1,29 @@
 import type { CSSProperties } from 'react';
+import {
+  aressoMainLogoSrc,
+  isAressoMainBrandVariant,
+} from '../../utils/aressoBrandAssets';
 
 export type AressoPanelVariant = 'seller' | 'taom' | 'kuryer' | 'tayyorlovchi' | 'system';
 
-const DEFAULT_LOGO = '/branding/aresso-logo.png';
-
-/** Keyinchalik alohida logo fayllarini shu yerga qo‘shing */
+/** Panelga xos logolar (kun/tun alohida emas) */
 export const ARESSO_PANEL_LOGO_SRC: Record<AressoPanelVariant, string> = {
-  system: DEFAULT_LOGO,
-  seller: DEFAULT_LOGO,
-  taom: DEFAULT_LOGO,
+  system: aressoMainLogoSrc(false),
+  seller: aressoMainLogoSrc(false),
+  taom: aressoMainLogoSrc(false),
   kuryer: '/branding/aresso-kuryer.png',
   tayyorlovchi: '/branding/aresso-tayyorlovchi.png',
 };
+
+export function resolveAressoPanelLogoSrc(
+  variant: AressoPanelVariant,
+  isDark: boolean,
+  override?: string,
+): string {
+  if (override) return override;
+  if (isAressoMainBrandVariant(variant)) return aressoMainLogoSrc(isDark);
+  return ARESSO_PANEL_LOGO_SRC[variant];
+}
 
 const PANEL_LABEL: Record<AressoPanelVariant, string> = {
   system: 'Aresso',
@@ -65,7 +77,7 @@ export default function AressoPanelBrand({
   accentColor = '#14b8a6',
 }: Props) {
   const s = SIZE_MAP[size];
-  const src = logoSrc || ARESSO_PANEL_LOGO_SRC[variant];
+  const src = resolveAressoPanelLogoSrc(variant, isDark, logoSrc);
   const label = panelLabel ?? PANEL_LABEL[variant];
   const alignCls = align === 'center' ? 'items-center text-center' : 'items-start text-left';
   const rowCls = layout === 'row' ? 'flex-row gap-3' : 'flex-col gap-2';

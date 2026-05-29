@@ -29,6 +29,12 @@
           if (cs) cs.setAttribute('content', dark ? 'dark' : 'light');
           var tc = document.querySelector('meta[name="theme-color"]');
           if (tc) tc.setAttribute('content', dark ? '#0a0a0a' : '#f9fafb');
+          var iconBase = dark ? '/icons/icon-192-night.png' : '/icons/icon-192-day.png';
+          var icon512 = dark ? '/icons/icon-512-night.png' : '/icons/icon-512-day.png';
+          document.querySelectorAll('link[rel="icon"], link[rel="apple-touch-icon"]').forEach(function (el) {
+            var sizes = el.getAttribute('sizes') || '';
+            el.setAttribute('href', sizes.indexOf('512') >= 0 ? icon512 : iconBase);
+          });
         } catch (e) {}
       })();
     </script>
@@ -52,9 +58,9 @@
     <meta name="apple-mobile-web-app-title" content="ARESSO" />
 
     <link rel="manifest" href="/manifest.json" />
-    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192.png" />
-    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512.png" />
-    <link rel="apple-touch-icon" href="/icons/icon-192.png" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/icons/icon-192-day.png" />
+    <link rel="icon" type="image/png" sizes="512x512" href="/icons/icon-512-day.png" />
+    <link rel="apple-touch-icon" href="/icons/icon-192-day.png" />
 
     <title>ARESSO</title>
 

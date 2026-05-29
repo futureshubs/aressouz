@@ -2,7 +2,9 @@
 
 | Fayl | Panel |
 |------|--------|
-| `aresso-logo.png` | Umumiy / seller / taom (hozircha) |
+| `aresso-logo-day.png` | Kun rejimi — qora logo (yorug‘ fon) |
+| `aresso-logo-night.png` | Tun rejimi — oq logo (qora fon) |
+| `aresso-logo.png` | Kun (day) nusxasi — eski havolalar |
 | `aresso-seller.png` | Seller (keyin qo‘shing) |
 | `aresso-taom.png` | Taom / restoran (keyin qo‘shing) |
 | `aresso-kuryer.png` | Kuryer paneli va login |
