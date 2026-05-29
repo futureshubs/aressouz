@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { KeyRound, Lock, User, ArrowLeft, Loader2 } from 'lucide-react';
+import { Lock, User, Loader2 } from 'lucide-react';
+import PanelLoginShell from '../components/brand/PanelLoginShell';
 import {
   API_BASE_URL,
   DEV_API_BASE_URL,
@@ -79,43 +80,12 @@ export default function RentalProviderLogin() {
   };
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4 app-safe-pt"
-      style={{ background: isDark ? '#000000' : '#f9fafb' }}
+    <PanelLoginShell
+      variant="ijara"
+      isDark={isDark}
+      accentColor={accentColor.color}
+      subtitle="Filial bergan login va parol bilan kiring"
     >
-      <div className="w-full max-w-md">
-        <button
-          type="button"
-          onClick={() => navigate('/')}
-          className="mb-6 flex items-center gap-2 text-sm opacity-70 hover:opacity-100"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Bosh sahifa
-        </button>
-
-        <div
-          className="rounded-3xl p-8 border"
-          style={{
-            background: isDark ? '#141414' : '#ffffff',
-            borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-          }}
-        >
-          <div className="flex justify-center mb-6">
-            <div
-              className="w-16 h-16 rounded-2xl flex items-center justify-center"
-              style={{ background: `${accentColor.color}25` }}
-            >
-              <KeyRound className="w-8 h-8" style={{ color: accentColor.color }} />
-            </div>
-          </div>
-          <h1 className="text-2xl font-bold text-center mb-1">Ijara beruvchi paneli</h1>
-          <p
-            className="text-sm text-center mb-8"
-            style={{ color: isDark ? 'rgba(255,255,255,0.55)' : 'rgba(0,0,0,0.55)' }}
-          >
-            Filial bergan login va parol bilan kiring
-          </p>
-
           <form onSubmit={submit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-2">Login</label>
@@ -165,8 +135,6 @@ export default function RentalProviderLogin() {
               {loading ? 'Kirilmoqda…' : 'Kirish'}
             </button>
           </form>
-        </div>
-      </div>
-    </div>
+    </PanelLoginShell>
   );
 }

@@ -1,7 +1,8 @@
 import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Building2, User, Lock, Key, ChevronRight, Shield, Loader2 } from 'lucide-react';
+import { User, Lock, Key, ChevronRight, Loader2 } from 'lucide-react';
+import PanelLoginShell from '../components/brand/PanelLoginShell';
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
@@ -179,49 +180,17 @@ export default function BranchLogin() {
   };
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4 app-safe-pt"
-      style={{
-        background: isDark
-          ? 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)'
-          : 'linear-gradient(135deg, #f9fafb 0%, #e5e7eb 100%)',
-      }}
+    <PanelLoginShell
+      variant="filial"
+      showBack={false}
+      isDark={isDark}
+      accentColor={accentColor.color}
+      subtitle={
+        step === 'credentials'
+          ? 'Filial hisobiga kirish'
+          : 'Google Authenticator kodini kiriting'
+      }
     >
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div
-            className="inline-flex p-4 rounded-3xl mb-4"
-            style={{
-              background: isDark
-                ? 'linear-gradient(145deg, rgba(20, 184, 166, 0.1), rgba(20, 184, 166, 0.05))'
-                : 'linear-gradient(145deg, rgba(20, 184, 166, 0.15), rgba(20, 184, 166, 0.08))',
-              boxShadow: isDark
-                ? '0 8px 32px rgba(20, 184, 166, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-                : '0 8px 32px rgba(20, 184, 166, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.5)',
-            }}
-          >
-            {step === 'credentials' ? (
-              <Building2 className="w-12 h-12" style={{ color: accentColor.color }} />
-            ) : (
-              <Shield className="w-12 h-12" style={{ color: accentColor.color }} />
-            )}
-          </div>
-          <h1 className="text-3xl font-bold mb-2" style={{ color: isDark ? '#ffffff' : '#111827' }}>
-            {step === 'credentials' ? 'Filial Panel' : '2FA Tasdiqlash'}
-          </h1>
-          <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            {step === 'credentials' ? 'Filial hisobiga kirish' : 'Google Authenticator kodini kiriting'}
-          </p>
-        </div>
-
-        <div
-          className="rounded-3xl border p-8"
-          style={{
-            background: isDark ? 'rgba(255, 255, 255, 0.04)' : '#ffffff',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.08)' : 'rgba(0, 0, 0, 0.08)',
-            boxShadow: isDark ? '0 8px 32px rgba(0, 0, 0, 0.3)' : '0 8px 32px rgba(0, 0, 0, 0.08)',
-          }}
-        >
           {step === 'credentials' ? (
             <form onSubmit={handleCredentialsSubmit} className="space-y-6">
               <div>
@@ -377,8 +346,6 @@ export default function BranchLogin() {
               </div>
             </form>
           )}
-        </div>
-      </div>
-    </div>
+    </PanelLoginShell>
   );
 }

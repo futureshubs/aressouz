@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -27,7 +27,7 @@ import {
   QrCode,
   RotateCcw,
   Loader2,
-  Menu,
+  LayoutDashboard,
   Armchair,
   CalendarDays,
   HandCoins,
@@ -49,6 +49,9 @@ import {
   validateVariantCommissionsClient,
 } from '../utils/platformCommission';
 import AressoPanelBrand from '../components/brand/AressoPanelBrand';
+import PanelPushSetup from '../components/brand/PanelPushSetup';
+import { usePanelOrderAlerts } from '../hooks/usePanelOrderAlerts';
+import RestaurantBottomNav, { type RestaurantNavTabId } from '../components/restaurant/RestaurantBottomNav';
 import {
   diningRoomCapacityRange,
   diningRoomImageList,
@@ -67,9 +70,7 @@ export default function RestaurantPanel() {
   const isDark = theme === 'dark';
   
   const [restaurant, setRestaurant] = useState<any>(null);
-  const [activeTab, setActiveTab] = useState<
-    'dashboard' | 'orders' | 'dishes' | 'rooms' | 'stats' | 'analytics' | 'payment' | 'debts' | 'sms'
-  >('dashboard');
+  const [activeTab, setActiveTab] = useState<RestaurantNavTabId>('dashboard');
   const [orders, setOrders] = useState<any[]>([]);
   const [ordersCategory, setOrdersCategory] = useState<'all' | 'new' | 'accepted' | 'completed' | 'cancelled'>('all');
   const [dishes, setDishes] = useState<any[]>([]);
@@ -89,6 +90,18 @@ export default function RestaurantPanel() {
   const [bookingStatusBusyId, setBookingStatusBusyId] = useState<string | null>(null);
   const [bookingSettingsBusy, setBookingSettingsBusy] = useState(false);
   const [loading, setLoading] = useState(true);
+
+  const restaurantId = String(restaurant?.id || '').trim();
+
+  usePanelOrderAlerts({
+    panel: 'taom',
+    title: 'Yangi buyurtma',
+    items: orders,
+    enabled: Boolean(restaurantId),
+    getId: (o: any) => String(o.id || ''),
+    getLabel: (o: any) => formatOrderNumber(o.orderNumber, o.id),
+    isAlertable: (o: any) => o.status === 'pending',
+  });
   
   // Add / edit dish modal
   const [showAddDish, setShowAddDish] = useState(false);
@@ -113,24 +126,6 @@ export default function RestaurantPanel() {
   const [dishDeleteBusyId, setDishDeleteBusyId] = useState<string | null>(null);
   const [saveDishSubmitting, setSaveDishSubmitting] = useState(false);
   const [paymentRequestBusy, setPaymentRequestBusy] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-
-  const restaurantMenuTabs: Array<{
-    id: 'dashboard' | 'orders' | 'dishes' | 'rooms' | 'stats' | 'analytics' | 'payment' | 'debts' | 'sms';
-    label: string;
-    icon: typeof Package;
-  }> = [
-    { id: 'dashboard', label: 'Dashboard', icon: Package },
-    { id: 'orders', label: 'Buyurtmalar', icon: ShoppingCart },
-    { id: 'dishes', label: 'Taomlar', icon: ChefHat },
-    { id: 'rooms', label: 'Xonalar / bron', icon: Armchair },
-    { id: 'debts', label: 'Qarz', icon: HandCoins },
-    { id: 'sms', label: 'SMS statistikasi', icon: MessageSquare },
-    { id: 'stats', label: 'Statistika', icon: BarChart3 },
-    { id: 'analytics', label: 'Data Analitika', icon: TrendingUp },
-    { id: 'payment', label: "To'lov qabul qilish", icon: DollarSign },
-  ];
-
   // Determine login path based on current URL
   const loginPath = location.pathname.includes('/taom') ? '/taom' : '/restaurant';
 
@@ -217,7 +212,7 @@ export default function RestaurantPanel() {
     if (restaurant?.id) void loadData(restaurant.id, { silent: true });
   });
 
-  useBodyScrollLock(showAddDish || Boolean(editingDishId) || sidebarOpen);
+  useBodyScrollLock(showAddDish || Boolean(editingDishId));
 
   const updateOrderStatus = async (orderId: string, status: string) => {
     if (!restaurant?.id) return;
@@ -238,7 +233,16 @@ export default function RestaurantPanel() {
       const result = await response.json();
       
       if (result.success) {
-        toast.success('Status yangilandi!');
+        if (status === 'rejected' || status === 'cancelled') {
+          toast.success(
+            'Bekor qilindi. Buyurtmadagi taomlar «Tugadi» — keyingi ish boshlanish vaqtigacha sotilmaydi.',
+            { duration: 6000 },
+          );
+        } else if (status === 'accepted' || status === 'confirmed') {
+          toast.success('Qabul qilindi — to‘lov kassa «Yuborish» bo‘limiga tushadi');
+        } else {
+          toast.success('Status yangilandi!');
+        }
         void loadData(restaurant.id, { silent: true });
       } else {
         toast.error(result?.error || 'Status yangilanmadi');
@@ -344,7 +348,18 @@ export default function RestaurantPanel() {
       const result = await response.json();
       
       if (result.success) {
-        toast.success(currentStatus ? 'Taom to\'xtatildi' : 'Taom faollashtirildi');
+        const dishRow = dishes.find((d) => d.id === dishId) as
+          | { stopReason?: string }
+          | undefined;
+        const wasCancelStop =
+          !currentStatus && dishRow?.stopReason === 'order_cancel';
+        toast.success(
+          currentStatus
+            ? 'Taom to\'xtatildi'
+            : wasCancelStop
+              ? 'Taom qayta sotuvda — mijozlar buyurtma bera oladi'
+              : 'Taom faollashtirildi',
+        );
         const next = result.data;
         if (next && typeof next === 'object' && String(next.id) === String(dishId)) {
           setDishes((prev) => prev.map((d) => (d.id === dishId ? { ...d, ...next } : d)));
@@ -659,6 +674,32 @@ export default function RestaurantPanel() {
     completed: orders.filter((o) => o.status === 'delivered').length,
     cancelled: orders.filter((o) => o.status === 'cancelled' || o.status === 'rejected').length,
   };
+
+  const restaurantMenuTabs = useMemo(
+    () =>
+      [
+        { id: 'dashboard' as const, label: 'Bosh sahifa', icon: LayoutDashboard },
+        { id: 'orders' as const, label: 'Buyurtmalar', icon: ShoppingCart, badge: orderCounts.new },
+        { id: 'dishes' as const, label: 'Taomlar', icon: ChefHat },
+        { id: 'rooms' as const, label: 'Xonalar / bron', icon: Armchair },
+        { id: 'debts' as const, label: 'Qarz', icon: HandCoins },
+        { id: 'sms' as const, label: 'SMS statistikasi', icon: MessageSquare },
+        { id: 'stats' as const, label: 'Statistika', icon: BarChart3 },
+        { id: 'analytics' as const, label: 'Data Analitika', icon: TrendingUp },
+        { id: 'payment' as const, label: "To'lov qabul qilish", icon: DollarSign },
+      ] satisfies Array<{
+        id: RestaurantNavTabId;
+        label: string;
+        icon: typeof Package;
+        badge?: number;
+      }>,
+    [orderCounts.new],
+  );
+
+  const activeTabMeta = useMemo(
+    () => restaurantMenuTabs.find((t) => t.id === activeTab),
+    [restaurantMenuTabs, activeTab],
+  );
 
   const restaurantOrderPaymentLabel = (order: any) => {
     const pm = String(order?.paymentMethod || '').toLowerCase();
@@ -988,7 +1029,18 @@ export default function RestaurantPanel() {
                   }}
                 >
                   <Icon className="w-4 h-4 shrink-0" />
-                  <span className="font-medium">{tab.label}</span>
+                  <span className="font-medium flex-1 text-left">{tab.label}</span>
+                  {tab.badge != null && tab.badge > 0 ? (
+                    <span
+                      className="shrink-0 min-w-[20px] h-5 px-1.5 rounded-full text-[10px] font-bold flex items-center justify-center"
+                      style={{
+                        background: isActive ? 'rgba(255,255,255,0.25)' : '#ef4444',
+                        color: '#fff',
+                      }}
+                    >
+                      {tab.badge > 99 ? '99+' : tab.badge}
+                    </span>
+                  ) : null}
                 </button>
               );
             })}
@@ -1017,96 +1069,6 @@ export default function RestaurantPanel() {
         </div>
       </aside>
 
-      {/* Chap menyu — mobil (hamburger) */}
-      {sidebarOpen && (
-        <div
-          className="lg:hidden fixed inset-0 app-safe-pad z-50 app-modal-overlay"
-          style={{ background: 'rgba(0, 0, 0, 0.5)' }}
-          onClick={() => setSidebarOpen(false)}
-          role="presentation"
-        >
-          <aside
-            className="absolute left-0 top-0 flex h-[100dvh] max-h-[100dvh] w-[min(100%,16rem)] max-w-[85vw] flex-col overflow-hidden border-r shadow-xl app-safe-pl"
-            style={{
-              background: isDark ? '#0a0a0a' : '#ffffff',
-              borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              paddingTop: 'var(--app-safe-top)',
-            }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="app-panel-sidebar-scroll p-5 pb-4">
-              <div className="flex items-start justify-between gap-2 mb-5">
-                <AressoPanelBrand
-                  variant="taom"
-                  size="xs"
-                  layout="row"
-                  align="left"
-                  title={restaurant.name}
-                  showPanelLabel={false}
-                  isDark={isDark}
-                  accentColor={accentColor.color}
-                  className="flex-1 min-w-0"
-                />
-                <button
-                  type="button"
-                  onClick={() => setSidebarOpen(false)}
-                  className="p-2 rounded-xl shrink-0"
-                  style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-                  aria-label="Yopish"
-                >
-                  <X className="w-5 h-5" />
-                </button>
-              </div>
-              <nav className="space-y-1.5">
-                {restaurantMenuTabs.map((tab) => {
-                  const Icon = tab.icon;
-                  const isActive = activeTab === tab.id;
-                  return (
-                    <button
-                      key={tab.id}
-                      type="button"
-                      onClick={() => {
-                        setActiveTab(tab.id);
-                        setSidebarOpen(false);
-                      }}
-                      className="w-full flex items-center gap-3 px-3.5 py-2.5 rounded-xl transition-all text-sm text-left"
-                      style={{
-                        background: isActive ? accentColor.gradient : 'transparent',
-                        color: isActive ? '#ffffff' : isDark ? 'rgba(255, 255, 255, 0.85)' : '#111827',
-                      }}
-                    >
-                      <Icon className="w-4 h-4 shrink-0" />
-                      <span className="font-medium">{tab.label}</span>
-                    </button>
-                  );
-                })}
-              </nav>
-            </div>
-            <div
-              className="shrink-0 border-t p-4"
-              style={{
-                background: isDark ? '#0a0a0a' : '#ffffff',
-                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-              }}
-            >
-              <button
-                type="button"
-                onClick={handleLogout}
-                className="w-full flex items-center gap-3 px-4 py-3 rounded-2xl border transition-all active:scale-95"
-                style={{
-                  background: isDark ? 'rgba(239, 68, 68, 0.1)' : 'rgba(239, 68, 68, 0.05)',
-                  borderColor: 'rgba(239, 68, 68, 0.3)',
-                  color: '#ef4444',
-                }}
-              >
-                <LogOut className="w-5 h-5 shrink-0" />
-                <span className="font-medium">Chiqish</span>
-              </button>
-            </div>
-          </aside>
-        </div>
-      )}
-
       <main className="app-panel-main-with-sidebar flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header
           className="shrink-0 border-b z-40"
@@ -1115,59 +1077,59 @@ export default function RestaurantPanel() {
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
           }}
         >
-          <div className="max-w-7xl mx-auto w-full px-4 py-3 lg:py-4 flex items-center justify-between gap-3">
-            <div className="flex items-center gap-3 min-w-0 flex-1">
-              <button
-                type="button"
-                onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 rounded-xl shrink-0"
-                style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
-                aria-label="Menyu"
-              >
-                <Menu className="w-6 h-6" />
-              </button>
-              <div className="min-w-0 flex-1 hidden lg:block">
-                <h1 className="text-lg lg:text-2xl font-bold truncate">
-                  {restaurantMenuTabs.find((t) => t.id === activeTab)?.label ?? 'Dashboard'}
-                </h1>
-                <p
-                  className="text-xs lg:text-sm truncate"
-                  style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}
-                >
-                  {restaurant.name}
-                </p>
-              </div>
+          <div className="max-w-7xl mx-auto w-full px-3 sm:px-4 py-3 lg:py-4 flex items-center justify-between gap-3">
+            <div className="min-w-0 flex-1">
               <AressoPanelBrand
                 variant="taom"
                 size="xs"
                 layout="row"
                 align="left"
-                title={restaurantMenuTabs.find((t) => t.id === activeTab)?.label ?? 'Dashboard'}
+                title={activeTabMeta?.label ?? 'Taom panel'}
                 showPanelLabel={false}
                 subtitle={restaurant.name}
                 isDark={isDark}
                 accentColor={accentColor.color}
-                className="min-w-0 flex-1 lg:hidden"
+                className="lg:hidden"
               />
+              <div className="hidden lg:block min-w-0">
+                <h1 className="text-xl lg:text-2xl font-bold truncate">
+                  {activeTabMeta?.label ?? 'Taom panel'}
+                </h1>
+                <p
+                  className="text-sm truncate"
+                  style={{ color: isDark ? 'rgba(255, 255, 255, 0.55)' : 'rgba(0, 0, 0, 0.55)' }}
+                >
+                  {restaurant.name}
+                  {restaurant.type ? ` • ${restaurant.type}` : ''}
+                </p>
+              </div>
             </div>
             <button
               type="button"
               onClick={handleLogout}
-              className="hidden lg:flex items-center gap-2 px-4 py-2 rounded-xl font-bold shrink-0"
-              style={{ background: 'rgba(239, 68, 68, 0.2)', color: '#ef4444' }}
+              className="flex items-center gap-2 px-3 py-2 rounded-xl font-bold shrink-0 text-sm active:scale-95"
+              style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}
+              aria-label="Chiqish"
             >
               <LogOut className="w-4 h-4" />
-              Chiqish
+              <span className="hidden sm:inline">Chiqish</span>
             </button>
           </div>
         </header>
 
-        <div className="app-panel-main-scroll max-w-7xl mx-auto w-full px-4 py-6 min-h-0 flex-1">
+        <div className="app-panel-main-scroll max-w-7xl mx-auto w-full min-h-0 flex-1 px-3 sm:px-4 py-4 sm:py-6 max-lg:pb-[calc(11rem+var(--app-safe-bottom,0px))]">
+          {restaurantId ? (
+            <PanelPushSetup
+              className="mb-4"
+              scope={{ panel: 'taom', scopeId: restaurantId, restaurantId }}
+              headers={edgeFnHeaders}
+            />
+          ) : null}
         {/* DASHBOARD */}
         {activeTab === 'dashboard' && (
           <div className="space-y-6">
             {/* Stats Grid */}
-            <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-3 sm:gap-4">
               {[
                 { label: 'Bugungi buyurtmalar', value: stats?.todayOrders || 0, color: '#14b8a6', icon: ShoppingCart },
                 { label: 'Kutilayotgan', value: stats?.pendingOrders || 0, color: '#f59e0b', icon: Clock },
@@ -1269,15 +1231,23 @@ export default function RestaurantPanel() {
                 </div>
               </div>
             ) : null}
-            <div className="flex items-center justify-between">
-              <h2 className="text-2xl font-bold">Buyurtmalar</h2>
-              <div className="flex items-center gap-2">
-                <Bell className="w-5 h-5" style={{ color: accentColor.color }} />
-                <span className="font-bold">{orders.filter(o => o.status === 'pending').length} yangi</span>
-              </div>
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <h2 className="text-xl sm:text-2xl font-bold">Buyurtmalar</h2>
+              {orderCounts.new > 0 ? (
+                <div
+                  className="inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm font-bold"
+                  style={{
+                    background: isDark ? 'rgba(245, 158, 11, 0.2)' : 'rgba(245, 158, 11, 0.12)',
+                    color: '#f59e0b',
+                  }}
+                >
+                  <Bell className="w-4 h-4" />
+                  {orderCounts.new} yangi
+                </div>
+              ) : null}
             </div>
 
-            <div className="flex flex-wrap gap-2">
+            <div className="flex gap-2 overflow-x-auto pb-1 -mx-1 px-1 snap-x snap-mandatory [scrollbar-width:none] [-ms-overflow-style:none] [&::-webkit-scrollbar]:hidden">
               {[
                 { key: 'all', label: 'Barchasi', count: orderCounts.all },
                 { key: 'new', label: 'Yangi', count: orderCounts.new },
@@ -1290,7 +1260,7 @@ export default function RestaurantPanel() {
                   <button
                     key={cat.key}
                     onClick={() => setOrdersCategory(cat.key as typeof ordersCategory)}
-                    className="px-3 py-1.5 rounded-xl text-sm font-semibold border transition-all"
+                    className="px-3 py-1.5 rounded-xl text-sm font-semibold border transition-all shrink-0 snap-start whitespace-nowrap"
                     style={{
                       background: active ? `${accentColor.color}22` : (isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.03)'),
                       color: active ? accentColor.color : (isDark ? 'rgba(255,255,255,0.85)' : 'rgba(0,0,0,0.75)'),
@@ -1478,15 +1448,43 @@ export default function RestaurantPanel() {
                       )}
                       
                       {(order.status === 'accepted' || order.status === 'confirmed') && (
-                        <div
-                          className="px-4 py-2 rounded-xl font-bold"
-                          style={{
-                            background: 'rgba(59, 130, 246, 0.2)',
-                            color: '#3b82f6',
-                          }}
-                        >
-                          Qabul qilindi
+                        <div className="flex flex-wrap items-center gap-2">
+                          <span
+                            className="px-3 py-2 rounded-xl text-sm font-bold"
+                            style={{ background: 'rgba(59, 130, 246, 0.2)', color: '#3b82f6' }}
+                          >
+                            Qabul qilindi
+                          </span>
+                          <button
+                            type="button"
+                            disabled={orderStatusBusyOrderId === order.id}
+                            onClick={() => updateOrderStatus(order.id, 'preparing')}
+                            className="px-3 py-2 rounded-xl text-sm font-bold disabled:opacity-50"
+                            style={{ background: 'rgba(245, 158, 11, 0.2)', color: '#d97706' }}
+                          >
+                            Tayyorlanmoqda
+                          </button>
+                          <button
+                            type="button"
+                            disabled={orderStatusBusyOrderId === order.id}
+                            onClick={() => updateOrderStatus(order.id, 'ready')}
+                            className="px-3 py-2 rounded-xl text-sm font-bold text-white disabled:opacity-50"
+                            style={{ background: accentColor.gradient }}
+                          >
+                            Tayyor (kuryer)
+                          </button>
                         </div>
+                      )}
+                      {order.status === 'preparing' && (
+                        <button
+                          type="button"
+                          disabled={orderStatusBusyOrderId === order.id}
+                          onClick={() => updateOrderStatus(order.id, 'ready')}
+                          className="px-4 py-2 rounded-xl font-bold text-white disabled:opacity-50"
+                          style={{ background: accentColor.gradient }}
+                        >
+                          Tayyor (kuryer)
+                        </button>
                       )}
                     </div>
                   </div>
@@ -1548,6 +1546,14 @@ export default function RestaurantPanel() {
                   </div>
                   <div className="p-4 overflow-visible shrink-0">
                     <h3 className="font-bold text-lg mb-2">{dish.name}</h3>
+                    {!dish.isActive && (
+                      <p className="text-xs font-semibold mb-2 text-amber-600 dark:text-amber-400">
+                        {(dish as { stopLabel?: string }).stopLabel || 'Tugadi'}
+                        {(dish as { autoResumeAt?: string }).autoResumeAt
+                          ? ` · ${new Date(String((dish as { autoResumeAt?: string }).autoResumeAt)).toLocaleString('uz-UZ', { day: 'numeric', month: 'short', hour: '2-digit', minute: '2-digit' })} gacha`
+                          : ''}
+                      </p>
+                    )}
                     {dish.kcal && (
                       <p className="text-sm mb-2" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
                         🔥 {dish.kcal} kcal
@@ -1585,7 +1591,7 @@ export default function RestaurantPanel() {
                         ) : (
                           <Power className="w-4 h-4 shrink-0" />
                         )}
-                        {dish.isActive ? 'Stop' : 'Faol'}
+                        {dish.isActive ? 'Stop' : (dish as { stopReason?: string }).stopReason === 'order_cancel' ? 'Qayta yoqish' : 'Faol'}
                       </button>
                       <button
                         type="button"
@@ -2753,6 +2759,12 @@ export default function RestaurantPanel() {
           </div>
         </div>
       )}
+
+      <RestaurantBottomNav
+        activeTab={activeTab}
+        onTabChange={setActiveTab}
+        pendingOrders={orderCounts.new}
+      />
     </div>
   );
 }

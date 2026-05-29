@@ -18,6 +18,7 @@ import {
   Mail,
 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import AressoMainLogo from './brand/AressoMainLogo';
 import { siteSocial, siteSupportEmail } from '../config/site';
 
 interface SiteFooterProps {
@@ -201,6 +202,7 @@ export function SiteFooter({ onNavigateTab }: SiteFooterProps) {
         <div className="flex flex-col lg:flex-row lg:items-start lg:justify-between gap-8 lg:gap-12 pb-8 lg:pb-10 border-b border-border/80 dark:border-white/10">
           <div className="max-w-md">
             <div className="flex items-center gap-2 mb-3">
+              <AressoMainLogo size={36} isDark={isDark} />
               <span className="text-xl lg:text-2xl font-bold tracking-tight text-foreground">Aresso</span>
               <span className="text-[10px] font-semibold uppercase tracking-wider px-2 py-0.5 rounded-full bg-[color:var(--accent-color)]/15 text-[color:var(--accent-color)]">
                 Marketplace

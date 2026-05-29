@@ -1,9 +1,58 @@
 export const normalizeBranchId = (raw: unknown) =>
   String(raw || "").trim().replace(/^branch:/, "");
 
-export const mapMethodToUI = (raw: unknown): string => {
-  const m = String(raw || "").toLowerCase().trim();
-  if (m === "cash") return "cash";
+export const resolveOrderPaymentMethod = (order: any): string => {
+  return String(
+    order?.paymentMethod ||
+      order?.payment_method ||
+      order?.paymentGateway ||
+      order?.payment?.method ||
+      order?.payment?.gateway ||
+      "",
+  )
+    .toLowerCase()
+    .trim();
+};
+
+export const isCashLikePaymentMethod = (pmRaw: unknown): boolean => {
+  const raw = String(pmRaw ?? "").toLowerCase().trim();
+  if (!raw) return false;
+  const c = raw.replace(/\s+/g, "");
+  if (c === "cash" || c === "naqd" || c === "naqdpul") return true;
+  if (raw.includes("naqd") || raw.includes("cash")) return true;
+  return false;
+};
+
+export const isFoodOrShopMerchantOrderType = (order: any): boolean => {
+  const ot = String(order?.orderType || order?.type || "").toLowerCase().trim();
+  return ot === "shop" || ot === "food" || ot === "restaurant" || ot.includes("restaurant");
+};
+
+/** Mijoz onlayn to‘lagan (naqd emas) — kassa restoranga/sotuvchiga to‘lov yuboradi. */
+export const isMerchantOrderOnlinePaid = (order: any): boolean => {
+  if (!isFoodOrShopMerchantOrderType(order)) return false;
+  if (!isEffectivelyPaidOrder(order)) return false;
+  const pm = resolveOrderPaymentMethod(order);
+  if (isCashLikePaymentMethod(pm)) return false;
+  if (pm) {
+    const onlineHints = ["click", "payme", "atmos", "uzum", "humo", "apelsin", "qr", "qrcode", "online", "card"];
+    if (onlineHints.some((h) => pm.includes(h))) return true;
+  }
+  // To‘lov usuli KV da bo‘sh, lekin mijoz allaqachon to‘lagan — kassa cheki kerak.
+  if (!pm && isEffectivelyPaidOrder(order)) return true;
+  return Boolean(
+    order?.paymeReceiptId ||
+      order?.clickTransId ||
+      order?.payme_receipt_id ||
+      order?.click_trans_id ||
+      order?.transactionId ||
+      order?.paymentTransactionId,
+  );
+};
+
+export const mapMethodToUI = (raw: unknown, order?: any): string => {
+  const m = String(raw || "").toLowerCase().trim() || (order ? resolveOrderPaymentMethod(order) : "");
+  if (m === "cash" || m === "naqd") return "cash";
   if (m === "card") return "card";
   if (m === "qr" || m === "qrcode") return "qr";
   if (m === "click" || m === "click_card") return "click";
@@ -11,6 +60,14 @@ export const mapMethodToUI = (raw: unknown): string => {
   if (m === "uzum") return "uzum";
   if (m === "apelsin") return "apelsin";
   if (m === "atmos") return "card";
+  if (m.includes("humo")) return "card";
+  if (m.includes("click")) return "click";
+  if (m.includes("payme")) return "payme";
+  if (order && isEffectivelyPaidOrder(order)) {
+    if (order?.paymeReceiptId || order?.payme_receipt_id) return "payme";
+    if (order?.clickTransId || order?.click_trans_id) return "click";
+    return "online";
+  }
   return "cash";
 };
 
@@ -51,23 +108,18 @@ export const isEffectivelyPaidOrder = (order: any): boolean => {
  * Shu paytgacha `/payments?cashier=1` ro‘yxatida `completed` bo‘lsa, kassa QR navbati bo‘sh qoladi.
  */
 export const merchantOrderNeedsCashierReceipt = (order: any): boolean => {
-  const ot = String(order?.orderType || "").toLowerCase().trim();
-  const isMerchant =
-    ot === "shop" ||
-    ot === "food" ||
-    ot === "restaurant" ||
-    ot.includes("restaurant");
-  if (!isMerchant) return false;
-
-  const pm = String(order?.paymentMethod || "").toLowerCase().trim();
-  if (!pm || pm === "cash" || pm === "naqd") return false;
-
-  if (!isEffectivelyPaidOrder(order)) return false;
-
+  if (!isFoodOrShopMerchantOrderType(order)) return false;
+  if (!isMerchantOrderOnlinePaid(order)) return false;
+  const op = resolveOrderOperationalStatus(order);
+  if (["pending", "new"].includes(op)) return false;
+  if (["cancelled", "canceled", "rejected"].includes(op)) return false;
   const receipt = String(order?.receiptUrl || order?.paymentReceiptImageUrl || "").trim();
-  if (receipt) return false;
+  return !receipt;
+};
 
-  return true;
+/** Kuryer: taom/do‘kon onlayn to‘lov — kassa chek yubormaguncha chiqmasin. */
+export const merchantCourierBlockedUntilReceipt = (order: any): boolean => {
+  return merchantOrderNeedsCashierReceipt(order);
 };
 
 export const mapOrderToPaymentUIStatus = (order: any): string => {

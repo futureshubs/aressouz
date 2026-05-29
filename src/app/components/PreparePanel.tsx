@@ -1,7 +1,7 @@
 // Preparer Panel - Market, rental va do‘kon buyurtmalari (filial naqd qabulidan keyin)
 // Tayyorlovchi paneli
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { 
@@ -12,6 +12,8 @@ import {
   ChevronRight, LogOut,
 } from 'lucide-react';
 import AressoPanelBrand from './brand/AressoPanelBrand';
+import PanelPushSetup from './brand/PanelPushSetup';
+import { usePanelOrderAlerts } from '../hooks/usePanelOrderAlerts';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
@@ -26,20 +28,19 @@ interface PreparerInfo {
   workTime: string;
 }
 
-/** Filial naqd qabul qilmaguncha tayyorlovchi ro‘yxatidan yashirib turish (server bilan bir xil mantiq). */
-function shouldHideMarketCashBeforeBranchAccept(order: {
+/** Filial qabul qilmaguncha tayyorlovchida ko‘rinmasin (market — barcha to‘lovlar; do‘kon — faqat naqd). */
+function shouldHideBeforeBranchRelease(order: {
   orderType?: string;
   type?: string;
   paymentMethod?: string;
   payment_method?: string;
   releasedToPreparerAt?: string;
 }): boolean {
-  const ot = String(order.orderType || order.type || '').toLowerCase();
-  if (ot !== 'market' && ot !== 'shop') return false;
   if (order.releasedToPreparerAt) return false;
-  const raw = String(order.paymentMethod ?? order.payment_method ?? '')
-    .toLowerCase()
-    .trim();
+  const ot = String(order.orderType || order.type || '').toLowerCase();
+  if (ot === 'market') return true;
+  if (ot !== 'shop') return false;
+  const raw = String(order.paymentMethod ?? order.payment_method ?? '').toLowerCase().trim();
   if (!raw) return false;
   const c = raw.replace(/\s+/g, '');
   if (c === 'cash' || c === 'naqd' || c === 'naqdpul') return true;
@@ -299,6 +300,30 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
   const [acceptingOrderId, setAcceptingOrderId] = useState<string | null>(null);
   const [listRefreshing, setListRefreshing] = useState(false);
 
+  const preparerHeaders = useMemo(
+    () => ({
+      Authorization: `Bearer ${publicAnonKey}`,
+      apikey: publicAnonKey,
+      'Content-Type': 'application/json',
+    }),
+    [],
+  );
+
+  const branchId = useMemo(
+    () => String(orders.find((o) => o.branchId)?.branchId || '').trim(),
+    [orders],
+  );
+
+  usePanelOrderAlerts({
+    panel: 'tayyorlovchi',
+    title: 'Yangi buyurtma',
+    items: orders,
+    enabled: Boolean(branchId || preparer.id),
+    getId: (o) => String(o.id),
+    getLabel: (o) => `#${o.orderNumber || o.id}`,
+    isAlertable: (o) => o.status === 'new',
+  });
+
   useEffect(() => {
     void loadOrders({ silent: false });
   }, []);
@@ -322,7 +347,7 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
           if (response.ok) {
             const data = await response.json();
             const allowedOrders = (data.orders || []).filter((order: Order) => {
-              if (shouldHideMarketCashBeforeBranchAccept(order)) return false;
+              if (shouldHideBeforeBranchRelease(order)) return false;
               const t = String(order.orderType || order.type || 'market').toLowerCase();
               return t === 'market' || t === 'rental' || t === 'shop';
             });
@@ -757,6 +782,20 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
         color: textColor,
       }}
     >
+      {(branchId || preparer.id) ? (
+        <div className="shrink-0 px-3 sm:px-4 pt-2">
+          <PanelPushSetup
+            scope={{
+              panel: 'tayyorlovchi',
+              scopeId: branchId || preparer.id,
+              branchId: branchId || undefined,
+              preparerId: preparer.id,
+            }}
+            headers={preparerHeaders}
+          />
+        </div>
+      ) : null}
+
       {/* Header — scroll tashqarida, mobil WebViewda vertikal scroll ishlaydi */}
       <div
         className="shrink-0 z-10 border-b"

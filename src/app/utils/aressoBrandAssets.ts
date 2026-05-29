@@ -9,7 +9,7 @@ export const ARESSO_MAIN_ICON = {
   night: '/icons/icon-192-night.png',
 } as const;
 
-const PANEL_ONLY_VARIANTS = new Set(['kuryer', 'tayyorlovchi']);
+const PANEL_ONLY_VARIANTS = new Set(['kuryer', 'avtokuryer', 'tayyorlovchi']);
 
 export function isAressoMainBrandVariant(variant: string): boolean {
   return !PANEL_ONLY_VARIANTS.has(variant);

@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
-import { ArrowLeft, Car, KeyRound, User, Loader2 } from 'lucide-react';
+import { KeyRound, User, Loader2 } from 'lucide-react';
+import PanelLoginShell from '../components/brand/PanelLoginShell';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -13,7 +14,6 @@ export default function AutoCourierLogin() {
   const navigate = useNavigate();
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
-  const textColor = isDark ? '#ffffff' : '#111827';
 
   const [formData, setFormData] = useState({ login: '', password: '' });
   const [isLoading, setIsLoading] = useState(false);
@@ -82,52 +82,12 @@ export default function AutoCourierLogin() {
   };
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4 app-safe-pt"
-      style={{
-        background: isDark ? '#000000' : '#f9fafb',
-        color: textColor,
-      }}
+    <PanelLoginShell
+      variant="avtokuryer"
+      isDark={isDark}
+      accentColor={accentColor.color}
+      subtitle="Katta yuk / ijara yetkazish paneli"
     >
-      <div className="w-full max-w-md">
-        <button
-          type="button"
-          onClick={() => navigate('/')}
-          className="mb-6 flex items-center gap-2 px-4 py-2 rounded-xl"
-          style={{
-            background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-            color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)',
-          }}
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Ortga
-        </button>
-
-        <div
-          className="rounded-3xl p-8 border"
-          style={{
-            background: isDark
-              ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
-              : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-            boxShadow: isDark
-              ? '0 25px 50px rgba(0, 0, 0, 0.5)'
-              : '0 25px 50px rgba(0, 0, 0, 0.08)',
-          }}
-        >
-          <div className="text-center mb-8">
-            <div
-              className="inline-flex p-5 rounded-3xl mb-4"
-              style={{ background: `${accentColor.color}20` }}
-            >
-              <Car className="w-12 h-12" style={{ color: accentColor.color }} />
-            </div>
-            <h1 className="text-2xl font-bold mb-2">Avto-kuryer</h1>
-            <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-              Katta yuk / ijara yetkazish paneli
-            </p>
-          </div>
-
           <form onSubmit={handleSubmit} className="space-y-4">
             <div>
               <label className="block text-sm font-medium mb-2">Login</label>
@@ -181,8 +141,6 @@ export default function AutoCourierLogin() {
               {isLoading ? 'Kutilmoqda…' : 'Kirish'}
             </button>
           </form>
-        </div>
-      </div>
-    </div>
+    </PanelLoginShell>
   );
 }

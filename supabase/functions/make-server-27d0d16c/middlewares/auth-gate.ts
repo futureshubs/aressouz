@@ -27,9 +27,11 @@ export function registerAuthGateMiddleware(app: Hono): void {
       "/make-server-27d0d16c/auth/",
       "/make-server-27d0d16c/branch/session",
       "/make-server-27d0d16c/courier/login",
+      "/make-server-27d0d16c/staff/login",
       "/make-server-27d0d16c/click",
       "/make-server-27d0d16c/payme",
       "/make-server-27d0d16c/atmos",
+      "/make-server-27d0d16c/push/vapid-public-key",
     ];
 
     const matchesPublicPrefix = (path: string, p: string) => {
@@ -50,6 +52,8 @@ export function registerAuthGateMiddleware(app: Hono): void {
         c.req.header("x-access-token") ||
         c.req.header("X-Branch-Token") ||
         c.req.header("x-branch-token") ||
+        c.req.header("X-Staff-Token") ||
+        c.req.header("x-staff-token") ||
         c.req.header("X-Admin-Code") ||
         c.req.header("x-admin-code") ||
         c.req.header("X-Courier-Token") ||

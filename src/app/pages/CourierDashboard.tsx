@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { useNavigate } from 'react-router';
 import {
+  Banknote,
   BarChart3,
   Bell,
   BriefcaseBusiness,
@@ -32,6 +33,7 @@ import {
   Volume2,
   VolumeX,
   Wallet,
+  CreditCard,
   X,
 } from 'lucide-react';
 import { toast } from 'sonner';
@@ -39,6 +41,7 @@ import { useTheme } from '../context/ThemeContext';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 import { getStoredCourierToken } from '../utils/requestAuth';
+import { useTabVisible } from '../hooks/useTabVisible';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { formatOrderNumber } from '../utils/orderNumber';
 import { distanceKmForCourierUi, getOrderMapPoint } from '../utils/courierOrderGeo';
@@ -56,6 +59,9 @@ import {
 } from '../components/rental/RentalCourierDeliveryJobCard';
 import { CourierOrderLocationBlock } from '../components/courier/CourierOrderLocationBlock';
 import AressoPanelBrand from '../components/brand/AressoPanelBrand';
+import PanelPushSetup from '../components/brand/PanelPushSetup';
+import { usePanelOrderAlerts } from '../hooks/usePanelOrderAlerts';
+import { playPanelAlertBeep, showPanelNotification } from '../utils/panelNotifications';
 
 type CourierBag = {
   id: string;
@@ -87,6 +93,7 @@ type CourierProfile = {
   averageDeliveryTime?: number;
   totalEarnings?: number;
   balance?: number;
+  courierCashInHandUzs?: number;
   lastDeliveryEarning?: number;
   bags?: CourierBag[];
   emptyBags?: CourierBag[];
@@ -532,6 +539,18 @@ function SwipeAction({ label, disabled = false, isDark, gradient, onComplete }: 
   );
 }
 
+const payoutCardDigits = (raw: string) => String(raw || '').replace(/\D/g, '');
+
+const formatPayoutCardInput = (raw: string) => {
+  const d = payoutCardDigits(raw).slice(0, 19);
+  return d.replace(/(\d{4})(?=\d)/g, '$1 ').trim();
+};
+
+const isValidPayoutCardNumber = (raw: string) => {
+  const len = payoutCardDigits(raw).length;
+  return len >= 16 && len <= 19;
+};
+
 type CourierPayoutRequestRow = {
   id: string;
   amountUzs: number;
@@ -546,13 +565,8 @@ export default function CourierDashboard() {
   const navigate = useNavigate();
   const { theme, accentColor, notifications, soundEnabled, toggleNotifications, toggleSound, toggleTheme } = useTheme();
   const isDark = theme === 'dark';
-  const edgeBaseUrl = useMemo(
-    () =>
-      typeof window !== 'undefined' && window.location.hostname === 'localhost'
-        ? DEV_API_BASE_URL
-        : API_BASE_URL,
-    [],
-  );
+  const courierTabVisible = useTabVisible();
+  const courierApiBase = useMemo(() => edgeFunctionBaseUrl(), []);
   const textColor = isDark ? '#ffffff' : '#111827';
   const mutedTextColor = isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(17, 24, 39, 0.7)';
 
@@ -598,6 +612,60 @@ export default function CourierDashboard() {
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const avatarInputRef = useRef<HTMLInputElement | null>(null);
   const isMdUp = useMediaQueryMdUp();
+
+  const courierHeaders = useMemo(() => {
+    const courierToken = getStoredCourierToken();
+    if (!courierToken) return null;
+    return {
+      Authorization: `Bearer ${publicAnonKey}`,
+      apikey: publicAnonKey,
+      'Content-Type': 'application/json',
+      'X-Courier-Token': courierToken,
+    };
+  }, [profile?.id]);
+
+  usePanelOrderAlerts({
+    panel: 'kuryer',
+    title: 'Yangi buyurtma',
+    items: availableOrders,
+    enabled: notifications && Boolean(profile?.branchId),
+    getId: (o) => String(o.id),
+    getLabel: (o) => formatOrderNumber(o.orderNumber, o.id),
+  });
+
+  const nearbyAlertedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!notifications || !profile?.branchId) return;
+    const nearby = availableOrders.filter(
+      (o) =>
+        isMarketCourierOrder(o) &&
+        Number(o.distanceKm) > 0 &&
+        Number(o.distanceKm) <= 8,
+    );
+    for (const o of nearby) {
+      const id = String(o.id);
+      if (nearbyAlertedRef.current.has(id)) continue;
+      nearbyAlertedRef.current.add(id);
+      playPanelAlertBeep();
+      void showPanelNotification({
+        panel: 'kuryer',
+        title: 'Sizga yaqin buyurtma',
+        body: `#${formatOrderNumber(o.orderNumber, o.id)} — ${Number(o.distanceKm).toFixed(1)} km`,
+        tag: `near-${id}`,
+        url: '/kuryer/dashboard',
+      });
+      window.setTimeout(() => {
+        playPanelAlertBeep();
+        void showPanelNotification({
+          panel: 'kuryer',
+          title: 'Sizga yaqin — tezroq qabul qiling',
+          body: formatOrderNumber(o.orderNumber, o.id),
+          tag: `near2-${id}`,
+          url: '/kuryer/dashboard',
+        });
+      }, 5000);
+    }
+  }, [availableOrders, notifications, profile?.branchId]);
 
   const renderCourierCashCollectionHint = (order: CourierOrder, size: 'normal' | 'compact' = 'normal') => {
     if (!shouldShowCourierCashCollectionHint(order)) return null;
@@ -671,9 +739,7 @@ export default function CourierDashboard() {
       return;
     }
     const tokenQuery = courierToken ? `?token=${encodeURIComponent(courierToken)}` : '';
-    const baseUrl = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
-      ? DEV_API_BASE_URL
-      : API_BASE_URL;
+    const baseUrl = courierApiBase;
 
     try {
       const [meResult, availableResult, activeResult, historyResult, rentalIjaraResult, rentalDeliveryJobsResult] =
@@ -826,7 +892,7 @@ export default function CourierDashboard() {
         setIsLoading(false);
       }
     }
-  }, [navigate]);
+  }, [courierApiBase, navigate]);
 
   const loadPayoutRequests = useCallback(
     async (silent = true) => {
@@ -857,6 +923,10 @@ export default function CourierDashboard() {
       toast.error('Summa noto‘g‘ri');
       return;
     }
+    if (payoutMethod === 'card' && !isValidPayoutCardNumber(courierCardNumberDraft)) {
+      toast.error('Karta raqamini kiriting (kamida 16 raqam)');
+      return;
+    }
     setPayoutSaving(true);
     try {
       const courierToken = getStoredCourierToken();
@@ -868,7 +938,13 @@ export default function CourierDashboard() {
       const res = await fetch(`${edgeFunctionBaseUrl()}/courier/payout-requests${tokenQuery}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ amountUzs: amt, method: payoutMethod }),
+        body: JSON.stringify({
+          amountUzs: amt,
+          method: payoutMethod,
+          ...(payoutMethod === 'card'
+            ? { cardNumber: payoutCardDigits(courierCardNumberDraft) }
+            : {}),
+        }),
       });
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data?.success) {
@@ -877,6 +953,7 @@ export default function CourierDashboard() {
       }
       toast.success('Ariza kassaga yuborildi');
       setPayoutAmount('');
+      setPayoutOpen(false);
       await loadPayoutRequests(true);
       await loadDashboard(true);
     } catch {
@@ -884,7 +961,14 @@ export default function CourierDashboard() {
     } finally {
       setPayoutSaving(false);
     }
-  }, [loadDashboard, loadPayoutRequests, payoutAmount, payoutMethod, payoutSaving]);
+  }, [
+    courierCardNumberDraft,
+    loadDashboard,
+    loadPayoutRequests,
+    payoutAmount,
+    payoutMethod,
+    payoutSaving,
+  ]);
 
   const loadDashboardLight = useCallback(
     async (silent = true) => {
@@ -909,10 +993,7 @@ export default function CourierDashboard() {
       }
 
       const tokenQuery = courierToken ? `?token=${encodeURIComponent(courierToken)}` : '';
-      const baseUrl =
-        typeof window !== 'undefined' && window.location.hostname === 'localhost'
-          ? DEV_API_BASE_URL
-          : API_BASE_URL;
+      const baseUrl = courierApiBase;
 
       try {
         const [meResult, availableResult, activeResult] = await Promise.allSettled([
@@ -975,8 +1056,11 @@ export default function CourierDashboard() {
         }
       }
     },
-    [navigate],
+    [courierApiBase, navigate],
   );
+
+  const loadDashboardRef = useRef(loadDashboard);
+  loadDashboardRef.current = loadDashboard;
 
   useEffect(() => {
     for (const o of courierRentalOrders) {
@@ -990,17 +1074,6 @@ export default function CourierDashboard() {
       );
     }
   }, [courierRentalOrders]);
-
-  useEffect(() => {
-    if (courierRentalOrders.length === 0) return;
-    const id = window.setInterval(() => {
-      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-        return;
-      }
-      void loadDashboard(true);
-    }, 20_000);
-    return () => window.clearInterval(id);
-  }, [courierRentalOrders.length, loadDashboard]);
 
   const confirmRentalPickupReturn = useCallback(
     async (order: any) => {
@@ -1156,7 +1229,8 @@ export default function CourierDashboard() {
   );
 
   useVisibilityRefetch(() => {
-    void loadDashboard(true);
+    void loadDashboardRef.current(true);
+    void loadPayoutRequests(true);
   });
 
   const pushLocation = useCallback(async () => {
@@ -1215,18 +1289,25 @@ export default function CourierDashboard() {
     loadDashboard();
     pushLocation();
 
+    /** Har 2 s — yangi buyurtmalar va tarix (seller paneli kabi, tab yashirin bo‘lsa to‘xtaydi). */
     const refreshInterval = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
+      if (!courierTabVisible) {
         return;
       }
       if (actionLoadingRef.current) {
         return;
       }
-      void loadDashboardLight(true);
-    }, 3000);
+      void loadDashboardRef.current(true);
+    }, 2000);
 
     const locationInterval = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
+        return;
+      }
+      if (!courierTabVisible) {
         return;
       }
       if (actionLoadingRef.current) {
@@ -1239,21 +1320,22 @@ export default function CourierDashboard() {
       window.clearInterval(refreshInterval);
       window.clearInterval(locationInterval);
     };
-  }, [loadDashboard, loadDashboardLight, navigate, pushLocation]);
+  }, [courierTabVisible, loadDashboard, navigate, pushLocation]);
 
   useEffect(() => {
-    setCourierCardNumberDraft(String((profile as any)?.cardNumber || ''));
+    setCourierCardNumberDraft(formatPayoutCardInput(String((profile as any)?.cardNumber || '')));
     setCourierTelegramChatIdDraft(String((profile as any)?.telegramChatId || ''));
   }, [profile]);
 
   useEffect(() => {
+    if (!courierTabVisible) return undefined;
     void loadPayoutRequests(true);
     const t = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
       void loadPayoutRequests(true);
-    }, 12000);
+    }, 2000);
     return () => window.clearInterval(t);
-  }, [loadPayoutRequests]);
+  }, [courierTabVisible, loadPayoutRequests]);
 
   useEffect(() => {
     if (mobileSection === 'history') void loadPayoutRequests(false);
@@ -1346,7 +1428,36 @@ export default function CourierDashboard() {
         ? { bagId: selectedBagId }
         : undefined;
 
+  const isMarketCourierOrder = (o: CourierOrder) =>
+    String(o.orderType || '').toLowerCase().trim() === 'market';
+
+  const acceptCourierOrderOnly = async (order: CourierOrder) => {
+    const key = `accept:${order.id}`;
+    setActionLoading(key);
+    actionLoadingRef.current = key;
+    try {
+      const r1 = await executeCourierPost(courierOrderActionPath(order.id, 'accept'), acceptBodyForOrder(order));
+      if (!r1.ok) {
+        toast.error(r1.error || 'Buyurtma qabul qilinmadi');
+        return;
+      }
+      await loadDashboard(true);
+      toast.success(
+        isMarketCourierOrder(order)
+          ? 'Qabul qilindi — filialdan «Mahsulot oldim» bosing'
+          : 'Buyurtma qabul qilindi',
+      );
+    } finally {
+      setActionLoading(null);
+      actionLoadingRef.current = null;
+    }
+  };
+
   const acceptAndPickupOrder = async (order: CourierOrder) => {
+    if (isMarketCourierOrder(order)) {
+      await acceptCourierOrderOnly(order);
+      return;
+    }
     const key = `accept-pickup:${order.id}`;
     setActionLoading(key);
     actionLoadingRef.current = key;
@@ -1367,6 +1478,25 @@ export default function CourierDashboard() {
       }
       await loadDashboard(true);
       toast.success('Buyurtma qabul qilindi — yo‘ldasiz');
+    } finally {
+      setActionLoading(null);
+      actionLoadingRef.current = null;
+    }
+  };
+
+  const pickupCourierOrder = async (order: CourierOrder) => {
+    const key = `pickup:${order.id}`;
+    setActionLoading(key);
+    actionLoadingRef.current = key;
+    try {
+      const r2 = await executeCourierPost(courierOrderActionPath(order.id, 'pickup'), undefined);
+      if (!r2.ok) {
+        toast.error(r2.error || 'Mahsulot olishda xatolik');
+        return;
+      }
+      await loadDashboard(true);
+      setMobileOrderTab('delivering');
+      toast.success('Mahsulot olindi — yo‘ldasiz');
     } finally {
       setActionLoading(null);
       actionLoadingRef.current = null;
@@ -1529,11 +1659,18 @@ export default function CourierDashboard() {
   const courierWorkflow = (o: CourierOrder) => o.courierWorkflowStatus || o.status || '';
   const workflowNorm = (o: CourierOrder) => String(courierWorkflow(o)).toLowerCase().trim();
 
-  /** Yo‘lda: mijozgacha — yetib keldim */
+  const isAwaitingBranchPickup = (o: CourierOrder) =>
+    workflowNorm(o) === 'accepted' &&
+    ['ready', 'preparing'].includes(String(o.status || '').toLowerCase());
+
+  /** Yo‘lda: filialdan olingach mijozgacha — yetib keldim */
   const canPressYetibKeldim = (o: CourierOrder) => {
     const w = workflowNorm(o);
-    return ['accepted', 'picked_up', 'delivering', 'with_courier'].includes(w);
+    return ['picked_up', 'delivering', 'with_courier'].includes(w);
   };
+
+  const courierHandoffButtonLabel = (o: CourierOrder) =>
+    isMarketCourierOrder(o) ? 'Mahsulotni topshirdim' : 'Pulni oldim';
 
   /** Yetib kelgach avtomatik yakunlash: to‘langan + naqd emas */
   const shouldAutoCompleteAfterArrived = (o: CourierOrder) => {
@@ -1541,6 +1678,11 @@ export default function CourierDashboard() {
     const ps = String(o.paymentStatus ?? o.payment_status ?? '').toLowerCase().trim();
     return ['paid', 'completed', 'success'].includes(ps);
   };
+
+  const activeOrdersAwaitingPickup = useMemo(
+    () => activeOrders.filter(isAwaitingBranchPickup),
+    [activeOrders],
+  );
 
   const activeOrdersOnTheWay = useMemo(
     () => activeOrders.filter((o) => canPressYetibKeldim(o)),
@@ -1583,9 +1725,13 @@ export default function CourierDashboard() {
         await loadDashboard(true);
         setMobileOrderTab('delivered');
         toast.message(
-          isCourierCashLike(order)
-            ? 'Mijozdan pulni oling, keyin «Pulni oldim» bosing'
-            : 'Buyurtmani topshirgach «Pulni oldim» bilan yakunlang',
+          isMarketCourierOrder(order)
+            ? isCourierCashLike(order)
+              ? 'Mijozga mahsulotni bering. Naqd bo‘lsa pulni oling, keyin «Mahsulotni topshirdim» bosing'
+              : 'Mijozga mahsulotni bering, keyin «Mahsulotni topshirdim» bosing'
+            : isCourierCashLike(order)
+              ? 'Mijozdan pulni oling, keyin «Pulni oldim» bosing'
+              : 'Buyurtmani topshirgach «Pulni oldim» bilan yakunlang',
         );
       }
     } finally {
@@ -1613,13 +1759,14 @@ export default function CourierDashboard() {
 
   const mobileVisibleOrders = useMemo(() => {
     if (mobileOrderTab === 'new') return availableOrders;
-    if (mobileOrderTab === 'delivering') return activeOrdersOnTheWay;
+    if (mobileOrderTab === 'delivering') return [...activeOrdersAwaitingPickup, ...activeOrdersOnTheWay];
     if (mobileOrderTab === 'delivered') return courierHistoryDone;
     if (mobileOrderTab === 'cancelled') return courierHistoryCancelled;
     return [];
   }, [
     mobileOrderTab,
     availableOrders,
+    activeOrdersAwaitingPickup,
     activeOrdersOnTheWay,
     courierHistoryDone,
     courierHistoryCancelled,
@@ -1730,6 +1877,14 @@ export default function CourierDashboard() {
       note: 'Yechib olinadigan mablag\'',
       icon: Wallet,
       color: '#10b981',
+    },
+    {
+      id: 'cashInHand',
+      label: 'Kassaga topshirish',
+      value: `${Number(profile?.courierCashInHandUzs || 0).toLocaleString('uz-UZ')} so'm`,
+      note: 'Naqd mijozdan — kassa «Pul oldim» dan keyin 0',
+      icon: Banknote,
+      color: '#f59e0b',
     },
     {
       id: 'earnings',
@@ -1925,6 +2080,18 @@ export default function CourierDashboard() {
       }}
     >
       <div className="app-panel-main-scroll min-h-0 p-4 md:p-6">
+      {courierHeaders && profile?.branchId ? (
+        <PanelPushSetup
+          className="mb-4 max-w-3xl"
+          scope={{
+            panel: 'kuryer',
+            scopeId: profile.branchId,
+            branchId: profile.branchId,
+            courierId: profile.id,
+          }}
+          headers={courierHeaders}
+        />
+      ) : null}
       {actionLoading ? (
         <div
           className="fixed top-0 left-0 right-0 z-[250] h-[3px] overflow-hidden pointer-events-none"
@@ -1967,7 +2134,11 @@ export default function CourierDashboard() {
                 >
                   {[
                     { id: 'new', label: 'Yangi', count: availableOrders.length },
-                    { id: 'delivering', label: 'Yo‘lda', count: activeOrdersOnTheWay.length },
+                    {
+                      id: 'delivering',
+                      label: 'Yo‘lda',
+                      count: activeOrdersAwaitingPickup.length + activeOrdersOnTheWay.length,
+                    },
                     {
                       id: 'delivered',
                       label: 'Yetkazildi',
@@ -2100,7 +2271,7 @@ export default function CourierDashboard() {
                 {courierRentalOrders.map((ro: any) => {
                   const endMs = ro.rentalPeriodEndsAt ? new Date(ro.rentalPeriodEndsAt).getTime() : NaN;
                   const endOk = !Number.isNaN(endMs);
-                  const rentImg = normalizeRentalProductImageUrl(String(ro.productImage || '').trim(), edgeBaseUrl);
+                  const rentImg = normalizeRentalProductImageUrl(String(ro.productImage || '').trim(), courierApiBase);
                   const rentMoney = computeRentalCourierHandoffUzs(ro);
                   return (
                     <div
@@ -2305,7 +2476,7 @@ export default function CourierDashboard() {
                               {actionLoading === courierOrderActionPath(order.id, 'delivered') ? (
                                 <CourierActionPendingLabel />
                               ) : (
-                                'Pulni oldim'
+                                courierHandoffButtonLabel(order)
                               )}
                             </button>
                           </div>
@@ -2399,6 +2570,18 @@ export default function CourierDashboard() {
                           />
                         ) : mobileOrderTab === 'delivering' ? (
                           <div className="space-y-3">
+                            {(order.pickupRackNumber || order.pickupRackName) && (
+                              <div
+                                className="text-xs font-semibold px-2.5 py-2 rounded-xl"
+                                style={{
+                                  background: isDark ? 'rgba(16,185,129,0.16)' : 'rgba(16,185,129,0.12)',
+                                  color: '#10b981',
+                                }}
+                              >
+                                Rasta: #{order.pickupRackNumber || '—'}
+                                {order.pickupRackName ? ` (${order.pickupRackName})` : ''}
+                              </div>
+                            )}
                             <div className="grid grid-cols-2 gap-2">
                               <button
                                 type="button"
@@ -2427,23 +2610,33 @@ export default function CourierDashboard() {
                                 Mijoz joyi
                               </button>
                             </div>
-                            <button
-                              type="button"
-                              onClick={() => void submitCourierArrivedWithAutoDeliver(order)}
-                              disabled={actionLoading !== null}
-                              className="w-full py-3 rounded-2xl border text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
-                              style={{
-                                background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
-                                borderColor: accentColor.color,
-                                color: textColor,
-                              }}
-                            >
-                              {actionLoading === `arrived-chain:${order.id}` ? (
-                                <CourierActionPendingLabel />
-                              ) : (
-                                'Yetib keldim'
-                              )}
-                            </button>
+                            {isAwaitingBranchPickup(order) ? (
+                              <SwipeAction
+                                label="Mahsulot oldim"
+                                disabled={actionLoading !== null}
+                                isDark={isDark}
+                                gradient={accentColor.gradient}
+                                onComplete={() => void pickupCourierOrder(order)}
+                              />
+                            ) : (
+                              <button
+                                type="button"
+                                onClick={() => void submitCourierArrivedWithAutoDeliver(order)}
+                                disabled={actionLoading !== null || !canPressYetibKeldim(order)}
+                                className="w-full py-3 rounded-2xl border text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+                                style={{
+                                  background: isDark ? 'rgba(255,255,255,0.04)' : '#ffffff',
+                                  borderColor: accentColor.color,
+                                  color: textColor,
+                                }}
+                              >
+                                {actionLoading === `arrived-chain:${order.id}` ? (
+                                  <CourierActionPendingLabel />
+                                ) : (
+                                  'Yetib keldim'
+                                )}
+                              </button>
+                            )}
                           </div>
                         ) : mobileOrderTab === 'delivered' ? (
                           <div className="space-y-2 w-full">
@@ -2606,6 +2799,30 @@ export default function CourierDashboard() {
                       </select>
                     </div>
                   </div>
+                  {payoutMethod === 'card' ? (
+                    <div>
+                      <label className="text-xs font-semibold inline-flex items-center gap-1.5" style={{ color: mutedTextColor }}>
+                        <CreditCard className="w-3.5 h-3.5" />
+                        Karta raqami
+                      </label>
+                      <input
+                        value={courierCardNumberDraft}
+                        onChange={(e) => setCourierCardNumberDraft(formatPayoutCardInput(e.target.value))}
+                        className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none tracking-wide"
+                        style={{
+                          background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                          borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                          color: textColor,
+                        }}
+                        placeholder="8600 1234 5678 9012"
+                        inputMode="numeric"
+                        autoComplete="off"
+                      />
+                      <p className="text-xs mt-1.5" style={{ color: mutedTextColor }}>
+                        Kamida 16 raqam — kassa «Oylik» bo‘limida ko‘radi.
+                      </p>
+                    </div>
+                  ) : null}
                   <button
                     type="button"
                     disabled={payoutSaving}
@@ -3259,41 +3476,22 @@ export default function CourierDashboard() {
                   Balans: <span className="font-bold">{Number(profile?.balance || 0).toLocaleString('uz-UZ')} so'm</span>
                 </div>
 
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                  <div>
-                    <label className="text-xs font-semibold" style={{ color: mutedTextColor }}>
-                      Karta raqami (karta bilan olish uchun)
-                    </label>
-                    <input
-                      value={courierCardNumberDraft}
-                      onChange={(e) => setCourierCardNumberDraft(e.target.value)}
-                      className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
-                      style={{
-                        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-                        borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
-                        color: textColor,
-                      }}
-                      placeholder="8600 ...."
-                      inputMode="numeric"
-                    />
-                  </div>
-                  <div>
-                    <label className="text-xs font-semibold" style={{ color: mutedTextColor }}>
-                      Telegram Chat ID (ixtiyoriy)
-                    </label>
-                    <input
-                      value={courierTelegramChatIdDraft}
-                      onChange={(e) => setCourierTelegramChatIdDraft(e.target.value)}
-                      className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
-                      style={{
-                        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-                        borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
-                        color: textColor,
-                      }}
-                      placeholder="123456789"
-                      inputMode="numeric"
-                    />
-                  </div>
+                <div>
+                  <label className="text-xs font-semibold" style={{ color: mutedTextColor }}>
+                    Telegram Chat ID (ixtiyoriy)
+                  </label>
+                  <input
+                    value={courierTelegramChatIdDraft}
+                    onChange={(e) => setCourierTelegramChatIdDraft(e.target.value)}
+                    className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                      borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                      color: textColor,
+                    }}
+                    placeholder="123456789"
+                    inputMode="numeric"
+                  />
                 </div>
 
                 <div className="flex flex-wrap gap-2">
@@ -3379,45 +3577,43 @@ export default function CourierDashboard() {
                   </div>
                 </div>
 
+                {payoutMethod === 'card' ? (
+                  <div>
+                    <label className="text-xs font-semibold inline-flex items-center gap-1.5" style={{ color: mutedTextColor }}>
+                      <CreditCard className="w-3.5 h-3.5" />
+                      Karta raqami
+                    </label>
+                    <input
+                      value={courierCardNumberDraft}
+                      onChange={(e) => setCourierCardNumberDraft(formatPayoutCardInput(e.target.value))}
+                      className="mt-1 w-full rounded-2xl border px-4 py-3 text-sm outline-none tracking-wide"
+                      style={{
+                        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                        borderColor: isDark ? 'rgba(255,255,255,0.10)' : 'rgba(0,0,0,0.10)',
+                        color: textColor,
+                      }}
+                      placeholder="8600 1234 5678 9012"
+                      inputMode="numeric"
+                      autoComplete="off"
+                    />
+                    <p className="text-xs mt-1.5" style={{ color: mutedTextColor }}>
+                      Kamida 16 raqam — kassa «Oylik» bo‘limida ko‘radi.
+                    </p>
+                  </div>
+                ) : null}
+
                 <button
                   type="button"
                   disabled={payoutSaving}
-                  onClick={async () => {
-                    if (payoutSaving) return;
-                    const amt = Number(String(payoutAmount || '').replace(/[^\d.]/g, ''));
-                    if (!Number.isFinite(amt) || amt <= 0) {
-                      toast.error("Summa noto‘g‘ri");
-                      return;
-                    }
-                    setPayoutSaving(true);
-                    try {
-                      const courierToken = getStoredCourierToken();
-                      if (!courierToken) return;
-                      const tokenQuery = `?token=${encodeURIComponent(courierToken)}`;
-                      const baseUrl =
-                        typeof window !== 'undefined' && window.location.hostname === 'localhost'
-                          ? DEV_API_BASE_URL
-                          : API_BASE_URL;
-                      const res = await fetch(`${baseUrl}/courier/payout-requests${tokenQuery}`, {
-                        method: 'POST',
-                        headers: { 'Content-Type': 'application/json' },
-                        body: JSON.stringify({ amountUzs: amt, method: payoutMethod }),
-                      });
-                      const data = await res.json().catch(() => ({}));
-                      if (!res.ok || !data.success) {
-                        toast.error(data.error || 'Ariza yuborilmadi');
-                        return;
-                      }
-                      toast.success('Ariza yuborildi');
-                      setPayoutAmount('');
-                      await loadPayoutRequests(true);
-                    } finally {
-                      setPayoutSaving(false);
-                    }
-                  }}
-                  className="w-full py-3 rounded-2xl font-semibold text-white"
+                  onClick={() => void submitPayoutApplication()}
+                  className="w-full py-3 rounded-2xl font-semibold text-white inline-flex items-center justify-center gap-2 disabled:opacity-50"
                   style={{ background: accentColor.gradient }}
                 >
+                  {payoutSaving ? (
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                  ) : (
+                    <Wallet className="w-4 h-4" />
+                  )}
                   Ariza yuborish
                 </button>
 
@@ -3529,7 +3725,7 @@ export default function CourierDashboard() {
               {courierRentalOrders.map((ro: any) => {
                 const endMs = ro.rentalPeriodEndsAt ? new Date(ro.rentalPeriodEndsAt).getTime() : NaN;
                 const endOk = !Number.isNaN(endMs);
-                const rentImg = normalizeRentalProductImageUrl(String(ro.productImage || '').trim(), edgeBaseUrl);
+                const rentImg = normalizeRentalProductImageUrl(String(ro.productImage || '').trim(), courierApiBase);
                 const rentMoney = computeRentalCourierHandoffUzs(ro);
                 return (
                   <div
@@ -4001,7 +4197,21 @@ export default function CourierDashboard() {
                 <MapPin className="w-4 h-4" />
                 Mijoz lokatsiyasi
               </button>
-              {workflowNorm(activeOrder) === 'arrived' && !shouldAutoCompleteAfterArrived(activeOrder) ? (
+              {isAwaitingBranchPickup(activeOrder) ? (
+                <button
+                  type="button"
+                  onClick={() => void pickupCourierOrder(activeOrder)}
+                  disabled={actionLoading !== null}
+                  className="px-4 py-3 rounded-2xl font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  style={{ background: accentColor.gradient }}
+                >
+                  {actionLoading === `pickup:${activeOrder.id}` ? (
+                    <CourierActionPendingLabel />
+                  ) : (
+                    'Mahsulot oldim'
+                  )}
+                </button>
+              ) : workflowNorm(activeOrder) === 'arrived' && !shouldAutoCompleteAfterArrived(activeOrder) ? (
                 <button
                   type="button"
                   onClick={() => void handleOrderAction(courierOrderActionPath(activeOrder.id, 'delivered'))}
@@ -4012,7 +4222,7 @@ export default function CourierDashboard() {
                   {actionLoading === courierOrderActionPath(activeOrder.id, 'delivered') ? (
                     <CourierActionPendingLabel />
                   ) : (
-                    'Pulni oldim'
+                    courierHandoffButtonLabel(activeOrder)
                   )}
                 </button>
               ) : canPressYetibKeldim(activeOrder) ? (
@@ -4088,6 +4298,19 @@ export default function CourierDashboard() {
                       <p className="text-sm" style={{ color: mutedTextColor }}>{order.customerName}</p>
                     </div>
                     <div className="text-right">
+                      {isMarketCourierOrder(order) &&
+                      Number(order.distanceKm) > 0 &&
+                      Number(order.distanceKm) <= 8 ? (
+                        <span
+                          className="inline-block text-[10px] font-bold uppercase tracking-wide px-2 py-0.5 rounded-full mb-1"
+                          style={{
+                            background: isDark ? 'rgba(16,185,129,0.2)' : 'rgba(16,185,129,0.15)',
+                            color: '#10b981',
+                          }}
+                        >
+                          Sizga yaqin
+                        </span>
+                      ) : null}
                       <p className="font-semibold">
                         {distanceKmForCourierUi(order, profile?.currentLocation).toFixed(1)} km
                       </p>
@@ -4261,12 +4484,14 @@ export default function CourierDashboard() {
                           : '#ffffff',
                     }}
                   >
-                    {actionLoading === `accept-pickup:${order.id}` ? (
+                    {actionLoading === `accept-pickup:${order.id}` || actionLoading === `accept:${order.id}` ? (
                       <CourierActionPendingLabel />
                     ) : noBagSlotForNewOrder(order) ? (
                       'So‘mka to‘liq'
                     ) : emptyBags.length > 1 && !selectedBagId && !order.preparedBagId ? (
                       'So‘mka tanlang'
+                    ) : isMarketCourierOrder(order) ? (
+                      'Surib qabul qiling'
                     ) : (
                       'Buyurtmani olish'
                     )}

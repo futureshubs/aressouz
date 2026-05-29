@@ -25,6 +25,15 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { notifyCartAdded } from '../utils/appToast';
+import { DishResumeCountdown } from './food/DishResumeCountdown';
+import {
+  dishIsInactiveFlag,
+  isDishTemporarilyStopped,
+  dishStopLabelUz,
+  patchDishesResumeExpired,
+} from '../utils/dishResumeCountdown';
+import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
+import { useTabVisible } from '../hooks/useTabVisible';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { BannerCarousel } from './BannerCarousel';
 import { regions as allRegions } from '../data/regions';
@@ -137,6 +146,42 @@ interface Dish {
   isPopular: boolean;
   isNatural: boolean;
   isActive: boolean;
+  /** Restoran bekor qilganda — ish boshlanishigacha */
+  autoResumeAt?: string | null;
+  stopLabel?: string | null;
+}
+
+function mapDishFromApi(d: Dish, restaurant: Restaurant): Dish {
+  const raw = d as Dish & {
+    weeklyOrderCount?: unknown;
+    likesPercent?: unknown;
+    likeRating?: unknown;
+    likesPercentDerived?: unknown;
+    weeklyPopularityScore?: unknown;
+    autoResumeAt?: unknown;
+    stopLabel?: unknown;
+    isActive?: unknown;
+  };
+  const wc = Number(raw.weeklyOrderCount);
+  const lp = Number(raw.likesPercent ?? raw.likeRating);
+  const wps = Number(raw.weeklyPopularityScore);
+  const lpd = raw.likesPercentDerived === true;
+  return {
+    ...d,
+    ingredients: normalizeDishIngredients((d as { ingredients?: unknown }).ingredients),
+    isActive: dishIsInactiveFlag(raw.isActive) ? false : true,
+    ...(Number.isFinite(wc) && wc >= 0 ? { weeklyOrderCount: Math.floor(wc) } : {}),
+    ...(Number.isFinite(lp) && lp >= 0 && lp <= 100 ? { likesPercent: Math.round(lp) } : {}),
+    ...(lpd ? { likesPercentDerived: true } : {}),
+    ...(Number.isFinite(wps) && wps >= 0 && wps <= 100 ? { weeklyPopularityScore: Math.round(wps) } : {}),
+    autoResumeAt: raw.autoResumeAt ? String(raw.autoResumeAt) : undefined,
+    stopLabel: raw.stopLabel ? String(raw.stopLabel) : undefined,
+    restaurantId: restaurant.id,
+    restaurantName: restaurant.name,
+    restaurantBranchId: restaurant.branchId,
+    restaurantRegion: restaurant.region,
+    restaurantDistrict: restaurant.district,
+  };
 }
 
 /** Restoran joy bron — panel bilan mos maydonlar */
@@ -167,6 +212,8 @@ interface FoodsViewProps {
 
 export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const { theme, accentColor } = useTheme();
+  const foodsTabVisible = useTabVisible();
+  const foodsApiBase = useMemo(() => edgeFunctionBaseUrl(), []);
   const { selectedRegion, selectedDistrict } = useLocation();
   const { user, setIsAuthOpen } = useAuth();
   const { isFavorite, toggleFavorite } = useFavorites();
@@ -375,39 +422,14 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           const result = await response.json();
           if (gen !== dishLoadGenRef.current) return;
           if (result.success && Array.isArray(result.data)) {
-            const activeDishes = result.data
-              .filter((d: Dish) => d.isActive)
-              .map((d: Dish) => {
-                const raw = d as Dish & {
-                  weeklyOrderCount?: unknown;
-                  likesPercent?: unknown;
-                  likeRating?: unknown;
-                  likesPercentDerived?: unknown;
-                  weeklyPopularityScore?: unknown;
-                };
-                const wc = Number(raw.weeklyOrderCount);
-                const lp = Number(raw.likesPercent ?? raw.likeRating);
-                const wps = Number(raw.weeklyPopularityScore);
-                const lpd = raw.likesPercentDerived === true;
-                return {
-                  ...d,
-                  ingredients: normalizeDishIngredients((d as { ingredients?: unknown }).ingredients),
-                  ...(Number.isFinite(wc) && wc >= 0 ? { weeklyOrderCount: Math.floor(wc) } : {}),
-                  ...(Number.isFinite(lp) && lp >= 0 && lp <= 100 ? { likesPercent: Math.round(lp) } : {}),
-                  ...(lpd ? { likesPercentDerived: true } : {}),
-                  ...(Number.isFinite(wps) && wps >= 0 && wps <= 100 ? { weeklyPopularityScore: Math.round(wps) } : {}),
-                  restaurantId: restaurant.id,
-                  restaurantName: restaurant.name,
-                  restaurantBranchId: restaurant.branchId,
-                  restaurantRegion: restaurant.region,
-                  restaurantDistrict: restaurant.district,
-                };
-              });
+            const mapped = result.data.map((d: Dish) => mapDishFromApi(d, restaurant));
             setAllDishes((prev) => {
               if (gen !== dishLoadGenRef.current) return prev;
-              const seen = new Set(prev.map((x) => x.id));
-              const add = activeDishes.filter((d) => !seen.has(d.id));
-              return add.length ? [...prev, ...add] : prev;
+              const byId = new Map(prev.map((x) => [x.id, x]));
+              for (const dish of mapped) {
+                byId.set(dish.id, dish);
+              }
+              return patchDishesResumeExpired(Array.from(byId.values()));
             });
           }
         } catch (err) {
@@ -425,7 +447,54 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     void loadRestaurantsAndDishes();
   });
 
+  /** Bekor qilingan taom «Tugadi» holati — serverdan har 2 s (seller paneli kabi). */
+  const refreshDishesSilent = useCallback(async () => {
+    if (restaurants.length === 0) return;
+    const base = foodsApiBase;
+    const updates: Dish[] = [];
+    await Promise.all(
+      restaurants.map(async (restaurant) => {
+        try {
+          const rid = restaurantIdForRestaurantsApiPath(restaurant.id);
+          const response = await fetch(`${base}/restaurants/${rid}/dishes`, {
+            headers: { Authorization: `Bearer ${publicAnonKey}` },
+            cache: 'no-store',
+          });
+          const result = await response.json();
+          if (result.success && Array.isArray(result.data)) {
+            for (const d of result.data as Dish[]) {
+              updates.push(mapDishFromApi(d, restaurant));
+            }
+          }
+        } catch {
+          /* silent */
+        }
+      }),
+    );
+    if (updates.length === 0) return;
+    setAllDishes((prev) => {
+      const byId = new Map(prev.map((x) => [x.id, x]));
+      for (const dish of updates) {
+        byId.set(dish.id, dish);
+      }
+      return patchDishesResumeExpired(Array.from(byId.values()));
+    });
+  }, [foodsApiBase, restaurants]);
+
+  useEffect(() => {
+    if (!foodsTabVisible || restaurants.length === 0) return undefined;
+    const id = window.setInterval(() => {
+      if (typeof document !== 'undefined' && document.visibilityState !== 'visible') return;
+      void refreshDishesSilent();
+    }, 2000);
+    return () => window.clearInterval(id);
+  }, [foodsTabVisible, refreshDishesSilent, restaurants.length]);
+
   const handleDishClick = (dish: Dish) => {
+    if (isDishTemporarilyStopped(dish)) {
+      toast.error('Taom vaqtincha tugagan — teskari sanoq tugagach qayta buyurtma qilishingiz mumkin');
+      return;
+    }
     setSelectedDish(dish);
     const hasVariants = Array.isArray(dish.variants) && dish.variants.length > 0;
     const fallbackPrice = Number((dish as Dish & { price?: number }).price) || 0;
@@ -560,6 +629,11 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       return;
     }
 
+    if (isDishTemporarilyStopped(selectedDish)) {
+      toast.error('Taom vaqtincha tugagan — teskari sanoq tugagach qayta buyurtma qilishingiz mumkin');
+      return;
+    }
+
     if (selectedDish.restaurantId) {
       const rest = restaurants.find((r) => r.id === selectedDish.restaurantId);
       const ev = evaluateMerchantHours(rest as Record<string, unknown> | null | undefined);
@@ -622,7 +696,12 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
       String(d.kcal || ''),
     ];
     const matched = allDishes.filter((d) => matchesHeaderSearch(q, parts(d), { vertical: 'food' }));
-    return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'food' });
+    const sorted = sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'food' });
+    return [...sorted].sort((a, b) => {
+      const aStop = isDishTemporarilyStopped(a) ? 1 : 0;
+      const bStop = isDishTemporarilyStopped(b) ? 1 : 0;
+      return aStop - bStop;
+    });
   }, [allDishes, headerSearch, restaurants]);
 
   const filteredRestaurants = useMemo(() => {
@@ -745,8 +824,19 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     () => evaluateMerchantHours(dishModalRestaurant as Record<string, unknown> | null | undefined),
     [dishModalRestaurant, foodHoursTick],
   );
+  const dishTemporarilyStopped = !!selectedDish && isDishTemporarilyStopped(selectedDish);
+
   const restaurantClosedByHours =
     !!selectedDish && dishModalRestaurant != null && !dishModalHoursEv.allowed;
+
+  const dishModalAddBlocked = restaurantClosedByHours || dishTemporarilyStopped;
+
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      setAllDishes((prev) => patchDishesResumeExpired(prev));
+    }, 1000);
+    return () => window.clearInterval(id);
+  }, []);
 
   const todayDateInputMin = useMemo(() => {
     const t = new Date();
@@ -829,6 +919,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const dishStripForYou = useMemo(() => {
     if (filteredDishes.length === 0) return [];
     return [...filteredDishes]
+      .filter((d) => !isDishTemporarilyStopped(d))
       .sort(
         (a, b) =>
           (Number(b.likesPercent) || 0) - (Number(a.likesPercent) || 0) ||
@@ -841,6 +932,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   const dishStripTrending = useMemo(() => {
     if (filteredDishes.length === 0) return [];
     return [...filteredDishes]
+      .filter((d) => !isDishTemporarilyStopped(d))
       .sort(
         (a, b) =>
           (Number(b.weeklyOrderCount) || 0) - (Number(a.weeklyOrderCount) || 0) ||
@@ -1027,13 +1119,6 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     if (!fresh) return;
     setSelectedDish((prev) => {
       if (!prev || prev.id !== fresh.id) return prev;
-      if (
-        prev.weeklyOrderCount === fresh.weeklyOrderCount &&
-        prev.likesPercent === fresh.likesPercent &&
-        prev.likesPercentDerived === fresh.likesPercentDerived
-      ) {
-        return prev;
-      }
       return { ...prev, ...fresh };
     });
   }, [allDishes, selectedDish?.id]);
@@ -1321,6 +1406,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
 
               <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 lg:grid-cols-5">
                 {visibleDishes.map((dish, dishIdx) => {
+                  const dishStopped = isDishTemporarilyStopped(dish);
                   return (
                     <div
                       key={dish.id}
@@ -1330,6 +1416,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                         background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
                         boxShadow: isDark ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.08)',
                         animationDelay: `${Math.min(dishIdx % FOODS_DISH_UI_STEP, 11) * 52}ms`,
+                        opacity: dishStopped ? 0.88 : 1,
                       }}
                     >
                       {/* Image */}
@@ -1338,7 +1425,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                           <img src={dish.images[0]} alt="" className="w-full h-full object-cover" />
                         )}
                         
-                        {dish.isNatural && (
+                        {dish.isNatural && !dishStopped && (
                           <div 
                             className="absolute top-3 left-3 w-8 h-8 rounded-xl flex items-center justify-center"
                             style={{ background: accentColor.color }}
@@ -1346,6 +1433,18 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                             <Leaf className="w-5 h-5 text-white" />
                           </div>
                         )}
+                        {dishStopped ? (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 px-2 text-center">
+                            <span className="text-white text-xs font-bold uppercase tracking-wide">
+                              {dishStopLabelUz(dish)}
+                            </span>
+                            <DishResumeCountdown
+                              dish={dish}
+                              isDark
+                              accentColor={accentColor.color}
+                            />
+                          </div>
+                        ) : null}
                       </div>
                       
                       {/* Content */}
@@ -1364,8 +1463,24 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                             <p className="text-[10px] sm:text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>so'm</p>
                           </div>
                           <button
-                            className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center flex-shrink-0"
-                            style={{ background: accentColor.color }}
+                            type="button"
+                            disabled={dishStopped}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (dishStopped) {
+                                toast.error('Taom vaqtincha tugagan');
+                                return;
+                              }
+                              handleDishClick(dish);
+                            }}
+                            className="w-10 h-10 sm:w-11 sm:h-11 md:w-12 md:h-12 rounded-xl sm:rounded-2xl flex items-center justify-center flex-shrink-0 disabled:opacity-40"
+                            style={{
+                              background: dishStopped
+                                ? isDark
+                                  ? 'rgba(255,255,255,0.15)'
+                                  : 'rgba(0,0,0,0.15)'
+                                : accentColor.color,
+                            }}
                           >
                             <Plus className="w-5 h-5 sm:w-5.5 sm:h-5.5 md:w-6 md:h-6 text-white" />
                           </button>
@@ -1947,7 +2062,9 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                 <div className="px-4 pb-6">
                   <h3 className="text-xl font-bold mb-4">Menyu ({selectedRestaurantDishes.length} ta taom)</h3>
                   <div className="grid grid-cols-2 gap-3 md:grid-cols-3 md:gap-4 lg:grid-cols-5">
-                    {visibleMenuDishes.map((dish, menuIdx) => (
+                    {visibleMenuDishes.map((dish, menuIdx) => {
+                      const dishStopped = isDishTemporarilyStopped(dish);
+                      return (
                       <div
                         key={dish.id}
                         onClick={() => {
@@ -1959,12 +2076,14 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                           background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
                           boxShadow: isDark ? 'none' : '0 2px 8px rgba(0, 0, 0, 0.08)',
                           animationDelay: `${Math.min(menuIdx % FOODS_MENU_UI_STEP, 11) * 52}ms`,
+                          opacity: dishStopped ? 0.88 : 1,
                         }}
                       >
                         <div className="w-full aspect-square bg-black/10 relative">
                           {dish.images[0] && (
                             <img src={dish.images[0]} alt="" className="w-full h-full object-cover" />
                           )}
+                          {!dishStopped ? (
                           <div 
                             className="absolute top-3 right-3 px-2 py-1 rounded-xl text-xs font-bold flex items-center gap-1"
                             style={{ background: 'rgba(0, 0, 0, 0.7)', color: '#fff' }}
@@ -1972,6 +2091,14 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                             <Star className="w-3 h-3 fill-yellow-400 text-yellow-400" />
                             4.9
                           </div>
+                          ) : (
+                          <div className="absolute inset-0 flex flex-col items-center justify-center gap-1.5 bg-black/55 px-2 text-center">
+                            <span className="text-white text-xs font-bold uppercase tracking-wide">
+                              {dishStopLabelUz(dish)}
+                            </span>
+                            <DishResumeCountdown dish={dish} isDark accentColor={accentColor.color} />
+                          </div>
+                          )}
                         </div>
                         
                         <div className="p-3">
@@ -1987,15 +2114,32 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                               <p className="text-xs" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>so'm</p>
                             </div>
                             <button
-                              className="w-10 h-10 rounded-xl flex items-center justify-center"
-                              style={{ background: accentColor.color }}
+                              type="button"
+                              disabled={dishStopped}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                if (dishStopped) {
+                                  toast.error('Taom vaqtincha tugagan');
+                                  return;
+                                }
+                                setSelectedRestaurant(null);
+                                handleDishClick(dish);
+                              }}
+                              className="w-10 h-10 rounded-xl flex items-center justify-center disabled:opacity-40"
+                              style={{
+                                background: dishStopped
+                                  ? isDark
+                                    ? 'rgba(255,255,255,0.15)'
+                                    : 'rgba(0,0,0,0.15)'
+                                  : accentColor.color,
+                              }}
                             >
                               <Plus className="w-5 h-5 text-white" />
                             </button>
                           </div>
                         </div>
                       </div>
-                    ))}
+                    );})}
                   </div>
                   <div ref={menuDishesScrollSentinelRef} className="h-1 w-full" aria-hidden />
                   {hasMoreMenuDishes && (
@@ -3089,6 +3233,14 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                   borderColor: isDark ? '#1f1f1f' : '#e5e7eb',
                 }}
               >
+                {dishTemporarilyStopped && selectedDish ? (
+                  <DishResumeCountdown
+                    dish={selectedDish}
+                    isDark={isDark}
+                    accentColor={accentColor.color}
+                    prominent
+                  />
+                ) : null}
                 {restaurantClosedByHours && dishModalHoursEv.label ? (
                   <p
                     className="text-xs text-center mb-2"
@@ -3103,7 +3255,8 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     <button
                       type="button"
                       onClick={() => setQuantity(Math.max(1, quantity - 1))}
-                      className="w-11 h-11 rounded-xl flex items-center justify-center"
+                      disabled={dishModalAddBlocked}
+                      className="w-11 h-11 rounded-xl flex items-center justify-center disabled:opacity-40"
                       style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
                     >
                       <Minus className="w-5 h-5" />
@@ -3112,7 +3265,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     <button
                       type="button"
                       onClick={() => setQuantity(quantity + 1)}
-                      disabled={restaurantClosedByHours}
+                      disabled={dishModalAddBlocked}
                       className="w-11 h-11 rounded-xl flex items-center justify-center disabled:opacity-40 disabled:cursor-not-allowed"
                       style={{ background: accentColor.color, color: '#fff' }}
                     >
@@ -3124,10 +3277,10 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                   <button
                     type="button"
                     onClick={handleAddToCart}
-                    disabled={restaurantClosedByHours}
+                    disabled={dishModalAddBlocked}
                     className="min-h-[3.25rem] w-full min-w-0 flex-1 shrink-0 rounded-2xl py-4 text-base font-bold disabled:cursor-not-allowed disabled:opacity-50 min-[400px]:min-w-[12rem]"
                     style={{
-                      background: restaurantClosedByHours
+                      background: dishModalAddBlocked
                         ? isDark
                           ? 'rgba(255,255,255,0.12)'
                           : 'rgba(0,0,0,0.12)'
@@ -3135,9 +3288,16 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                       color: '#fff',
                     }}
                   >
-                    {restaurantClosedByHours ? (
-                      <div className="flex w-full items-center justify-center py-0.5">
-                        <Clock className="w-6 h-6" aria-label="Yopiq" />
+                    {dishModalAddBlocked ? (
+                      <div className="flex w-full flex-col items-center justify-center py-0.5 gap-0.5">
+                        {dishTemporarilyStopped ? (
+                          <>
+                            <Timer className="w-6 h-6" aria-hidden />
+                            <span className="text-xs font-semibold">{dishStopLabelUz(selectedDish)}</span>
+                          </>
+                        ) : (
+                          <Clock className="w-6 h-6" aria-label="Yopiq" />
+                        )}
                       </div>
                     ) : (
                       <div className="flex items-center justify-between px-4">

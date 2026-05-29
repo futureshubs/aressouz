@@ -526,10 +526,12 @@ export default function OrdersManagement({
       }
     }
 
-    // Filial market «Yangi»: naqd qabul alohida panelda; kartochka panjarasida barcha market
-    // yangi buyurtmalar takrorlanmasin va onlayn to‘lovlar bu yerda chiqmasin (tayyorlovchi oqimi).
+    // Filial market «Yangi»: filial qabul panelidagi buyurtmalar ro‘yxatda takrorlanmasin.
     if (authMode === 'branch' && activeTab === 'market' && statusFilter === 'incoming') {
-      filtered = filtered.filter((order) => order.type !== 'market');
+      filtered = filtered.filter((order) => {
+        if (order.type !== 'market') return true;
+        return Boolean((order as any).releasedToPreparerAt);
+      });
     }
     if (authMode === 'branch' && activeTab === 'shop' && statusFilter === 'incoming') {
       filtered = filtered.filter((order) => order.type !== 'shop');
@@ -2325,15 +2327,12 @@ export default function OrdersManagement({
         </div>
       </div>
 
-      {/* Naqd qabul — faqat «Yangi» filtrida (market + filial) */}
-      {authMode === 'branch' &&
-      (type === 'market' || type === 'shop') &&
-      branchId &&
-      statusFilter === 'incoming' ? (
+      {/* Market / do‘kon filial qabuli */}
+      {authMode === 'branch' && (type === 'market' || type === 'shop') && branchId ? (
         <PendingCashMarketBranchPanel
           readOnly={!!readOnly}
           onOrdersChanged={() => loadOrders(true)}
-          cashPendingScope={type === 'market' ? 'market' : 'shop'}
+          cashPendingScope={type === 'market' ? 'market' : type === 'shop' ? 'shop' : 'all'}
         />
       ) : null}
 

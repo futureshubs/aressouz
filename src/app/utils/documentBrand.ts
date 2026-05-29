@@ -23,6 +23,12 @@ const ROUTE_BRANDS: RouteBrand[] = [
   { prefix: '/restaurant', title: 'Taom — ARESSO', appleTitle: 'Taom' },
   { prefix: '/filyal', title: 'Filial — ARESSO', appleTitle: 'Filial' },
   { prefix: '/admin', title: 'Admin — ARESSO', appleTitle: 'Admin' },
+  { prefix: '/bogalter', title: 'Bogalter — ARESSO', appleTitle: 'Bogalter' },
+  { prefix: '/xodim', title: 'Xodim — ARESSO', appleTitle: 'Xodim' },
+  { prefix: '/omborchi', title: 'Ombor — ARESSO', appleTitle: 'Ombor' },
+  { prefix: '/kassa', title: 'Kassa — ARESSO', appleTitle: 'Kassa' },
+  { prefix: '/support', title: 'Support — ARESSO', appleTitle: 'Support' },
+  { prefix: '/ijara-panel', title: 'Ijara — ARESSO', appleTitle: 'Ijara' },
 ];
 
 function resolveBrand(pathname: string, isDark: boolean): RouteBrand & { icon: string } {

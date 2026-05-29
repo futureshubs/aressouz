@@ -39,11 +39,15 @@ import {
 import { toast } from 'sonner';
 import { edgeFunctionBaseUrl } from '../../utils/edgeFunctionBaseUrl';
 import { publicAnonKey } from '../../../../utils/supabase/info';
-import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
+import { buildBranchHeaders, getStoredBranchToken, getStoredStaffToken } from '../../utils/requestAuth';
 import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { uploadFormDataWithProgress } from '../../utils/uploadWithProgress';
 import { validateImageForUpload } from '../../utils/imageDimensionRules';
 import { formatOrderNumber } from '../../utils/orderNumber';
+import {
+  playPanelAlertBeep,
+  showPanelNotification,
+} from '../../utils/panelNotifications';
 
 interface Payment {
   id: string;
@@ -65,6 +69,8 @@ interface Payment {
   paymentGateway?: string;
   qrImageUrl?: string;
   paymentRequiresVerification?: boolean;
+  /** Server: taom/do‘kon onlayn — kassa chek kutilmoqda */
+  needsCashierReceipt?: boolean;
   receiptUrl?: string;
   paymentConfirmedAt?: string;
   createdAt: string;
@@ -113,7 +119,75 @@ interface PaymentStats {
   }>;
 }
 
-/** Bir buyurtma uchun bir nechta payment qatori kelsa — kassada bitta kartochka. Terminal holat (to‘langan) doim ustun. */
+const isCashLikeMethod = (method: string) => {
+  const m = String(method || '').toLowerCase().trim().replace(/\s+/g, '');
+  if (!m) return false;
+  if (m === 'cash' || m === 'naqd' || m === 'naqdpul') return true;
+  return m.includes('naqd') || m.includes('cash');
+};
+
+const isFoodOrShopOrderPayment = (p: Payment) => {
+  const t = String(p.orderType || '').toLowerCase().trim();
+  return t === 'food' || t === 'restaurant' || t.includes('restaurant') || t === 'shop';
+};
+
+const isAcceptedOrderStatus = (raw?: string) => {
+  const s = String(raw || '').toLowerCase().trim();
+  if (!s) return false;
+  return (
+    s === 'accepted' ||
+    s === 'confirmed' ||
+    s.includes('accept') ||
+    s.includes('confirm') ||
+    s.includes('qabul')
+  );
+};
+
+const isCashierPendingNoReceipt = (p: Payment) => {
+  if (p.type !== 'payment') return false;
+  const st = String(p.status || '').toLowerCase().trim();
+  if (st !== 'pending' && st !== 'processing') return false;
+  return !String(p.receiptUrl || '').trim();
+};
+
+/** Taom / do‘kon qabul qilmaguncha — Berish navbatida emas. */
+export const isAwaitingMerchantAcceptancePayment = (p: Payment): boolean => {
+  if (!isFoodOrShopOrderPayment(p)) return false;
+  const st = String(p.status || '').toLowerCase().trim();
+  const os = String(p.orderStatus || '').toLowerCase().trim();
+  if (st === 'processing' || st === 'completed') return false;
+  if (isAcceptedOrderStatus(p.orderStatus)) return false;
+  if (['preparing', 'ready', 'with_courier', 'delivering', 'delivered'].includes(os)) return false;
+  if (['cancelled', 'canceled', 'rejected'].includes(os)) return false;
+  if (os === 'pending' || os === 'new' || !os) return st === 'pending';
+  return false;
+};
+
+const isOnlineMethodNeedingCashierQr = (m: string) =>
+  ['click', 'click_card', 'payme', 'atmos', 'uzum', 'apelsin', 'card', 'online'].includes(m);
+
+/** Kassa «Berish» — ko‘rsatiladigan va toastdagi «navbatda» soni shu filtrdan. */
+export const isCashierBerishQueuePayment = (p: Payment): boolean => {
+  if (!isCashierPendingNoReceipt(p)) return false;
+  if (isAwaitingMerchantAcceptancePayment(p)) return false;
+  if (Boolean(p.needsCashierReceipt)) return true;
+  const m = String(p.method || '').toLowerCase().trim();
+  if (
+    Boolean(p.paymentRequiresVerification) ||
+    m === 'qr' ||
+    m === 'online' ||
+    isOnlineMethodNeedingCashierQr(m)
+  ) {
+    return true;
+  }
+  if (isFoodOrShopOrderPayment(p)) {
+    if (String(p.status || '').toLowerCase() === 'processing' && !isCashLikeMethod(m)) return true;
+    if (isAcceptedOrderStatus(p.orderStatus) && !isCashLikeMethod(m)) return true;
+  }
+  return false;
+};
+
+/** Bir buyurtma uchun bir nechta payment qatori kelsa — kassada bitta kartochka. Berish navbatini completed ustidan saqlaydi. */
 function dedupePaymentsByOrderId(list: Payment[]): Payment[] {
   const byOrder = new Map<string, Payment>();
   const statusRank = (x: Payment) => {
@@ -134,13 +208,36 @@ function dedupePaymentsByOrderId(list: Payment[]): Payment[] {
       byOrder.set(oid, p);
       continue;
     }
+    const prevBerish = isCashierBerishQueuePayment(prev);
+    const pBerish = isCashierBerishQueuePayment(p);
+    if (pBerish && !prevBerish) {
+      byOrder.set(oid, p);
+      continue;
+    }
+    if (prevBerish && !pBerish) continue;
+
+    const prevPending = isCashierPendingNoReceipt(prev);
+    const pPending = isCashierPendingNoReceipt(p);
+    if (pPending && !prevPending) {
+      byOrder.set(oid, p);
+      continue;
+    }
+    if (prevPending && !pPending) continue;
+
     const rp = statusRank(prev);
     const r = statusRank(p);
     if (r > rp) {
       byOrder.set(oid, p);
       continue;
     }
-    if (r < rp) continue;
+    if (r < rp) {
+      const prevDone = rp === 50 && !String(prev.receiptUrl || '').trim();
+      const pActive = (r === 20 || r === 10) && !String(p.receiptUrl || '').trim();
+      if (prevDone && pActive) {
+        byOrder.set(oid, p);
+      }
+      continue;
+    }
     const prevReceipt = String(prev.receiptUrl || '').trim();
     const pReceipt = String(p.receiptUrl || '').trim();
     if (pReceipt && !prevReceipt) {
@@ -151,43 +248,6 @@ function dedupePaymentsByOrderId(list: Payment[]): Payment[] {
     if (rowTs(p) >= rowTs(prev)) byOrder.set(oid, p);
   }
   return Array.from(byOrder.values());
-}
-
-function playCashierAlertBeep() {
-  if (typeof window === 'undefined') return;
-  try {
-    const AC =
-      window.AudioContext ||
-      (window as typeof window & { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
-    if (!AC) return;
-    const ctx = new AC();
-    const osc = ctx.createOscillator();
-    const gain = ctx.createGain();
-    osc.connect(gain);
-    gain.connect(ctx.destination);
-    osc.frequency.value = 784;
-    gain.gain.value = 0.065;
-    osc.start();
-    osc.stop(ctx.currentTime + 0.11);
-    osc.onended = () => {
-      void ctx.close();
-    };
-  } catch {
-    /* brauzer ovozni bloklagan bo‘lishi mumkin */
-  }
-}
-
-function showCashierOrderNotification(body: string) {
-  if (typeof window === 'undefined' || !('Notification' in window)) return;
-  if (Notification.permission !== 'granted') return;
-  try {
-    new Notification('Aresso — Berish (kassa)', {
-      body,
-      tag: `cashier-${body.slice(0, 48)}`,
-    });
-  } catch {
-    /* ignore */
-  }
 }
 
 interface PaymentsProps {
@@ -209,6 +269,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
   const [payments, setPayments] = useState<Payment[]>([]);
   const [stats, setStats] = useState<PaymentStats | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [isRefreshing, setIsRefreshing] = useState(false);
   const [searchTerm, setSearchTerm] = useState('');
   const [statusFilter, setStatusFilter] = useState('all');
   const [methodFilter, setMethodFilter] = useState('all');
@@ -248,13 +309,18 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
   }, [searchTerm]);
 
   const loadPayments = useCallback(
-    async ({ silent = false }: { silent?: boolean } = {}) => {
+    async ({
+      silent = false,
+      userInitiated = false,
+    }: { silent?: boolean; userInitiated?: boolean } = {}) => {
+      const notify = !silent || userInitiated;
       try {
         if (!String(branchId || '').trim()) {
-          if (!silent) toast.error('Filial tanlanmagan — qayta kiring');
+          if (notify) toast.error('Filial tanlanmagan — qayta kiring');
           return;
         }
-        if (!silent) setIsLoading(true);
+        if (userInitiated) setIsRefreshing(true);
+        else if (!silent) setIsLoading(true);
 
         const snap = filterSnapshotRef.current;
         const params = new URLSearchParams({
@@ -270,8 +336,13 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           if (snap.methodFilter !== 'all') params.set('method', snap.methodFilter);
         }
         const branchToken = getStoredBranchToken();
-        if (branchToken) {
-          params.set('branchToken', branchToken);
+        const staffToken = getStoredStaffToken();
+        if (branchToken) params.set('branchToken', branchToken);
+        if (staffToken) params.set('staffToken', staffToken);
+
+        if (!branchToken && !staffToken) {
+          if (notify) toast.error('Kassa sessiyasi yo‘q — qayta kiring (/kassa)');
+          return;
         }
 
         const response = await fetch(`${apiBaseUrl}/payments?${params}`, {
@@ -296,7 +367,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           setStats(null);
           const detail = String(data.error || data.message || '').trim();
           console.error('❌ Payments API:', response.status, detail || response.statusText);
-          if (!silent) {
+          if (notify) {
             toast.error(
               detail
                 ? `To‘lovlar: ${detail}`
@@ -312,7 +383,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           setPayments([]);
           setStats(null);
           const detail = String(data.error || data.message || '').trim();
-          if (!silent) toast.error(detail ? `To‘lovlar: ${detail}` : 'To‘lovlar javobi noto‘g‘ri');
+          if (notify) toast.error(detail ? `To‘lovlar: ${detail}` : 'To‘lovlar javobi noto‘g‘ri');
           return;
         }
 
@@ -321,25 +392,35 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           if (variant === 'cashier') list = dedupePaymentsByOrderId(list);
           setPayments(list);
           setStats(data.stats ?? null);
+          if (userInitiated && variant === 'cashier') {
+            const berishN = list.filter(isCashierBerishQueuePayment).length;
+            const waitN = list.filter(isAwaitingMerchantAcceptancePayment).length;
+            toast.success(
+              berishN > 0
+                ? `Yangilandi — ${berishN} ta to‘lov Berish navbatida`
+                : waitN > 0
+                  ? `Yangilandi — ${waitN} ta qabul kutilmoqda`
+                  : 'Yangilandi — navbat bo‘sh',
+            );
+          }
         }
       } catch (error) {
         console.error('❌ Error loading payments:', error);
-        if (!silent) {
+        if (notify) {
           const msg = error instanceof TypeError && String(error.message).includes('fetch')
             ? 'Serverga ulanib bo‘lmadi (tarmoq yoki CORS). aresso.app ALLOWED_ORIGINS da bo‘lishi kerak.'
             : "To'lovlarni yuklashda xatolik";
           toast.error(msg);
         }
       } finally {
-        if (!silent) setIsLoading(false);
+        if (userInitiated) setIsRefreshing(false);
+        else if (!silent) setIsLoading(false);
       }
     },
     [apiBaseUrl, branchId, variant],
   );
 
-  /** Kassa: sahifa almashtirishda qo‘shimcha refetch yo‘q — faqat interval (3 s). */
   useVisibilityRefetch(() => {
-    if (variant === 'cashier') return;
     void loadPayments({ silent: true });
   });
 
@@ -359,13 +440,6 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
     }, ms);
     return () => window.clearInterval(t);
   }, [loadPayments, variant]);
-
-  useEffect(() => {
-    if (variant !== 'cashier' || typeof window === 'undefined') return;
-    if (!('Notification' in window)) return;
-    if (Notification.permission !== 'default') return;
-    void Notification.requestPermission().catch(() => {});
-  }, [variant]);
 
   useEffect(() => {
     if (variant !== 'cashier') return;
@@ -406,61 +480,9 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
     }
   };
 
-  const isFoodLike = (raw?: string) => {
-    const t = String(raw || '').toLowerCase().trim();
-    return t === 'food' || t === 'restaurant' || t.includes('restaurant');
-  };
-  const isShopLike = (raw?: string) => String(raw || '').toLowerCase().trim() === 'shop';
-  const isFoodOrShopMerchantOrder = (p: Payment) => isFoodLike(p.orderType) || isShopLike(p.orderType);
-  const isAcceptedLike = (raw?: string) => {
-    const s = String(raw || '').toLowerCase().trim();
-    if (!s) return false;
-    return (
-      s === 'accepted' ||
-      s === 'confirmed' ||
-      s.includes('accept') ||
-      s.includes('confirm') ||
-      s.includes('qabul')
-    );
-  };
-
-  /**
-   * Taom: restoran / Do‘kon: seller panel qabul qilmaguncha — kassada to‘lov QR chiqmasligi kerak.
-   * Qabul qilingach `mapOrderToPaymentUIStatus` → processing bo‘ladi, QR ochiladi.
-   */
-  const isAwaitingMerchantAcceptance = (p: Payment): boolean => {
-    if (!isFoodOrShopMerchantOrder(p)) return false;
-    const st = String(p.status || '').toLowerCase().trim();
-    const os = String(p.orderStatus || '').toLowerCase().trim();
-    if (st === 'processing' || st === 'completed') return false;
-    if (isAcceptedLike(p.orderStatus)) return false;
-    if (['preparing', 'ready', 'with_courier', 'delivering', 'delivered'].includes(os)) return false;
-    if (['cancelled', 'canceled', 'rejected'].includes(os)) return false;
-    if (os === 'pending' || os === 'new' || !os) return st === 'pending';
-    return false;
-  };
-
-  const canShowCashierMerchantQrForOrder = (p: Payment): boolean => !isAwaitingMerchantAcceptance(p);
-
-  /** Onlayn to‘lov (Click/Payme/…) + kassa QR — `paymentRequiresVerification` ba’zi yozuvlarda false bo‘lishi mumkin. */
-  const isOnlineMethodNeedingCashierQr = (m: string) =>
-    ['click', 'click_card', 'payme', 'atmos', 'uzum', 'apelsin', 'card', 'online'].includes(m);
-
-  /** Kassa «Berish»: restoran qabulidan keyin chek kutiladi (QR bo‘lmasa ham navbatda turadi). */
-  /** Berish navbati: QR ixtiyoriy; chek majburiy. */
-  const isCashierQrQueuePayment = (p: Payment): boolean => {
-    if (p.type !== 'payment') return false;
-    const st = String(p.status || '').toLowerCase().trim();
-    if (st !== 'pending' && st !== 'processing') return false;
-    if (String(p.receiptUrl || '').trim()) return false;
-    if (!canShowCashierMerchantQrForOrder(p)) return false;
-    const m = String(p.method || '').toLowerCase().trim();
-    return (
-      Boolean(p.paymentRequiresVerification) ||
-      m === 'qr' ||
-      (isFoodOrShopMerchantOrder(p) && isOnlineMethodNeedingCashierQr(m))
-    );
-  };
+  const isFoodOrShopMerchantOrder = (p: Payment) => isFoodOrShopOrderPayment(p);
+  const isAwaitingMerchantAcceptance = (p: Payment) => isAwaitingMerchantAcceptancePayment(p);
+  const isCashierQrQueuePayment = (p: Payment) => isCashierBerishQueuePayment(p);
 
   const paymentsForCashierUi = useMemo(
     () => (variant === 'cashier' ? dedupePaymentsByOrderId(payments) : payments),
@@ -491,13 +513,19 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
     if (prev == null) return;
     const newcomers = [...next].filter((id) => !prev.has(id));
     if (newcomers.length === 0) return;
-    playCashierAlertBeep();
+    playPanelAlertBeep();
     const labels = newcomers.map((id) => {
       const p = inQueue.find((x) => String(x.orderId) === id);
       return p ? formatOrderNumber(p.orderNumber, p.orderId) : id;
     });
     const description = labels.length > 4 ? `${labels.slice(0, 4).join(', ')}…` : labels.join(', ');
-    showCashierOrderNotification(`Yangi: ${description}`);
+    void showPanelNotification({
+      panel: 'kassa',
+      title: 'Berish (kassa)',
+      body: `Yangi: ${description}`,
+      tag: `cashier-${newcomers[0]}`,
+      url: '/kassa/dashboard',
+    });
     toast.message('Yangi buyurtma — Berish', { description, duration: 6500 });
   }, [paymentsForCashierUi, variant]);
 
@@ -521,7 +549,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
     const status = String(payment.status || '').toLowerCase().trim();
     const os = String(payment.orderStatus || '').toLowerCase().trim();
     // Taom / do‘kon: qabul holati alohida ko‘rsatiladi.
-    if (isFoodOrShopMerchantOrder(payment) && isAcceptedLike(payment.orderStatus)) {
+    if (isFoodOrShopMerchantOrder(payment) && isAcceptedOrderStatus(payment.orderStatus)) {
       return 'Qabul qilindi';
     }
     if (isFoodOrShopMerchantOrder(payment) && status === 'processing') {
@@ -546,7 +574,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
 
   const getStatusCategoryKey = (payment: Payment) => {
     const base = String(payment.status || '').toLowerCase().trim();
-    if (isFoodOrShopMerchantOrder(payment) && (isAcceptedLike(payment.orderStatus) || base === 'processing')) {
+    if (isFoodOrShopMerchantOrder(payment) && (isAcceptedOrderStatus(payment.orderStatus) || base === 'processing')) {
       return 'processing';
     }
     return base;
@@ -607,12 +635,7 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
 
   if (variant === 'cashier') {
     const qrQueue = paymentsForCashierUi.filter(isCashierQrQueuePayment);
-    const waitingMerchant = paymentsForCashierUi.filter(
-      (p) =>
-        p.type === 'payment' &&
-        (p.status === 'pending' || p.status === 'processing') &&
-        isAwaitingMerchantAcceptance(p),
-    );
+    const waitingMerchant = paymentsForCashierUi.filter(isAwaitingMerchantAcceptancePayment);
 
     const cashierConfirmedHistory = [...paymentsForCashierUi]
       .filter((p) => {
@@ -711,15 +734,15 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           </div>
           <button
             type="button"
-            onClick={() => void loadPayments({ silent: payments.length > 0 })}
-            disabled={isLoading && payments.length === 0}
-            className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold shrink-0 disabled:opacity-50"
+            onClick={() => void loadPayments({ silent: true, userInitiated: true })}
+            disabled={isRefreshing || (isLoading && payments.length === 0)}
+            className="inline-flex items-center justify-center gap-2 rounded-xl border px-4 py-2.5 text-sm font-semibold shrink-0 disabled:opacity-50 touch-manipulation active:scale-[0.98]"
             style={{
               background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)',
               borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
             }}
           >
-            {isLoading && payments.length === 0 ? (
+            {isRefreshing ? (
               <Loader2 className="h-4 w-4 animate-spin" />
             ) : (
               <RefreshCw className="h-4 w-4" />
@@ -727,6 +750,28 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
             Yangilash
           </button>
         </div>
+
+        {waitingMerchant.length > 0 ? (
+          <details
+            open
+            className="rounded-xl border px-4 py-3 text-sm mb-3"
+            style={{
+              borderColor: isDark ? 'rgba(245,158,11,0.35)' : 'rgba(245,158,11,0.45)',
+              background: isDark ? 'rgba(245,158,11,0.08)' : 'rgba(254,243,199,0.5)',
+            }}
+          >
+            <summary className="cursor-pointer font-semibold text-amber-700 dark:text-amber-300">
+              Restoran / do‘kon qabuli kutilmoqda ({waitingMerchant.length})
+            </summary>
+            <ul className="mt-2 space-y-1 opacity-90">
+              {waitingMerchant.slice(0, 12).map((p) => (
+                <li key={p.id} className="truncate">
+                  {formatOrderNumber(p.orderNumber, p.orderId)} — {p.customerName}
+                </li>
+              ))}
+            </ul>
+          </details>
+        ) : null}
 
         {qrQueue.length === 0 ? (
           <div
@@ -737,7 +782,9 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
               color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)',
             }}
           >
-            Hozircha navbatdagi to‘lov yo‘q
+            {waitingMerchant.length > 0
+              ? 'Qabul qilingach buyurtmalar shu yerda chiqadi'
+              : 'Hozircha navbatdagi to‘lov yo‘q'}
           </div>
         ) : (
           <div className="max-h-[min(70dvh,640px)] space-y-3 overflow-y-auto overscroll-y-contain pr-1 [-webkit-overflow-scrolling:touch]">
@@ -785,27 +832,6 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
             ))}
           </div>
         )}
-
-        {waitingMerchant.length > 0 ? (
-          <details
-            className="rounded-xl border px-4 py-3 text-sm"
-            style={{
-              borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
-              background: isDark ? 'rgba(255,255,255,0.03)' : 'rgba(0,0,0,0.02)',
-            }}
-          >
-            <summary className="cursor-pointer font-semibold">
-              Sotuvchi / restoran qabuli kutilmoqda ({waitingMerchant.length})
-            </summary>
-            <ul className="mt-2 space-y-1 opacity-90">
-              {waitingMerchant.slice(0, 12).map((p) => (
-                <li key={p.id} className="truncate">
-                  {formatOrderNumber(p.orderNumber, p.orderId)} — {p.customerName}
-                </li>
-              ))}
-            </ul>
-          </details>
-        ) : null}
 
         <details
           open
@@ -1431,8 +1457,10 @@ export function Payments({ branchId, branchInfo, variant = 'full' }: PaymentsPro
           <option value="90days">Oxirgi 90 kun</option>
         </select>
         <button
-          onClick={loadPayments}
-          className="p-2 rounded-xl border transition-all hover:shadow-lg"
+          type="button"
+          onClick={() => void loadPayments({ silent: true, userInitiated: true })}
+          disabled={isRefreshing}
+          className="p-2 rounded-xl border transition-all hover:shadow-lg disabled:opacity-50"
           style={{
             background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(255, 255, 255, 0.8)',
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',

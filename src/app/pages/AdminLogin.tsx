@@ -1,7 +1,8 @@
 import { useEffect, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Shield, Lock, ChevronRight, Copy, User, Loader2 } from 'lucide-react';
+import { Lock, ChevronRight, Copy, User, Loader2 } from 'lucide-react';
+import PanelLoginShell from '../components/brand/PanelLoginShell';
 import { toast } from 'sonner';
 import { projectId } from '../../../utils/supabase/info';
 import { buildAdminLoginHeaders } from '../utils/requestAuth';
@@ -187,54 +188,21 @@ export default function AdminLogin() {
     }
   };
 
-  return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4 app-safe-pt"
-      style={{
-        background: isDark
-          ? 'linear-gradient(135deg, #000000 0%, #0a0a0a 100%)'
-          : 'linear-gradient(135deg, #f9fafb 0%, #e5e7eb 100%)',
-      }}
-    >
-      <div className="w-full max-w-md">
-        <div className="text-center mb-8">
-          <div
-            className="inline-flex p-4 rounded-3xl mb-4"
-            style={{
-              background: isDark
-                ? 'linear-gradient(145deg, rgba(20, 184, 166, 0.1), rgba(20, 184, 166, 0.05))'
-                : 'linear-gradient(145deg, rgba(20, 184, 166, 0.15), rgba(20, 184, 166, 0.08))',
-              boxShadow: isDark
-                ? '0 8px 32px rgba(20, 184, 166, 0.2), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-                : '0 8px 32px rgba(20, 184, 166, 0.15), inset 0 1px 0 rgba(255, 255, 255, 0.5)',
-            }}
-          >
-            <Shield className="w-12 h-12" style={{ color: accentColor.color }} />
-          </div>
-          <h1 className="text-3xl font-bold mb-2" style={{ color: isDark ? '#ffffff' : '#111827' }}>
-            Admin Panel
-          </h1>
-          <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            {step === 'credentials'
-              ? 'Login, parol va maxfiy kod'
-              : step === 'setup'
-                ? '2FA sozlash'
-                : 'Authenticator kodi'}
-          </p>
-        </div>
+  const stepSubtitle =
+    step === 'credentials'
+      ? 'Login, parol va maxfiy kod'
+      : step === 'setup'
+        ? '2FA sozlash'
+        : 'Authenticator kodi';
 
-        <div
-          className="rounded-3xl p-8 border"
-          style={{
-            background: isDark
-              ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
-              : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-            boxShadow: isDark
-              ? '0 20px 60px rgba(0, 0, 0, 0.5), inset 0 1px 0 rgba(255, 255, 255, 0.1)'
-              : '0 20px 60px rgba(0, 0, 0, 0.1), inset 0 1px 0 rgba(255, 255, 255, 0.8)',
-          }}
-        >
+  return (
+    <PanelLoginShell
+      variant="admin"
+      showBack={false}
+      isDark={isDark}
+      accentColor={accentColor.color}
+      subtitle={stepSubtitle}
+    >
           {step === 'credentials' ? (
             <form onSubmit={handleCredentials} className="space-y-5">
               <div>
@@ -519,7 +487,6 @@ export default function AdminLogin() {
               </div>
             </form>
           )}
-        </div>
 
         <div className="flex justify-center gap-2 mt-6">
           <div
@@ -545,7 +512,6 @@ export default function AdminLogin() {
             }}
           />
         </div>
-      </div>
-    </div>
+    </PanelLoginShell>
   );
 }

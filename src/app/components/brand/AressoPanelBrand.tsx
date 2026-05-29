@@ -4,16 +4,46 @@ import {
   isAressoMainBrandVariant,
 } from '../../utils/aressoBrandAssets';
 
-export type AressoPanelVariant = 'seller' | 'taom' | 'kuryer' | 'tayyorlovchi' | 'system';
+export type AressoPanelVariant =
+  | 'system'
+  | 'seller'
+  | 'taom'
+  | 'kuryer'
+  | 'tayyorlovchi'
+  | 'avtokuryer'
+  | 'admin'
+  | 'filial'
+  | 'bogalter'
+  | 'xodim'
+  | 'kassa'
+  | 'omborchi'
+  | 'support'
+  | 'ijara';
 
 /** Panelga xos logolar (kun/tun alohida emas) */
 export const ARESSO_PANEL_LOGO_SRC: Record<AressoPanelVariant, string> = {
   system: aressoMainLogoSrc(false),
   seller: aressoMainLogoSrc(false),
   taom: aressoMainLogoSrc(false),
+  admin: aressoMainLogoSrc(false),
+  filial: aressoMainLogoSrc(false),
+  bogalter: aressoMainLogoSrc(false),
+  xodim: aressoMainLogoSrc(false),
+  kassa: aressoMainLogoSrc(false),
+  omborchi: aressoMainLogoSrc(false),
+  support: aressoMainLogoSrc(false),
+  ijara: aressoMainLogoSrc(false),
+  avtokuryer: '/branding/aresso-kuryer.png',
   kuryer: '/branding/aresso-kuryer.png',
   tayyorlovchi: '/branding/aresso-tayyorlovchi.png',
 };
+
+export function staffPanelBrandVariant(role: string | undefined): AressoPanelVariant {
+  if (role === 'warehouse') return 'omborchi';
+  if (role === 'cashier') return 'kassa';
+  if (role === 'operator' || role === 'support') return 'support';
+  return 'xodim';
+}
 
 export function resolveAressoPanelLogoSrc(
   variant: AressoPanelVariant,
@@ -30,7 +60,16 @@ const PANEL_LABEL: Record<AressoPanelVariant, string> = {
   seller: 'Seller Panel',
   taom: 'Taom Panel',
   kuryer: 'Kuryer Panel',
+  avtokuryer: 'Avtokuryer Panel',
   tayyorlovchi: 'Tayyorlovchi Panel',
+  admin: 'Admin Panel',
+  filial: 'Filial Panel',
+  bogalter: 'Bogalter Panel',
+  xodim: 'Xodim Panel',
+  kassa: 'Kassa Panel',
+  omborchi: 'Omborchi Panel',
+  support: 'Support Panel',
+  ijara: 'Ijara Panel',
 };
 
 const SIZE_MAP = {

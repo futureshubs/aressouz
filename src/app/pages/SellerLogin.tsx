@@ -3,17 +3,10 @@ import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { Lock, User, Loader2, ShoppingBag, Package, TrendingUp } from 'lucide-react';
 import AressoPanelBrand from '../components/brand/AressoPanelBrand';
-import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
+import { publicAnonKey } from '../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 import { toast } from 'sonner';
 import { readValidSellerSession } from '../utils/sellerSession';
-
-const sellerLoginUrl = () => {
-  const baseUrl =
-    typeof window !== 'undefined' && window.location.hostname === 'localhost'
-      ? DEV_API_BASE_URL
-      : API_BASE_URL;
-  return `${baseUrl}/seller/login`;
-};
 
 function scrollFieldIntoView(el: HTMLElement | null) {
   if (!el) return;
@@ -104,7 +97,7 @@ export default function SellerLogin() {
     setIsLoading(true);
 
     try {
-      const response = await fetch(sellerLoginUrl(), {
+      const response = await fetch(`${edgeFunctionBaseUrl()}/seller/login`, {
         method: 'POST',
         headers: {
           Authorization: `Bearer ${publicAnonKey}`,
@@ -136,8 +129,10 @@ export default function SellerLogin() {
         localStorage.setItem('sellerSession', JSON.stringify(sessionData));
         toast.success(data.message);
         navigate('/seller/dashboard');
+      } else if (response.status === 401) {
+        toast.error(data.error || 'Login yoki parol noto‘g‘ri');
       } else {
-        toast.error(data.error || 'Kirishda xatolik');
+        toast.error(data.error || `Kirishda xatolik (HTTP ${response.status})`);
       }
     } catch {
       toast.error('Serverga ulanishda xatolik');

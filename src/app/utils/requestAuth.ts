@@ -98,14 +98,25 @@ export const buildCourierHeaders = (headers: HeaderMap = {}): HeaderMap => {
   };
 };
 
+export const getStoredStaffToken = () => {
+  const session = safeParse<{ token?: string; staffToken?: string }>(
+    localStorage.getItem('staffSession'),
+  );
+  return session?.token?.trim() || session?.staffToken?.trim() || '';
+};
+
 export const getStoredBranchToken = () => {
   const session = safeParse<{ token?: string; branchToken?: string; branch_token?: string }>(
     localStorage.getItem('branchSession'),
+  );
+  const staff = safeParse<{ branchToken?: string; token?: string }>(
+    localStorage.getItem('staffSession'),
   );
   return (
     session?.token?.trim() ||
     session?.branchToken?.trim() ||
     session?.branch_token?.trim() ||
+    staff?.branchToken?.trim() ||
     ''
   );
 };
@@ -117,14 +128,16 @@ export const getStoredBranchJwt = () => {
 
 export const buildBranchHeaders = (headers: HeaderMap = {}): HeaderMap => {
   const branchToken = getStoredBranchToken();
+  const staffToken = getStoredStaffToken();
   const branchJwt = getStoredBranchJwt();
 
-  // Edge Functions (verify_jwt) expect Authorization: Bearer <anon JWT>. Filial Supabase
-  // sessiyasi alohida headerda — server validateBranchSession o‘qiydi.
+  // Edge Functions (verify_jwt) expect Authorization: Bearer <anon JWT>. Filial / kassa
+  // sessiyasi X-Branch-Token yoki X-Staff-Token orqali — server validateBranchSession o‘qiydi.
   return {
     apikey: publicAnonKey,
     Authorization: `Bearer ${publicAnonKey}`,
     ...(branchToken ? { 'X-Branch-Token': branchToken } : {}),
+    ...(staffToken ? { 'X-Staff-Token': staffToken } : {}),
     ...(branchJwt ? { 'X-Branch-Supabase-Jwt': branchJwt } : {}),
     ...headers,
   };

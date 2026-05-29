@@ -38,6 +38,19 @@ import { getOrderRecord, getOrderKeys } from "./services/order-kv-lookup.ts";
 import { registerPaymeReceiptRoutes } from "./routes/payme-receipt-routes.ts";
 
 import preparersRoutes from "./preparers.tsx";
+import {
+  registerPanelPushRoutes,
+  notifyNewOrderPanels,
+  notifyPreparerBranch,
+  notifyCourierBranch,
+  sendPanelPush,
+} from "./panel-push.tsx";
+import {
+  applyOrderCancelOneDayLineCooldown,
+  clearOutOfStockFlagsOnRestock,
+  isLineOnCooldown,
+  markSellerProductsOutOfStockUntilRestock,
+} from "./order-cancel-effects.ts";
 import twoFactorRoutes from "./twoFactor.tsx";
 import {
   assertBranch2FANotLocked,
@@ -63,6 +76,11 @@ import {
   extractRestaurantIdFromOrder,
   toIsoSafe,
   toIsoSafeOrNow,
+  merchantOrderNeedsCashierReceipt,
+  merchantCourierBlockedUntilReceipt,
+  isFoodOrShopMerchantOrderType,
+  isCashLikePaymentMethod,
+  resolveOrderPaymentMethod,
 } from "./services/payments-logic.ts";
 import {
   DEFAULT_MARKET_CATALOGS,
@@ -1161,38 +1179,6 @@ async function validateOrderOwnership(c: any, order: any) {
   }
 
   return { success: true, mode: 'owner', userId: auth.userId };
-}
-
-/** Filial bekorida qator mahsulotlari uchun ~24 soat KV yozuvi (keyinroq katalog API bilan «tugagan» filtri). */
-async function applyOrderCancelOneDayLineCooldown(order: any) {
-  try {
-    const bid = String(order?.branchId || '').trim();
-    if (!bid || !Array.isArray(order?.items)) return;
-    const until = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString();
-    const ot = String(order.orderType || order.type || '').toLowerCase();
-    const isFoodish = ot === 'food' || ot === 'restaurant';
-    for (const it of order.items) {
-      if (!it || typeof it !== 'object') continue;
-      const line = it as Record<string, unknown>;
-      let lineKey = '';
-      if (ot === 'market') {
-        lineKey = String(line.productUuid || line.productId || line.id || '').trim();
-      } else if (ot === 'shop') {
-        lineKey = String(line.id || line.productId || line.shopProductId || '').trim();
-      } else if (isFoodish) {
-        lineKey = String(line.dishId || line.id || '').trim();
-      }
-      if (!lineKey || lineKey.length < 2) continue;
-      const safeKey = lineKey.replace(/[^a-zA-Z0-9._:-]/g, '_').slice(0, 200);
-      await kv.set(`branch_line_cooldown_v1:${bid}:${ot || 'x'}:${safeKey}`, {
-        until,
-        createdAt: new Date().toISOString(),
-        sourceOrderId: String(order.id || order.orderId || ''),
-      });
-    }
-  } catch (e) {
-    console.warn('[cooldown] applyOrderCancelOneDayLineCooldown:', e);
-  }
 }
 
 const buildCommunityRoomId = (regionId: string, districtId: string) =>
@@ -9656,6 +9642,7 @@ app.get("/make-server-27d0d16c/shops", async (c) => {
 const buildCourierKey = (courierId: string) => `courier:${courierId}`;
 const buildCourierSessionKey = (token: string) => `courier_session:${token}`;
 const buildBranchSessionKey = (token: string) => `branch_session:${token}`;
+const buildStaffSessionKey = (token: string) => `staff_session:${token}`;
 
 const COURIER_BAG_STATUSES = new Set([
   'available_in_branch',
@@ -9720,6 +9707,8 @@ const normalizeCourierRecord = (courier: any) => ({
   averageDeliveryTime: Number(courier.averageDeliveryTime || 0),
   totalEarnings: Number(courier.totalEarnings || 0),
   balance: Number(courier.balance || 0),
+  /** Naqd mijozdan olingan, kassaga topshirilishi kerak (kassa «Pul oldim» dan keyin kamayadi). */
+  courierCashInHandUzs: Math.max(0, Number(courier.courierCashInHandUzs || 0)),
   lastDeliveryEarning: Number(courier.lastDeliveryEarning || 0),
   currentLocation: courier.currentLocation || null,
   workingHours: {
@@ -10541,6 +10530,7 @@ const isCourierPaymentOkForReleasedMerchantCash = (order: any) => {
   if (!order?.releasedToPreparerAt) return false;
   const s = String(order?.status || "").toLowerCase().trim();
   if (!["confirmed", "accepted", "preparing", "ready"].includes(s)) return false;
+  if (merchantCourierBlockedUntilReceipt(order)) return false;
   const ps = String(order?.paymentStatus || "").toLowerCase().trim();
   if (isPaidLikeStatus(ps)) return true;
   const pmRaw = order?.paymentMethod ?? order?.payment_method;
@@ -10556,6 +10546,18 @@ const isCourierPaymentOkForReleasedMerchantCash = (order: any) => {
     return isCashLikePaymentMethodRaw(pmRaw);
   }
   return false;
+};
+
+/** Taom/do‘kon naqd: restoran/seller qabul qilgach kuryer ko‘radi (filial release shart emas). */
+const isCourierPaymentOkForAcceptedMerchantCash = (order: any) => {
+  if (!isFoodOrShopMerchantOrderType(order)) return false;
+  const s = resolveOrderOperationalStatus(order);
+  if (!["accepted", "confirmed", "preparing", "ready"].includes(s)) return false;
+  if (merchantCourierBlockedUntilReceipt(order)) return false;
+  const pm = resolveOrderPaymentMethod(order);
+  if (!isCashLikePaymentMethod(pm)) return false;
+  const ps = String(order?.paymentStatus || "").toLowerCase().trim();
+  return ps === "pending" || ps === "" || ps === "unpaid" || !isPaidLikeStatus(ps);
 };
 
 /** Kuryer “mavjud buyurtmalar” / qabul qilish: do‘kon/oshxona to‘lovdan keyin status oshxonaga o‘tishi mumkin. */
@@ -10939,6 +10941,39 @@ async function validateBranchSession(c: any) {
       branchId,
       branch: branchRecord,
       authMode: "legacy" as const,
+    };
+  }
+
+  // Kassa / ombor / support: staff/login → staff_session (branchToken bilan bir qatorda)
+  const staffToken =
+    c.req.header("X-Staff-Token") ||
+    c.req.header("x-staff-token") ||
+    c.req.raw.headers.get("X-Staff-Token") ||
+    c.req.raw.headers.get("x-staff-token") ||
+    c.req.query("staffToken");
+
+  if (staffToken) {
+    const session = await kv.get(buildStaffSessionKey(String(staffToken).trim()));
+    if (!session) {
+      return { success: false as const, error: "Xodim sessiyasi topilmadi — qayta kiring" };
+    }
+    if (Date.now() > Number(session.expiresAt || 0)) {
+      await kv.del(buildStaffSessionKey(String(staffToken).trim()));
+      return { success: false as const, error: "Xodim sessiyasi muddati tugagan" };
+    }
+    const branchId = String(session.branchId || "").trim();
+    const branchRecord = branchId ? await kv.get(`branch:${branchId}`) : null;
+    if (!branchRecord) {
+      return { success: false as const, error: "Filial topilmadi" };
+    }
+    return {
+      success: true as const,
+      token: String(staffToken).trim(),
+      branchId,
+      branch: branchRecord,
+      authMode: "staff" as const,
+      staffRole: String(session.role || ""),
+      staffId: String(session.staffId || ""),
     };
   }
 
@@ -12058,11 +12093,18 @@ app.post("/make-server-27d0d16c/staff/login", async (c) => {
     }
 
     const branchToken = `branch-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
+    const staffToken = `staff-${Date.now()}-${Math.random().toString(36).slice(2, 12)}`;
     const expiresAt = Date.now() + 7 * 24 * 60 * 60 * 1000;
-    await kv.set(buildBranchSessionKey(branchToken), {
+    const sessionMeta = {
       branchId,
       createdAt: new Date().toISOString(),
       expiresAt,
+    };
+    await kv.set(buildBranchSessionKey(branchToken), sessionMeta);
+    await kv.set(buildStaffSessionKey(staffToken), {
+      ...sessionMeta,
+      staffId: staff.id,
+      role,
     });
 
     const branchPayload = {
@@ -12076,6 +12118,8 @@ app.post("/make-server-27d0d16c/staff/login", async (c) => {
       role,
       branch: branchPayload,
       branchToken,
+      token: staffToken,
+      staffToken,
       staff: {
         id: staff.id,
         role,
@@ -12425,8 +12469,27 @@ app.post("/make-server-27d0d16c/courier/payout-requests", async (c) => {
     if (amountUzs > balance) {
       return c.json({ success: false, error: "Balans yetarli emas" }, 400);
     }
-    if (method === "card" && !String(auth.courier.cardNumber || "").trim()) {
-      return c.json({ success: false, error: "Karta raqami kiritilmagan" }, 400);
+    const cardDigitsFromBody = String((body as any)?.cardNumber ?? (body as any)?.card_number ?? "")
+      .replace(/\D/g, "");
+    let courierRecord = auth.courier;
+    let cardForPayout = String(auth.courier.cardNumber || "").replace(/\D/g, "");
+    if (method === "card") {
+      if (cardDigitsFromBody.length >= 16) {
+        cardForPayout = cardDigitsFromBody.slice(0, 19);
+        const savedDigits = String(auth.courier.cardNumber || "").replace(/\D/g, "");
+        if (cardForPayout !== savedDigits) {
+          const nowUpdate = new Date().toISOString();
+          courierRecord = normalizeCourierRecord({
+            ...auth.courier,
+            cardNumber: cardForPayout,
+            updatedAt: nowUpdate,
+          });
+          await kv.set(buildCourierKey(auth.courier.id), courierRecord);
+        }
+      }
+      if (cardForPayout.length < 16) {
+        return c.json({ success: false, error: "Karta raqamini kiriting (kamida 16 raqam)" }, 400);
+      }
     }
     const id = `payout_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const now = new Date().toISOString();
@@ -12436,7 +12499,7 @@ app.post("/make-server-27d0d16c/courier/payout-requests", async (c) => {
       branchId: String(auth.courier.branchId || ""),
       courierName: String(auth.courier.name || ""),
       courierPhone: String(auth.courier.phone || ""),
-      courierCardNumber: String(auth.courier.cardNumber || "").trim() || null,
+      courierCardNumber: method === "card" ? cardForPayout : null,
       amountUzs: Math.round(amountUzs),
       requestedMethod: method,
       status: "pending",
@@ -12681,10 +12744,15 @@ app.get("/make-server-27d0d16c/courier/orders/available", async (c) => {
         pm === 'qrcode' ||
         pm.includes('qr');
       // Do‘kon/taom: asosan to‘langan; market/ijara tayyor bo‘lgach naqd (pending) ham kuryerga chiqadi.
+      if (merchantCourierBlockedUntilReceipt(order)) {
+        if (debugMode) bump('awaiting_cashier_receipt', { id: order.id, paymentStatus: ps });
+        continue;
+      }
       if (
         !isPaidLikeStatus(ps) &&
         !isCourierPaymentOkForReadyMarketRental(order) &&
-        !isCourierPaymentOkForReleasedMerchantCash(order)
+        !isCourierPaymentOkForReleasedMerchantCash(order) &&
+        !isCourierPaymentOkForAcceptedMerchantCash(order)
       ) {
         if (debugMode) bump('not_paid', { id: order.id, paymentStatus: ps, paymentMethod: pm });
         continue;
@@ -13002,10 +13070,14 @@ app.post("/make-server-27d0d16c/courier/orders/:id/accept", async (c) => {
     }
 
     const ps = String(orderRecord.order.paymentStatus || '').toLowerCase().trim();
+    if (merchantCourierBlockedUntilReceipt(orderRecord.order)) {
+      return c.json({ error: 'Kassa hali tadbirkorga to‘lov chekini tasdiqlamagan' }, 403);
+    }
     if (
       !isPaidLikeStatus(ps) &&
       !isCourierPaymentOkForReadyMarketRental(orderRecord.order) &&
-      !isCourierPaymentOkForReleasedMerchantCash(orderRecord.order)
+      !isCourierPaymentOkForReleasedMerchantCash(orderRecord.order) &&
+      !isCourierPaymentOkForAcceptedMerchantCash(orderRecord.order)
     ) {
       return c.json({ error: 'To\'lov hali tasdiqlanmadi' }, 403);
     }
@@ -13385,7 +13457,11 @@ app.post("/make-server-27d0d16c/courier/orders/:id/delivered", async (c) => {
      * (Yetkazish haqi kuryerda naqd ko‘rinishda qolmaydi — platforma orqali hisoblanadi.)
      */
     const courierCashHandoffExpectedUzs = isCashLike ? Math.max(0, finalTotalNum) : 0;
-    const courierCashHandoffStatus = isCashLike ? 'pending_cashier' : 'not_applicable';
+    const orderTypeDeliver = String(orderRecord.order.orderType || '').toLowerCase().trim();
+    const isMarketDeliver = orderTypeDeliver === 'market';
+    /** Market naqd: kassa navbati mijoz «Qabul qildim» dan keyin (confirm-delivery). */
+    const setHandoffOnDeliver = isCashLike && !isMarketDeliver;
+    const courierCashHandoffStatus = setHandoffOnDeliver ? 'pending_cashier' : 'not_applicable';
 
     const updatedOrder = {
       ...orderRecord.order,
@@ -13393,9 +13469,9 @@ app.post("/make-server-27d0d16c/courier/orders/:id/delivered", async (c) => {
       status: 'awaiting_receipt',
       courierWorkflowStatus: 'delivered',
       handedToCustomerAt: deliveredAt,
-      courierCashHandoffExpectedUzs,
+      courierCashHandoffExpectedUzs: setHandoffOnDeliver ? courierCashHandoffExpectedUzs : 0,
       courierCashHandoffStatus,
-      courierCashHandedToCashierAt: isCashLike ? null : orderRecord.order.courierCashHandedToCashierAt ?? null,
+      courierCashHandedToCashierAt: setHandoffOnDeliver ? null : orderRecord.order.courierCashHandedToCashierAt ?? null,
       // Naqd: to‘lov mijoz buyurtmani tasdiqlaguncha pending (bekor qilsa — to‘lanmagan hisoblanadi).
       paymentStatus: isCashLike
         ? String(orderRecord.order.paymentStatus || '').toLowerCase().trim() === 'paid'
@@ -13428,6 +13504,9 @@ app.post("/make-server-27d0d16c/courier/orders/:id/delivered", async (c) => {
         : completionMinutes,
       totalEarnings: Number(auth.courier.totalEarnings || 0) + earningAmount,
       balance: Number(auth.courier.balance || 0) + earningAmount,
+      courierCashInHandUzs:
+        Number(auth.courier.courierCashInHandUzs || 0) +
+        (setHandoffOnDeliver ? courierCashHandoffExpectedUzs : 0),
       lastDeliveryEarning: earningAmount,
       updatedAt: deliveredAt,
       lastActive: deliveredAt,
@@ -14729,11 +14808,12 @@ app.put("/make-server-27d0d16c/seller/products/:id", async (c) => {
     };
 
     await purgeRemovedR2Urls(product, updatedProduct);
-    await kv.set(`shop_product:${id}`, updatedProduct);
+    const withRestock = clearOutOfStockFlagsOnRestock(updatedProduct);
+    await kv.set(`shop_product:${id}`, withRestock);
 
     return c.json({ 
       success: true, 
-      product: updatedProduct, 
+      product: withRestock, 
       message: 'Mahsulot yangilandi' 
     });
   } catch (error: any) {
@@ -15347,20 +15427,28 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
     if (legacy && !legacy.deleted && normalizeShopIdForSeller(legacy.shopId) === sellerShopNorm) {
       const prevStatus = String(legacy.status || "").toLowerCase().trim();
       const nextStatus = String(status || "").toLowerCase().trim();
-      if (nextStatus === "cancelled" && prevStatus !== "cancelled") {
-        await restoreInventoryFromOrder(legacy);
-      }
       const nowLeg = new Date().toISOString();
       const wasPaidLeg =
         nextStatus === "cancelled" &&
         prevStatus !== "cancelled" &&
         isPaidLikeStatus(legacy.paymentStatus);
+      let inventoryMarkedCount = 0;
+      if (nextStatus === "cancelled" && prevStatus !== "cancelled") {
+        inventoryMarkedCount = await markSellerProductsOutOfStockUntilRestock(legacy);
+        if (inventoryMarkedCount < 1) {
+          console.warn(
+            `[seller cancel] ombor 0 belgilanmadi: order=${id} items=${Array.isArray(legacy.items) ? legacy.items.length : 0}`,
+          );
+        }
+      }
       const updatedOrder = {
         ...legacy,
         status,
         ...(nextStatus === "cancelled" && prevStatus !== "cancelled"
           ? {
-              inventoryRestoredOnCancel: true,
+              inventoryMarkedOutOnCancel: true,
+              sellerStockZeroedOnCancel: inventoryMarkedCount > 0,
+              sellerStockZeroedCount: inventoryMarkedCount,
               ...(wasPaidLeg ? { refundPending: true, refundRequestedAt: nowLeg } : {}),
               ...applyMerchantCollectFlagsOnCancel(legacy),
             }
@@ -15368,9 +15456,15 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
         updatedAt: nowLeg,
       };
       await kv.set(`shop_order:${id}`, updatedOrder);
+      const mirrorKey = `order:${id}`;
+      const mirror = await kv.get(mirrorKey);
+      if (mirror && !mirror.deleted) {
+        await kv.set(mirrorKey, { ...mirror, ...updatedOrder });
+      }
       return c.json({
         success: true,
         order: updatedOrder,
+        inventoryMarkedCount,
         message: "Buyurtma holati yangilandi",
       });
     }
@@ -15390,21 +15484,28 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
 
     const prevStatus = String(order.status || "").toLowerCase().trim();
     const nextStatus = String(status || "").toLowerCase().trim();
-    if (nextStatus === "cancelled" && prevStatus !== "cancelled") {
-      await restoreInventoryFromOrder(order);
-    }
-
     const now = new Date().toISOString();
     const wasPaidOnCancel =
       nextStatus === "cancelled" &&
       prevStatus !== "cancelled" &&
       isPaidLikeStatus(order.paymentStatus);
+    let inventoryMarkedCount = 0;
+    if (nextStatus === "cancelled" && prevStatus !== "cancelled") {
+      inventoryMarkedCount = await markSellerProductsOutOfStockUntilRestock(order);
+      if (inventoryMarkedCount < 1) {
+        console.warn(
+          `[seller cancel] ombor 0 belgilanmadi: order=${id} key=${record.key} items=${Array.isArray(order.items) ? order.items.length : 0}`,
+        );
+      }
+    }
     const updatedOrder = {
       ...order,
       status,
         ...(nextStatus === "cancelled" && prevStatus !== "cancelled"
         ? {
-            inventoryRestoredOnCancel: true,
+            inventoryMarkedOutOnCancel: true,
+            sellerStockZeroedOnCancel: inventoryMarkedCount > 0,
+            sellerStockZeroedCount: inventoryMarkedCount,
             ...(wasPaidOnCancel ? { refundPending: true, refundRequestedAt: now } : {}),
             ...applyMerchantCollectFlagsOnCancel(order),
           }
@@ -15420,6 +15521,10 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
       ],
     };
     await kv.set(record.key, updatedOrder);
+    const legacyMirror = await kv.get(`shop_order:${id}`);
+    if (legacyMirror && !legacyMirror.deleted) {
+      await kv.set(`shop_order:${id}`, { ...legacyMirror, ...updatedOrder });
+    }
     await syncFoodOrderMirrorKv(updatedOrder);
 
     try {
@@ -15437,9 +15542,27 @@ app.put("/make-server-27d0d16c/seller/orders/:id", async (c) => {
       console.warn("[seller order update] v2 sync:", e);
     }
 
+    if (nextStatus === "confirmed" || nextStatus === "accepted") {
+      const bid = String(updatedOrder.branchId || order.branchId || "").trim();
+      const orderNum = String(updatedOrder.orderNumber || updatedOrder.id || id);
+      if (bid) {
+        try {
+          void sendPanelPush("kassa", bid, {
+            title: "Kassa — do‘kon qabul qildi",
+            body: `Buyurtma ${orderNum} — to‘lov va chek yuboring`,
+            url: "/kassa/dashboard",
+            tag: `kassa-shop-${orderNum}`,
+          });
+        } catch {
+          /* push ixtiyoriy */
+        }
+      }
+    }
+
     return c.json({
       success: true,
       order: updatedOrder,
+      inventoryMarkedCount,
       message: "Buyurtma holati yangilandi",
     });
   } catch (error: any) {
@@ -15494,6 +15617,11 @@ app.post("/make-server-27d0d16c/shop/orders", async (c) => {
       }
 
       const qty = Math.max(0, Math.floor(Number(item.quantity ?? 1)));
+      if (Boolean(variant.outOfStockUntilRestock)) {
+        return c.json({
+          error: `Mahsulot vaqtincha tugagan (bekor buyurtmadan keyin omborga qo‘shing): ${product.name}`,
+        }, 400);
+      }
       const stock = Math.floor(Number(variant.stock ?? variant.stockQuantity ?? 0));
       if (stock < qty) {
         return c.json({
@@ -16663,11 +16791,12 @@ app.put("/make-server-27d0d16c/seller/inventory/:id", async (c) => {
       };
     }
 
-    await kv.set(`shop_product:${id}`, updatedProduct);
+    const withRestock = clearOutOfStockFlagsOnRestock(updatedProduct);
+    await kv.set(`shop_product:${id}`, withRestock);
 
     return c.json({ 
       success: true, 
-      product: updatedProduct, 
+      product: withRestock, 
       message: 'Ombor yangilandi' 
     });
   } catch (error: any) {
@@ -17073,6 +17202,9 @@ app.route('/make-server-27d0d16c', bannerRoutes);
 
 // ==================== PREPARERS ROUTES ====================
 app.route('/make-server-27d0d16c/preparers', preparersRoutes);
+
+// ==================== PANEL WEB PUSH ====================
+registerPanelPushRoutes(app);
 
 // ==================== 2FA ROUTES ====================
 app.route('/make-server-27d0d16c/2fa', twoFactorRoutes);
@@ -18171,6 +18303,25 @@ app.post("/make-server-27d0d16c/orders/:orderId/confirm-receipt", async (c) => {
       console.error('Telegram receipt photo send error:', tgErr);
     }
 
+    const bidPush = String(inferredBranchId || persistedPrimary?.branchId || '').trim();
+    if (bidPush) {
+      const orderNum = String(persistedPrimary?.orderNumber || orderId);
+      try {
+        void notifyCourierBranch(
+          bidPush,
+          `Kassa chek yubordi — #${orderNum} olib ketish`,
+        );
+        void sendPanelPush('kuryer', bidPush, {
+          title: 'Yangi buyurtma (kuryer)',
+          body: `#${orderNum} — kassa tasdiqladi, olib ketishingiz mumkin`,
+          url: '/kuryer/dashboard',
+          tag: `courier-receipt-${orderNum}`,
+        });
+      } catch {
+        /* push ixtiyoriy */
+      }
+    }
+
     return c.json({ success: true, order: persistedPrimary });
   } catch (error: any) {
     console.error('Confirm receipt error:', error);
@@ -18296,7 +18447,8 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
       }
 
       const uiStatus = mapOrderToPaymentUIStatus(order);
-      const uiMethod = mapMethodToUI(order.paymentMethod);
+      const uiMethod = mapMethodToUI(order.paymentMethod, order);
+      const needsCashierReceipt = merchantOrderNeedsCashierReceipt(order);
 
       const orderTypeNormalized = orderType;
 
@@ -18422,7 +18574,8 @@ app.get("/make-server-27d0d16c/payments", async (c) => {
         method: uiMethod,
         status: uiStatus,
         qrImageUrl,
-        paymentRequiresVerification: verificationRequired,
+        paymentRequiresVerification: verificationRequired || needsCashierReceipt,
+        needsCashierReceipt,
         receiptUrl: String(order.receiptUrl || order.paymentReceiptImageUrl || ''),
         paymentConfirmedAt: String(order.paymentConfirmedAt || order.paymentCompletedAt || ''),
         type: 'payment',
@@ -20604,6 +20757,51 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       );
     }
 
+    if (normalizedOrderType === 'food' || normalizedOrderType === 'restaurant') {
+      const bidFood = String(branchId || '').trim();
+      const itemsFood = Array.isArray(commissionPack.items) ? commissionPack.items : [];
+      for (const it of itemsFood) {
+        const dishId = String(it?.dishId ?? it?.id ?? '').trim();
+        if (!dishId) continue;
+        const dishKeys = dishId.startsWith('dish:') ? [dishId] : [dishId, `dish:${dishId}`];
+        let dishRow: any = null;
+        for (const dk of dishKeys) {
+          const rec = await kv.get(dk);
+          if (rec && !rec.deleted) {
+            dishRow = rec;
+            break;
+          }
+        }
+        const dishInactive = dishRow && dishRow.isActive === false;
+        if (dishInactive) {
+          const resumeAt = String(dishRow.autoResumeAt || '').trim();
+          const resumeMs = resumeAt ? new Date(resumeAt).getTime() : 0;
+          const stillStopped = !resumeMs || !Number.isFinite(resumeMs) || resumeMs > Date.now();
+          if (stillStopped) {
+            return c.json(
+              {
+                error: resumeAt
+                  ? 'Taom vaqtincha tugagan — teskari sanoq tugagach qayta buyurtma qilishingiz mumkin'
+                  : 'Taom vaqtincha to‘xtatilgan',
+                errorCode: 'dish_stopped',
+                autoResumeAt: resumeAt || null,
+              },
+              400,
+            );
+          }
+          if (bidFood && (await isLineOnCooldown(bidFood, 'food', dishId))) {
+            return c.json(
+              {
+                error: 'Bu taom hozir mavjud emas (bekor qilingan buyurtma — keyingi ish boshida)',
+                errorCode: 'dish_on_cooldown',
+              },
+              400,
+            );
+          }
+        }
+      }
+    }
+
     // ----------------------------------------------------------------------
     // Weight (kg) & auto-courier routing
     // - totalWeightKg = sum(weightKg * qty) across items
@@ -20707,12 +20905,10 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       (normalizedOrderType === 'shop' || normalizedOrderType === 'food') &&
       paymentStatus === 'paid' &&
       ONLINE_PAYMENT_METHODS.has(normalizedPaymentMethod);
-    const releasedToPreparerAt =
-      normalizedOrderType === 'market' && !marketCashHold
-        ? new Date().toISOString()
-        : shopOrFoodOnlinePaid
-          ? new Date().toISOString()
-          : undefined;
+    /** Barcha market buyurtmalar avval filialda (tel + qabul) — onlayn ham `releasedToPreparerAt` keyin. */
+    const releasedToPreparerAt = shopOrFoodOnlinePaid
+      ? new Date().toISOString()
+      : undefined;
 
     const foodOrderMirrorKey =
       normalizedOrderType === 'food' && inferredRestaurantId
@@ -21197,6 +21393,12 @@ app.post("/make-server-27d0d16c/orders", async (c) => {
       total: order.finalTotal
     });
     console.log('📦 ===== ORDER CREATION COMPLETE =====\n');
+
+    try {
+      void notifyNewOrderPanels(order as Record<string, unknown>);
+    } catch (pushErr) {
+      console.warn('[panel-push] new order:', pushErr);
+    }
     
     return c.json({ success: true, id: orderId, order });
   } catch (error: any) {
@@ -21861,6 +22063,23 @@ app.post('/make-server-27d0d16c/branch/courier-cash-handoffs/:orderId/confirm', 
         updatedAt: now,
       };
       await kv.set(record.key, updated);
+      const courierId = String(o.assignedCourierId || '').trim();
+      const handoffUzs = Number(o.courierCashHandoffExpectedUzs || 0) || 0;
+      if (courierId && handoffUzs > 0) {
+        const courierKey = buildCourierKey(courierId);
+        const courier = await kv.get(courierKey);
+        if (courier && !courier.deleted) {
+          const held = Math.max(0, Number(courier.courierCashInHandUzs || 0) - handoffUzs);
+          await kv.set(
+            courierKey,
+            normalizeCourierRecord({
+              ...courier,
+              courierCashInHandUzs: held,
+              updatedAt: now,
+            }),
+          );
+        }
+      }
       return c.json({ success: true, order: updated, handoffKind: 'market' });
     }
 
@@ -22223,6 +22442,51 @@ app.get('/make-server-27d0d16c/branch/cashier/stats', async (c) => {
   }
 });
 
+/** Filial: mijozga qo‘ng‘iroq qildi (market oqimi — tayyorlovchiga yuborishdan oldin). */
+app.post('/make-server-27d0d16c/orders/:orderId/branch-customer-called', async (c) => {
+  try {
+    const branchAuth = await validateBranchSession(c);
+    if (!branchAuth.success) {
+      return c.json({ error: branchAuth.error }, 403);
+    }
+    const orderId = String(c.req.param('orderId') || '').trim();
+    if (!orderId) return c.json({ error: 'Buyurtma ID kerak' }, 400);
+
+    const record = await getOrderRecord(orderId);
+    if (!record?.order) return c.json({ error: 'Buyurtma topilmadi' }, 404);
+
+    const o = record.order;
+    if (String(o.branchId || '') !== String(branchAuth.branchId || '')) {
+      return c.json({ error: "Bu filial uchun ruxsat yo'q" }, 403);
+    }
+    const keyStr = String(record.key || '');
+    const ot = String(o.orderType || o.type || '').toLowerCase();
+    const isMarketOrder = ot === 'market' || keyStr.startsWith('order:market:');
+    if (!isMarketOrder) {
+      return c.json({ error: 'Faqat market buyurtmalari uchun' }, 400);
+    }
+    if (o.branchCustomerCalledAt) {
+      return c.json({ success: true, order: o, alreadyCalled: true });
+    }
+
+    const now = new Date().toISOString();
+    const updated = {
+      ...o,
+      branchCustomerCalledAt: now,
+      updatedAt: now,
+      statusHistory: [
+        ...(Array.isArray(o.statusHistory) ? o.statusHistory : []),
+        { status: o.status || 'new', timestamp: now, note: 'Filial mijozga qo‘ng‘iroq qildi' },
+      ],
+    };
+    await kv.set(record.key, updated);
+    return c.json({ success: true, order: updated });
+  } catch (error: any) {
+    console.error('branch-customer-called error:', error);
+    return c.json({ error: error?.message || 'Xatolik' }, 500);
+  }
+});
+
 // Filial: naqd buyurtmani qabul qilib tayyorlovchi / sotuvchi / restoran jarayoniga chiqarish
 app.post('/make-server-27d0d16c/orders/:orderId/release-to-preparer', async (c) => {
   try {
@@ -22253,8 +22517,12 @@ app.post('/make-server-27d0d16c/orders/:orderId/release-to-preparer', async (c) 
     if (!isMarketOrder && !isShopOrder && !isFoodOrder) {
       return c.json({ error: 'Faqat market, do‘kon yoki taom buyurtmalari' }, 400);
     }
-    if (!isCashLikePaymentMethodRaw(o.paymentMethod ?? o.payment_method)) {
-      return c.json({ error: "Faqat naqd to'lov bilan buyurtmalar" }, 400);
+    const isCash = isCashLikePaymentMethodRaw(o.paymentMethod ?? o.payment_method);
+    if (!isMarketOrder && !isCash) {
+      return c.json({ error: "Faqat naqd to'lov bilan buyurtmalar (marketdan tashqari)" }, 400);
+    }
+    if (isMarketOrder && !String(o.branchCustomerCalledAt || '').trim()) {
+      return c.json({ error: 'Avval mijozga qo‘ng‘iroq qiling va «Tel qildim» ni bosing' }, 400);
     }
     if (o.releasedToPreparerAt) {
       return c.json({ success: true, order: o, alreadyReleased: true });
@@ -22317,6 +22585,13 @@ app.post('/make-server-27d0d16c/orders/:orderId/release-to-preparer', async (c) 
       });
     } catch (e) {
       console.warn('[release-to-preparer] preparer broadcast:', e);
+    }
+
+    try {
+      const orderNum = String(updated.orderNumber || updated.order_number || orderId);
+      void notifyPreparerBranch(String(branchAuth.branchId || ''), `Buyurtma #${orderNum} tayyorlovchiga`);
+    } catch (pushErr) {
+      console.warn('[panel-push] release-to-preparer:', pushErr);
     }
 
     return c.json({ success: true, order: updated });
@@ -23244,6 +23519,13 @@ app.post('/make-server-27d0d16c/orders/update-status', async (c) => {
     };
     await kv.set(orderRecord.key, updatedOrder);
 
+    if (nextStatus === 'cancelled' && prevStatus !== 'cancelled') {
+      const ot = String(updatedOrder.orderType || updatedOrder.type || '').toLowerCase().trim();
+      if (ot === 'food' || ot === 'restaurant') {
+        await applyOrderCancelOneDayLineCooldown(updatedOrder);
+      }
+    }
+
     // Keep Postgres marketplace `v2` in sync with legacy KV status/payment changes
     await syncRelationalOrderFromLegacy({
       legacyOrderId: orderId,
@@ -23344,7 +23626,8 @@ app.post('/make-server-27d0d16c/orders/cancel', async (c) => {
       /* v2 ixtiyoriy */
     }
 
-    if (access.mode === 'branch') {
+    const cancelOt = String(updatedOrder.orderType || updatedOrder.type || '').toLowerCase().trim();
+    if (cancelOt === 'food' || cancelOt === 'restaurant') {
       await applyOrderCancelOneDayLineCooldown(updatedOrder);
     }
 
@@ -23390,6 +23673,18 @@ app.post('/make-server-27d0d16c/orders/:orderId/confirm-delivery', async (c) => 
       pmRaw.includes('naqt') ||
       pmRaw.includes('cash');
 
+    const orderTypeCd = String(orderRecord.order.orderType || '').toLowerCase().trim();
+    const isMarketCd = orderTypeCd === 'market';
+    const finalTotalNum =
+      Number(
+        orderRecord.order.finalTotal ??
+          orderRecord.order.totalAmount ??
+          orderRecord.order.totalPrice ??
+          orderRecord.order.total ??
+          0,
+      ) || 0;
+    const handoffUzs = isCashLike && isMarketCd ? Math.max(0, finalTotalNum) : 0;
+
     const updatedOrder = {
       ...orderRecord.order,
       status: 'delivered',
@@ -23399,6 +23694,12 @@ app.post('/make-server-27d0d16c/orders/:orderId/confirm-delivery', async (c) => 
         ? {
             paymentStatus: 'paid',
             paymentCompletedAt: nowIso,
+          }
+        : {}),
+      ...(handoffUzs > 0
+        ? {
+            courierCashHandoffExpectedUzs: handoffUzs,
+            courierCashHandoffStatus: 'pending_cashier',
           }
         : {}),
       statusHistory: [
@@ -23415,6 +23716,24 @@ app.post('/make-server-27d0d16c/orders/:orderId/confirm-delivery', async (c) => 
     };
 
     await kv.set(orderRecord.key, updatedOrder);
+
+    if (handoffUzs > 0) {
+      const courierId = String(updatedOrder.assignedCourierId || '').trim();
+      if (courierId) {
+        const courierKey = buildCourierKey(courierId);
+        const courier = await kv.get(courierKey);
+        if (courier && !courier.deleted) {
+          await kv.set(
+            courierKey,
+            normalizeCourierRecord({
+              ...courier,
+              courierCashInHandUzs: Number(courier.courierCashInHandUzs || 0) + handoffUzs,
+              updatedAt: nowIso,
+            }),
+          );
+        }
+      }
+    }
 
     await syncRelationalOrderFromLegacy({
       legacyOrderId: orderId,
@@ -23479,6 +23798,14 @@ app.put("/make-server-27d0d16c/orders/:id/status", async (c) => {
     };
     
     await kv.set(orderRecord.key, updatedOrder);
+
+    if (nextStatus === 'cancelled' && prevStatus !== 'cancelled') {
+      const ot = String(updatedOrder.orderType || updatedOrder.type || '').toLowerCase().trim();
+      if (ot === 'food' || ot === 'restaurant') {
+        await applyOrderCancelOneDayLineCooldown(updatedOrder);
+      }
+    }
+
     if (status === 'cancelled' || status === 'delivered') {
       await detachBagFromOrderInternal(orderId, {
         actorType: 'admin',

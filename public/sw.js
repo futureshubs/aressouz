@@ -1,5 +1,5 @@
 /* ARESSO PWA — precache shell + build assets + runtime cache + offline support */
-const VERSION = 'aressouz-sw-16';
+const VERSION = 'aressouz-sw-20';
 const PRECACHE = `precache-${VERSION}`;
 const RUNTIME = `runtime-${VERSION}`;
 
@@ -30,6 +30,24 @@ const BUILD_PRECACHE_URLS = []; // AUTO-PRECACHE-DIST-ASSETS
 function sameOrigin(url) {
   try {
     return new URL(url, self.location.href).origin === self.location.origin;
+  } catch {
+    return false;
+  }
+}
+
+/** Dev (Vite) va API — SW aralashmasin; aks holda eski TSX keshi va proxy xatolari chiqadi. */
+function shouldBypassServiceWorker(url) {
+  try {
+    const u = new URL(url, self.location.href);
+    const host = u.hostname;
+    if (host === 'localhost' || host === '127.0.0.1' || host === '[::1]') return true;
+    const p = u.pathname;
+    if (p.startsWith('/functions/v1/')) return true;
+    if (p.startsWith('/src/') || p.startsWith('/@vite/') || p.startsWith('/@fs/') || p.startsWith('/@id/')) {
+      return true;
+    }
+    if (p.includes('/node_modules/')) return true;
+    return false;
   } catch {
     return false;
   }
@@ -169,6 +187,7 @@ self.addEventListener('fetch', (event) => {
   const request = event.request;
   if (request.method !== 'GET') return;
   const url = request.url;
+  if (shouldBypassServiceWorker(url)) return;
   if (!sameOrigin(url)) return;
 
   const accept = request.headers.get('accept') || '';
@@ -299,15 +318,36 @@ self.addEventListener('widgetuninstall', (event) => {
 
 self.addEventListener('widgetclick', () => {});
 
+function parsePushPayload(event) {
+  const fallback = { title: 'ARESSO', body: 'Yangilanish', url: '/', tag: 'aresso-push', icon: '/icons/icon-192.png' };
+  if (!event?.data) return fallback;
+  try {
+    const raw = event.data.text();
+    const parsed = JSON.parse(raw);
+    return {
+      title: String(parsed.title || fallback.title).slice(0, 64),
+      body: String(parsed.body || raw || fallback.body).slice(0, 200),
+      url: String(parsed.url || fallback.url).slice(0, 256),
+      tag: String(parsed.tag || fallback.tag).slice(0, 64),
+      icon: String(parsed.icon || fallback.icon).slice(0, 256),
+    };
+  } catch {
+    const text = event.data.text() || '';
+    return { ...fallback, body: text.slice(0, 200) || fallback.body };
+  }
+}
+
 self.addEventListener('push', (event) => {
   event.waitUntil(
     (async () => {
       try {
-        const body = event.data ? event.data.text() : '';
-        await self.registration.showNotification('ARESSO', {
-          body: (body || 'Yangilanish').slice(0, 200),
-          icon: '/icons/icon-192.png',
+        const p = parsePushPayload(event);
+        await self.registration.showNotification(p.title, {
+          body: p.body,
+          tag: p.tag,
+          icon: p.icon,
           badge: '/icons/icon-192.png',
+          data: { url: p.url },
         });
       } catch (_) {}
     })(),
@@ -316,14 +356,22 @@ self.addEventListener('push', (event) => {
 
 self.addEventListener('notificationclick', (event) => {
   event.notification.close();
+  const targetUrl = String(event.notification?.data?.url || '/');
   event.waitUntil(
     (async () => {
       const all = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
-      if (all.length) {
-        all[0].focus();
-        return;
+      for (const client of all) {
+        if ('focus' in client) {
+          await client.focus();
+          if ('navigate' in client && targetUrl && targetUrl !== '/') {
+            try {
+              await client.navigate(targetUrl);
+            } catch (_) {}
+          }
+          return;
+        }
       }
-      await self.clients.openWindow('/');
+      await self.clients.openWindow(targetUrl);
     })(),
   );
 });

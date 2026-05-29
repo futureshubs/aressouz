@@ -1,8 +1,15 @@
 import { Hono } from 'npm:hono';
+import { sendPanelPush } from './panel-push.tsx';
 import { createClient } from 'jsr:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
 import * as r2 from './r2-storage.tsx';
 import * as businessHours from './businessHours.ts';
+import {
+  applyRestaurantCancelDishStop,
+  isLineOnCooldown,
+  resumeDishSaleFully,
+  resumeExpiredDishStops,
+} from './order-cancel-effects.ts';
 import {
   clampPlatformCommissionPercent,
   validateVariantCommissionsForSave,
@@ -667,7 +674,8 @@ app.get('/restaurants/:restaurantId/dishes', async (c) => {
     if (!resolved) {
       return c.json({ success: true, data: [] });
     }
-    const dishes = await listDishesForRestaurant(resolved.id);
+    let dishes = await listDishesForRestaurant(resolved.id);
+    dishes = await resumeExpiredDishStops(dishes);
     const orders = await listRestaurantOrders(resolved.id);
     const enriched = attachWeeklyStatsToDishes(dishes, orders);
     return c.json({ success: true, data: enriched });
@@ -786,8 +794,18 @@ app.patch('/dishes/:id/status', async (c) => {
       return c.json({ success: false, error: 'Taom topilmadi' }, 404);
     }
 
-    const updated = { ...existing, isActive, updatedAt: new Date().toISOString() };
-    await kv.set(id, updated);
+    const wantActive = isActive !== false && isActive !== 'false';
+    let updated: Record<string, unknown>;
+    if (wantActive) {
+      updated = await resumeDishSaleFully(existing as Record<string, unknown>, id);
+    } else {
+      updated = {
+        ...existing,
+        isActive: false,
+        updatedAt: new Date().toISOString(),
+      };
+      await kv.set(id, updated);
+    }
 
     return c.json({ success: true, data: updated });
   } catch (error) {
@@ -890,6 +908,32 @@ app.patch('/restaurants/:restaurantId/orders/:orderId/status', async (c) => {
     };
 
     await persistRestaurantOrderWrite(updated, matchedKey);
+
+    if (terminalNow && !wasTerminal) {
+      try {
+        await applyRestaurantCancelDishStop(updated, resolved.record as Record<string, unknown>);
+      } catch (stopErr) {
+        console.warn('[restaurant] cancel dish stop:', stopErr);
+      }
+    }
+
+    if (nextStatus === 'accepted' || nextStatus === 'confirmed') {
+      const bid = String(updated.branchId || '').trim();
+      const orderNum = String(updated.orderNumber || updated.id || orderIdDecoded);
+      if (bid) {
+        try {
+          void sendPanelPush('kassa', bid, {
+            title: 'Kassa — restoran qabul qildi',
+            body: `Buyurtma ${orderNum} — to‘lov va chek yuboring`,
+            url: '/kassa/dashboard',
+            tag: `kassa-food-${orderNum}`,
+          });
+        } catch {
+          /* push ixtiyoriy */
+        }
+      }
+    }
+
     return c.json({ success: true, data: updated });
   } catch (error) {
     console.error('Restoran order status yangilashda xato:', error);
@@ -982,6 +1026,33 @@ app.post('/orders/restaurant', async (c) => {
     const paymentStatus: 'pending' | 'paid' = bodyPaid ? 'paid' : 'pending';
     const wantsQr = pm === 'qr' || pm === 'qrcode';
     const paymentRequiresVerification = paymentStatus !== 'paid' && wantsQr;
+
+    const bidCheck = String(resolvedBranchId || '').trim();
+    const itemsIn = Array.isArray(body.items) ? body.items : [];
+    for (const it of itemsIn) {
+      const dishId = String(it?.dishId || it?.id || '').trim();
+      if (!dishId) continue;
+      const dishRec = await kv.get(dishId.startsWith('dish:') ? dishId : `dish:${dishId}`).catch(() => null);
+      const dishRow = dishRec || (await kv.get(dishId));
+      const dishInactive = dishRow && dishRow.isActive === false;
+      if (dishInactive) {
+        const resumeAt = String(dishRow.autoResumeAt || '').trim();
+        const resumeMs = resumeAt ? new Date(resumeAt).getTime() : 0;
+        const stillStopped = !resumeMs || !Number.isFinite(resumeMs) || resumeMs > Date.now();
+        if (stillStopped) {
+          const label = resumeAt
+            ? `Taom vaqtincha tugagan (ish boshlanishigacha)`
+            : 'Taom vaqtincha to‘xtatilgan';
+          return c.json({ success: false, error: label }, 400);
+        }
+        if (bidCheck && (await isLineOnCooldown(bidCheck, 'food', dishId))) {
+          return c.json(
+            { success: false, error: 'Bu taom hozir mavjud emas (bekor qilingan buyurtma — ertaga ish boshida)' },
+            400,
+          );
+        }
+      }
+    }
 
     const order = {
       id: orderId,

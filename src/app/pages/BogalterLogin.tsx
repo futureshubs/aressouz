@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Store, Lock, User, ArrowLeft, Building2, ChevronRight, Loader2 } from 'lucide-react';
+import { Lock, User, Building2, ChevronRight, Loader2 } from 'lucide-react';
+import PanelLoginShell from '../components/brand/PanelLoginShell';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
@@ -95,50 +96,12 @@ export default function BogalterLogin() {
   };
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4 app-safe-pt"
-      style={{
-        background: isDark ? '#000000' : '#f9fafb',
-        color: isDark ? '#ffffff' : '#111827',
-      }}
+    <PanelLoginShell
+      variant="bogalter"
+      isDark={isDark}
+      accentColor={accentColor.color}
+      subtitle="Filial sotuv/ombor tarixini ko'rish"
     >
-      <div className="w-full max-w-md">
-        <button
-          onClick={() => navigate('/')}
-          className="mb-6 flex items-center gap-2 px-4 py-2 rounded-xl"
-          style={{
-            background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-            color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)',
-          }}
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Ortga
-        </button>
-
-        <div
-          className="rounded-3xl p-8 border"
-          style={{
-            background: isDark
-              ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
-              : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-            boxShadow: isDark ? '0 25px 50px rgba(0, 0, 0, 0.5)' : '0 25px 50px rgba(0, 0, 0, 0.08)',
-            color: isDark ? '#ffffff' : '#111827',
-          }}
-        >
-          <div className="text-center mb-8">
-            <div
-              className="inline-flex p-5 rounded-3xl mb-4"
-              style={{ background: `${accentColor.color}20` }}
-            >
-              <Store className="w-12 h-12" style={{ color: accentColor.color }} />
-            </div>
-            <h1 className="text-2xl font-bold mb-2">Bogalter Panel</h1>
-            <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-              Filial sotuv/ombor tarixini ko'rish
-            </p>
-          </div>
-
           {!needsBranchSelect ? (
             <form onSubmit={(e) => { e.preventDefault(); handleSubmit(); }} className="space-y-4">
             <div>
@@ -257,9 +220,7 @@ export default function BogalterLogin() {
           >
             Bogalter login/parioldan foydalaning.
           </div>
-        </div>
-      </div>
-    </div>
+    </PanelLoginShell>
   );
 }
 

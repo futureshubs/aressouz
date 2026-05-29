@@ -27,6 +27,7 @@ import OrdersManagement from '../components/admin/OrdersManagement';
 import AdminBranchStatistics from '../components/admin/AdminBranchStatistics';
 import AdminBranchAnalytics from '../components/admin/AdminBranchAnalytics';
 import AdminSecurityView from '../components/admin/AdminSecurityView';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 import { projectId } from '../../../utils/supabase/info';
 import { buildAdminHeaders } from '../utils/requestAuth';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
@@ -245,14 +246,15 @@ export default function AdminDashboard() {
         }}
       >
         <div className="app-panel-sidebar-scroll p-6 pb-4">
-          <div className="flex items-center gap-3 mb-8">
-            <div 
-              className="p-2.5 rounded-2xl"
-              style={{ background: `${accentColor.color}20` }}
-            >
-              <LayoutDashboard className="w-6 h-6" style={{ color: accentColor.color }} />
-            </div>
-            <h1 className="text-xl font-bold">Admin Panel</h1>
+          <div className="mb-8">
+            <AressoPanelBrand
+              variant="admin"
+              size="sm"
+              layout="row"
+              align="left"
+              isDark={isDark}
+              accentColor={accentColor.color}
+            />
           </div>
 
           <nav className="space-y-2">
@@ -320,15 +322,14 @@ export default function AdminDashboard() {
           >
             <div className="app-panel-sidebar-scroll p-6 pb-4">
               <div className="flex items-center justify-between mb-8">
-                <div className="flex items-center gap-3">
-                  <div 
-                    className="p-2.5 rounded-2xl"
-                    style={{ background: `${accentColor.color}20` }}
-                  >
-                    <LayoutDashboard className="w-6 h-6" style={{ color: accentColor.color }} />
-                  </div>
-                  <h1 className="text-xl font-bold">Admin Panel</h1>
-                </div>
+                <AressoPanelBrand
+                  variant="admin"
+                  size="sm"
+                  layout="row"
+                  align="left"
+                  isDark={isDark}
+                  accentColor={accentColor.color}
+                />
                 <button
                   onClick={() => setSidebarOpen(false)}
                   className="p-2 rounded-xl"
@@ -400,27 +401,39 @@ export default function AdminDashboard() {
           }}
         >
           <div className="flex items-center justify-between p-4 lg:p-6">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 min-w-0">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 rounded-xl"
+                className="lg:hidden p-2 rounded-xl shrink-0"
                 style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
               >
                 <Menu className="w-6 h-6" />
               </button>
-              <div>
-                <h2 className="text-xl lg:text-2xl font-bold">
-                  {menuItems.find(item => item.id === activeTab)?.label || 'Dashboard'}
+              <div className="min-w-0 flex-1 lg:hidden">
+                <AressoPanelBrand
+                  variant="admin"
+                  size="xs"
+                  layout="row"
+                  align="left"
+                  showPanelLabel={false}
+                  title={menuItems.find((item) => item.id === activeTab)?.label || 'Dashboard'}
+                  isDark={isDark}
+                  accentColor={accentColor.color}
+                />
+              </div>
+              <div className="hidden lg:block min-w-0">
+                <h2 className="text-xl lg:text-2xl font-bold truncate">
+                  {menuItems.find((item) => item.id === activeTab)?.label || 'Dashboard'}
                 </h2>
-                <p 
-                  className="text-sm"
+                <p
+                  className="text-sm truncate"
                   style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
                 >
-                  {new Date().toLocaleDateString('uz-UZ', { 
-                    weekday: 'long', 
-                    year: 'numeric', 
-                    month: 'long', 
-                    day: 'numeric' 
+                  {new Date().toLocaleDateString('uz-UZ', {
+                    weekday: 'long',
+                    year: 'numeric',
+                    month: 'long',
+                    day: 'numeric',
                   })}
                 </p>
               </div>

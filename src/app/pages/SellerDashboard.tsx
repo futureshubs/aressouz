@@ -31,7 +31,8 @@ import {
 } from 'lucide-react';
 import MerchantDebtsPanel from '../components/shared/MerchantDebtsPanel';
 import MerchantSmsBillingPanel from '../components/shared/MerchantSmsBillingPanel';
-import { projectId, publicAnonKey } from '../../../utils/supabase/info';
+import { publicAnonKey } from '../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 import { toast } from 'sonner';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useTabVisible } from '../hooks/useTabVisible';
@@ -59,6 +60,8 @@ import { readValidSellerSession, isSellerCashier } from '../utils/sellerSession'
 import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
+import PanelPushSetup from '../components/brand/PanelPushSetup';
+import { usePanelOrderAlerts } from '../hooks/usePanelOrderAlerts';
 
 export default function SellerDashboard() {
   const navigate = useNavigate();
@@ -117,6 +120,23 @@ export default function SellerDashboard() {
     } as const;
   }, [sellerToken]);
 
+  const shopId = String(sellerInfo?.shopId || '').trim();
+  const sellerTabVisible = useTabVisible();
+  const sellerApiBase = edgeFunctionBaseUrl();
+
+  usePanelOrderAlerts({
+    panel: 'seller',
+    title: 'Yangi buyurtma',
+    items: orders,
+    enabled: Boolean(shopId),
+    getId: (o: any) => String(o.id || ''),
+    getLabel: (o: any) => `#${o.orderNumber || o.id || ''}`,
+    isAlertable: (o: any) => {
+      const st = String(o.status || '').toLowerCase();
+      return st === 'pending' || st === 'new' || st === 'processing';
+    },
+  });
+
   const productsQuery = useInfiniteQuery({
     queryKey: ['seller-products', sellerToken],
     enabled: Boolean(sellerToken) && (
@@ -127,7 +147,7 @@ export default function SellerDashboard() {
     initialPageParam: 1,
     queryFn: async ({ pageParam, signal }) => {
       const page = Number(pageParam) || 1;
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/products?token=${encodeURIComponent(sellerToken)}&page=${page}&limit=20`;
+      const url = `${sellerApiBase}/seller/products?token=${encodeURIComponent(sellerToken)}&page=${page}&limit=20`;
       const res = await fetch(url, { headers: sellerHeaders ?? undefined, signal });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
@@ -138,15 +158,16 @@ export default function SellerDashboard() {
 
   const ordersQuery = useInfiniteQuery({
     queryKey: ['seller-orders', sellerToken],
-    enabled: Boolean(sellerToken) && (
-      isCashier
-        ? activeTab === 'orders'
-        : activeTab === 'orders' || activeTab === 'payments' || activeTab === 'dashboard'
-    ),
+    /** Do‘kon egasi: boshqa tablarda ham yangi buyurtma bildirishnomasi uchun. Kassir: faqat Buyurtmalar tabi. */
+    enabled: Boolean(sellerToken) && (isCashier ? activeTab === 'orders' : true),
     initialPageParam: 1,
+    staleTime: 0,
+    refetchOnWindowFocus: true,
+    /** Backenddan har 2 s — qo‘lda yangilash shart emas */
+    refetchInterval: sellerTabVisible ? 2000 : false,
     queryFn: async ({ pageParam, signal }) => {
       const page = Number(pageParam) || 1;
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/orders?token=${encodeURIComponent(sellerToken)}&page=${page}&limit=20`;
+      const url = `${sellerApiBase}/seller/orders?token=${encodeURIComponent(sellerToken)}&page=${page}&limit=20`;
       const res = await fetch(url, { headers: sellerHeaders ?? undefined, signal });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
@@ -161,7 +182,7 @@ export default function SellerDashboard() {
     initialPageParam: 1,
     queryFn: async ({ pageParam, signal }) => {
       const page = Number(pageParam) || 1;
-      const url = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/inventory?token=${encodeURIComponent(sellerToken)}&page=${page}&limit=60`;
+      const url = `${sellerApiBase}/seller/inventory?token=${encodeURIComponent(sellerToken)}&page=${page}&limit=60`;
       const res = await fetch(url, { headers: sellerHeaders ?? undefined, signal });
       const data = await res.json().catch(() => ({}));
       if (!res.ok) throw new Error(String(data?.error || `HTTP ${res.status}`));
@@ -295,7 +316,7 @@ export default function SellerDashboard() {
 
   const fetchSellerOrders = async (token: string) => {
     const response = await fetch(
-      `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/orders?token=${encodeURIComponent(token)}`,
+      `${sellerApiBase}/seller/orders?token=${encodeURIComponent(token)}`,
       {
         headers: {
           'Content-Type': 'application/json',
@@ -337,7 +358,7 @@ export default function SellerDashboard() {
         return;
       } else if (activeTab === 'statistics') {
         const response = await fetch(
-          `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/statistics?token=${encodeURIComponent(token)}`,
+          `${sellerApiBase}/seller/statistics?token=${encodeURIComponent(token)}`,
           {
             headers: sellerHeaders,
           }
@@ -359,8 +380,6 @@ export default function SellerDashboard() {
   const loadDataRef = useRef(loadData);
   loadDataRef.current = loadData;
 
-  const sellerTabVisible = useTabVisible();
-
   useEffect(() => {
     if (!sellerInfo || !sellerTabVisible) return undefined;
     const id = window.setInterval(() => {
@@ -370,7 +389,11 @@ export default function SellerDashboard() {
   }, [sellerInfo?.token, activeTab, sellerTabVisible]);
 
   useVisibilityRefetch(() => {
-    if (sellerInfo) void loadData({ silent: true });
+    if (!sellerInfo) return;
+    void loadData({ silent: true });
+    if (Boolean(sellerToken) && (isCashier ? activeTab === 'orders' : true)) {
+      void ordersQuery.refetch();
+    }
   });
 
   const handleLogout = () => {
@@ -453,7 +476,7 @@ export default function SellerDashboard() {
     setOrderActionId(orderId);
     try {
       const res = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/orders/${encodeURIComponent(orderId)}`,
+        `${sellerApiBase}/seller/orders/${encodeURIComponent(orderId)}`,
         {
           method: 'PUT',
           headers: {
@@ -466,12 +489,27 @@ export default function SellerDashboard() {
       );
       const data = await res.json().catch(() => ({}));
       if (!res.ok || !data.success) {
-        toast.error(data.error || 'Holatni yangilab bo‘lmadi');
+        toast.error(data.error || data.message || 'Holatni yangilab bo‘lmadi');
         return;
       }
-      toast.success('Buyurtma yangilandi');
-      const list = await fetchSellerOrders(sellerInfo.token);
-      setOrders(list);
+      if (status === 'cancelled') {
+        const marked = Number(data.inventoryMarkedCount ?? 0);
+        toast.success(
+          marked > 0
+            ? `Bekor qilindi. ${marked} ta mahsulot omborda 0 — qo‘lda ombor qo‘shguncha sotilmaydi.`
+            : 'Bekor qilindi. Ombor yangilanmadi — mahsulot id sini tekshiring yoki qo‘lda omborni 0 qiling.',
+          { duration: 6500 },
+        );
+      } else if (status === 'confirmed' || status === 'accepted') {
+        toast.success('Qabul qilindi — to‘lov kassa «Yuborish» bo‘limiga tushadi');
+      } else {
+        toast.success('Buyurtma yangilandi');
+      }
+      await Promise.all([
+        ordersQuery.refetch(),
+        productsQuery.refetch(),
+        inventoryQuery.refetch(),
+      ]);
     } catch (e) {
       console.error(e);
       toast.error('Xatolik');
@@ -487,7 +525,7 @@ export default function SellerDashboard() {
     setDeletingProductId(productId);
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/seller/products/${productId}?token=${sellerInfo.token}`,
+        `${sellerApiBase}/seller/products/${productId}?token=${sellerInfo.token}`,
         {
           method: 'DELETE',
           headers: {
@@ -782,6 +820,13 @@ export default function SellerDashboard() {
           ) : (
             <RouteErrorBoundary resetKeys={[activeTab]} embedded>
             <div className="app-panel-content w-full">
+              {sellerHeaders && shopId ? (
+                <PanelPushSetup
+                  className="mb-4"
+                  scope={{ panel: 'seller', scopeId: shopId, shopId }}
+                  headers={sellerHeaders}
+                />
+              ) : null}
               {/* Dashboard Tab */}
               {activeTab === 'dashboard' && !isCashier && (
                 <div className="space-y-6 min-w-0">
@@ -1287,6 +1332,17 @@ export default function SellerDashboard() {
                                 style={{ background: 'linear-gradient(135deg, #8b5cf6, #7c3aed)' }}
                               >
                                 Tayyor
+                              </button>
+                            )}
+                            {(st === 'pending' || st === 'new' || st === 'confirmed' || st === 'accepted' || st === 'preparing') && (
+                              <button
+                                type="button"
+                                disabled={!!orderActionId || isSellerOrderAwaitingBranchCashRelease(o)}
+                                onClick={() => oid && handleSellerOrderStatus(oid, 'cancelled')}
+                                className="px-4 py-2.5 rounded-xl text-sm font-bold disabled:opacity-50"
+                                style={{ background: 'rgba(239, 68, 68, 0.15)', color: '#ef4444' }}
+                              >
+                                Bekor qilish
                               </button>
                             )}
                           </div>

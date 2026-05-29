@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { KeyRound, LogOut, Loader2 } from 'lucide-react';
+import { LogOut, Loader2 } from 'lucide-react';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 import { toast } from 'sonner';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { RentalDashboard } from '../components/rental/RentalDashboard';
@@ -70,9 +71,9 @@ export default function RentalProviderDashboard() {
 
   if (!session) {
     return (
-      <div className="min-h-screen flex flex-col items-center justify-center gap-3 app-safe-pt" style={{ background: isDark ? '#000' : '#f9fafb' }}>
+      <div className="min-h-screen flex flex-col items-center justify-center gap-4 p-4 app-safe-pt" style={{ background: isDark ? '#000' : '#f9fafb' }}>
+        <AressoPanelBrand variant="ijara" size="lg" align="center" showPanelLabel={false} isDark={isDark} accentColor={accentColor.color} />
         <Loader2 className="w-10 h-10 animate-spin shrink-0" style={{ color: accentColor.color }} aria-hidden />
-        <p className="text-sm opacity-60"></p>
       </div>
     );
   }
@@ -94,14 +95,17 @@ export default function RentalProviderDashboard() {
         }}
       >
         <div className="app-panel-sidebar-scroll p-6 pb-4">
-          <div className="p-4 rounded-2xl mb-6" style={{ background: `${accentColor.color}20` }}>
-            <div className="flex items-center gap-2 mb-2">
-              <KeyRound className="w-5 h-5" style={{ color: accentColor.color }} />
-              <span className="font-bold text-sm">Ijara paneli</span>
-            </div>
-            <p className="text-xs opacity-70 truncate">{session.displayName || session.login}</p>
-            <p className="text-[10px] opacity-50 font-mono truncate mt-1">{session.branchId}</p>
-          </div>
+          <AressoPanelBrand
+            variant="ijara"
+            size="sm"
+            layout="row"
+            align="left"
+            title={session.displayName || session.login || 'Ijara'}
+            subtitle={session.branchId}
+            className="mb-6"
+            isDark={isDark}
+            accentColor={accentColor.color}
+          />
           <button
             type="button"
             onClick={() => void logout()}
@@ -125,7 +129,16 @@ export default function RentalProviderDashboard() {
           borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.08)',
         }}
       >
-        <span className="font-semibold truncate pr-2">Ijara</span>
+        <AressoPanelBrand
+          variant="ijara"
+          size="xs"
+          layout="row"
+          align="left"
+          showPanelLabel={false}
+          title={session.displayName || 'Ijara'}
+          isDark={isDark}
+          accentColor={accentColor.color}
+        />
         <button
           type="button"
           onClick={() => void logout()}

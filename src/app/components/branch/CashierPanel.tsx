@@ -12,9 +12,11 @@ import {
   BarChart3,
   LogOut,
   RotateCcw,
-  Store,
   Wallet,
 } from 'lucide-react';
+import AressoPanelBrand from '../brand/AressoPanelBrand';
+import PanelPushSetup from '../brand/PanelPushSetup';
+import { buildBranchHeaders, getStoredBranchToken, getStoredStaffToken } from '../../utils/requestAuth';
 
 type CashierPanelProps = {
   branchId?: string;
@@ -52,6 +54,10 @@ export function CashierPanel({
   const muted = isDark ? 'rgba(255,255,255,0.68)' : 'rgba(0,0,0,0.58)';
   const shellStyle = floatingNavShellStyle(isDark);
 
+  const hasAuth = Boolean(
+    String(getStoredBranchToken() || '').trim() || String(getStoredStaffToken() || '').trim(),
+  );
+
   if (!branchId) {
     return (
       <div
@@ -71,6 +77,33 @@ export function CashierPanel({
               Avval filial paneliga kiring yoki operator orqali filialni tanlang.
             </div>
           </div>
+        </div>
+      </div>
+    );
+  }
+
+  if (!hasAuth) {
+    return (
+      <div
+        className="app-panel-viewport app-safe-pad"
+        style={{
+          background: isDark ? '#000000' : '#f9fafb',
+          color: isDark ? '#ffffff' : '#111827',
+        }}
+      >
+        <div className="app-panel-main-scroll p-4 min-h-0 flex flex-col items-center justify-center gap-4 text-center max-w-md mx-auto">
+          <p className="font-semibold">Kassa sessiyasi tugagan</p>
+          <p className="text-sm opacity-70">Qayta kiring — login va parol bilan yangi sessiya ochiladi.</p>
+          {onLogout ? (
+            <button
+              type="button"
+              onClick={onLogout}
+              className="px-4 py-2 rounded-xl font-bold text-white"
+              style={{ background: accentColor.gradient }}
+            >
+              Login sahifasiga
+            </button>
+          ) : null}
         </div>
       </div>
     );
@@ -132,21 +165,16 @@ export function CashierPanel({
     >
       <header className="shrink-0 px-4 pt-4 lg:px-8 lg:pt-6 pb-3 max-w-6xl mx-auto w-full">
         <div className="flex items-center justify-between gap-3">
-          <div className="flex items-center gap-3 min-w-0">
-            <div
-              className="p-2.5 rounded-2xl shrink-0"
-              style={{ background: `${accentColor.color}22`, color: accentColor.color }}
-            >
-              <Store className="w-6 h-6" />
-            </div>
-            <div className="min-w-0">
-              <h1 className="text-xl lg:text-2xl font-bold tracking-tight truncate">Kassa</h1>
-              <p className="text-xs lg:text-sm truncate" style={{ color: muted }}>
-                {branchName || 'Filial'}
-                {staffName ? ` · ${staffName}` : ''}
-              </p>
-            </div>
-          </div>
+          <AressoPanelBrand
+            variant="kassa"
+            size="md"
+            layout="row"
+            align="left"
+            title={staffName || 'Kassa'}
+            subtitle={branchName || 'Filial'}
+            isDark={isDark}
+            accentColor={accentColor.color}
+          />
           {onLogout ? (
             <button
               type="button"
@@ -167,6 +195,12 @@ export function CashierPanel({
           paddingBottom: 'max(96px, calc(80px + var(--app-safe-bottom, env(safe-area-inset-bottom, 0px))))',
         }}
       >
+        <PanelPushSetup
+          className="mb-4"
+          scope={{ panel: 'kassa', scopeId: branchId, branchId }}
+          headers={buildBranchHeaders({ 'Content-Type': 'application/json' })}
+        />
+
         <div className="mb-4">
           <p className="text-xs uppercase tracking-wide font-semibold" style={{ color: muted }}>
             {activeMeta.label}

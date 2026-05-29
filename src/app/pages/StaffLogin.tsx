@@ -4,10 +4,27 @@ import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { publicAnonKey } from '../../../utils/supabase/info';
 import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
-import { Store, Lock, User, ArrowLeft, Building2, ChevronRight, Loader2 } from 'lucide-react';
+import { Lock, User, Building2, ChevronRight, Loader2 } from 'lucide-react';
+import PanelLoginShell from '../components/brand/PanelLoginShell';
+import type { AressoPanelVariant } from '../components/brand/AressoPanelBrand';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 
 type StaffRole = 'warehouse' | 'operator' | 'cashier' | 'accountant' | 'support';
+
+function staffLoginVariant(role?: StaffRole): AressoPanelVariant {
+  if (role === 'cashier') return 'kassa';
+  if (role === 'warehouse') return 'omborchi';
+  if (role === 'operator' || role === 'support') return 'support';
+  if (role === 'accountant') return 'bogalter';
+  return 'xodim';
+}
+
+function staffLoginSubtitle(role?: StaffRole): string {
+  if (role === 'cashier') return 'Filial kassasi — login va parol';
+  if (role === 'warehouse') return 'Ombor operatsiyalari';
+  if (role === 'operator' || role === 'support') return 'Mijozlar bilan support chat';
+  return 'Omborchi, support, bogalter va boshqa rollar';
+}
 
 const roleToDashboardPath: Partial<Record<StaffRole, string>> = {
   warehouse: '/omborchi/dashboard',
@@ -108,25 +125,33 @@ export default function StaffLogin({ requiredRole }: { requiredRole?: StaffRole 
       }
 
       // Other staff roles
+      const branchToken = String(data.branchToken || '').trim();
+      const staffToken = String(data.token || data.staffToken || '').trim();
+
       localStorage.setItem(
         'staffSession',
         JSON.stringify({
-          token: data.token || null,
+          token: staffToken || null,
+          staffToken: staffToken || null,
+          branchToken: branchToken || null,
           role: data.role,
           staffId: data.staff?.id,
           firstName: data.staff?.firstName,
           lastName: data.staff?.lastName,
           phone: data.staff?.phone,
-          branchId: data.branch?.id,
+          branchId: data.branch?.id || data.branch?.branchId,
         })
       );
 
-      // Make branchSession available so branch components work (X-Branch-Token)
+      // Filial komponentlari (kassa, ombor) — X-Branch-Token + X-Staff-Token
       localStorage.setItem(
         'branchSession',
         JSON.stringify({
           ...(data.branch || {}),
-          token: data.branchToken,
+          id: data.branch?.id || data.branch?.branchId,
+          branchId: data.branch?.branchId || data.branch?.id,
+          token: branchToken,
+          branchToken,
         })
       );
 
@@ -155,50 +180,12 @@ export default function StaffLogin({ requiredRole }: { requiredRole?: StaffRole 
   };
 
   return (
-    <div
-      className="min-h-screen flex items-center justify-center p-4 app-safe-pt"
-      style={{ background: isDark ? '#000000' : '#f9fafb' }}
+    <PanelLoginShell
+      variant={staffLoginVariant(requiredRole)}
+      isDark={isDark}
+      accentColor={accentColor.color}
+      subtitle={staffLoginSubtitle(requiredRole)}
     >
-      <div className="w-full max-w-md">
-        <button
-          onClick={() => navigate('/')}
-          className="mb-6 flex items-center gap-2 px-4 py-2 rounded-xl"
-          style={{
-            background: isDark ? 'rgba(255, 255, 255, 0.05)' : 'rgba(0, 0, 0, 0.05)',
-            color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)',
-          }}
-        >
-          <ArrowLeft className="w-4 h-4" />
-          Ortga
-        </button>
-
-        <div
-          className="rounded-3xl p-8 border"
-          style={{
-            background: isDark
-              ? 'linear-gradient(145deg, rgba(255, 255, 255, 0.05), rgba(255, 255, 255, 0.02))'
-              : 'linear-gradient(145deg, #ffffff, #f9fafb)',
-            borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-            boxShadow: isDark ? '0 25px 50px rgba(0, 0, 0, 0.5)' : '0 25px 50px rgba(0, 0, 0, 0.08)',
-          }}
-        >
-          <div className="text-center mb-8">
-            <div
-              className="inline-flex p-5 rounded-3xl mb-4"
-              style={{ background: `${accentColor.color}20` }}
-            >
-              <Store className="w-12 h-12" style={{ color: accentColor.color }} />
-            </div>
-            <h1 className="text-2xl font-bold mb-2">
-              {requiredRole === 'cashier' ? 'Kassa kirish' : 'Xodim paneli'}
-            </h1>
-            <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-              {requiredRole === 'cashier'
-                ? 'Filialda ro‘yxatdan o‘tgan kassa login va paroli (noto‘g‘ri bo‘lsa kira olmaysiz)'
-                : 'Omborchi, support, bogalter va boshqa rollar'}
-            </p>
-          </div>
-
           {!needsBranchSelect ? (
             <form onSubmit={handleSubmit} className="space-y-4">
               <div>
@@ -309,9 +296,7 @@ export default function StaffLogin({ requiredRole }: { requiredRole?: StaffRole 
               </button>
             </form>
           )}
-        </div>
-      </div>
-    </div>
+    </PanelLoginShell>
   );
 }
 

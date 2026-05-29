@@ -3,6 +3,7 @@
 import { Hono } from 'npm:hono';
 import { createClient } from 'npm:@supabase/supabase-js@2';
 import * as kv from './kv_store.tsx';
+import { notifyCourierBranch } from './panel-push.tsx';
 import { createCourierBagStore } from './courier-bags-db.ts';
 
 const preparers = new Hono();
@@ -66,12 +67,8 @@ const isCashLikePayment = (raw: unknown) => {
   return false;
 };
 
-/**
- * Market yoki do‘kon + naqd: filial `release-to-preparer` qilmaguncha tayyorlovchida ko‘rinmasin.
- * - `order:market:` kalitidan kelgan yozuvlarda `orderType` bo‘lmasa ham market hisoblanadi.
- * - `payment_method` / "Naqd pul" kabi qiymatlar qo‘llab-quvvatlanadi.
- */
-const isMarketCashPendingBranchRelease = (
+/** Market: filial qabul + «Tel qildim» qilmaguncha tayyorlovchida ko‘rinmasin (naqd/onlayn). */
+const isMarketPendingBranchRelease = (
   order: any,
   ctx?: { marketIdSet?: Set<string>; kvKey?: string },
 ) => {
@@ -79,10 +76,18 @@ const isMarketCashPendingBranchRelease = (
   const fromKey = ctx?.kvKey ? String(ctx.kvKey).startsWith('order:market:') : false;
   const fromSet = ctx?.marketIdSet ? ctx.marketIdSet.has(id) : false;
   const t = String(order?.orderType || order?.type || '').toLowerCase();
-  const fromFieldMarket = t === 'market';
-  const fromFieldShop = t === 'shop';
-  if (!fromKey && !fromSet && !fromFieldMarket && !fromFieldShop) return false;
+  if (!fromKey && !fromSet && t !== 'market') return false;
+  if (order?.releasedToPreparerAt) return false;
+  return true;
+};
 
+/** Do‘kon + naqd: filial `release-to-preparer` qilmaguncha tayyorlovchida ko‘rinmasin. */
+const isShopCashPendingBranchRelease = (
+  order: any,
+  ctx?: { kvKey?: string },
+) => {
+  const t = String(order?.orderType || order?.type || '').toLowerCase();
+  if (t !== 'shop') return false;
   const pm = order?.paymentMethod ?? order?.payment_method;
   if (!isCashLikePayment(pm)) return false;
   if (order?.releasedToPreparerAt) return false;
@@ -517,7 +522,7 @@ preparers.get('/:id/orders', async (c) => {
     let filteredOrders = allOrders.filter((order: any) => {
       if (!isPreparerMarketOrRental(order, marketIdSet)) return false;
 
-      if (isMarketCashPendingBranchRelease(order, { marketIdSet })) {
+      if (isMarketPendingBranchRelease(order, { marketIdSet }) || isShopCashPendingBranchRelease(order)) {
         return false;
       }
 
@@ -578,7 +583,10 @@ preparers.get('/:id/orders/:orderId/pickup-racks', async (c) => {
     if (!orderIsMarketOrRentalForAuth(order, orderRecord.key)) {
       return c.json({ error: 'Faqat Market, Ijara va Do‘kon buyurtmalari uchun ruxsat bor' }, 403);
     }
-    if (isMarketCashPendingBranchRelease(order, { kvKey: orderRecord.key })) {
+    if (
+      isMarketPendingBranchRelease(order, { kvKey: orderRecord.key }) ||
+      isShopCashPendingBranchRelease(order, { kvKey: orderRecord.key })
+    ) {
       return c.json(
         { error: "Bu buyurtma filial qabul qilinmaguncha rasta tanlanmaydi" },
         409,
@@ -669,7 +677,10 @@ preparers.post('/:id/orders/:orderId/status', async (c) => {
     if (!orderIsMarketOrRentalForAuth(order, orderRecord.key)) {
       return c.json({ error: 'Faqat Market, Ijara va Do‘kon buyurtmalari uchun ruxsat bor' }, 403);
     }
-    if (isMarketCashPendingBranchRelease(order, { kvKey: orderRecord.key })) {
+    if (
+      isMarketPendingBranchRelease(order, { kvKey: orderRecord.key }) ||
+      isShopCashPendingBranchRelease(order, { kvKey: orderRecord.key })
+    ) {
       return c.json(
         { error: "Bu buyurtma filial qabul qilmaguncha tayyorlovchi o'zgartira olmaydi" },
         409,
@@ -753,6 +764,21 @@ preparers.post('/:id/orders/:orderId/status', async (c) => {
     );
 
     console.log('✅ Order status updated');
+
+    if (status === 'ready' && branchId) {
+      const orderNum = String(updated.orderNumber || updated.order_number || orderId);
+      try {
+        void notifyCourierBranch(branchId, `Buyurtma #${orderNum} tayyor — olib ketish`);
+        setTimeout(() => {
+          void notifyCourierBranch(
+            branchId,
+            `Sizga yaqin — #${orderNum} (market). Tezroq qabul qiling!`,
+          );
+        }, 4500);
+      } catch (pushErr) {
+        console.warn('[panel-push] courier ready:', pushErr);
+      }
+    }
 
     return c.json({
       success: true,

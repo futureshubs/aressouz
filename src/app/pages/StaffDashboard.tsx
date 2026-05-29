@@ -8,6 +8,8 @@ import { BranchRefundsPanel } from '../components/branch/BranchRefundsPanel';
 import { CashierPanel } from '../components/branch/CashierPanel';
 import { OperatorSupportTabs } from '../components/branch/OperatorSupportTabs';
 import { Payments } from '../components/branch/Payments';
+import { Loader2 } from 'lucide-react';
+import AressoPanelBrand, { staffPanelBrandVariant } from '../components/brand/AressoPanelBrand';
 
 type StaffRole = 'warehouse' | 'operator' | 'cashier' | 'accountant' | 'support';
 
@@ -67,6 +69,22 @@ export default function StaffDashboard() {
         navigate(panelLoginPath);
         return;
       }
+      const hasBranchAuth =
+        Boolean(
+          (() => {
+            try {
+              const b = JSON.parse(localStorage.getItem('branchSession') || 'null');
+              return String(b?.token || b?.branchToken || '').trim();
+            } catch {
+              return false;
+            }
+          })(),
+        ) || Boolean(String(s?.branchToken || '').trim());
+      if (!hasBranchAuth && (s?.role === 'cashier' || s?.role === 'warehouse' || s?.role === 'support')) {
+        toast.error('Sessiya tugagan — qayta kiring');
+        navigate(panelLoginPath);
+        return;
+      }
       setSession(s);
     } catch {
       navigate(panelLoginPath);
@@ -104,8 +122,19 @@ export default function StaffDashboard() {
 
   if (!session || !role || !branchId) {
     return (
-      <div style={{ minHeight: '60vh', display: 'flex', alignItems: 'center', justifyContent: 'center' }}>
-        <div style={{ color: isDark ? '#fff' : '#111827' }}></div>
+      <div
+        className="min-h-[60vh] flex flex-col items-center justify-center gap-4 p-4"
+        style={{ background: isDark ? '#000' : '#f9fafb' }}
+      >
+        <AressoPanelBrand
+          variant={staffPanelBrandVariant(expectedRoleFromPath || role)}
+          size="lg"
+          align="center"
+          showPanelLabel={false}
+          isDark={isDark}
+          accentColor={accentColor.color}
+        />
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} aria-hidden />
       </div>
     );
   }
@@ -143,20 +172,16 @@ export default function StaffDashboard() {
     >
       <div className="app-panel-main-scroll p-4 lg:p-8 max-w-6xl mx-auto space-y-6 min-h-0">
         <div className="flex items-center justify-between gap-4">
-          <div>
-            <h1 className="text-2xl font-bold">
-              {effectiveRole === 'warehouse'
-                ? 'Omborchi paneli'
-                : effectiveRole === 'support'
-                ? 'Support paneli'
-                : effectiveRole === 'cashier'
-                ? 'Kassa paneli'
-                : 'Xodim paneli'}
-            </h1>
-            <p style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)', marginTop: 4, fontSize: 13 }}>
-              {branchSession?.branchName || 'Filial'} • {session?.firstName} {session?.lastName}
-            </p>
-          </div>
+          <AressoPanelBrand
+            variant={staffPanelBrandVariant(effectiveRole)}
+            size="md"
+            layout="row"
+            align="left"
+            title={[session?.firstName, session?.lastName].filter(Boolean).join(' ') || 'Xodim'}
+            subtitle={branchSession?.branchName || 'Filial'}
+            isDark={isDark}
+            accentColor={accentColor.color}
+          />
 
           <button
             onClick={() => {

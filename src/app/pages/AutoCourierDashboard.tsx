@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router';
 import { Car, LogOut, MapPin, Package, Phone, RefreshCw, Sparkles, User, Loader2 } from 'lucide-react';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import {
@@ -389,20 +390,16 @@ export default function AutoCourierDashboard() {
           paddingTop: 'max(1rem, var(--app-safe-top))',
         }}
       >
-        <div className="flex items-center gap-3">
-          <div className="p-2 rounded-2xl" style={{ background: `${accentColor.color}22` }}>
-            <Car className="w-7 h-7" style={{ color: accentColor.color }} />
-          </div>
-          <div>
-            <h1 className="font-bold text-lg leading-tight">Avto-kuryer</h1>
-            <p
-              className="text-xs"
-              style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}
-            >
-              {session?.courier?.firstName || '—'} · {session?.courier?.vehiclePlate || '—'}
-            </p>
-          </div>
-        </div>
+        <AressoPanelBrand
+          variant="avtokuryer"
+          size="sm"
+          layout="row"
+          align="left"
+          title={session?.courier?.firstName || 'Avto-kuryer'}
+          subtitle={session?.courier?.vehiclePlate || undefined}
+          isDark={isDark}
+          accentColor={accentColor.color}
+        />
         <div className="flex items-center gap-2">
           <button
             type="button"

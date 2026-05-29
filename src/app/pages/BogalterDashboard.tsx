@@ -3,10 +3,11 @@ import { useNavigate } from 'react-router';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import { BogalterMarketView } from '../components/branch/BogalterMarketView';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 
 export default function BogalterDashboard() {
   const navigate = useNavigate();
-  const { theme } = useTheme();
+  const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
   useEffect(() => {
@@ -37,12 +38,15 @@ export default function BogalterDashboard() {
     >
       <div className="app-panel-main-scroll p-4 lg:p-8 max-w-6xl mx-auto min-h-0">
         <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between mb-6">
-          <div>
-            <h1 className="text-2xl lg:text-3xl font-bold">Bogalter panel</h1>
-            <p className="text-sm mt-1" style={{ color: isDark ? 'rgba(255,255,255,0.7)' : 'rgba(0,0,0,0.6)' }}>
-              Oxirgi 1 soatlik savdo va ombor operatsiyalarini aniqlik bilan ko'ring
-            </p>
-          </div>
+          <AressoPanelBrand
+            variant="bogalter"
+            size="md"
+            layout="row"
+            align="left"
+            subtitle="Oxirgi 1 soatlik savdo va ombor operatsiyalarini aniqlik bilan ko'ring"
+            isDark={isDark}
+            accentColor={accentColor.color}
+          />
           <button
             onClick={handleLogout}
             className="px-4 py-2 rounded-xl font-semibold transition-all active:scale-95"

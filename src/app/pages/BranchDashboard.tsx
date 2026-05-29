@@ -78,6 +78,8 @@ import { CourierBagsPanel } from '../components/branch/CourierBagsPanel';
 import { PickupRacksPanel } from '../components/branch/PickupRacksPanel';
 import { BranchRefundsPanel } from '../components/branch/BranchRefundsPanel';
 import { BranchCleanupPanel } from '../components/branch/BranchCleanupPanel';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
+import PanelPushSetup from '../components/brand/PanelPushSetup';
 import { buildBranchHeaders } from '../utils/requestAuth';
 import { useVisibilityRefetch, type VisibilityRefetchDetail } from '../utils/visibilityRefetch';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
@@ -615,6 +617,16 @@ export default function BranchDashboard() {
         }}
       >
         <div className="app-panel-sidebar-scroll p-6 pb-4">
+          <AressoPanelBrand
+            variant="filial"
+            size="sm"
+            layout="row"
+            align="left"
+            showPanelLabel={false}
+            className="mb-4"
+            isDark={isDark}
+            accentColor={accentColor.color}
+          />
           {/* Branch Info */}
           <div className="mb-8">
             <div 
@@ -740,25 +752,17 @@ export default function BranchDashboard() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="app-panel-sidebar-scroll p-6 pb-4">
-              <div className="flex items-center justify-between mb-6">
-                {isLoadingBranch ? (
-                  <div 
-                    className="h-8 rounded-xl animate-pulse"
-                    style={{ 
-                      background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
-                      width: '120px'
-                    }}
-                  />
-                ) : (
-                  <div 
-                    className="p-2 rounded-xl"
-                    style={{ background: `${accentColor.color}20` }}
-                  >
-                    <h1 className="text-sm font-bold" style={{ color: accentColor.color }}>
-                      {branchInfo?.branchName || 'Filial'}
-                    </h1>
-                  </div>
-                )}
+              <div className="flex items-center justify-between mb-6 gap-2">
+                <AressoPanelBrand
+                  variant="filial"
+                  size="xs"
+                  layout="row"
+                  align="left"
+                  showPanelLabel={false}
+                  title={isLoadingBranch ? '…' : (branchInfo?.branchName || 'Filial')}
+                  isDark={isDark}
+                  accentColor={accentColor.color}
+                />
                 <button
                   onClick={() => setSidebarOpen(false)}
                   className="p-2 rounded-xl"
@@ -816,20 +820,33 @@ export default function BranchDashboard() {
           }}
         >
           <div className="flex items-center justify-between p-4 lg:p-6">
-            <div className="flex items-center gap-4">
+            <div className="flex items-center gap-3 min-w-0">
               <button
                 onClick={() => setSidebarOpen(true)}
-                className="lg:hidden p-2 rounded-xl"
+                className="lg:hidden p-2 rounded-xl shrink-0"
                 style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)' }}
               >
                 <MenuIcon className="w-6 h-6" />
               </button>
-              <div>
-                <h2 className="text-xl lg:text-2xl font-bold">
+              <div className="min-w-0 flex-1 lg:hidden">
+                <AressoPanelBrand
+                  variant="filial"
+                  size="xs"
+                  layout="row"
+                  align="left"
+                  showPanelLabel={false}
+                  title={menuItems.find((item) => item.id === activeTab)?.label || 'Dashboard'}
+                  subtitle={branchInfo?.branchName}
+                  isDark={isDark}
+                  accentColor={accentColor.color}
+                />
+              </div>
+              <div className="hidden lg:block min-w-0">
+                <h2 className="text-xl lg:text-2xl font-bold truncate">
                   {menuItems.find((item) => item.id === activeTab)?.label || 'Dashboard'}
                 </h2>
-                <p 
-                  className="text-sm"
+                <p
+                  className="text-sm truncate"
                   style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
                 >
                   {branchInfo?.branchName}
@@ -854,6 +871,13 @@ export default function BranchDashboard() {
 
         {/* Content */}
         <div className="app-panel-main-scroll p-4 lg:p-6">
+          {branchInfo?.id ? (
+            <PanelPushSetup
+              className="mb-4 max-w-3xl"
+              scope={{ panel: 'filial', scopeId: branchInfo.id, branchId: branchInfo.id }}
+              headers={buildBranchHeaders({ 'Content-Type': 'application/json' })}
+            />
+          ) : null}
           {activeTab === 'dashboard' && (
             <div className="space-y-6">
               {/* Welcome Card */}

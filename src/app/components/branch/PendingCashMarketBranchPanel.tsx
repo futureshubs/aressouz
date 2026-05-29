@@ -351,6 +351,7 @@ export function PendingCashMarketBranchPanel({
   const [cancelledCashMarketOrders, setCancelledCashMarketOrders] = useState<any[]>([]);
   const [loadingCashPending, setLoadingCashPending] = useState(false);
   const [releasingOrderId, setReleasingOrderId] = useState<string | null>(null);
+  const [callingOrderId, setCallingOrderId] = useState<string | null>(null);
   const [cancellingOrderId, setCancellingOrderId] = useState<string | null>(null);
   const [visibilityTick, setVisibilityTick] = useState(0);
   const visibilityOptsRef = useRef<VisibilityRefetchDetail>({});
@@ -384,7 +385,11 @@ export function PendingCashMarketBranchPanel({
       let list = data.orders.filter((o: any) => {
         const ot = String(o.orderType || '').toLowerCase();
         if (ot !== 'market' && ot !== 'shop' && ot !== 'food' && ot !== 'restaurant') return false;
-        if (!isCashLikeOrder(o)) return false;
+        if (cashPendingScope === 'market') {
+          if (ot !== 'market') return false;
+        } else if (!isCashLikeOrder(o)) {
+          return false;
+        }
         if (o.releasedToPreparerAt) return false;
         const st = String(o.status || '').toLowerCase();
         if (st === 'cancelled' || st === 'canceled') return false;
@@ -417,6 +422,28 @@ export function PendingCashMarketBranchPanel({
       setLoadingCashPending(false);
     }
   }, [cashPendingScope]);
+
+  const handleBranchCustomerCalled = async (orderId: string) => {
+    try {
+      setCallingOrderId(orderId);
+      const res = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/orders/${encodeURIComponent(orderId)}/branch-customer-called`,
+        { method: 'POST', headers: buildBranchHeaders({ 'Content-Type': 'application/json' }) },
+      );
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.success) {
+        toast.error(data.error || 'Saqlanmadi');
+        return;
+      }
+      toast.success('Tel qildim — endi tayyorlovchiga yuborishingiz mumkin');
+      await loadPendingCashMarketOrders();
+    } catch (e) {
+      console.error(e);
+      toast.error('Xatolik');
+    } finally {
+      setCallingOrderId(null);
+    }
+  };
 
   const handleReleaseMarketCashToPreparer = async (orderId: string, orderType?: string) => {
     try {
@@ -560,15 +587,18 @@ export function PendingCashMarketBranchPanel({
         <div className="min-w-0 flex-1 pt-0.5">
           <div className="flex items-start justify-between gap-2">
             <h3 className="text-base sm:text-lg font-bold leading-tight tracking-tight">
-              Naqd to‘lov — filial qabuli (market / do‘kon / taom)
+              {cashPendingScope === 'market'
+                ? 'Market buyurtmalar — filial qabuli'
+                : 'Naqd to‘lov — filial qabuli (do‘kon / taom)'}
             </h3>
             {loadingCashPending ? (
               <Loader2 className="w-5 h-5 animate-spin shrink-0 mt-0.5" style={{ color: accentColor.color }} />
             ) : null}
           </div>
           <p className="text-xs sm:text-sm mt-1 leading-relaxed" style={{ color: muted }}>
-            Naqd buyurtmani qabul qiling yoki bekor qiling. Market va do‘kon — filial qabulidan keyin tayyorlovchi
-            oqimi (`tayyorlanmoqda`); do‘kon buyurtmasi sotuvchi panelida ham ko‘rinadi. Taom — restoran paneliga.
+            {cashPendingScope === 'market'
+              ? 'Avval mijozga qo‘ng‘iroq qiling, «Tel qildim» bosing, keyin tayyorlovchiga yuboring.'
+              : 'Naqd buyurtmani qabul qiling yoki bekor qiling. Do‘kon — tayyorlovchi; taom — restoran.'}
           </p>
           <details className="mt-2 group">
             <summary
@@ -798,59 +828,100 @@ export function PendingCashMarketBranchPanel({
                     ) : null}
 
                     {!readOnly && ord.id ? (
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1">
-                        <button
-                          type="button"
-                          onClick={() =>
-                            handleReleaseMarketCashToPreparer(String(ord.id), String(ord.orderType || ''))
-                          }
-                          disabled={releasingOrderId === ord.id || cancellingOrderId === ord.id}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-white text-sm transition active:scale-[0.98] disabled:opacity-55 disabled:cursor-not-allowed"
-                          style={{
-                            background: accentColor.gradient,
-                            boxShadow: `0 6px 20px ${accentColor.color}40`,
-                          }}
-                        >
-                          {releasingOrderId === ord.id ? (
-                            <>
-                              <Loader2 className="w-5 h-5 animate-spin" />
-                              Yuborilmoqda…
-                            </>
-                          ) : (
-                            <>
-                              <CheckCircle2 className="w-5 h-5 shrink-0" />
-                              {String(ord.orderType || '').toLowerCase() === 'shop'
-                                ? 'Qabul — tayyorlovchi'
-                                : String(ord.orderType || '').toLowerCase() === 'food' ||
-                                    String(ord.orderType || '').toLowerCase() === 'restaurant'
-                                  ? 'Qabul — restoran'
-                                  : 'Qabul — tayyorlovchi'}
-                            </>
-                          )}
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => handleCancelByBranch(String(ord.id))}
-                          disabled={cancellingOrderId === ord.id || releasingOrderId === ord.id}
-                          className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-sm transition active:scale-[0.98] disabled:opacity-55 disabled:cursor-not-allowed border-2"
-                          style={{
-                            background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(254,226,226,0.5)',
-                            borderColor: 'rgba(239,68,68,0.45)',
-                            color: '#ef4444',
-                          }}
-                        >
-                          {cancellingOrderId === ord.id ? (
-                            <>
-                              <Loader2 className="w-5 h-5 animate-spin" />
-                              Bekor…
-                            </>
-                          ) : (
-                            <>
-                              <XCircle className="w-5 h-5 shrink-0" />
-                              Bekor qilish
-                            </>
-                          )}
-                        </button>
+                      <div className="flex flex-col gap-2 pt-1">
+                        {cashPendingScope === 'market' && !ord.branchCustomerCalledAt ? (
+                          <>
+                            <a
+                              href={`tel:${String(ord.customerPhone || '').replace(/\s/g, '')}`}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-sm border-2"
+                              style={{
+                                borderColor: accentColor.color,
+                                color: accentColor.color,
+                                background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                              }}
+                            >
+                              <Phone className="w-5 h-5 shrink-0" />
+                              Tel qiling: {ord.customerPhone || '—'}
+                            </a>
+                            <button
+                              type="button"
+                              onClick={() => void handleBranchCustomerCalled(String(ord.id))}
+                              disabled={callingOrderId === ord.id}
+                              className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-white text-sm disabled:opacity-55"
+                              style={{ background: '#2563eb' }}
+                            >
+                              {callingOrderId === ord.id ? (
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                              ) : (
+                                <Phone className="w-5 h-5 shrink-0" />
+                              )}
+                              Tel qildim
+                            </button>
+                          </>
+                        ) : null}
+                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                          <button
+                            type="button"
+                            onClick={() =>
+                              handleReleaseMarketCashToPreparer(String(ord.id), String(ord.orderType || ''))
+                            }
+                            disabled={
+                              releasingOrderId === ord.id ||
+                              cancellingOrderId === ord.id ||
+                              (cashPendingScope === 'market' && !ord.branchCustomerCalledAt)
+                            }
+                            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-white text-sm transition active:scale-[0.98] disabled:opacity-55 disabled:cursor-not-allowed"
+                            style={{
+                              background: accentColor.gradient,
+                              boxShadow: `0 6px 20px ${accentColor.color}40`,
+                            }}
+                          >
+                            {releasingOrderId === ord.id ? (
+                              <>
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                                Yuborilmoqda…
+                              </>
+                            ) : (
+                              <>
+                                <CheckCircle2 className="w-5 h-5 shrink-0" />
+                                {String(ord.orderType || '').toLowerCase() === 'shop'
+                                  ? 'Qabul — tayyorlovchi'
+                                  : String(ord.orderType || '').toLowerCase() === 'food' ||
+                                      String(ord.orderType || '').toLowerCase() === 'restaurant'
+                                    ? 'Qabul — restoran'
+                                    : 'Qabul — tayyorlovchi'}
+                              </>
+                            )}
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleCancelByBranch(String(ord.id))}
+                            disabled={cancellingOrderId === ord.id || releasingOrderId === ord.id}
+                            className="w-full flex items-center justify-center gap-2 px-4 py-3 rounded-2xl font-bold text-sm transition active:scale-[0.98] disabled:opacity-55 disabled:cursor-not-allowed border-2"
+                            style={{
+                              background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(254,226,226,0.5)',
+                              borderColor: 'rgba(239,68,68,0.45)',
+                              color: '#ef4444',
+                            }}
+                          >
+                            {cancellingOrderId === ord.id ? (
+                              <>
+                                <Loader2 className="w-5 h-5 animate-spin" />
+                                Bekor…
+                              </>
+                            ) : (
+                              <>
+                                <XCircle className="w-5 h-5 shrink-0" />
+                                Bekor qilish
+                              </>
+                            )}
+                          </button>
+                        </div>
+                        {cashPendingScope === 'market' && ord.branchCustomerCalledAt ? (
+                          <p className="text-xs text-center font-medium text-emerald-600 dark:text-emerald-400">
+                            Tel qilingan ✓ — tayyorlovchiga yuborish mumkin
+                          </p>
+                        ) : null}
                       </div>
                     ) : null}
 
