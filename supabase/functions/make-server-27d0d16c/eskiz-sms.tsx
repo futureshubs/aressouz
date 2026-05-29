@@ -64,20 +64,41 @@ async function getAuthToken(): Promise<string> {
   }
 }
 
+function normalizeSmsOtpHost(host: string | undefined | null): string {
+  const raw = String(host || "")
+    .trim()
+    .toLowerCase()
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*$/, "")
+    .replace(/^www\./, "");
+  if (!raw || raw === "localhost" || raw === "127.0.0.1" || raw.startsWith("192.168.")) {
+    return "aresso.app";
+  }
+  return raw.split(":")[0] || "aresso.app";
+}
+
+/** WebOTP / iOS autofill: SMS oxirida `@domain #123456` */
+export function buildVerificationSmsMessage(code: string, otpHost?: string): string {
+  const host = normalizeSmsOtpHost(otpHost);
+  const c = String(code || "").replace(/\D/g, "").slice(0, 6);
+  return `Aresso kirish kodi: ${c}. Kodni hech kimga bermang.\n@${host} #${c}`;
+}
+
 /**
  * Send SMS via Eskiz.uz
  * @param phone - Phone number in format: 998901234567
  * @param code - Verification code
+ * @param otpHost - Sayt hosti (WebOTP: `@host #code`)
  */
 export async function sendVerificationSMS(
   phone: string,
-  code: string
+  code: string,
+  otpHost?: string,
 ): Promise<{ success: boolean; messageId?: string; error?: string }> {
   try {
     const token = await getAuthToken();
 
-    // Format message
-    const message = `Aresso.app platformasiga kirish tasdiqlash kodi: ${code}. Kodni hech kimga bermang.`;
+    const message = buildVerificationSmsMessage(code, otpHost);
 
     // Prepare form data
     const formData = new FormData();
@@ -103,7 +124,7 @@ export async function sendVerificationSMS(
         authToken = null;
         tokenExpiry = 0;
         // Retry once
-        return sendVerificationSMS(phone, code);
+        return sendVerificationSMS(phone, code, otpHost);
       }
 
       return {

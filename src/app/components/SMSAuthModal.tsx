@@ -4,6 +4,12 @@ import { motion, AnimatePresence } from 'motion/react';
 import { Link } from 'react-router';
 import { publicAnonKey, API_BASE_URL } from '../../../utils/supabase/info';
 import { useTheme } from '../context/ThemeContext';
+import {
+  otpDigitsToArray,
+  parseOtpDigits,
+  requestWebSmsOtp,
+  smsOtpHostForApi,
+} from '../utils/smsOtpAutofill';
 
 const API_URL = API_BASE_URL;
 
@@ -51,7 +57,8 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
   const [focusedOtp, setFocusedOtp] = useState(0);
 
   const codeInputsRef = useRef<(HTMLInputElement | null)[]>([]);
-  const otpHiddenInputRef = useRef<HTMLInputElement | null>(null);
+  const otpAutofillInputRef = useRef<HTMLInputElement | null>(null);
+  const webOtpAbortRef = useRef<AbortController | null>(null);
   const phoneInputRef = useRef<HTMLInputElement | null>(null);
   const { theme } = useTheme();
   const isLight = theme === 'light';
@@ -102,31 +109,44 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
     };
   }, [isOpen]);
 
-  useEffect(() => {
-    if (!isOpen) return;
-    if (step !== 'code') return;
+  const applyOtpFromAutofill = (raw: string) => {
+    const otp = parseOtpDigits(raw);
+    if (!otp) {
+      setCode(['', '', '', '', '', '']);
+      return;
+    }
+    const digits = otpDigitsToArray(otp);
+    setCode(digits);
+    setError('');
+    if (otp.length === 6) {
+      void handleVerifyCode(otp);
+    }
+  };
 
-    const nav: any = typeof navigator !== 'undefined' ? navigator : null;
-    const getOtp: any = nav?.credentials?.get;
-    if (typeof getOtp !== 'function') return;
-
+  const startWebOtpListener = () => {
+    webOtpAbortRef.current?.abort();
     const ac = new AbortController();
-    (async () => {
-      try {
-        const cred: any = await getOtp.call(nav.credentials, {
-          otp: { transport: ['sms'] },
-          signal: ac.signal,
-        });
-        const otp = String(cred?.code || '').replace(/\D/g, '').slice(0, 6);
-        if (otp.length !== 6) return;
-        setCode(otp.split(''));
-        handleVerifyCode(otp);
-      } catch {
-        /* ignore */
-      }
+    webOtpAbortRef.current = ac;
+    void (async () => {
+      const otp = await requestWebSmsOtp(ac.signal);
+      if (!otp || ac.signal.aborted) return;
+      applyOtpFromAutofill(otp);
     })();
+  };
 
-    return () => ac.abort();
+  useEffect(() => {
+    if (!isOpen || step !== 'code') {
+      webOtpAbortRef.current?.abort();
+      return;
+    }
+    startWebOtpListener();
+    const t = window.setTimeout(() => {
+      otpAutofillInputRef.current?.focus();
+    }, 150);
+    return () => {
+      window.clearTimeout(t);
+      webOtpAbortRef.current?.abort();
+    };
   }, [isOpen, step]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
@@ -190,7 +210,7 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
           Authorization: `Bearer ${publicAnonKey}`,
           apikey: publicAnonKey,
         },
-        body: JSON.stringify({ phone }),
+        body: JSON.stringify({ phone, otpHost: smsOtpHostForApi() }),
       });
 
       const data = await response.json();
@@ -201,7 +221,11 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
 
       setStep('code');
       setCountdown(300);
-      setTimeout(() => codeInputsRef.current[0]?.focus(), 100);
+      setCode(['', '', '', '', '', '']);
+      setTimeout(() => {
+        otpAutofillInputRef.current?.focus();
+        startWebOtpListener();
+      }, 120);
     } catch (err: any) {
       console.error('Send SMS error:', err);
       setError(err.message);
@@ -494,68 +518,70 @@ export function SMSAuthModal({ isOpen, onClose, onSuccess }: SMSAuthModalProps) 
         <h1 className="mb-3 text-[26px] font-bold leading-tight tracking-tight text-foreground">
           Sms xabardagi kodni kiriting
         </h1>
-        <p className="mb-10 text-[15px] text-muted-foreground">
+        <p className="mb-2 text-[15px] text-muted-foreground">
           <span className="font-medium text-foreground">{formatPhoneSent(phone)}</span> ga yubordik
         </p>
-
-        <input
-          ref={otpHiddenInputRef}
-          value={code.join('')}
-          onChange={(e) => {
-            const otp = String(e.target.value || '').replace(/\D/g, '').slice(0, 6);
-            if (otp.length === 0) {
-              setCode(['', '', '', '', '', '']);
-              return;
-            }
-            const digits = [...otp.split(''), ...Array(6).fill('')].slice(0, 6);
-            setCode(digits);
-            if (otp.length === 6) handleVerifyCode(otp);
-          }}
-          inputMode="numeric"
-          autoComplete="one-time-code"
-          aria-hidden="true"
-          tabIndex={-1}
-          className="sr-only"
-        />
+        <p className="mb-8 text-[13px] text-muted-foreground">
+          SMS kelganda kod avtomatik yoziladi (telefonda ruxsat bering). Kerak bo‘lsa qo‘lda ham kiritishingiz mumkin.
+        </p>
 
         <div
           className="relative flex items-center justify-between gap-1.5 sm:gap-2"
           onPaste={handleCodePaste}
         >
+          {/* iOS / Android: autocomplete="one-time-code" — ustiga shaffof input */}
+          <input
+            ref={otpAutofillInputRef}
+            type="text"
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            autoCorrect="off"
+            autoCapitalize="off"
+            spellCheck={false}
+            name="one-time-code"
+            maxLength={6}
+            value={code.join('')}
+            onChange={(e) => applyOtpFromAutofill(e.target.value)}
+            onFocus={() => setFocusedOtp(Math.min(code.join('').length, 5))}
+            className="absolute inset-0 z-10 h-full w-full cursor-text opacity-[0.02] text-[16px] caret-transparent outline-none"
+            style={{ WebkitTextFillColor: 'transparent' }}
+            aria-label="SMS tasdiqlash kodi"
+          />
+
           {code.map((digit, index) => (
-            <input
+            <div
               key={index}
               ref={(el) => {
-                codeInputsRef.current[index] = el;
+                codeInputsRef.current[index] = el as unknown as HTMLInputElement;
               }}
-              type="text"
-              inputMode="numeric"
-              pattern="[0-9]*"
-              autoComplete="off"
-              maxLength={1}
-              value={digit}
-              onChange={(e) => handleCodeChange(index, e.target.value)}
-              onKeyDown={(e) => handleCodeKeyDown(index, e)}
-              onFocus={() => setFocusedOtp(index)}
-              className="h-[52px] w-[46px] shrink-0 rounded-[14px] text-center text-[22px] font-semibold text-foreground caret-[var(--accent-color)] outline-none transition-all sm:h-[56px] sm:w-[50px] sm:text-[24px]"
+              role="presentation"
+              className="pointer-events-none relative z-0 flex h-[52px] w-[46px] shrink-0 items-center justify-center rounded-[14px] text-[22px] font-semibold text-foreground sm:h-[56px] sm:w-[50px] sm:text-[24px]"
               style={{
                 background: otpBoxBg,
                 boxShadow:
-                  focusedOtp === index
+                  focusedOtp === index || digit
                     ? '0 0 0 2px var(--accent-color)'
-                    : digit
-                      ? 'inset 0 0 0 1px rgba(0,0,0,0.04)'
-                      : 'none',
+                    : 'none',
               }}
-            />
+            >
+              {digit || (focusedOtp === index ? '|' : '')}
+            </div>
           ))}
 
           {loading ? (
-            <div className="pointer-events-none absolute inset-0 flex items-center justify-center bg-background/40">
+            <div className="pointer-events-none absolute inset-0 z-20 flex items-center justify-center bg-background/40">
               <Loader2 className="h-7 w-7 animate-spin text-[var(--accent-color)]" />
             </div>
           ) : null}
         </div>
+
+        <button
+          type="button"
+          onClick={() => otpAutofillInputRef.current?.focus()}
+          className="mt-4 w-full text-center text-[13px] font-medium text-[var(--accent-color)]"
+        >
+          Kodni qo‘lda kiritish
+        </button>
 
         <div className="mt-8 text-center">
           {countdown > 0 ? (

@@ -69,6 +69,7 @@ export function redactHeaderValue(key: string, value: string): string {
     lk === "cookie" ||
     lk === "x-access-token" ||
     lk === "x-branch-token" ||
+    lk === "x-staff-token" ||
     lk === "x-courier-token" ||
     lk === "x-seller-token" ||
     lk === "x-admin-code" ||
@@ -84,7 +85,7 @@ export function redactHeaderValue(key: string, value: string): string {
 }
 
 export const CORS_ALLOW_HEADERS =
-  "Content-Type, Authorization, X-Access-Token, x-access-token, X-Seller-Token, x-seller-token, X-Courier-Token, x-courier-token, X-Auto-Courier-Token, x-auto-courier-token, X-Admin-Code, x-admin-code, X-Admin-Session, x-admin-session, X-Admin-Login-Token, x-admin-login-token, X-Admin-Device-Id, x-admin-device-id, X-Request-ID, x-request-id, X-Branch-Token, x-branch-token, X-Branch-Supabase-Jwt, x-branch-supabase-jwt, X-Accountant-Token, x-accountant-token, X-Rental-Provider-Token, x-rental-provider-token, apikey";
+  "Content-Type, Authorization, X-Access-Token, x-access-token, X-Seller-Token, x-seller-token, X-Courier-Token, x-courier-token, X-Auto-Courier-Token, x-auto-courier-token, X-Admin-Code, x-admin-code, X-Admin-Session, x-admin-session, X-Admin-Login-Token, x-admin-login-token, X-Admin-Device-Id, x-admin-device-id, X-Request-ID, x-request-id, X-Branch-Token, x-branch-token, X-Staff-Token, x-staff-token, X-Branch-Supabase-Jwt, x-branch-supabase-jwt, X-Accountant-Token, x-accountant-token, X-Rental-Provider-Token, x-rental-provider-token, apikey";
 
 /** CORS javob sarlavhalari + xavfsizlik sarlavhalari (oldingi `index.ts` tartibi bilan bir xil). */
 export function registerCorsAndSecurityHeaders(app: Hono): void {

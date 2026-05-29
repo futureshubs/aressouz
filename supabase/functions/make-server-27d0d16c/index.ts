@@ -1918,7 +1918,15 @@ async function ensureSmsUserKvFromAuth(
 // Send SMS verification code
 app.post("/make-server-27d0d16c/auth/sms/send", async (c) => {
   try {
-    const { phone } = await c.req.json();
+    const body = await c.req.json();
+    const phone = body?.phone;
+    const otpHost =
+      String(body?.otpHost || "").trim() ||
+      String(c.req.header("origin") || "")
+        .replace(/^https?:\/\//, "")
+        .replace(/\/.*$/, "")
+        .replace(/^www\./, "") ||
+      "";
 
     const normalizedPhone = normalizeSmsPhoneInput(phone);
     if (!normalizedPhone) {
@@ -1947,7 +1955,7 @@ app.post("/make-server-27d0d16c/auth/sms/send", async (c) => {
     });
 
     // Send SMS
-    const result = await eskiz.sendVerificationSMS(normalizedPhone, code);
+    const result = await eskiz.sendVerificationSMS(normalizedPhone, code, otpHost);
 
     if (!result.success) {
       return c.json({ error: result.error || 'SMS yuborishda xatolik' }, 500);
@@ -1956,7 +1964,8 @@ app.post("/make-server-27d0d16c/auth/sms/send", async (c) => {
     return c.json({ 
       success: true,
       message: 'SMS yuborildi',
-      expiresIn: 300 // 5 minutes
+      expiresIn: 300, // 5 minutes
+      webOtp: true,
     });
   } catch (error: any) {
     console.log('Send SMS exception:', error);
