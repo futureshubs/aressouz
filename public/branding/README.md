@@ -13,3 +13,5 @@
 Kod: `src/app/components/brand/AressoPanelBrand.tsx` → `ARESSO_PANEL_LOGO_SRC`
 
 Brauzer tab / PWA: `public/icons/` + `src/app/utils/documentBrand.ts` (marshrut bo‘yicha favicon).
+
+PNG lar **shaffof fon** bilan bo‘lishi kerak. Qora kvadrat ichiga yopilgan PNG yuborilsa, `scripts/strip-logo-background.ps1` (yoki qo‘lda) qora piksellarni olib tashlang.

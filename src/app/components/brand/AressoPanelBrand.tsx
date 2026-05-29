@@ -54,6 +54,8 @@ type Props = {
   showPanelLabel?: boolean;
   /** Alohida logo URL (keyin alohida fayl berilganda) */
   logoSrc?: string;
+  /** Qo‘shimcha fon/quti yo‘q — faqat PNG (shaffof fon) */
+  bareLogo?: boolean;
   size?: Size;
   layout?: 'stack' | 'row';
   align?: 'left' | 'center';
@@ -69,6 +71,7 @@ export default function AressoPanelBrand({
   panelLabel,
   showPanelLabel = true,
   logoSrc,
+  bareLogo = true,
   size = 'md',
   layout = 'stack',
   align = 'center',
@@ -82,20 +85,23 @@ export default function AressoPanelBrand({
   const alignCls = align === 'center' ? 'items-center text-center' : 'items-start text-left';
   const rowCls = layout === 'row' ? 'flex-row gap-3' : 'flex-col gap-2';
 
-  const shellStyle: CSSProperties = {
-    background: isDark
-      ? `linear-gradient(145deg, ${accentColor}18, rgba(255,255,255,0.04))`
-      : `linear-gradient(145deg, ${accentColor}12, rgba(255,255,255,0.95))`,
-    border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
-    boxShadow: isDark ? `0 8px 28px ${accentColor}22` : `0 8px 24px ${accentColor}14`,
-  };
+  const shellStyle: CSSProperties = bareLogo
+    ? { background: 'transparent', border: 'none', boxShadow: 'none' }
+    : {
+        background: isDark
+          ? `linear-gradient(145deg, ${accentColor}18, rgba(255,255,255,0.04))`
+          : `linear-gradient(145deg, ${accentColor}12, rgba(255,255,255,0.95))`,
+        border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
+        boxShadow: isDark ? `0 8px 28px ${accentColor}22` : `0 8px 24px ${accentColor}14`,
+      };
+
+  const logoWrapCls = bareLogo
+    ? 'shrink-0 inline-flex items-center justify-center'
+    : `shrink-0 inline-flex ${s.pad} ${s.rounded}`;
 
   return (
     <div className={`flex min-w-0 ${rowCls} ${alignCls} ${className}`.trim()}>
-      <div
-        className={`shrink-0 inline-flex ${s.pad} ${s.rounded}`}
-        style={shellStyle}
-      >
+      <div className={logoWrapCls} style={shellStyle}>
         <img
           src={src}
           alt="Aresso"
