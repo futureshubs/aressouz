@@ -3,7 +3,6 @@ import { useNavigate } from 'react-router';
 import {
   BarChart3,
   Bell,
-  Bike,
   BriefcaseBusiness,
   CalendarDays,
   Camera,
@@ -56,6 +55,7 @@ import {
   RentalCourierDepositBlock,
 } from '../components/rental/RentalCourierDeliveryJobCard';
 import { CourierOrderLocationBlock } from '../components/courier/CourierOrderLocationBlock';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 
 type CourierBag = {
   id: string;
@@ -3112,19 +3112,23 @@ export default function CourierDashboard() {
           }}
         >
           <div className="flex flex-col md:flex-row md:items-center md:justify-between gap-4">
-            <div className="flex items-center gap-4">
-              <div className="p-4 rounded-3xl" style={{ background: `${accentColor.color}20` }}>
-                <Bike className="w-10 h-10" style={{ color: accentColor.color }} />
-              </div>
-              <div>
-                <h1 className="text-2xl font-bold">{profile?.name || 'Kuryer paneli'}</h1>
-                <p style={{ color: mutedTextColor }}>
-                  {profile?.branchName || 'Filial biriktirilmagan'} • {profile?.phone || 'Telefon yo‘q'}
-                </p>
-                <div className="mt-2 inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm" style={{ background: `${statusBadge}20`, color: statusBadge }}>
-                  <span className="w-2 h-2 rounded-full" style={{ background: statusBadge }} />
-                  {profile?.status === 'busy' ? 'Band' : profile?.status === 'active' ? 'Faol' : profile?.status === 'offline' ? 'Oflayn' : 'Nofaol'}
-                </div>
+            <div className="min-w-0 flex-1 space-y-2">
+              <AressoPanelBrand
+                variant="kuryer"
+                size="md"
+                layout="row"
+                align="left"
+                title={profile?.name || 'Kuryer'}
+                subtitle={`${profile?.branchName || 'Filial biriktirilmagan'} • ${profile?.phone || 'Telefon yo‘q'}`}
+                isDark={isDark}
+                accentColor={accentColor.color}
+              />
+              <div
+                className="inline-flex items-center gap-2 px-3 py-1 rounded-full text-sm"
+                style={{ background: `${statusBadge}20`, color: statusBadge }}
+              >
+                <span className="w-2 h-2 rounded-full" style={{ background: statusBadge }} />
+                {profile?.status === 'busy' ? 'Band' : profile?.status === 'active' ? 'Faol' : profile?.status === 'offline' ? 'Oflayn' : 'Nofaol'}
               </div>
             </div>
 

@@ -1,7 +1,8 @@
 import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Utensils, Lock, User, Loader2 } from 'lucide-react';
+import { Lock, User, Loader2 } from 'lucide-react';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 import { toast } from 'sonner';
 import { projectId, publicAnonKey } from '/utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
@@ -93,23 +94,15 @@ export default function RestaurantLogin() {
       }}
     >
       <div className="w-full max-w-md">
-        {/* Logo */}
-        <div className="text-center mb-8">
-          <div 
-            className="inline-flex p-6 rounded-3xl mb-4"
-            style={{ background: `${accentColor.color}20` }}
-          >
-            <Utensils className="w-12 h-12" style={{ color: accentColor.color }} />
-          </div>
-          <h1
-            className="text-3xl font-bold mb-2"
-            style={{ color: isDark ? '#ffffff' : '#111827' }}
-          >
-            Restoran Paneli
-          </h1>
-          <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-            Tizimga kirish
-          </p>
+        <div className="mb-8">
+          <AressoPanelBrand
+            variant="taom"
+            size="lg"
+            align="center"
+            subtitle="Tizimga kirish"
+            isDark={isDark}
+            accentColor={accentColor.color}
+          />
         </div>
 
         {/* Login Form */}

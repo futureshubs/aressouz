@@ -1,7 +1,8 @@
 import { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
-import { Store, Lock, User, Loader2, ShoppingBag, Package, TrendingUp } from 'lucide-react';
+import { Lock, User, Loader2, ShoppingBag, Package, TrendingUp } from 'lucide-react';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 import { API_BASE_URL, DEV_API_BASE_URL, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { readValidSellerSession } from '../utils/sellerSession';
@@ -185,12 +186,15 @@ export default function SellerLogin() {
           backdropFilter: 'blur(12px)',
         }}
       >
-        <div className="flex min-w-0 items-center gap-2">
-          <Store className="h-5 w-5 shrink-0" style={{ color: accentColor.color }} />
-          <span className="truncate text-sm font-semibold" style={{ color: isDark ? '#fff' : '#111827' }}>
-            Seller Panel
-          </span>
-        </div>
+        <AressoPanelBrand
+          variant="seller"
+          size="xs"
+          layout="row"
+          align="left"
+          showPanelLabel={false}
+          isDark={isDark}
+          accentColor={accentColor.color}
+        />
       </header>
 
       <div className="flex min-h-0 flex-1 flex-col overflow-hidden lg:flex-row">
@@ -210,19 +214,16 @@ export default function SellerLogin() {
           />
 
           <div className="relative z-10">
-            <div
-              className="mb-5 inline-flex rounded-2xl p-5"
-              style={{
-                background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(255,255,255,0.85)',
-                boxShadow: isDark
-                  ? `0 12px 40px ${accentColor.color}25`
-                  : `0 12px 40px ${accentColor.color}18`,
-              }}
-            >
-              <Store className="h-12 w-12" style={{ color: accentColor.color }} strokeWidth={2} />
-            </div>
+            <AressoPanelBrand
+              variant="seller"
+              size="xl"
+              align="left"
+              className="mb-5"
+              isDark={isDark}
+              accentColor={accentColor.color}
+            />
 
-            <h1 className="text-3xl font-bold tracking-tight lg:text-4xl" style={{ color: isDark ? '#ffffff' : '#0f172a' }}>
+            <h1 className="text-3xl font-bold tracking-tight lg:text-4xl sr-only">
               Seller Panel
             </h1>
             <p

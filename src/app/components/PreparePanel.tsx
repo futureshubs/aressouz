@@ -8,9 +8,10 @@ import {
   Package, CheckCircle, Clock,
   XCircle, Phone, MapPin, RefreshCw,
   User, Moon, Sun, Check, Scan, BarChart3, Award,
-  TrendingUp, Activity, DollarSign, BriefcaseBusiness, Loader2,
-  ChevronRight,
+  TrendingUp, DollarSign, BriefcaseBusiness, Loader2,
+  ChevronRight, LogOut,
 } from 'lucide-react';
+import AressoPanelBrand from './brand/AressoPanelBrand';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { sortOrdersNewestFirst } from '../utils/sortOrdersNewestFirst';
@@ -768,10 +769,16 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
           {/* Top Row */}
           <div className="flex flex-wrap items-start justify-between gap-3 mb-4">
             <div className="min-w-0 flex-1">
-              <h1 className="text-lg sm:text-xl font-bold leading-tight">Tayyorlovchi panel</h1>
-              <p className="text-xs sm:text-sm mt-0.5 truncate" style={{ color: mutedTextColor }}>
-                {preparer.name}
-              </p>
+              <AressoPanelBrand
+                variant="tayyorlovchi"
+                size="md"
+                layout="row"
+                align="left"
+                title={preparer.name}
+                subtitle={`${preparer.region || 'Hudud'}${preparer.district ? `, ${preparer.district}` : ''} • ${preparer.phone || ''}`}
+                isDark={isDark}
+                accentColor={accentColor.color}
+              />
             </div>
             <div className="flex items-center gap-2 shrink-0">
               <button
@@ -1205,17 +1212,23 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
         {/* Profile Tab */}
         {activeMainTab === 'profile' && (
           <div className="space-y-4">
-            <div className="flex items-center justify-between mb-4">
-              <div className="flex items-center gap-2">
-                <User className="w-5 h-5" style={{ color: accentColor.color }} />
-                <h2 className="text-xl font-bold">Profil</h2>
-              </div>
-              <div className="flex items-center gap-2">
-                <Activity className="w-5 h-5" style={{ color: accentColor.color }} />
-                <p className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                  Ma'lumotlar
-                </p>
-              </div>
+            <div
+              className="p-4 rounded-2xl border mb-2"
+              style={{
+                background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+              }}
+            >
+              <AressoPanelBrand
+                variant="tayyorlovchi"
+                size="lg"
+                layout="row"
+                align="left"
+                title={preparer.name}
+                subtitle={preparer.workTime}
+                isDark={isDark}
+                accentColor={accentColor.color}
+              />
             </div>
             <div className="grid grid-cols-1 gap-4">
               <div
@@ -1287,6 +1300,19 @@ export default function PreparePanel({ token, preparer, onLogout }: PreparePanel
                 </p>
               </div>
             </div>
+            <button
+              type="button"
+              onClick={onLogout}
+              className="w-full py-4 rounded-2xl font-bold flex items-center justify-center gap-2 transition-all active:scale-95"
+              style={{
+                background: isDark ? 'rgba(239, 68, 68, 0.15)' : 'rgba(239, 68, 68, 0.08)',
+                color: '#ef4444',
+                border: '1px solid rgba(239, 68, 68, 0.35)',
+              }}
+            >
+              <LogOut className="w-5 h-5" />
+              Chiqish
+            </button>
           </div>
         )}
       </div>

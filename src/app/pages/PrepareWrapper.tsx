@@ -5,12 +5,13 @@ import { useState, useEffect } from 'react';
 import { Loader2 } from 'lucide-react';
 import PrepareLogin from '../components/PrepareLogin';
 import PreparePanel from '../components/PreparePanel';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 import { useTheme } from '../context/ThemeContext';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 
 export default function PrepareWrapper() {
-  const { theme } = useTheme();
+  const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [token, setToken] = useState<string | null>(null);
@@ -19,7 +20,6 @@ export default function PrepareWrapper() {
   const visibilityRefetchTick = useVisibilityTick();
 
   useEffect(() => {
-    // Check for existing session
     const savedToken = localStorage.getItem('preparerToken');
     if (savedToken) {
       validateSession(savedToken);
@@ -35,11 +35,11 @@ export default function PrepareWrapper() {
         {
           method: 'POST',
           headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
+            Authorization: `Bearer ${publicAnonKey}`,
             'Content-Type': 'application/json',
           },
           body: JSON.stringify({ token: savedToken }),
-        }
+        },
       );
 
       if (response.ok) {
@@ -52,7 +52,6 @@ export default function PrepareWrapper() {
           localStorage.removeItem('preparerToken');
         }
       }
-      // HTTP xatolik yoki tarmoq uzilishi: tokenni saqlab qolamiz — keyingi visibility yoki qayta yuklashda qayta tekshiriladi
     } catch (error) {
       console.error('Session validation error:', error);
     } finally {
@@ -77,13 +76,25 @@ export default function PrepareWrapper() {
   if (isLoading) {
     return (
       <div
-        className="min-h-screen flex items-center justify-center app-safe-pt"
+        className="min-h-screen flex flex-col items-center justify-center gap-6 p-4 app-safe-pt"
         style={{
           background: isDark ? '#000000' : '#f9fafb',
           color: isDark ? '#ffffff' : '#111827',
         }}
       >
-        <Loader2 className="h-12 w-12 animate-spin shrink-0 text-blue-500" aria-hidden />
+        <AressoPanelBrand
+          variant="tayyorlovchi"
+          size="xl"
+          align="center"
+          showPanelLabel={false}
+          isDark={isDark}
+          accentColor={accentColor.color}
+        />
+        <Loader2
+          className="h-10 w-10 animate-spin shrink-0"
+          style={{ color: accentColor.color }}
+          aria-hidden
+        />
       </div>
     );
   }

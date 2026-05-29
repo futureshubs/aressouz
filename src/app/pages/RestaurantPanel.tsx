@@ -48,6 +48,7 @@ import {
   platformCommissionHintUz,
   validateVariantCommissionsClient,
 } from '../utils/platformCommission';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 import {
   diningRoomCapacityRange,
   diningRoomImageList,
@@ -960,16 +961,16 @@ export default function RestaurantPanel() {
         }}
       >
         <div className="app-panel-sidebar-scroll p-6 pb-4">
-          <div className="mb-6 p-4 rounded-2xl" style={{ background: `${accentColor.color}20` }}>
-            <h1 className="text-lg font-bold text-center leading-tight" style={{ color: accentColor.color }}>
-              {restaurant.name}
-            </h1>
-            <p
-              className="text-xs text-center mt-2"
-              style={{ color: isDark ? 'rgba(255, 255, 255, 0.65)' : 'rgba(0, 0, 0, 0.65)' }}
-            >
-              {restaurant.type} • {restaurant.region}
-            </p>
+          <div className="mb-6">
+            <AressoPanelBrand
+              variant="taom"
+              size="sm"
+              align="center"
+              title={restaurant.name}
+              subtitle={`${restaurant.type} • ${restaurant.region}`}
+              isDark={isDark}
+              accentColor={accentColor.color}
+            />
           </div>
           <nav className="space-y-1.5">
             {restaurantMenuTabs.map((tab) => {
@@ -1034,10 +1035,18 @@ export default function RestaurantPanel() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="app-panel-sidebar-scroll p-5 pb-4">
-              <div className="flex items-center justify-between gap-2 mb-5">
-                <p className="text-sm font-bold truncate min-w-0" style={{ color: accentColor.color }}>
-                  {restaurant.name}
-                </p>
+              <div className="flex items-start justify-between gap-2 mb-5">
+                <AressoPanelBrand
+                  variant="taom"
+                  size="xs"
+                  layout="row"
+                  align="left"
+                  title={restaurant.name}
+                  showPanelLabel={false}
+                  isDark={isDark}
+                  accentColor={accentColor.color}
+                  className="flex-1 min-w-0"
+                />
                 <button
                   type="button"
                   onClick={() => setSidebarOpen(false)}
@@ -1098,7 +1107,7 @@ export default function RestaurantPanel() {
         </div>
       )}
 
-      <main className="flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden lg:ml-64">
+      <main className="app-panel-main-with-sidebar flex min-h-0 min-w-0 flex-1 flex-col overflow-hidden">
         <header
           className="shrink-0 border-b z-40"
           style={{
@@ -1117,7 +1126,7 @@ export default function RestaurantPanel() {
               >
                 <Menu className="w-6 h-6" />
               </button>
-              <div className="min-w-0">
+              <div className="min-w-0 flex-1 hidden lg:block">
                 <h1 className="text-lg lg:text-2xl font-bold truncate">
                   {restaurantMenuTabs.find((t) => t.id === activeTab)?.label ?? 'Dashboard'}
                 </h1>
@@ -1128,6 +1137,18 @@ export default function RestaurantPanel() {
                   {restaurant.name}
                 </p>
               </div>
+              <AressoPanelBrand
+                variant="taom"
+                size="xs"
+                layout="row"
+                align="left"
+                title={restaurantMenuTabs.find((t) => t.id === activeTab)?.label ?? 'Dashboard'}
+                showPanelLabel={false}
+                subtitle={restaurant.name}
+                isDark={isDark}
+                accentColor={accentColor.color}
+                className="min-w-0 flex-1 lg:hidden"
+              />
             </div>
             <button
               type="button"

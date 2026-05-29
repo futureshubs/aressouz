@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState, type CSSProperties } from 'react';
-import { Package, Sparkles } from 'lucide-react';
+import { Package } from 'lucide-react';
 import { Autoplay, Pagination } from 'swiper/modules';
 import { Swiper, SwiperSlide } from 'swiper/react';
 import 'swiper/css';
@@ -96,7 +96,7 @@ function thumbUrls(order: any): string[] {
 
   const out: string[] = [];
   for (const raw of candidates) {
-    if (out.length >= 2) break;
+    if (out.length >= 1) break;
     const n = normalizePreviewImageUrl(raw);
     if (n && !out.includes(n)) out.push(n);
   }
@@ -198,23 +198,13 @@ function OrderPreviewCard({
         </span>
       </div>
 
-      <div className="flex gap-2 mb-2">
-        {[0, 1].map((i) => (
-          <div
-            key={i}
-            className="size-14 rounded-xl overflow-hidden flex items-center justify-center shrink-0"
-            style={{
-              background: isDark ? 'rgba(30,41,59,0.9)' : 'linear-gradient(145deg,#1e3a5f,#0f172a)',
-            }}
-          >
-            {thumbs[i] ? (
-              <img src={thumbs[i]} alt="" className="size-full object-cover" />
-            ) : (
-              <Sparkles className="size-6 text-white/90" strokeWidth={1.8} />
-            )}
+      {thumbs[0] ? (
+        <div className="mb-2">
+          <div className="size-14 rounded-xl overflow-hidden shrink-0">
+            <img src={thumbs[0]} alt="" className="size-full object-cover" />
           </div>
-        ))}
-      </div>
+        </div>
+      ) : null}
       <div
         className="pt-2 border-t flex items-center justify-between gap-2"
         style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}

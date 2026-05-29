@@ -49,6 +49,7 @@ import SellerHistoryPanel from '../components/seller/SellerHistoryPanel';
 import SellerWorkersPanel from '../components/seller/SellerWorkersPanel';
 import SellerExpensesPanel from '../components/seller/SellerExpensesPanel';
 import SellerBottomNav, { type SellerNavTabId } from '../components/seller/SellerBottomNav';
+import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 import {
   sellerOrderPaymentStatusNorm,
   sellerOrderTotal,
@@ -571,21 +572,16 @@ export default function SellerDashboard() {
       >
         <div className="app-panel-sidebar-scroll p-6 pb-4">
           {/* Shop Info */}
-          <div className="mb-8">
-            <div 
-              className="p-4 rounded-2xl mb-3"
-              style={{ background: `${accentColor.color}20` }}
-            >
-              <h1 className="text-lg font-bold text-center mb-2" style={{ color: accentColor.color }}>
-                {sellerInfo?.shopName || 'Do\'kon'}
-              </h1>
-              <p 
-                className="text-xs text-center"
-                style={{ color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' }}
-              >
-                {isCashier ? (sellerInfo?.staffName || 'Ishchi') : 'Seller Panel'}
-              </p>
-            </div>
+          <div className="mb-6">
+            <AressoPanelBrand
+              variant="seller"
+              size="sm"
+              align="center"
+              title={sellerInfo?.shopName || 'Do\'kon'}
+              subtitle={isCashier ? (sellerInfo?.staffName || 'Ishchi') : undefined}
+              isDark={isDark}
+              accentColor={accentColor.color}
+            />
           </div>
 
           <nav className="space-y-1.5">
@@ -652,15 +648,18 @@ export default function SellerDashboard() {
             onClick={(e) => e.stopPropagation()}
           >
             <div className="app-panel-sidebar-scroll p-6 pb-4">
-              <div className="flex items-center justify-between mb-6">
-                <div 
-                  className="p-2 rounded-xl"
-                  style={{ background: `${accentColor.color}20` }}
-                >
-                  <h1 className="text-sm font-bold" style={{ color: accentColor.color }}>
-                    {sellerInfo?.shopName}
-                  </h1>
-                </div>
+              <div className="flex items-center justify-between mb-6 gap-2">
+                <AressoPanelBrand
+                  variant="seller"
+                  size="xs"
+                  layout="row"
+                  align="left"
+                  title={sellerInfo?.shopName}
+                  showPanelLabel={false}
+                  isDark={isDark}
+                  accentColor={accentColor.color}
+                  className="flex-1 min-w-0"
+                />
                 <button
                   onClick={() => setSidebarOpen(false)}
                   className="p-2 rounded-xl"
