@@ -2,6 +2,7 @@ import { createBrowserRouter, useLocation } from 'react-router';
 import { ReactNode, Suspense, lazy } from 'react';
 import AppContent from './AppContent';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
+import { DocumentBrandSync } from './components/DocumentBrandSync';
 import { RouteChunkSkeleton } from './components/skeletons';
 import { LocationProvider } from './context/LocationContext';
 import { FavoritesProvider } from './context/FavoritesContext';
@@ -53,6 +54,7 @@ function MainAppRoute() {
   const location = useLocation();
   return (
     <RouteErrorBoundary resetKeys={[location.key]}>
+      <DocumentBrandSync />
       <LocationProvider>
         <FavoritesProvider>
           <RentalCartProvider>
@@ -68,6 +70,7 @@ function AppRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   return (
     <RouteErrorBoundary resetKeys={[location.key]}>
+      <DocumentBrandSync />
       <LocationProvider>
         <FavoritesProvider>
           <RentalCartProvider>{children}</RentalCartProvider>
@@ -81,6 +84,7 @@ function AdminRoute({ children }: { children: React.ReactNode }) {
   const location = useLocation();
   return (
     <RouteErrorBoundary resetKeys={[location.pathname, location.key, location.search]}>
+      <DocumentBrandSync />
       {children}
     </RouteErrorBoundary>
   );

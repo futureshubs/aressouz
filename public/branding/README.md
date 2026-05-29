@@ -9,3 +9,5 @@
 | `aresso-tayyorlovchi.png` | Tayyorlovchi paneli va login |
 
 Kod: `src/app/components/brand/AressoPanelBrand.tsx` → `ARESSO_PANEL_LOGO_SRC`
+
+Brauzer tab / PWA: `public/icons/` + `src/app/utils/documentBrand.ts` (marshrut bo‘yicha favicon).
