@@ -23,6 +23,10 @@ type Props = {
 export default function PanelPushSetup({ scope, headers, className = '' }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
+  const panel = scope?.panel;
+  const scopeId = String(scope?.scopeId || '').trim();
+  const safeHeaders = headers ?? {};
+
   const [perm, setPerm] = useState<NotificationPermission | 'unsupported'>(() =>
     typeof window !== 'undefined' && 'Notification' in window ? Notification.permission : 'unsupported',
   );
@@ -30,11 +34,13 @@ export default function PanelPushSetup({ scope, headers, className = '' }: Props
   const [dismissed, setDismissed] = useState(wasPanelPushDeclined);
 
   useEffect(() => {
-    if (!isPanelNotificationsSupported()) return;
+    if (!panel || !scopeId || !scope || !isPanelNotificationsSupported()) return;
     if (perm === 'granted') {
-      void subscribePanelWebPush(scope, edgeFunctionBaseUrl(), headers).catch(() => {});
+      void subscribePanelWebPush(scope, edgeFunctionBaseUrl(), safeHeaders).catch(() => {});
     }
-  }, [perm, scope.panel, scope.scopeId]);
+  }, [perm, panel, scopeId]);
+
+  if (!panel || !scopeId) return null;
 
   if (!isWebPushSupported() && !isPanelNotificationsSupported()) return null;
   if (perm === 'granted' || dismissed) return null;
@@ -48,7 +54,11 @@ export default function PanelPushSetup({ scope, headers, className = '' }: Props
         toast.error('Bildirishnomalar uchun ruxsat kerak');
         return;
       }
-      const r = await subscribePanelWebPush(scope, edgeFunctionBaseUrl(), headers);
+      const r = await subscribePanelWebPush(
+        { ...scope!, panel, scopeId },
+        edgeFunctionBaseUrl(),
+        safeHeaders,
+      );
       if (r.ok) {
         toast.success('Bildirishnomalar yoqildi — buyurtma tushsa telefoningizga keladi');
         setPerm('granted');

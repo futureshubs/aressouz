@@ -9,6 +9,7 @@ import {
   publicAnonKey,
 } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
+import { writeRentalProviderSession } from '../utils/rentalProviderSession';
 
 export default function RentalProviderLogin() {
   const navigate = useNavigate();
@@ -57,16 +58,16 @@ export default function RentalProviderLogin() {
       );
       const data = await res.json().catch(() => ({}));
       if (res.ok && data.success && data.token) {
-        localStorage.setItem(
-          'rentalProviderSession',
-          JSON.stringify({
-            token: data.token,
-            branchId: data.branchId,
-            providerId: data.provider?.id,
-            displayName: data.provider?.displayName,
-            login: data.provider?.login,
-          }),
-        );
+        const pr = data.provider || {};
+        writeRentalProviderSession({
+          token: data.token,
+          branchId: data.branchId,
+          providerId: pr.id,
+          displayName: pr.displayName,
+          login: pr.login,
+          shopName: pr.shopName,
+          workTime: pr.workTime,
+        });
         toast.success('Xush kelibsiz!');
         navigate('/ijara-panel/dashboard');
       } else {

@@ -3,11 +3,8 @@ import { useLocation, useNavigate } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import { toast } from 'sonner';
 import MarketView from '../components/branch/MarketView';
-import { PendingCashMarketBranchPanel } from '../components/branch/PendingCashMarketBranchPanel';
-import { BranchRefundsPanel } from '../components/branch/BranchRefundsPanel';
 import { CashierPanel } from '../components/branch/CashierPanel';
 import { OperatorSupportTabs } from '../components/branch/OperatorSupportTabs';
-import { Payments } from '../components/branch/Payments';
 import { Loader2 } from 'lucide-react';
 import AressoPanelBrand, { staffPanelBrandVariant } from '../components/brand/AressoPanelBrand';
 
@@ -53,7 +50,6 @@ export default function StaffDashboard() {
   };
 
   const [session, setSession] = useState<any>(null);
-  const [warehouseTab, setWarehouseTab] = useState<'market' | 'payments' | 'refunds'>('market');
   const branchSession = useMemo(() => {
     try {
       return JSON.parse(localStorage.getItem('branchSession') || 'null');
@@ -198,100 +194,7 @@ export default function StaffDashboard() {
         </div>
 
         {effectiveRole === 'warehouse' && (
-          <div>
-            {/* Warehouse role: filyal market bo'limi (read-only) */}
-            <div className="flex items-center gap-3 mb-4">
-              <button
-                onClick={() => setWarehouseTab('market')}
-                className="px-4 py-2 rounded-xl font-semibold transition-all active:scale-95"
-                style={{
-                  background:
-                    warehouseTab === 'market'
-                      ? accentColor.gradient
-                      : isDark
-                        ? 'rgba(255, 255, 255, 0.06)'
-                        : 'rgba(0, 0, 0, 0.04)',
-                  color:
-                    warehouseTab === 'market'
-                      ? '#ffffff'
-                      : isDark
-                        ? 'rgba(255, 255, 255, 0.7)'
-                        : '#111827',
-                  border:
-                    warehouseTab === 'market'
-                      ? 'none'
-                      : isDark
-                        ? '1px solid rgba(255,255,255,0.08)'
-                        : '1px solid rgba(0,0,0,0.06)',
-                }}
-              >
-                Market
-              </button>
-              <button
-                onClick={() => setWarehouseTab('payments')}
-                className="px-4 py-2 rounded-xl font-semibold transition-all active:scale-95"
-                style={{
-                  background:
-                    warehouseTab === 'payments'
-                      ? accentColor.gradient
-                      : isDark
-                        ? 'rgba(255, 255, 255, 0.06)'
-                        : 'rgba(0, 0, 0, 0.04)',
-                  color:
-                    warehouseTab === 'payments'
-                      ? '#ffffff'
-                      : isDark
-                        ? 'rgba(255, 255, 255, 0.7)'
-                        : '#111827',
-                  border:
-                    warehouseTab === 'payments'
-                      ? 'none'
-                      : isDark
-                        ? '1px solid rgba(255,255,255,0.08)'
-                        : '1px solid rgba(0,0,0,0.06)',
-                }}
-              >
-                To'lovlar
-              </button>
-              <button
-                onClick={() => setWarehouseTab('refunds')}
-                className="px-4 py-2 rounded-xl font-semibold transition-all active:scale-95"
-                style={{
-                  background:
-                    warehouseTab === 'refunds'
-                      ? accentColor.gradient
-                      : isDark
-                        ? 'rgba(255, 255, 255, 0.06)'
-                        : 'rgba(0, 0, 0, 0.04)',
-                  color:
-                    warehouseTab === 'refunds'
-                      ? '#ffffff'
-                      : isDark
-                        ? 'rgba(255, 255, 255, 0.7)'
-                        : '#111827',
-                  border:
-                    warehouseTab === 'refunds'
-                      ? 'none'
-                      : isDark
-                        ? '1px solid rgba(255,255,255,0.08)'
-                        : '1px solid rgba(0,0,0,0.06)',
-                }}
-              >
-                Qaytarish to‘lovlari
-              </button>
-            </div>
-
-            {warehouseTab === 'market' ? (
-              <div className="space-y-6">
-                <PendingCashMarketBranchPanel />
-                <MarketView branchId={branchId} />
-              </div>
-            ) : warehouseTab === 'payments' ? (
-              <Payments branchId={branchId} branchInfo={branchInfo} />
-            ) : (
-              <BranchRefundsPanel />
-            )}
-          </div>
+          <MarketView branchId={branchId} branchInfo={branchInfo} initialTab="orders" />
         )}
 
         {(effectiveRole === 'operator' || effectiveRole === 'support') && (

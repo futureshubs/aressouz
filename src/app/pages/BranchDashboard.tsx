@@ -1036,7 +1036,14 @@ export default function BranchDashboard() {
 
           {/* Other Tabs - Coming Soon */}
           {activeTab === 'market' && branchInfo && (
-            <MarketView branchId={branchInfo.id} />
+            <MarketView
+              branchId={branchInfo.id}
+              branchInfo={{
+                region: branchInfo.region,
+                district: branchInfo.district,
+                phone: branchInfo.phone,
+              }}
+            />
           )}
 
           {activeTab === 'shop' && branchInfo && (

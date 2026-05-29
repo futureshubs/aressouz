@@ -12,7 +12,9 @@ import restaurantRoutes from "./restaurants.tsx";
 import rentalRoutes from "./rentals.tsx";
 import {
   normalizeRentalProviderLogin,
+  rentalProviderDisplayName,
   rentalProviderLoginLookupKey,
+  rentalProviderPublicProfile,
   rentalProviderRecordKey,
   rentalProviderSessionPrefix,
 } from "./rental_provider_kv.ts";
@@ -11237,12 +11239,12 @@ app.get("/make-server-27d0d16c/branch/rental-providers", async (c) => {
     const all = (await kv.getByPrefix(`rental_provider_${branchId}_`)) || [];
     const providers = (all as any[])
       .filter((x) => x && !x.deleted)
-      .map((p) => ({
+      .map((p) => rentalProviderPublicProfile(p) || {
         id: p.id,
         login: p.login,
-        displayName: p.displayName || p.name || p.login,
+        displayName: rentalProviderDisplayName(p) || p.login,
         createdAt: p.createdAt,
-      }));
+      });
     return c.json({ success: true, providers });
   } catch (error: any) {
     console.error("branch/rental-providers GET:", error);
@@ -11263,12 +11265,39 @@ app.post("/make-server-27d0d16c/branch/rental-providers", async (c) => {
     const body = await c.req.json();
     const login = String(body.login || "").trim();
     const password = String(body.password || "");
-    const displayName = String(body.displayName || body.name || login).trim();
+    const firstName = String(body.firstName || "").trim();
+    const lastName = String(body.lastName || "").trim();
+    const birthDate = String(body.birthDate || "").trim();
+    const gender = String(body.gender || "male").trim();
+    const shopName = String(body.shopName || "").trim();
+    const workTime = String(body.workTime || "09:00 - 22:00").trim();
+    const region = String(body.region || "").trim();
+    const district = String(body.district || "").trim();
+    const timeZone = String(body.timeZone || "").trim();
+    const latRaw = Number(body.latitude);
+    const lngRaw = Number(body.longitude);
+    const latitude = Number.isFinite(latRaw) ? latRaw : null;
+    const longitude = Number.isFinite(lngRaw) ? lngRaw : null;
+    const displayName =
+      `${firstName} ${lastName}`.trim() ||
+      String(body.displayName || body.name || shopName || login).trim();
     if (!login || !password) {
       return c.json(
         { success: false, error: "Login va parol majburiy" },
         400,
       );
+    }
+    if (!firstName || !lastName) {
+      return c.json({ success: false, error: "Ism va familya majburiy" }, 400);
+    }
+    if (!birthDate) {
+      return c.json({ success: false, error: "Tug‘ilgan kun majburiy" }, 400);
+    }
+    if (!shopName) {
+      return c.json({ success: false, error: "Do‘kon nomi majburiy" }, 400);
+    }
+    if (!workTime) {
+      return c.json({ success: false, error: "Ish vaqti majburiy" }, 400);
     }
     const norm = normalizeRentalProviderLogin(login);
     if (!norm) {
@@ -11286,6 +11315,17 @@ app.post("/make-server-27d0d16c/branch/rental-providers", async (c) => {
       login,
       password,
       displayName,
+      firstName,
+      lastName,
+      birthDate,
+      gender,
+      shopName,
+      workTime,
+      region,
+      district,
+      timeZone,
+      latitude,
+      longitude,
       createdAt: new Date().toISOString(),
       deleted: false,
     };
@@ -11293,7 +11333,7 @@ app.post("/make-server-27d0d16c/branch/rental-providers", async (c) => {
     await kv.set(lk, { branchId, providerId });
     return c.json({
       success: true,
-      provider: { id: providerId, login, displayName },
+      provider: rentalProviderPublicProfile(rec as any),
     });
   } catch (error: any) {
     console.error("branch/rental-providers POST:", error);
@@ -11313,19 +11353,41 @@ app.patch("/make-server-27d0d16c/branch/rental-providers/:providerId", async (c)
     const branchId = String(branchAuth.branchId || "");
     const providerId = c.req.param("providerId");
     const body = await c.req.json();
-    const password = String(body.password || "");
-    if (!password) {
-      return c.json({ success: false, error: "Yangi parol majburiy" }, 400);
-    }
+    const password = String(body.password || "").trim();
     const key = rentalProviderRecordKey(branchId, providerId);
     const rec = (await kv.get(key)) as any;
     if (!rec || rec.deleted) {
       return c.json({ success: false, error: "Akkaunt topilmadi" }, 404);
     }
-    rec.password = password;
+    if (password) rec.password = password;
+    const patchStr = (field: string) => {
+      if (body[field] !== undefined) rec[field] = String(body[field] || "").trim();
+    };
+    patchStr("firstName");
+    patchStr("lastName");
+    patchStr("birthDate");
+    patchStr("gender");
+    patchStr("shopName");
+    patchStr("workTime");
+    patchStr("region");
+    patchStr("district");
+    patchStr("timeZone");
+    if (body.displayName !== undefined) rec.displayName = String(body.displayName || "").trim();
+    if (body.latitude !== undefined) {
+      const lat = Number(body.latitude);
+      rec.latitude = Number.isFinite(lat) ? lat : null;
+    }
+    if (body.longitude !== undefined) {
+      const lng = Number(body.longitude);
+      rec.longitude = Number.isFinite(lng) ? lng : null;
+    }
+    const fn = String(rec.firstName || "").trim();
+    const ln = String(rec.lastName || "").trim();
+    const full = `${fn} ${ln}`.trim();
+    if (full) rec.displayName = full;
     rec.updatedAt = new Date().toISOString();
     await kv.set(key, rec);
-    return c.json({ success: true });
+    return c.json({ success: true, provider: rentalProviderPublicProfile(rec) });
   } catch (error: any) {
     console.error("branch/rental-providers PATCH:", error);
     return c.json({ success: false, error: error?.message || "Xatolik" }, 500);

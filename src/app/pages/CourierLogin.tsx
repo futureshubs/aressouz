@@ -4,7 +4,7 @@ import { KeyRound, User, Loader2 } from 'lucide-react';
 import PanelLoginShell from '../components/brand/PanelLoginShell';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
-import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 import { getStoredCourierToken } from '../utils/requestAuth';
 
 export default function CourierLogin() {
@@ -40,11 +40,7 @@ export default function CourierLogin() {
       form.set('login', formData.login);
       form.set('pin', formData.pin);
 
-      const baseUrl =
-        typeof window !== 'undefined' && window.location.hostname === 'localhost'
-          ? DEV_API_BASE_URL
-          : API_BASE_URL;
-      const response = await fetch(`${baseUrl}/courier/login`, {
+      const response = await fetch(`${edgeFunctionBaseUrl()}/courier/login`, {
         method: 'POST',
         body: form,
       });

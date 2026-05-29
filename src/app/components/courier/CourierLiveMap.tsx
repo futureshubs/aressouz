@@ -5,6 +5,7 @@ import { Maximize2, Minimize2, Navigation, X, Loader2 } from 'lucide-react';
 import { formatOrderNumber } from '../../utils/orderNumber';
 import { distanceKmForCourierUi, getOrderMapPoint } from '../../utils/courierOrderGeo';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
+import { readCourierGeoAccurate } from '../../utils/courierGeolocation';
 
 type MapOrder = {
   id: string;
@@ -271,19 +272,15 @@ export default function CourierLiveMap({
       window.setTimeout(() => courierMarkerRef.current?.openPopup(), 400);
     };
 
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        (pos) => fly(pos.coords.latitude, pos.coords.longitude),
-        () => {
-          if (currentLocation?.latitude != null && currentLocation?.longitude != null) {
-            fly(currentLocation.latitude, currentLocation.longitude);
-          }
-        },
-        { enableHighAccuracy: true, timeout: 9000, maximumAge: 0 },
-      );
-    } else if (currentLocation?.latitude != null && currentLocation?.longitude != null) {
-      fly(currentLocation.latitude, currentLocation.longitude);
-    }
+    void readCourierGeoAccurate().then((pos) => {
+      if (pos) {
+        fly(pos.latitude, pos.longitude);
+        return;
+      }
+      if (currentLocation?.latitude != null && currentLocation?.longitude != null) {
+        fly(currentLocation.latitude, currentLocation.longitude);
+      }
+    });
   }, [currentLocation?.latitude, currentLocation?.longitude]);
 
   // Lokatsiya keyinroq kelganda ham xarita yaratiladi ([] bo‘lsa ref bog‘lanmasdan effekt “o‘tib ketardi”).

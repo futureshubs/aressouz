@@ -8,11 +8,15 @@ import {
   sendHtmlTelegramWithToken,
   sendHtmlTelegramWithTokenDetailed,
 } from "./telegram.tsx";
+import { evaluateMerchantHours } from "./businessHours.ts";
 import {
   normalizeRentalProviderLogin,
+  rentalProviderDisplayName,
   rentalProviderLoginLookupKey,
+  rentalProviderPublicProfile,
   rentalProviderRecordKey,
   rentalProviderSessionKey,
+  type RentalProviderRecord,
 } from "./rental_provider_kv.ts";
 
 function parsePageLimit(req: any, defaults?: { page?: number; limit?: number; maxLimit?: number }) {
@@ -723,6 +727,100 @@ async function assertRentalApplicationWrite(
   return await assertRentalBranchPanelAccess(c, bid);
 }
 
+async function resolveRentalProviderSession(c: any): Promise<{
+  branchId: string;
+  providerId: string;
+  login: string;
+  displayName: string;
+} | null> {
+  const rpTok = String(
+    c.req.header("X-Rental-Provider-Token") ||
+      c.req.header("x-rental-provider-token") ||
+      "",
+  ).trim();
+  if (!rpTok) return null;
+  const session = await kv.get(rentalProviderSessionKey(rpTok)) as Record<string, unknown> | null;
+  if (!session || Date.now() > Number(session.expiresAt || 0)) return null;
+  const branchId = String(session.branchId || "").trim();
+  const providerId = String(session.providerId || "").trim();
+  if (!branchId || !providerId) return null;
+  return {
+    branchId,
+    providerId,
+    login: String(session.login || ""),
+    displayName: String(session.displayName || ""),
+  };
+}
+
+async function loadRentalProviderRecord(
+  branchId: string,
+  providerId: string,
+): Promise<RentalProviderRecord | null> {
+  const rec = (await kv.get(rentalProviderRecordKey(branchId, providerId))) as RentalProviderRecord | null;
+  if (!rec || rec.deleted) return null;
+  return rec;
+}
+
+function productBelongsToProvider(product: any, providerId: string): boolean {
+  return String(product?.providerId || "").trim() === providerId;
+}
+
+function filterProductsForProvider(products: any[], providerId: string | null): any[] {
+  if (!providerId) return products;
+  return (products || []).filter((p) => productBelongsToProvider(p, providerId));
+}
+
+function filterOrdersForProvider(
+  orders: any[],
+  providerId: string | null,
+  productIds: Set<string>,
+): any[] {
+  if (!providerId) return orders;
+  return (orders || []).filter((o) => {
+    const op = String(o?.providerId || "").trim();
+    if (op === providerId) return true;
+    const prodId = String(o?.productId || "").trim();
+    return prodId && productIds.has(prodId);
+  });
+}
+
+async function attachProviderHoursToProducts(products: any[]): Promise<any[]> {
+  const cache = new Map<string, RentalProviderRecord | null>();
+  for (const p of products || []) {
+    const bid = String(p?.branchId || "").trim();
+    const prId = String(p?.providerId || "").trim();
+    if (!bid || !prId) continue;
+    const cacheKey = `${bid}:${prId}`;
+    if (!cache.has(cacheKey)) {
+      cache.set(cacheKey, await loadRentalProviderRecord(bid, prId));
+    }
+    const pr = cache.get(cacheKey);
+    if (!pr) continue;
+    const ev = evaluateMerchantHours(pr as Record<string, unknown>);
+    p.providerShopName = String(pr.shopName || rentalProviderDisplayName(pr) || "").trim();
+    p.providerWorkTime = String(pr.workTime || "").trim();
+    p.providerHoursOpen = ev.allowed;
+    p.providerHoursLabel = ev.label;
+  }
+  return products;
+}
+
+async function assertRentalProviderAcceptingOrders(
+  branchId: string,
+  providerId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const pr = await loadRentalProviderRecord(branchId, providerId);
+  if (!pr) return { ok: false, error: "Ijara beruvchi topilmadi" };
+  const ev = evaluateMerchantHours(pr as Record<string, unknown>);
+  if (ev.allowed) return { ok: true };
+  return {
+    ok: false,
+    error: ev.label
+      ? `Ijara beruvchi hozir yopiq (ochilish vaqti: ${ev.label})`
+      : "Ijara beruvchi hozir buyurtma qabul qilmaydi",
+  };
+}
+
 // ==================== IJARA BERUVCHI AUTH ====================
 
 app.post("/provider/login", async (c) => {
@@ -755,11 +853,15 @@ app.post("/provider/login", async (c) => {
     }
     const token = `rp-${Date.now()}-${Math.random().toString(36).slice(2, 11)}`;
     const expiresAt = Date.now() + 30 * 24 * 60 * 60 * 1000;
+    const profile = rentalProviderPublicProfile(rec as RentalProviderRecord);
+    const displayName = rentalProviderDisplayName(rec as RentalProviderRecord) || loginRaw;
     await kv.set(rentalProviderSessionKey(token), {
       branchId: String(ref.branchId),
       providerId: String(ref.providerId),
       login: String(rec.login || loginRaw),
-      displayName: String(rec.displayName || rec.name || loginRaw),
+      displayName,
+      shopName: String(rec.shopName || "").trim(),
+      workTime: String(rec.workTime || "09:00 - 22:00").trim(),
       expiresAt,
       createdAt: new Date().toISOString(),
     });
@@ -767,14 +869,67 @@ app.post("/provider/login", async (c) => {
       success: true,
       token,
       branchId: String(ref.branchId),
-      provider: {
+      provider: profile || {
         id: String(ref.providerId),
-        displayName: String(rec.displayName || rec.name || loginRaw),
+        displayName,
         login: String(rec.login || loginRaw),
       },
     });
   } catch (e: any) {
     console.error("rental provider login:", e);
+    return c.json({ success: false, error: e?.message || "Xatolik" }, 500);
+  }
+});
+
+app.get("/provider/me", async (c) => {
+  try {
+    const sess = await resolveRentalProviderSession(c);
+    if (!sess) {
+      return c.json({ success: false, error: "Ijara beruvchi sessiyasi talab qilinadi" }, 401);
+    }
+    const rpTok = String(
+      c.req.header("X-Rental-Provider-Token") ||
+        c.req.header("x-rental-provider-token") ||
+        "",
+    ).trim();
+    const sessionKv = rpTok
+      ? ((await kv.get(rentalProviderSessionKey(rpTok))) as Record<string, unknown> | null)
+      : null;
+
+    let rec = await loadRentalProviderRecord(sess.branchId, sess.providerId);
+    if (!rec) {
+      const rows = (await kv.getByPrefix(`rental_provider_${sess.branchId}_`)) || [];
+      rec =
+        (rows as RentalProviderRecord[]).find(
+          (r) => r && !r.deleted && String(r.id || "") === sess.providerId,
+        ) || null;
+    }
+
+    const profileSource = rec || {
+      id: sess.providerId,
+      branchId: sess.branchId,
+      login: sess.login,
+      displayName: sess.displayName,
+      shopName: String(sessionKv?.shopName || sess.displayName || ""),
+      workTime: String(sessionKv?.workTime || "09:00 - 22:00"),
+      firstName: "",
+      lastName: "",
+    };
+
+    const hours = evaluateMerchantHours(profileSource as Record<string, unknown>);
+    return c.json({
+      success: true,
+      provider: rec
+        ? rentalProviderPublicProfile(rec)
+        : rentalProviderPublicProfile(profileSource as RentalProviderRecord),
+      hours: {
+        open: hours.allowed,
+        label: hours.label,
+        alwaysOn: hours.alwaysOn,
+      },
+      profileIncomplete: !rec,
+    });
+  } catch (e: any) {
     return c.json({ success: false, error: e?.message || "Xatolik" }, 500);
   }
 });
@@ -1049,7 +1204,13 @@ app.get('/products/:branchId', async (c) => {
     console.log('📦 ===== GET RENTAL PRODUCTS =====');
     console.log('📦 Getting rental products for branch:', branchId);
     
+    const rpSess = await resolveRentalProviderSession(c);
+    if (rpSess && rpSess.branchId !== branchId) {
+      return c.json({ success: false, error: "Ruxsat yo‘q" }, 403);
+    }
+
     let products = await kv.getByPrefix(`rental_product_${branchId}_`);
+    products = filterProductsForProvider(products || [], rpSess?.providerId || null);
     products = applyTextSearch(products || [], q);
     const total = products.length;
     const pageItems = products.slice(offset, offset + limit);
@@ -1112,6 +1273,7 @@ app.get("/products", async (c) => {
 
     const total = filtered.length;
     const pageItems = filtered.slice(offset, offset + limit);
+    await attachProviderHoursToProducts(pageItems);
     const hasMore = offset + limit < total;
     return c.json({ success: true, products: pageItems, page, limit, total, hasMore });
   } catch (e: any) {
@@ -1143,6 +1305,7 @@ app.post('/products', async (c) => {
     const body = await c.req.json();
     const denied = await assertRentalBranchPanelAccess(c, String(body.branchId || ""));
     if (denied) return denied;
+    const rpSess = await resolveRentalProviderSession(c);
     console.log('📝 Creating rental product:', JSON.stringify(body, null, 2));
     
     if (!body.branchId || !body.name || !body.category || !body.region) {
@@ -1165,9 +1328,11 @@ app.post('/products', async (c) => {
     const latitude = parseOptionalLatitude(body.latitude);
     const longitude = parseOptionalLongitude(body.longitude);
 
+    const providerIdFromSession = rpSess?.providerId || String(body.providerId || "").trim();
     const product = {
       id: productId,
       ...body,
+      providerId: providerIdFromSession || undefined,
       telegramChatId: isValidTelegramTarget(rawChat) ? rawChat : "",
       weightKg,
       requiresAutoCourier,
@@ -1309,7 +1474,16 @@ app.get('/warehouse/:branchId', async (c) => {
     const branchId = c.req.param('branchId');
     const denied = await assertRentalBranchPanelAccess(c, branchId);
     if (denied) return denied;
-    const warehouse = await kv.getByPrefix(`rental_warehouse_${branchId}_`);
+    const rpSess = await resolveRentalProviderSession(c);
+    let warehouse = await kv.getByPrefix(`rental_warehouse_${branchId}_`) || [];
+    if (rpSess?.providerId) {
+      const products = filterProductsForProvider(
+        (await kv.getByPrefix(`rental_product_${branchId}_`)) || [],
+        rpSess.providerId,
+      );
+      const allowed = new Set(products.map((p: any) => String(p.id || "").trim()).filter(Boolean));
+      warehouse = warehouse.filter((w: any) => allowed.has(String(w.productId || "").trim()));
+    }
     
     return c.json({ success: true, warehouse: warehouse || [] });
   } catch (error: any) {
@@ -1326,7 +1500,14 @@ app.get('/orders/:branchId', async (c) => {
     const branchId = c.req.param('branchId');
     const denied = await assertRentalBranchPanelAccess(c, branchId);
     if (denied) return denied;
-    const orders = await kv.getByPrefix(`rental_order_${branchId}_`);
+    const rpSess = await resolveRentalProviderSession(c);
+    const products = (await kv.getByPrefix(`rental_product_${branchId}_`)) || [];
+    const scopedProducts = filterProductsForProvider(products, rpSess?.providerId || null);
+    const productIds = new Set(
+      scopedProducts.map((p: any) => String(p.id || "").trim()).filter(Boolean),
+    );
+    let orders = await kv.getByPrefix(`rental_order_${branchId}_`) || [];
+    orders = filterOrdersForProvider(orders, rpSess?.providerId || null, productIds);
     const list = (orders || []).map((o: any) => enrichRentalOrderForClient(o));
     return c.json({ success: true, orders: list });
   } catch (error: any) {
@@ -1599,6 +1780,13 @@ app.post('/orders', async (c) => {
 
     const prodKey = `rental_product_${body.branchId}_${body.productId}`;
     const productRow = await kv.get(prodKey);
+    const providerId = String(productRow?.providerId || "").trim();
+    if (providerId) {
+      const hoursGate = await assertRentalProviderAcceptingOrders(body.branchId, providerId);
+      if (!hoursGate.ok) {
+        return c.json({ success: false, error: hoursGate.error }, 403);
+      }
+    }
     const weightKg = Math.max(
       0,
       Number(
@@ -1710,6 +1898,7 @@ app.post('/orders', async (c) => {
       assignedAutoCourierAt: null,
       /** Filial «Qabul qilish» dan keyin Telegram va kuryer navbati ochiladi */
       branchAcceptedAt: null,
+      providerId: providerId || undefined,
       /** Garov (matn + ixtiyoriy summa); kuryer rasmlarni `depositPhotoUrls` ga qo‘shadi */
       depositDescription: depositDesc,
       depositAmountUzs: depositAmt,
@@ -2060,9 +2249,17 @@ app.get('/statistics/:branchId', async (c) => {
     const denied = await assertRentalBranchPanelAccess(c, branchId);
     if (denied) return denied;
     
-    const products = await kv.getByPrefix(`rental_product_${branchId}_`) || [];
-    const orders = await kv.getByPrefix(`rental_order_${branchId}_`) || [];
-    const applications = await kv.getByPrefix(`rental_application_${branchId}_`) || [];
+    const rpSess = await resolveRentalProviderSession(c);
+    let products = await kv.getByPrefix(`rental_product_${branchId}_`) || [];
+    products = filterProductsForProvider(products, rpSess?.providerId || null);
+    const productIds = new Set(
+      products.map((p: any) => String(p.id || "").trim()).filter(Boolean),
+    );
+    let orders = await kv.getByPrefix(`rental_order_${branchId}_`) || [];
+    orders = filterOrdersForProvider(orders, rpSess?.providerId || null, productIds);
+    const applications = rpSess
+      ? []
+      : (await kv.getByPrefix(`rental_application_${branchId}_`) || []);
     
     const activeOrders = orders.filter((o: any) => o.status === 'active');
     const completedOrders = orders.filter((o: any) => o.status === 'returned');

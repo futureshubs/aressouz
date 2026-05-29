@@ -34,6 +34,11 @@ export interface RentalItem {
   location: string;
   /** Backend: mavjud soni (0 = tugagan) yoki boolean */
   available: boolean | number;
+  providerId?: string;
+  providerHoursOpen?: boolean;
+  providerHoursLabel?: string | null;
+  providerWorkTime?: string;
+  providerShopName?: string;
   description: string;
   features: string[];
   owner?: string;

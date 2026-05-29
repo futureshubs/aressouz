@@ -3,8 +3,9 @@ import { useNavigate } from 'react-router';
 import { ArrowLeft, RefreshCw, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
-import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from '../utils/edgeFunctionBaseUrl';
 import { getStoredCourierToken } from '../utils/requestAuth';
+import { readCourierGeoCached, shouldPushCourierGeoNow } from '../utils/courierGeolocation';
 import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useTabVisible } from '../hooks/useTabVisible';
 import CourierLiveMap, { type CourierMapRoutePreview } from '../components/courier/CourierLiveMap';
@@ -98,34 +99,31 @@ export default function CourierMapPage() {
     }
   }, []);
 
-  const pushLocation = useCallback(async () => {
-    if (!navigator.geolocation) return;
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const courierToken = getStoredCourierToken();
-          if (!courierToken) return;
-          const tokenQuery = `?token=${encodeURIComponent(courierToken)}`;
-          const baseUrl =
-            typeof window !== 'undefined' && window.location.hostname === 'localhost'
-              ? DEV_API_BASE_URL
-              : API_BASE_URL;
-          const form = new URLSearchParams();
-          form.set('latitude', String(position.coords.latitude));
-          form.set('longitude', String(position.coords.longitude));
-          await fetch(`${baseUrl}/courier/location${tokenQuery}`, {
-            method: 'POST',
-            headers: { 'X-Courier-Token': courierToken },
-            body: form,
-          });
-        } catch (e) {
-          console.warn('courier location:', e);
-        }
-      },
-      () => {},
-      { enableHighAccuracy: true, timeout: 8000, maximumAge: 10000 },
-    );
-  }, []);
+  const apiBase = edgeFunctionBaseUrl();
+
+  const pushLocation = useCallback(
+    async (force = false) => {
+      if (!force && !shouldPushCourierGeoNow(90_000)) return;
+      const position = await readCourierGeoCached(120_000);
+      if (!position) return;
+      try {
+        const courierToken = getStoredCourierToken();
+        if (!courierToken) return;
+        const tokenQuery = `?token=${encodeURIComponent(courierToken)}`;
+        const form = new URLSearchParams();
+        form.set('latitude', String(position.latitude));
+        form.set('longitude', String(position.longitude));
+        await fetch(`${apiBase}/courier/location${tokenQuery}`, {
+          method: 'POST',
+          headers: { 'X-Courier-Token': courierToken },
+          body: form,
+        });
+      } catch (e) {
+        console.warn('courier location:', e);
+      }
+    },
+    [apiBase],
+  );
 
   const loadData = useCallback(
     async (silent = false) => {
@@ -143,16 +141,11 @@ export default function CourierMapPage() {
       }
 
       const tokenQuery = `?token=${encodeURIComponent(courierToken)}`;
-      const baseUrl =
-        typeof window !== 'undefined' && window.location.hostname === 'localhost'
-          ? DEV_API_BASE_URL
-          : API_BASE_URL;
-
       try {
         const [meResult, avResult, acResult] = await Promise.allSettled([
-          fetchWithRetry(`${baseUrl}/courier/me${tokenQuery}`, {}),
-          fetchWithRetry(`${baseUrl}/courier/orders/available${tokenQuery}`, {}),
-          fetchWithRetry(`${baseUrl}/courier/orders/active${tokenQuery}`, {}),
+          fetchWithRetry(`${apiBase}/courier/me${tokenQuery}`, {}),
+          fetchWithRetry(`${apiBase}/courier/orders/available${tokenQuery}`, {}),
+          fetchWithRetry(`${apiBase}/courier/orders/active${tokenQuery}`, {}),
         ]);
 
         const meRes = meResult.status === 'fulfilled' ? meResult.value : null;
@@ -194,7 +187,7 @@ export default function CourierMapPage() {
         if (!silent) setLoading(false);
       }
     },
-    [navigate],
+    [apiBase, navigate],
   );
 
   useVisibilityRefetch(() => {
@@ -214,10 +207,10 @@ export default function CourierMapPage() {
     }
     loadRouteFromStorage();
     void loadData(false);
-    pushLocation();
+    void pushLocation(true);
 
     const t1 = window.setInterval(() => void loadData(true), 12000);
-    const t2 = window.setInterval(() => pushLocation(), 15000);
+    const t2 = window.setInterval(() => void pushLocation(false), 90_000);
     return () => {
       window.clearInterval(t1);
       window.clearInterval(t2);

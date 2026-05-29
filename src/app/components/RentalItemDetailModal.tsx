@@ -98,6 +98,14 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
   const filialClosedByHours =
     Boolean((item as { branchId?: string }).branchId) && !branchHoursPending && !hoursEv.allowed;
 
+  const providerId = String((item as { providerId?: string }).providerId || '').trim();
+  const providerHoursOpen = (item as { providerHoursOpen?: boolean }).providerHoursOpen;
+  const providerHoursLabel = (item as { providerHoursLabel?: string | null }).providerHoursLabel;
+  const providerWorkTime = String((item as { providerWorkTime?: string }).providerWorkTime || '').trim();
+  const providerClosedByHours =
+    Boolean(providerId) && providerHoursOpen === false;
+  const closedByHours = filialClosedByHours || providerClosedByHours;
+
   // Load ratings when modal opens
   useEffect(() => {
     if (isOpen && item.id) {
@@ -171,12 +179,20 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
         toast.error('Filial jadvali yuklanmoqda, biroz kuting');
         return;
       }
-      if (filialClosedByHours) {
-        toast.error(
-          hoursEv.label
-            ? `Filial hozir yopiq. Ish vaqti: ${hoursEv.label}`
-            : 'Filial hozir buyurtma qabul qilmaydi',
-        );
+      if (closedByHours) {
+        if (providerClosedByHours) {
+          toast.error(
+            providerHoursLabel || providerWorkTime
+              ? `Ijara beruvchi yopiq. Ochilish vaqti: ${providerHoursLabel || providerWorkTime}`
+              : 'Ijara beruvchi hozir buyurtma qabul qilmaydi',
+          );
+        } else {
+          toast.error(
+            hoursEv.label
+              ? `Filial hozir yopiq. Ish vaqti: ${hoursEv.label}`
+              : 'Filial hozir buyurtma qabul qilmaydi',
+          );
+        }
         return;
       }
       // Add to cart
@@ -669,32 +685,43 @@ export function RentalItemDetailModal({ item, isOpen, onClose }: RentalItemDetai
                 </div>
               </div>
             </div>
+            {closedByHours && !branchHoursPending ? (
+              <p className="text-center text-sm mb-2 text-amber-600 dark:text-amber-400">
+                {providerClosedByHours
+                  ? `Ochilish vaqti: ${providerHoursLabel || providerWorkTime || '—'}`
+                  : hoursEv.label
+                    ? `Filial ish vaqti: ${hoursEv.label}`
+                    : 'Hozir buyurtma qabul qilinmaydi'}
+              </p>
+            ) : null}
             <button
               type="button"
               onClick={handleRentNow}
               disabled={
                 branchHoursPending ||
-                filialClosedByHours ||
+                closedByHours ||
                 item.available === false ||
                 (typeof item.available === 'number' && item.available <= 0)
               }
               className="flex w-full items-center justify-center gap-2 rounded-2xl py-3.5 text-base font-bold transition-all active:scale-[0.98] disabled:cursor-not-allowed disabled:opacity-50 sm:py-4"
               style={{
                 background:
-                  branchHoursPending || filialClosedByHours
+                  branchHoursPending || closedByHours
                     ? isDark
                       ? '#444'
                       : '#9ca3af'
                     : accentColor.color,
                 color: '#ffffff',
                 boxShadow:
-                  branchHoursPending || filialClosedByHours
+                  branchHoursPending || closedByHours
                     ? 'none'
                     : `0 8px 24px ${accentColor.color}66`,
               }}
             >
               <ShoppingCart className="size-5 shrink-0" strokeWidth={2.5} />
-              Savatga qo&apos;shish
+              {closedByHours && !branchHoursPending
+                ? 'Yopiq'
+                : "Savatga qo‘shish"}
             </button>
           </div>
         </div>

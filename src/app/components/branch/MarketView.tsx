@@ -47,6 +47,7 @@ import { fetchPagedBranchProducts } from '../../services/pagedCatalogApi';
 import { buildBranchHeaders, getStoredBranchToken } from '../../utils/requestAuth';
 import { validateImageForUpload } from '../../utils/imageDimensionRules';
 import { ReceiptModal } from '../ReceiptModal';
+import OrdersManagement from '../admin/OrdersManagement';
 
 // Dynamic categories state
 interface Catalog {
@@ -64,6 +65,14 @@ interface Catalog {
 interface MarketViewProps {
   branchId: string;
   readOnly?: boolean;
+  branchInfo?: {
+    region: string;
+    district: string;
+    phone: string;
+    paymentQrImage?: string;
+  };
+  /** Omborchi paneli: buyurtmalar tabi birinchi */
+  initialTab?: 'products' | 'warehouse' | 'inventory' | 'sales' | 'orders';
 }
 
 interface CartItem {
@@ -103,13 +112,20 @@ interface InventoryOperation {
   userName: string;
 }
 
-export default function MarketView({ branchId, readOnly = false }: MarketViewProps) {
+export default function MarketView({
+  branchId,
+  readOnly = false,
+  branchInfo,
+  initialTab = 'products',
+}: MarketViewProps) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
   const canEdit = !readOnly;
 
-  const [activeTab, setActiveTab] = useState<'products' | 'warehouse' | 'inventory' | 'sales'>('products');
+  const [activeTab, setActiveTab] = useState<
+    'products' | 'warehouse' | 'inventory' | 'sales' | 'orders'
+  >(initialTab);
   const [products, setProducts] = useState<Product[]>([]);
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -1489,8 +1505,28 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
   return (
     <div className="space-y-6">
       {/* Tabs */}
-      <div className="flex items-center gap-3">
+      <div className="flex flex-wrap items-center gap-2 sm:gap-3">
         <button
+          type="button"
+          onClick={() => setActiveTab('orders')}
+          className="px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl font-semibold transition-all text-sm sm:text-base"
+          style={{
+            background:
+              activeTab === 'orders'
+                ? accentColor.gradient
+                : isDark
+                  ? 'rgba(255, 255, 255, 0.05)'
+                  : 'rgba(0, 0, 0, 0.05)',
+            color: activeTab === 'orders' ? '#ffffff' : isDark ? '#ffffff' : '#111827',
+          }}
+        >
+          <span className="inline-flex items-center gap-2">
+            <ShoppingCart className="w-4 h-4 shrink-0" />
+            Market buyurtmalari
+          </span>
+        </button>
+        <button
+          type="button"
           onClick={() => setActiveTab('products')}
           className="px-6 py-3 rounded-2xl font-semibold transition-all"
           style={{
@@ -1503,8 +1539,9 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
           Mahsulotlar ({products.length})
         </button>
         <button
+          type="button"
           onClick={() => setActiveTab('warehouse')}
-          className="px-6 py-3 rounded-2xl font-semibold transition-all"
+          className="px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl font-semibold transition-all text-sm sm:text-base"
           style={{
             background: activeTab === 'warehouse' 
               ? accentColor.gradient 
@@ -1515,8 +1552,9 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
           Ombor ({totalStock})
         </button>
         <button
+          type="button"
           onClick={() => setActiveTab('inventory')}
-          className="px-6 py-3 rounded-2xl font-semibold transition-all"
+          className="px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl font-semibold transition-all text-sm sm:text-base"
           style={{
             background: activeTab === 'inventory' 
               ? accentColor.gradient 
@@ -1527,8 +1565,9 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
           🧾 Bogalteriya (Ombor tarixi)
         </button>
         <button
+          type="button"
           onClick={() => setActiveTab('sales')}
-          className="px-6 py-3 rounded-2xl font-semibold transition-all"
+          className="px-4 sm:px-6 py-2.5 sm:py-3 rounded-2xl font-semibold transition-all text-sm sm:text-base"
           style={{
             background: activeTab === 'sales' 
               ? accentColor.gradient 
@@ -1539,6 +1578,23 @@ export default function MarketView({ branchId, readOnly = false }: MarketViewPro
           🧾 Bogalteriya (Sotuv tarixi)
         </button>
       </div>
+
+      {activeTab === 'orders' && branchId ? (
+        <OrdersManagement
+          branchId={branchId}
+          branchInfo={
+            branchInfo ?? {
+              region: '',
+              district: '',
+              phone: '',
+            }
+          }
+          type="market"
+          authMode="branch"
+          readOnly={false}
+          hideTypeTabs
+        />
+      ) : null}
 
       {activeTab === 'products' && (
         <div className="space-y-6">

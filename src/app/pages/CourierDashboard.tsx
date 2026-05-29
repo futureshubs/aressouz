@@ -62,6 +62,11 @@ import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 import PanelPushSetup from '../components/brand/PanelPushSetup';
 import { usePanelOrderAlerts } from '../hooks/usePanelOrderAlerts';
 import { playPanelAlertBeep, showPanelNotification } from '../utils/panelNotifications';
+import {
+  readCourierGeoAccurate,
+  readCourierGeoCached,
+  shouldPushCourierGeoNow,
+} from '../utils/courierGeolocation';
 
 type CourierBag = {
   id: string;
@@ -302,19 +307,9 @@ const courierOrderActionPath = (
 
 /** «Yetib keldim» uchun serverdagi masofa tekshiruvi — profildan emas, hozirgi GPS. */
 async function courierArrivedRequestBody(): Promise<Record<string, unknown>> {
-  if (typeof navigator === 'undefined' || !navigator.geolocation) return {};
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        resolve({
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-        });
-      },
-      () => resolve({}),
-      { enableHighAccuracy: true, timeout: 12000, maximumAge: 0 },
-    );
-  });
+  const pos = await readCourierGeoAccurate();
+  if (!pos) return {};
+  return { latitude: pos.latitude, longitude: pos.longitude };
 }
 
 const buildProfileSignature = (profile: CourierProfile | null) =>
@@ -719,7 +714,17 @@ export default function CourierDashboard() {
 
   const loadDashboard = useCallback(async (silent = false) => {
     if (dashboardRequestInFlightRef.current) {
-      return;
+      if (!silent) {
+        // Tab/qayta mount: oldingi so‘rov tugaguncha kutib, keyin to‘liq yuklash
+        for (let i = 0; i < 80 && dashboardRequestInFlightRef.current; i += 1) {
+          await new Promise((r) => window.setTimeout(r, 100));
+        }
+        if (dashboardRequestInFlightRef.current) {
+          dashboardRequestInFlightRef.current = false;
+        }
+      } else {
+        return;
+      }
     }
 
     dashboardRequestInFlightRef.current = true;
@@ -1233,51 +1238,33 @@ export default function CourierDashboard() {
     void loadPayoutRequests(true);
   });
 
-  const pushLocation = useCallback(async () => {
-    if (!navigator.geolocation) {
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      async (position) => {
-        try {
-          const courierToken = getStoredCourierToken();
-          if (!courierToken) {
-            return;
-          }
-          const tokenQuery = courierToken ? `?token=${encodeURIComponent(courierToken)}` : '';
-          const baseUrl = (typeof window !== 'undefined' && window.location.hostname === 'localhost')
-            ? DEV_API_BASE_URL
-            : API_BASE_URL;
-
-          const form = new URLSearchParams();
-          form.set('latitude', String(position.coords.latitude));
-          form.set('longitude', String(position.coords.longitude));
-
-          await fetch(
-            `${baseUrl}/courier/location${tokenQuery}`,
-            {
-              method: 'POST',
-              headers: {
-                'X-Courier-Token': courierToken,
-              },
-              body: form,
-            },
-          );
-        } catch (error) {
-          console.error('Courier location update error:', error);
-        }
-      },
-      () => {
-        // Ignore silent geolocation failures.
-      },
-      {
-        enableHighAccuracy: true,
-        timeout: 8000,
-        maximumAge: 10000,
+  const pushLocation = useCallback(
+    async (force = false) => {
+      if (!force && !shouldPushCourierGeoNow(90_000)) {
+        return;
       }
-    );
-  }, [loadDashboard]);
+      const position = await readCourierGeoCached(180_000);
+      if (!position) return;
+
+      try {
+        const courierToken = getStoredCourierToken();
+        if (!courierToken) return;
+        const tokenQuery = `?token=${encodeURIComponent(courierToken)}`;
+        const form = new URLSearchParams();
+        form.set('latitude', String(position.latitude));
+        form.set('longitude', String(position.longitude));
+
+        await fetch(`${courierApiBase}/courier/location${tokenQuery}`, {
+          method: 'POST',
+          headers: { 'X-Courier-Token': courierToken },
+          body: form,
+        });
+      } catch (error) {
+        console.error('Courier location update error:', error);
+      }
+    },
+    [courierApiBase],
+  );
 
   useEffect(() => {
     const rawSession = localStorage.getItem('courierSession');
@@ -1285,16 +1272,22 @@ export default function CourierDashboard() {
       navigate('/kuryer');
       return;
     }
+    if (!getStoredCourierToken()) {
+      localStorage.removeItem('courierSession');
+      navigate('/kuryer');
+      return;
+    }
 
-    loadDashboard();
-    pushLocation();
+    void loadDashboardRef.current(false);
+    void pushLocation(true);
+  }, [navigate, pushLocation]);
 
-    /** Har 2 s — yangi buyurtmalar va tarix (seller paneli kabi, tab yashirin bo‘lsa to‘xtaydi). */
+  useEffect(() => {
+    if (!courierTabVisible) return undefined;
+
+    /** Har 2 s — yangi buyurtmalar va tarix (seller paneli kabi). */
     const refreshInterval = window.setInterval(() => {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
-        return;
-      }
-      if (!courierTabVisible) {
         return;
       }
       if (actionLoadingRef.current) {
@@ -1307,20 +1300,18 @@ export default function CourierDashboard() {
       if (typeof document !== 'undefined' && document.visibilityState !== 'visible') {
         return;
       }
-      if (!courierTabVisible) {
-        return;
-      }
       if (actionLoadingRef.current) {
         return;
       }
-      void pushLocation();
-    }, 15000);
+      void pushLocation(false);
+    }, 90_000);
 
     return () => {
       window.clearInterval(refreshInterval);
       window.clearInterval(locationInterval);
+      dashboardRequestInFlightRef.current = false;
     };
-  }, [courierTabVisible, loadDashboard, navigate, pushLocation]);
+  }, [courierTabVisible, pushLocation]);
 
   useEffect(() => {
     setCourierCardNumberDraft(formatPayoutCardInput(String((profile as any)?.cardNumber || '')));
@@ -2065,7 +2056,9 @@ export default function CourierDashboard() {
       >
         <div className="text-center">
           <RefreshCw className="w-10 h-10 mx-auto mb-4 animate-spin" style={{ color: accentColor.color }} />
-          <p></p>
+          <p className="text-sm" style={{ color: mutedTextColor }}>
+            Kuryer paneli yuklanmoqda...
+          </p>
         </div>
       </div>
     );

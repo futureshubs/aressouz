@@ -319,6 +319,11 @@ export function RentalsView({ platform }: RentalsViewProps) {
                     const rentalItem = {
                       id: product.id,
                       branchId: product.branchId,
+                      providerId: product.providerId,
+                      providerHoursOpen: product.providerHoursOpen,
+                      providerHoursLabel: product.providerHoursLabel,
+                      providerWorkTime: product.providerWorkTime,
+                      providerShopName: product.providerShopName,
                       name: product.name,
                       category: product.category,
                       image: product.images && product.images.length > 0 ? product.images[0] : 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800',
@@ -725,6 +730,11 @@ export function RentalsView({ platform }: RentalsViewProps) {
                     const rentalItem = {
                       id: product.id,
                       branchId: product.branchId,
+                      providerId: product.providerId,
+                      providerHoursOpen: product.providerHoursOpen,
+                      providerHoursLabel: product.providerHoursLabel,
+                      providerWorkTime: product.providerWorkTime,
+                      providerShopName: product.providerShopName,
                       name: product.name,
                       category: product.category,
                       image: product.images && product.images.length > 0 ? product.images[0] : 'https://images.unsplash.com/photo-1505740420928-5e560c06d30e?w=800',
