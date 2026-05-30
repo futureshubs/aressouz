@@ -1,6 +1,7 @@
 import React, { useMemo, useRef } from 'react';
 import { Home, Car, Heart, Edit, Trash2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
+import { useFavorites } from '../context/FavoritesContext';
 import { firstListingImageUrl, listingCategoryShortLabel } from '../utils/listingDisplay';
 import { CardImageScroll } from './CardImageScroll';
 import { collectListingGalleryImages } from '../utils/cardGalleryImages';
@@ -30,7 +31,10 @@ export function ListingCard({
   showHousePromoBadges = false,
 }: ListingCardProps) {
   const { theme, accentColor } = useTheme();
+  const { toggleFavorite, isFavorite } = useFavorites();
   const isDark = theme === 'dark';
+  const listingId = String(listing?.id ?? '');
+  const favorited = listingId ? isFavorite(listingId) : false;
   const blockDetailOpenAfterGalleryScroll = useRef(false);
 
   const coverUrl = useMemo(() => firstListingImageUrl(listing), [
@@ -208,7 +212,16 @@ export function ListingCard({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              // TODO: Add to favorites
+              if (!listingId) return;
+              toggleFavorite({
+                id: listingId,
+                name: String(listing?.title || listing?.name || 'E’lon'),
+                price: Number(listing?.price || 0),
+                image: firstListingImageUrl(listing) || '',
+                categoryId: String(listing?.categoryId || listing?.category || ''),
+                catalogId: String(listing?.catalogId || ''),
+                rating: Number(listing?.rating || 0),
+              });
             }}
             className={`absolute rounded-full flex items-center justify-center backdrop-blur-md transition-all active:scale-90 ${
               compact ? 'top-1.5 right-1.5 w-7 h-7' : 'top-3 right-3 w-9 h-9'
@@ -218,7 +231,11 @@ export function ListingCard({
               border: '1px solid rgba(255, 255, 255, 0.3)',
             }}
           >
-            <Heart className={`text-white ${compact ? 'size-3' : 'size-4'}`} strokeWidth={2} fill="rgba(255, 255, 255, 0.3)" />
+            <Heart
+              className={`text-white ${compact ? 'size-3' : 'size-4'}`}
+              strokeWidth={2}
+              fill={favorited ? accentColor.color : 'rgba(255, 255, 255, 0.3)'}
+            />
           </button>
         ) : null}
       </div>

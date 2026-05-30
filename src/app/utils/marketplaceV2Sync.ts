@@ -238,7 +238,13 @@ export const syncMarketplaceV2Order = async (input: MarketplaceV2SyncInput): Pro
     return;
   }
 
-  const body = buildMarketplaceV2OrderBody(input);
+  const body = {
+    ...buildMarketplaceV2OrderBody(input),
+    legacy_order_id: input.legacyOrderId,
+    legacy_kv_key: input.legacyOrderId.startsWith('order:')
+      ? input.legacyOrderId
+      : `order:${input.legacyOrderId}`,
+  };
   const endpoint = `${edgeBase()}/v2/orders`;
   const headers = buildUserHeaders({ 'Content-Type': 'application/json' });
 
@@ -297,9 +303,18 @@ export const syncMarketplaceV2Order = async (input: MarketplaceV2SyncInput): Pro
       });
       const retryData = await retryRes.json().catch(() => ({}));
       if (!retryRes.ok || !retryData?.success) {
-        console.warn('[marketplace v2 sync retry]', retryRes.status, retryData?.error ?? retryData, {
-          legacyOrderId: input.legacyOrderId,
+        const bridgeRes = await fetch(`${edgeBase()}/sync/marketplace-v2-order`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ ...fallbackBody, legacy_order_id: input.legacyOrderId }),
         });
+        const bridgeData = await bridgeRes.json().catch(() => ({}));
+        if (!bridgeRes.ok || !bridgeData?.success) {
+          console.warn('[marketplace v2 sync]', retryRes.status, retryData?.error ?? retryData, {
+            legacyOrderId: input.legacyOrderId,
+            bridge: bridgeData?.error,
+          });
+        }
       }
     }
   }

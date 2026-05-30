@@ -168,6 +168,15 @@ export default defineConfig(({ mode }) => {
           /** `sonner` ni alohida `toast` chunk qilmaslik: build "toast <-> vendor" tsikli → prod da `Cannot set properties of undefined (setting 'Children')` */
           if (id.includes('html5-qrcode')) return 'qr';
           if (id.includes('html2canvas')) return 'canvas';
+          if (
+            /PropertiesManagement|VehiclesManagement|OrdersManagement|RestaurantManagement|RentalDashboard|Payments\.tsx/.test(
+              id,
+            )
+          ) {
+            return 'branch-heavy';
+          }
+          if (id.includes('/src/app/components/branch/')) return 'branch-panel';
+          if (id.includes('/src/app/pages/BranchDashboard')) return 'branch-shell';
           return 'vendor';
         },
       },

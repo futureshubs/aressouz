@@ -1,4 +1,10 @@
 import { getAdminDb } from "./client.ts";
+import {
+  legacyOrderKeyCandidates,
+  merchantOrderRefCandidates,
+  resolveRelationalIdFromLegacyKvMap,
+  upsertLegacyKvMap,
+} from "./legacy-kv-map.ts";
 import { resolveUserIdentity } from "./users.ts";
 
 export interface OrderAddressInput {
@@ -309,58 +315,176 @@ export const getSellerOrderQueue = async (args: {
   };
 };
 
+/** KV buyurtma id → relational `orders.id` (legacy_kv_map, orders.legacy_kv_key, payments) */
+export const resolveRelationalOrderId = async (
+  legacyOrderId: string,
+): Promise<string | null> => {
+  const db = getAdminDb();
+  const keys = legacyOrderKeyCandidates(legacyOrderId);
+
+  for (const legacyKey of keys) {
+    const mapped = await resolveRelationalIdFromLegacyKvMap({
+      entityType: "order",
+      legacyKey,
+      newTable: "orders",
+    });
+    if (mapped) return mapped;
+  }
+
+  for (const legacyKey of keys) {
+    const { data } = await db
+      .from("orders")
+      .select("id")
+      .eq("legacy_kv_key", legacyKey)
+      .maybeSingle();
+    if (data?.id) return String(data.id);
+  }
+
+  for (const ref of merchantOrderRefCandidates(legacyOrderId)) {
+    const { data } = await db
+      .from("payments")
+      .select("order_id")
+      .eq("merchant_order_ref", ref)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data?.order_id) return String(data.order_id);
+  }
+
+  const legacyMerchantRef = buildLegacyMerchantRef(legacyOrderId);
+  if (legacyMerchantRef) {
+    const { data } = await db
+      .from("payments")
+      .select("order_id")
+      .eq("merchant_order_ref", legacyMerchantRef)
+      .order("created_at", { ascending: false })
+      .limit(1)
+      .maybeSingle();
+    if (data?.order_id) return String(data.order_id);
+  }
+
+  return null;
+};
+
+export const linkLegacyOrderKeysToRelational = async (args: {
+  legacyOrderId: string;
+  relationalOrderId: string;
+  primaryKvKey?: string | null;
+  payload?: unknown;
+}): Promise<void> => {
+  const relationalOrderId = String(args.relationalOrderId || "").trim();
+  if (!relationalOrderId) return;
+
+  const keys = new Set(legacyOrderKeyCandidates(args.legacyOrderId));
+  if (args.primaryKvKey) keys.add(String(args.primaryKvKey).trim());
+
+  const db = getAdminDb();
+  const primaryKey = args.primaryKvKey ||
+    keys.values().next().value ||
+    `order:${args.legacyOrderId}`;
+
+  await db
+    .from("orders")
+    .update({ legacy_kv_key: primaryKey })
+    .eq("id", relationalOrderId);
+
+  for (const legacyKey of keys) {
+    await upsertLegacyKvMap({
+      entityType: "order",
+      legacyKey,
+      newTable: "orders",
+      newId: relationalOrderId,
+      payload: args.payload,
+    });
+  }
+};
+
 export const syncRelationalOrderFromLegacy = async (args: {
   legacyOrderId: string;
   kvStatus?: string | null;
   kvPaymentStatus?: string | null;
   paymentRequiresVerification?: boolean | null;
-}): Promise<void> => {
+  /** KV yozuv kaliti — mapping uchun */
+  kvKey?: string | null;
+  /** To‘liq KV obyekt (mapping hash) */
+  kvPayload?: unknown;
+}): Promise<{ synced: boolean; relationalOrderId: string | null }> => {
   try {
     const db = getAdminDb();
-    const legacyMerchantRef = buildLegacyMerchantRef(args.legacyOrderId);
-    if (!legacyMerchantRef) return;
+    const orderId = await resolveRelationalOrderId(args.legacyOrderId);
 
-    const payment = await db
-      .from('payments')
-      .select('order_id, status')
-      .eq('merchant_order_ref', legacyMerchantRef)
-      .order('created_at', { ascending: false })
-      .limit(1)
-      .maybeSingle();
-
-    if (!payment.data?.order_id) {
-      console.warn('[v2 sync] payments row not found for legacy order:', {
+    if (!orderId) {
+      console.warn("[v2 sync] relational order not found:", {
         legacyOrderId: args.legacyOrderId,
       });
-      return;
+      return { synced: false, relationalOrderId: null };
     }
 
-    const orderId = payment.data.order_id as string;
-    const v2Status = mapKvOrderStatusToV2(args.kvStatus || 'confirmed');
-    const v2PaymentStatus = mapKvPaymentStatusToV2(args.kvPaymentStatus || 'pending');
+    if (args.kvKey || args.kvPayload) {
+      await linkLegacyOrderKeysToRelational({
+        legacyOrderId: args.legacyOrderId,
+        relationalOrderId: orderId,
+        primaryKvKey: args.kvKey,
+        payload: args.kvPayload,
+      });
+    }
+
+    const v2Status = mapKvOrderStatusToV2(args.kvStatus || "confirmed");
+    const v2PaymentStatus = mapKvPaymentStatusToV2(args.kvPaymentStatus || "pending");
     const nextPaymentRequiresVerification =
-      typeof args.paymentRequiresVerification === 'boolean'
+      typeof args.paymentRequiresVerification === "boolean"
         ? args.paymentRequiresVerification
         : false;
 
-    // Update orders (status/payment requirements)
+    const nowIso = new Date().toISOString();
+
     await db
-      .from('orders')
+      .from("orders")
       .update({
         status: v2Status,
         payment_status: v2PaymentStatus,
         payment_requires_verification: nextPaymentRequiresVerification,
+        updated_at: nowIso,
+        ...(v2Status === "fulfilled" ? { completed_at: nowIso } : {}),
+        ...(v2Status === "cancelled" ? { cancelled_at: nowIso } : {}),
       })
-      .eq('id', orderId);
+      .eq("id", orderId);
 
-    // Update payments status too (so payment_history UI becomes correct)
+    const groupStatus =
+      v2Status === "cancelled"
+        ? "cancelled"
+        : v2Status === "fulfilled"
+          ? "delivered"
+          : v2Status === "awaiting_payment"
+            ? "pending"
+            : "processing";
+
     await db
-      .from('payments')
-      .update({ status: v2PaymentStatus })
-      .eq('order_id', orderId)
-      .eq('merchant_order_ref', legacyMerchantRef);
-  } catch (e: any) {
-    // Never block UX due to sync problems
-    console.warn('[v2 sync] failed:', e?.message || e);
+      .from("order_groups")
+      .update({ status: groupStatus, updated_at: nowIso })
+      .eq("order_id", orderId);
+
+    for (const ref of merchantOrderRefCandidates(args.legacyOrderId)) {
+      await db
+        .from("payments")
+        .update({ status: v2PaymentStatus })
+        .eq("order_id", orderId)
+        .eq("merchant_order_ref", ref);
+    }
+
+    const legacyMerchantRef = buildLegacyMerchantRef(args.legacyOrderId);
+    if (legacyMerchantRef) {
+      await db
+        .from("payments")
+        .update({ status: v2PaymentStatus })
+        .eq("order_id", orderId)
+        .eq("merchant_order_ref", legacyMerchantRef);
+    }
+
+    return { synced: true, relationalOrderId: orderId };
+  } catch (e: unknown) {
+    const msg = e instanceof Error ? e.message : String(e);
+    console.warn("[v2 sync] failed:", msg);
+    return { synced: false, relationalOrderId: null };
   }
 };

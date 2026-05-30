@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef, useMemo } from 'react';
+import { useState, useEffect, useRef, useMemo, lazy, Suspense } from 'react';
 import { useNavigate, useSearchParams } from 'react-router';
 import { useTheme } from '../context/ThemeContext';
 import type { LucideIcon } from 'lucide-react';
@@ -55,13 +55,16 @@ import { AuctionDashboard } from '../components/auction/AuctionDashboard';
 import { BannerManagement } from '../components/BannerManagement';
 import ServicesManagement from '../components/branch/ServicesManagement';
 import PlacesManagement from '../components/branch/PlacesManagement';
-import PropertiesManagement from '../components/branch/PropertiesManagement';
-import VehiclesManagement from '../components/branch/VehiclesManagement';
+const PropertiesManagement = lazy(() => import('../components/branch/PropertiesManagement'));
+const VehiclesManagement = lazy(() => import('../components/branch/VehiclesManagement'));
+const OrdersManagement = lazy(() => import('../components/admin/OrdersManagement'));
+const Payments = lazy(() =>
+  import('../components/branch/Payments').then((m) => ({ default: m.Payments })),
+);
 import { BankManagement } from '../components/branch/BankManagement';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { toast } from 'sonner';
 import DeliveryZones from '../components/branch/DeliveryZones';
-import OrdersManagement from '../components/admin/OrdersManagement';
 import PrepareManager from '../components/PrepareManager';
 import TwoFactorAuth from '../components/TwoFactorAuth';
 // Import new components
@@ -69,7 +72,6 @@ import Analytics from '../components/branch/Analytics';
 import { Statistics } from '../components/branch/Statistics';
 import { Profile } from '../components/branch/Profile';
 import { Chat } from '../components/branch/Chat';
-import { Payments } from '../components/branch/Payments';
 import { StaffManagement } from '../components/branch/StaffManagement';
 import { Reports } from '../components/branch/Reports';
 import { Couriers } from '../components/branch/Couriers';
@@ -84,6 +86,15 @@ import { buildBranchHeaders } from '../utils/requestAuth';
 import { useVisibilityRefetch, type VisibilityRefetchDetail } from '../utils/visibilityRefetch';
 import { API_BASE_URL, DEV_API_BASE_URL } from '../../../utils/supabase/info';
 import { useBodyScrollLock } from '../utils/useBodyScrollLock';
+
+function BranchTabFallback() {
+  const { accentColor } = useTheme();
+  return (
+    <div className="flex justify-center py-16" aria-busy>
+      <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} />
+    </div>
+  );
+}
 
 /** `?tab=dokon` kabi havolalar — ichki `activeTab` id ga */
 const BRANCH_TAB_FROM_URL: Record<string, string> = {
@@ -1099,15 +1110,17 @@ export default function BranchDashboard() {
           )}
 
           {activeTab === 'house' && branchInfo && (
-            <PropertiesManagement 
-              branchId={branchInfo.id}
-              userId={currentUserId || undefined}
-              branchInfo={{
-                region: branchInfo.region,
-                district: branchInfo.district,
-                phone: branchInfo.phone
-              }}
-            />
+            <Suspense fallback={<BranchTabFallback />}>
+              <PropertiesManagement 
+                branchId={branchInfo.id}
+                userId={currentUserId || undefined}
+                branchInfo={{
+                  region: branchInfo.region,
+                  district: branchInfo.district,
+                  phone: branchInfo.phone
+                }}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'bank' && branchInfo && (
@@ -1122,11 +1135,13 @@ export default function BranchDashboard() {
           )}
 
           {activeTab === 'car' && branchInfo && (
-            <VehiclesManagement 
-              branchId={branchInfo.id} 
-              userId={branchInfo.userId}
-              branchInfo={branchInfo}
-            />
+            <Suspense fallback={<BranchTabFallback />}>
+              <VehiclesManagement 
+                branchId={branchInfo.id} 
+                userId={branchInfo.userId}
+                branchInfo={branchInfo}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'delivery-zones' && branchInfo && (
@@ -1152,44 +1167,50 @@ export default function BranchDashboard() {
           )}
 
           {activeTab === 'market-orders' && branchInfo && (
-            <OrdersManagement 
-              branchId={branchInfo.id} 
-              branchInfo={{
-                region: branchInfo.region,
-                district: branchInfo.district,
-                phone: branchInfo.phone
-              }}
-              type="market"
-              authMode="branch"
-            />
+            <Suspense fallback={<BranchTabFallback />}>
+              <OrdersManagement 
+                branchId={branchInfo.id} 
+                branchInfo={{
+                  region: branchInfo.region,
+                  district: branchInfo.district,
+                  phone: branchInfo.phone
+                }}
+                type="market"
+                authMode="branch"
+              />
+            </Suspense>
           )}
 
           {activeTab === 'shop-orders' && branchInfo && (
-            <OrdersManagement
-              branchId={branchInfo.id}
-              branchInfo={{
-                region: branchInfo.region,
-                district: branchInfo.district,
-                phone: branchInfo.phone,
-              }}
-              type="shop"
-              authMode="branch"
-            />
+            <Suspense fallback={<BranchTabFallback />}>
+              <OrdersManagement
+                branchId={branchInfo.id}
+                branchInfo={{
+                  region: branchInfo.region,
+                  district: branchInfo.district,
+                  phone: branchInfo.phone,
+                }}
+                type="shop"
+                authMode="branch"
+              />
+            </Suspense>
           )}
 
           {activeTab === 'food-orders' && branchInfo && (
-            <OrdersManagement 
-              branchId={branchInfo.id} 
-              branchInfo={{
-                region: branchInfo.region,
-                district: branchInfo.district,
-                phone: branchInfo.phone,
-                paymentQrImage: branchInfo.paymentQrImage,
-              }}
-              type="food"
-              authMode="branch"
-              onPaymentRequired={() => setActiveTab('payments')}
-            />
+            <Suspense fallback={<BranchTabFallback />}>
+              <OrdersManagement 
+                branchId={branchInfo.id} 
+                branchInfo={{
+                  region: branchInfo.region,
+                  district: branchInfo.district,
+                  phone: branchInfo.phone,
+                  paymentQrImage: branchInfo.paymentQrImage,
+                }}
+                type="food"
+                authMode="branch"
+                onPaymentRequired={() => setActiveTab('payments')}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'rental-orders' && branchInfo && (
@@ -1285,14 +1306,16 @@ export default function BranchDashboard() {
           )}
 
           {activeTab === 'payments' && branchInfo && (
-            <Payments 
-              branchId={branchInfo.id}
-              branchInfo={{
-                region: branchInfo.region,
-                district: branchInfo.district,
-                phone: branchInfo.phone
-              }}
-            />
+            <Suspense fallback={<BranchTabFallback />}>
+              <Payments 
+                branchId={branchInfo.id}
+                branchInfo={{
+                  region: branchInfo.region,
+                  district: branchInfo.district,
+                  phone: branchInfo.phone
+                }}
+              />
+            </Suspense>
           )}
 
           {activeTab === 'refunds' && branchInfo && (

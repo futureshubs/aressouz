@@ -33,11 +33,16 @@ import { toast } from 'sonner';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildBranchHeaders } from '../../utils/requestAuth';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
+import { useChatPoll } from '../../hooks/useChatPoll';
 import {
   isPlatformSupportChat,
   formatChatPreview,
   formatChatTime,
 } from '../../utils/chatIntegration';
+import {
+  chatImageFallbackLabel,
+  isChatImageMessage,
+} from '../../utils/chatMessageDisplay';
 
 interface Message {
   id: string;
@@ -211,13 +216,12 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
     if (!selectedChat) {
       setMessages([]);
       setMessagesLoading(false);
-      return;
+    } else {
+      setMessages([]);
     }
-    setMessages([]);
-    loadMessages(selectedChat.id);
-    const poll = setInterval(() => loadMessages(selectedChat.id, { silent: true }), 3500);
-    return () => clearInterval(poll);
-  }, [selectedChat?.id, visibilityRefetchTick]);
+  }, [selectedChat?.id]);
+
+  useChatPoll(selectedChat?.id, loadMessages, undefined, Boolean(selectedChat));
 
   useEffect(() => {
     // Scroll to bottom when new messages arrive
@@ -227,58 +231,49 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
   const handleSendMessage = async () => {
     if (!messageInput.trim() || !selectedChat) return;
 
+    const optimisticId = `tmp_${Date.now()}`;
+    const content = messageInput.trim();
+    const senderName = isSupportPanel ? 'Aresso support' : 'Filial';
+
+    const newMessage: Message = {
+      id: optimisticId,
+      chatId: selectedChat.id,
+      senderId: 'branch',
+      senderName,
+      content,
+      type: 'text',
+      timestamp: new Date().toISOString(),
+      status: 'sent',
+      isOwn: true,
+    };
+
+    setMessages((prev) => [...prev, newMessage]);
+    setMessageInput('');
+
     try {
-      const newMessage: Message = {
-        id: `msg_${Date.now()}`,
-        chatId: selectedChat.id,
-        senderId: 'branch',
-        senderName: isSupportPanel ? 'Aresso support' : 'Filial',
-        content: messageInput.trim(),
-        type: 'text',
-        timestamp: new Date().toISOString(),
-        status: 'sent',
-        isOwn: true
-      };
-
-      // Add message to local state immediately
-      setMessages(prev => [...prev, newMessage]);
-      setMessageInput('');
-
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats/${encodeURIComponent(selectedChat.id)}/messages`,
         {
           method: 'POST',
           headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
-          body: JSON.stringify({
-            content: newMessage.content,
-            type: 'text',
-            senderName: newMessage.senderName,
-          }),
-        }
+          body: JSON.stringify({ content, type: 'text', senderName }),
+        },
       );
 
       if (!response.ok) {
         throw new Error('Xabarni yuborishda xatolik');
       }
 
-      // Update message status to delivered
-      setMessages(prev => prev.map(msg => 
-        msg.id === newMessage.id 
-          ? { ...msg, status: 'delivered' as const }
-          : msg
-      ));
-
-      console.log('✅ Message sent successfully');
+      await loadMessages(selectedChat.id, { silent: true });
+      await loadChats();
     } catch (error) {
       console.error('❌ Error sending message:', error);
       toast.error('Xabarni yuborishda xatolik');
-      
-      // Mark message as failed
-      setMessages(prev => prev.map(msg => 
-        msg.id === `msg_${Date.now()}` 
-          ? { ...msg, status: 'failed' as const }
-          : msg
-      ));
+      setMessages((prev) =>
+        prev.map((msg) =>
+          msg.id === optimisticId ? { ...msg, status: 'failed' as const } : msg,
+        ),
+      );
     }
   };
 
@@ -295,8 +290,6 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
     }
   };
 
-  const isImageMessage = (message: Message) =>
-    message.type === 'image' || /^https?:\/\//i.test(String(message.content || '').trim());
 
   const handleStarChat = async (chatId: string) => {
     try {
@@ -691,7 +684,7 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
                         color: message.isOwn ? '#ffffff' : (isDark ? '#f3f4f6' : '#111827'),
                       }}
                     >
-                      {isImageMessage(message) ? (
+                      {isChatImageMessage(message.type, message.content) ? (
                         <div>
                           <a
                             href={message.content}
@@ -711,8 +704,7 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
                             />
                           </a>
                           <p className="text-sm mt-1.5 whitespace-pre-wrap break-words">
-                            {message.imageCaption?.trim() ||
-                              (message.isOwn ? "To'lov cheki (rasm)" : 'Rasm')}
+                            {chatImageFallbackLabel(message.isOwn, message.imageCaption)}
                           </p>
                           {message.content ? (
                             <p className="text-xs mt-1 opacity-80 underline break-all">

@@ -10,6 +10,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "typecheck": "tsc --noEmit -p tsconfig.tools.json",
+    "migrate:kv-to-relational": "node scripts/migrations/kv-to-relational.mjs",
+    "migrate:kv-to-relational:dry": "node scripts/migrations/kv-to-relational.mjs --dry-run",
     "supabase:deploy": "npx --yes supabase functions deploy make-server-27d0d16c --project-ref wnondmqmuvjugbomyolz && npx --yes supabase functions deploy payment-webhooks --project-ref wnondmqmuvjugbomyolz && npx --yes supabase functions deploy api --project-ref wnondmqmuvjugbomyolz && npx --yes supabase functions deploy supabase-edge-function --project-ref wnondmqmuvjugbomyolz",
     "deploy": "npm run build && npm run supabase:deploy",
     "deploy:supabase": "npm run supabase:deploy",

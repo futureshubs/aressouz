@@ -205,9 +205,17 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
         // Portfolio view - faqat o'ziga tegishli portfoliolarni ko'rsatish
         setLoadingPortfolios(true);
         try {
-          // TODO: Implement user's own portfolios endpoint
-          // For now, show empty
-          setPortfolios([]);
+          const resp = await fetch(`${API_BASE_URL}/services/my-portfolios`, {
+            headers: {
+              Authorization: `Bearer ${session.access_token}`,
+              'Content-Type': 'application/json',
+            },
+          });
+          const data = await resp.json().catch(() => ({}));
+          if (!resp.ok) {
+            throw new Error(data?.error || 'Portfoliolar yuklanmadi');
+          }
+          setPortfolios(Array.isArray(data.portfolios) ? data.portfolios : []);
         } catch (error) {
           console.error('Error fetching my portfolios:', error);
           setPortfolios([]);

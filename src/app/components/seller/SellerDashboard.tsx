@@ -6,6 +6,7 @@ import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
 import { toast } from 'sonner';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
 import { useProgressiveListReveal } from '../../hooks/useProgressiveListReveal';
+import AddProductModal from './AddProductModal';
 
 interface Shop {
   id: string;
@@ -436,30 +437,17 @@ export default function SellerDashboard() {
         )}
       </div>
 
-      {/* Add Product Modal */}
-      {showAddProduct && (
-        <div className="fixed inset-0 app-safe-pad z-50 flex items-center justify-center p-6" style={{ background: 'rgba(0, 0, 0, 0.7)' }}>
-          <div 
-            className="w-full max-w-lg p-6 rounded-3xl"
-            style={{ background: isDark ? '#1a1a1a' : '#ffffff' }}
-          >
-            <div className="flex items-center justify-between mb-6">
-              <h2 className="text-2xl font-bold">Mahsulot qo'shish</h2>
-              <button
-                onClick={() => setShowAddProduct(false)}
-                className="p-2 rounded-xl"
-                style={{ background: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)' }}
-              >
-                <X className="w-5 h-5" />
-              </button>
-            </div>
-
-            <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-              Mahsulot qo'shish funksiyasi tez orada qo'shiladi
-            </p>
-          </div>
-        </div>
-      )}
+      {showAddProduct && accessToken && shop ? (
+        <AddProductModal
+          isOpen={showAddProduct}
+          onClose={() => setShowAddProduct(false)}
+          onSuccess={() => {
+            setShowAddProduct(false);
+            if (shop?.id) void loadProducts(shop.id);
+          }}
+          token={accessToken}
+        />
+      ) : null}
     </div>
   );
 }

@@ -1,5 +1,7 @@
 import * as kv from "../kv_store.tsx";
-import { syncRelationalOrderFromLegacy } from "../../_shared/db/orders.ts";
+import { persistKvOrder } from "./kv-postgres-bridge.ts";
+
+export { persistKvOrder, resyncKvOrderById } from "./kv-postgres-bridge.ts";
 
 export function getOrderKeys(orderId: string): string[] {
   const raw = String(orderId || "").trim();
@@ -55,6 +57,8 @@ export async function markKvOrderPaidFromGateway(
   const mirror = String((o as { foodOrderMirrorKey?: string }).foodOrderMirrorKey || "").trim();
   if (mirror) keysToWrite.add(mirror);
 
+  const mergedOrders: Record<string, unknown>[] = [];
+
   for (const key of keysToWrite) {
     const existingRaw = await kv.get(key);
     if (!existingRaw || typeof existingRaw !== "object") continue;
@@ -80,8 +84,19 @@ export async function markKvOrderPaidFromGateway(
       ...(extras.clickTransId != null ? { clickTransId: extras.clickTransId } : {}),
       statusHistory: sh,
     };
-    await kv.set(key, merged);
+    mergedOrders.push(merged);
   }
+
+  const primary = mergedOrders[0] ||
+    ({
+      ...o,
+      paymentStatus: "paid",
+      paymentCompletedAt: nowIso,
+      paymentRequiresVerification: false,
+      updatedAt: nowIso,
+    } as Record<string, unknown>);
+
+  await persistKvOrder(primary, record.key);
 
   try {
     const txKey = `transaction:${legacyId}`;
@@ -92,11 +107,4 @@ export async function markKvOrderPaidFromGateway(
   } catch (txErr: unknown) {
     console.warn("[gateway-paid] transaction KV:", txErr);
   }
-
-  await syncRelationalOrderFromLegacy({
-    legacyOrderId: legacyId,
-    kvStatus: String(o.status ?? ""),
-    kvPaymentStatus: "paid",
-    paymentRequiresVerification: false,
-  });
 }

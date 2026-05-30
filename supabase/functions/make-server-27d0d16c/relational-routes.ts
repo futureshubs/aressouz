@@ -1,7 +1,12 @@
 import { Hono } from "npm:hono";
 import { getProductsWithFilters } from "../_shared/db/catalog.ts";
 import { getUserFavorites, replaceUserFavorites } from "../_shared/db/favorites.ts";
-import { createMarketplaceOrder, getBuyerOrders, getSellerOrderQueue } from "../_shared/db/orders.ts";
+import {
+  createMarketplaceOrder,
+  getBuyerOrders,
+  getSellerOrderQueue,
+  linkLegacyOrderKeysToRelational,
+} from "../_shared/db/orders.ts";
 import { resolveV2IdentityFromRequest } from "./relational-auth.ts";
 
 const relationalRoutes = new Hono();
@@ -114,7 +119,19 @@ relationalRoutes.post("/v2/orders", async (c) => {
       payment: body?.payment || null,
     });
 
-    return c.json({ success: true, orderId });
+    const legacyOrderId = String(
+      body?.legacy_order_id || body?.legacyOrderId || "",
+    ).trim();
+    if (legacyOrderId) {
+      await linkLegacyOrderKeysToRelational({
+        legacyOrderId,
+        relationalOrderId: String(orderId),
+        primaryKvKey: String(body?.legacy_kv_key || "").trim() || undefined,
+        payload: body?.kv_snapshot || null,
+      });
+    }
+
+    return c.json({ success: true, orderId, legacyLinked: Boolean(legacyOrderId) });
   } catch (error: any) {
     const msg = error.message || "Failed to create relational order";
     return c.json({ success: false, error: msg }, v2ErrorStatus(msg));

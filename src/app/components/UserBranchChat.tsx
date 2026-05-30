@@ -7,11 +7,16 @@ import { projectId } from '../../../utils/supabase/info';
 import { buildUserHeaders } from '../utils/requestAuth';
 import { validateImageForUpload } from '../utils/imageDimensionRules';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
+import { useChatPoll } from '../hooks/useChatPoll';
 import {
   USER_SUPPORT_BRANCH_ID,
   chatListTitle,
   formatChatPreview,
 } from '../utils/chatIntegration';
+import {
+  chatImageFallbackLabel,
+  isChatImageMessage,
+} from '../utils/chatMessageDisplay';
 
 type UserBranchChatMode = 'split' | 'single';
 type UserBranchChatLayout = 'embedded' | 'fullscreen';
@@ -139,12 +144,7 @@ export function UserBranchChat({
     setSelectedChat(chats[0]);
   }, [chats, selectedChat?.id]);
 
-  useEffect(() => {
-    if (!selectedChat) return;
-    loadMessages(selectedChat.id);
-    const t = setInterval(() => loadMessages(selectedChat.id), 3500);
-    return () => clearInterval(t);
-  }, [selectedChat?.id, visibilityRefetchTick]);
+  useChatPoll(selectedChat?.id, loadMessages, undefined, Boolean(selectedChat));
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -252,15 +252,25 @@ export function UserBranchChat({
           color: m.isOwn ? '#fff' : isDark ? '#fff' : '#111827',
         }}
       >
-        {m.type === 'image' ? (
+        {isChatImageMessage(m.type, m.content) ? (
           <div>
-            <img src={m.content} alt="" className="rounded-xl max-w-full max-h-64 object-cover" loading="lazy" />
-            {m.imageCaption ? (
-              <div className="text-sm whitespace-pre-wrap mt-1.5 opacity-95">{m.imageCaption}</div>
-            ) : null}
+            <a href={m.content} target="_blank" rel="noopener noreferrer" className="block">
+              <img
+                src={m.content}
+                alt={m.imageCaption || 'Rasm'}
+                className="rounded-xl max-w-full max-h-64 object-cover min-h-[64px]"
+                loading="lazy"
+                onError={(e) => {
+                  e.currentTarget.style.display = 'none';
+                }}
+              />
+            </a>
+            <div className="text-sm whitespace-pre-wrap mt-1.5 opacity-95">
+              {chatImageFallbackLabel(m.isOwn, m.imageCaption)}
+            </div>
           </div>
         ) : (
-          <div className="text-sm whitespace-pre-wrap">{m.content}</div>
+          <div className="text-sm whitespace-pre-wrap break-words">{m.content?.trim() || '—'}</div>
         )}
       </div>
     </div>

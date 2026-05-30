@@ -106,46 +106,31 @@ app.get('/test-deployment', async (c) => {
   });
 });
 
-// Public branches endpoint (temporary mock implementation)
-app.get('/public/branches', async (c) => {
-  // TODO: Replace with actual implementation once branches service is ready
-  const mockBranches = [
-    {
-      id: 'branch_1',
-      name: 'Test Branch 1',
-      branchName: 'Test Branch 1',
-      login: 'test1',
-      regionId: 'region_1',
-      districtId: 'district_1',
-      phone: '+998123456789',
-      managerName: 'Test Manager',
-      coordinates: { lat: 41.2995, lng: 69.2401 },
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    },
-    {
-      id: 'branch_2',
-      name: 'Test Branch 2',
-      branchName: 'Test Branch 2',
-      login: 'test2',
-      regionId: 'region_2',
-      districtId: 'district_2',
-      phone: '+998987654321',
-      managerName: 'Test Manager 2',
-      coordinates: { lat: 41.3111, lng: 69.2797 },
-      isActive: true,
-      createdAt: new Date().toISOString(),
-      updatedAt: new Date().toISOString()
-    }
-  ];
-  
-  return c.json({
-    success: true,
-    data: mockBranches,
-    timestamp: new Date().toISOString(),
-    requestId: c.get('requestId')
+async function proxyMakeServerPublic(pathWithQuery: string) {
+  const ref =
+    Deno.env.get('SUPABASE_PROJECT_REF') ||
+    (Deno.env.get('SUPABASE_URL') || '').replace(/^https:\/\//, '').replace(/\.supabase\.co\/?$/, '') ||
+    'wnondmqmuvjugbomyolz';
+  const anon = Deno.env.get('SUPABASE_ANON_KEY') || '';
+  const url = `https://${ref}.supabase.co/functions/v1/make-server-27d0d16c${pathWithQuery}`;
+  const headers: Record<string, string> = { Accept: 'application/json' };
+  if (anon) headers.Authorization = `Bearer ${anon}`;
+  const res = await fetch(url, { headers });
+  const body = await res.text();
+  return new Response(body, {
+    status: res.status,
+    headers: { 'Content-Type': res.headers.get('Content-Type') || 'application/json' },
   });
+}
+
+// Public branches — make-server KV (production data)
+app.get('/public/branches', async (c) => {
+  return proxyMakeServerPublic('/public/branches');
+});
+
+app.get('/public/branches/location', async (c) => {
+  const q = c.req.url.includes('?') ? c.req.url.slice(c.req.url.indexOf('?')) : '';
+  return proxyMakeServerPublic(`/public/branches/location${q}`);
 });
 
 // User settings endpoint (temporary mock implementation)

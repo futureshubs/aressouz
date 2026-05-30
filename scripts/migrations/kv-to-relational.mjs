@@ -1,13 +1,17 @@
 import { createClient } from "@supabase/supabase-js";
 import { createHash, randomUUID } from "node:crypto";
+import { loadMigrationEnv, migrationEnvHelp } from "./load-migration-env.mjs";
 
-const SUPABASE_URL = process.env.SUPABASE_URL;
-const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+const { supabaseUrl: SUPABASE_URL, serviceRoleKey: SUPABASE_SERVICE_ROLE_KEY } =
+  loadMigrationEnv();
 const DRY_RUN = process.argv.includes("--dry-run");
 const PAGE_SIZE = Number(process.env.KV_PAGE_SIZE || 500);
 
 if (!SUPABASE_URL || !SUPABASE_SERVICE_ROLE_KEY) {
-  throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY are required");
+  console.error(migrationEnvHelp());
+  throw new Error(
+    "SUPABASE_SERVICE_ROLE_KEY topilmadi (.env.local yoki muhit o‘zgaruvchisi kerak)",
+  );
 }
 
 const db = createClient(SUPABASE_URL, SUPABASE_SERVICE_ROLE_KEY, {
@@ -39,6 +43,16 @@ const hashPayload = (payload) =>
 const toNumber = (value, fallback = 0) => {
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : fallback;
+};
+
+const mapPaymentProvider = (raw) => {
+  const p = String(raw || "cash").toLowerCase().trim();
+  if (["click", "payme", "aresso", "atmos", "cash", "bank_transfer", "wallet"].includes(p)) {
+    return p;
+  }
+  if (["qr", "card", "online", "uzum", "nasiya", "installment"].includes(p)) return "aresso";
+  if (["naqd", "cod", "naqdpul"].includes(p)) return "cash";
+  return "cash";
 };
 
 const asArray = (value) => (Array.isArray(value) ? value : []);
@@ -154,52 +168,142 @@ const ensureCategory = async ({ verticalType, rawCategoryId, rawCategoryName, ra
     return state.categories.get(categoryKey);
   }
 
-  const catalogId = randomUUID();
-  const categoryId = randomUUID();
   const catalogCode = `${verticalType}-${slugify(rawCatalogName || verticalType)}`;
   const categorySlug = `${verticalType}-${slugify(rawCategoryName || rawCategoryId || "other")}`;
 
-  await upsertRows("catalogs", [{
-    id: catalogId,
-    vertical_type: verticalType,
-    code: catalogCode,
-    name: rawCatalogName || verticalType,
-  }], "code");
+  let catalogId;
+  const { data: existingCatalog } = await db
+    .from("catalogs")
+    .select("id")
+    .eq("code", catalogCode)
+    .maybeSingle();
+  if (existingCatalog?.id) {
+    catalogId = existingCatalog.id;
+  } else {
+    catalogId = randomUUID();
+    const { error: catLogErr } = await db.from("catalogs").insert({
+      id: catalogId,
+      vertical_type: verticalType,
+      code: catalogCode,
+      name: rawCatalogName || verticalType,
+    });
+    if (catLogErr) {
+      const { data: retry } = await db
+        .from("catalogs")
+        .select("id")
+        .eq("code", catalogCode)
+        .maybeSingle();
+      catalogId = retry?.id;
+      if (!catalogId) throw new Error(`Failed inserting catalogs: ${catLogErr.message}`);
+    }
+  }
 
-  await upsertRows("categories", [{
+  const { data: existingCategory } = await db
+    .from("categories")
+    .select("id")
+    .eq("slug", categorySlug)
+    .maybeSingle();
+  if (existingCategory?.id) {
+    state.categories.set(categoryKey, existingCategory.id);
+    return existingCategory.id;
+  }
+
+  const categoryId = randomUUID();
+  const { error: catErr } = await db.from("categories").insert({
     id: categoryId,
     catalog_id: catalogId,
     vertical_type: verticalType,
     legacy_external_id: rawCategoryId || null,
     slug: categorySlug,
     name: rawCategoryName || rawCategoryId || "Boshqa",
-  }], "slug");
+  });
+  if (catErr) {
+    const { data: retryCat } = await db
+      .from("categories")
+      .select("id")
+      .eq("slug", categorySlug)
+      .maybeSingle();
+    if (retryCat?.id) {
+      state.categories.set(categoryKey, retryCat.id);
+      return retryCat.id;
+    }
+    throw new Error(`Failed inserting categories: ${catErr.message}`);
+  }
 
   state.categories.set(categoryKey, categoryId);
   return categoryId;
 };
 
+const findUserIdByLegacyKey = async (legacyKey) => {
+  if (!legacyKey) return null;
+  if (state.users.has(legacyKey)) return state.users.get(legacyKey);
+  const { data, error } = await db
+    .from("users")
+    .select("id")
+    .eq("legacy_kv_key", legacyKey)
+    .maybeSingle();
+  if (error) {
+    log("findUserIdByLegacyKey warn:", legacyKey, error.message);
+    return null;
+  }
+  if (data?.id) {
+    state.users.set(legacyKey, data.id);
+    return data.id;
+  }
+  return null;
+};
+
 const ensureUser = async ({ legacyKey, phone, email, firstName, lastName, displayName, role = "buyer" }) => {
-  if (legacyKey && state.users.has(legacyKey)) {
-    return state.users.get(legacyKey);
+  if (legacyKey) {
+    const existing = await findUserIdByLegacyKey(legacyKey);
+    if (existing) return existing;
   }
 
   const id = randomUUID();
-  await upsertRows("users", [{
+  const row = {
     id,
     legacy_kv_key: legacyKey || null,
     phone: phone || null,
     email: email || null,
     first_name: firstName || null,
     last_name: lastName || null,
-    display_name: displayName || `${firstName || ""} ${lastName || ""}`.trim() || phone || email || "User",
+    display_name:
+      displayName ||
+      `${firstName || ""} ${lastName || ""}`.trim() ||
+      phone ||
+      email ||
+      "User",
     role,
     status: "active",
-  }], legacyKey ? "legacy_kv_key" : "id");
+  };
 
-  await upsertRows("user_profiles", [{
-    user_id: id,
-  }], "user_id");
+  const { error: insErr } = await db.from("users").insert(row);
+  if (insErr) {
+    if (legacyKey) {
+      const again = await findUserIdByLegacyKey(legacyKey);
+      if (again) return again;
+    }
+    if (phone) {
+      const { data: byPhone } = await db
+        .from("users")
+        .select("id, legacy_kv_key")
+        .eq("phone", phone)
+        .maybeSingle();
+      if (byPhone?.id) {
+        if (legacyKey && !byPhone.legacy_kv_key) {
+          await db.from("users").update({ legacy_kv_key: legacyKey }).eq("id", byPhone.id);
+        }
+        if (legacyKey) state.users.set(legacyKey, byPhone.id);
+        return byPhone.id;
+      }
+    }
+    throw new Error(`Failed inserting users: ${insErr.message}`);
+  }
+
+  await db.from("user_profiles").upsert(
+    { user_id: id },
+    { onConflict: "user_id", ignoreDuplicates: true },
+  );
 
   if (legacyKey) {
     state.users.set(legacyKey, id);
@@ -213,6 +317,18 @@ const ensureSellerStore = async ({ legacyKey, name, phone, email, region, distri
     return state.stores.get(legacyKey);
   }
 
+  if (legacyKey) {
+    const { data: existingStore } = await db
+      .from("seller_stores")
+      .select("id")
+      .eq("legacy_kv_key", legacyKey)
+      .maybeSingle();
+    if (existingStore?.id) {
+      state.stores.set(legacyKey, existingStore.id);
+      return existingStore.id;
+    }
+  }
+
   const ownerLegacyKey = `seller-owner:${legacyKey || name}`;
   const ownerUserId = await ensureUser({
     legacyKey: ownerLegacyKey,
@@ -222,26 +338,46 @@ const ensureSellerStore = async ({ legacyKey, name, phone, email, region, distri
     role: "seller",
   });
 
-  const sellerAccountId = randomUUID();
-  await upsertRows("seller_accounts", [{
-    id: sellerAccountId,
-    user_id: ownerUserId,
-    seller_type: type,
-    legal_name: name,
-    brand_name: name,
-    status: "active",
-  }], "user_id");
+  const { data: existingAcc } = await db
+    .from("seller_accounts")
+    .select("id")
+    .eq("user_id", ownerUserId)
+    .maybeSingle();
+
+  let sellerAccountId = existingAcc?.id;
+  if (!sellerAccountId) {
+    sellerAccountId = randomUUID();
+    const { error: accErr } = await db.from("seller_accounts").insert({
+      id: sellerAccountId,
+      user_id: ownerUserId,
+      seller_type: type,
+      legal_name: name,
+      brand_name: name,
+      status: "active",
+    });
+    if (accErr) {
+      const { data: retryAcc } = await db
+        .from("seller_accounts")
+        .select("id")
+        .eq("user_id", ownerUserId)
+        .maybeSingle();
+      sellerAccountId = retryAcc?.id;
+      if (!sellerAccountId) throw new Error(`Failed inserting seller_accounts: ${accErr.message}`);
+    }
+  }
 
   const regionId = await ensureRegion(region);
   const districtId = await ensureDistrict(regionId, district);
   const storeId = randomUUID();
-
-  await upsertRows("seller_stores", [{
+  const storeSlug = legacyKey
+    ? `${slugify(name)}-${slugify(legacyKey).slice(0, 40)}`
+    : slugify(name);
+  const storeRow = {
     id: storeId,
     seller_account_id: sellerAccountId,
     legacy_kv_key: legacyKey || null,
     name,
-    slug: slugify(name),
+    slug: storeSlug,
     phone: phone || null,
     email: email || null,
     region_id: regionId,
@@ -249,7 +385,37 @@ const ensureSellerStore = async ({ legacyKey, name, phone, email, region, distri
     address_line1: address || null,
     status: "active",
     is_delivery_enabled: true,
-  }], legacyKey ? "legacy_kv_key" : "slug");
+  };
+
+  const { error: storeErr } = await db.from("seller_stores").insert(storeRow);
+    if (storeErr) {
+      if (legacyKey) {
+        const { data: again } = await db
+          .from("seller_stores")
+          .select("id")
+          .eq("legacy_kv_key", legacyKey)
+          .maybeSingle();
+        if (again?.id) {
+          state.stores.set(legacyKey, again.id);
+          return again.id;
+        }
+      }
+      if (String(storeErr.message || "").includes("seller_stores_slug_key")) {
+        const { data: bySlug } = await db
+          .from("seller_stores")
+          .select("id, legacy_kv_key")
+          .eq("slug", storeSlug)
+          .maybeSingle();
+        if (bySlug?.id) {
+          if (legacyKey && !bySlug.legacy_kv_key) {
+            await db.from("seller_stores").update({ legacy_kv_key: legacyKey }).eq("id", bySlug.id);
+          }
+          if (legacyKey) state.stores.set(legacyKey, bySlug.id);
+          return bySlug.id;
+        }
+      }
+      throw new Error(`Failed inserting seller_stores: ${storeErr.message}`);
+    }
 
   if (branchId) {
     state.branches.set(branchId, branchId);
@@ -352,22 +518,29 @@ const migrateShops = async (rows) => {
       type: "business",
     });
 
-    await upsertRows("seller_stores", [{
-      id: storeId,
-      legacy_kv_key: row.key,
-      name: shop.name || "Shop",
-      slug: slugify(shop.name || row.key),
-      phone: shop.phone || null,
-      support_phone: shop.phone || null,
-      logo_url: shop.logo || null,
-      banner_url: shop.banner || null,
-      is_delivery_enabled: Boolean(shop.delivery),
-      min_order_amount: toNumber(shop.minOrder),
-      default_delivery_eta_min_minutes: toNumber(shop.deliveryTime),
-      default_delivery_eta_max_minutes: toNumber(shop.deliveryTime),
-      telegram_chat_id: shop.telegramChatId || null,
-      status: shop.deleted ? "archived" : "active",
-    }], "legacy_kv_key");
+    if (!DRY_RUN) {
+      const { error: updErr } = await db
+        .from("seller_stores")
+        .update({
+          name: shop.name || "Shop",
+          phone: shop.phone || null,
+          support_phone: shop.phone || null,
+          logo_url: shop.logo || null,
+          banner_url: shop.banner || null,
+          is_delivery_enabled: Boolean(shop.delivery),
+          min_order_amount: toNumber(shop.minOrder),
+          default_delivery_eta_min_minutes: toNumber(shop.deliveryTime),
+          default_delivery_eta_max_minutes: toNumber(shop.deliveryTime),
+          telegram_chat_id: shop.telegramChatId || null,
+          status: shop.deleted ? "archived" : "active",
+        })
+        .eq("id", storeId);
+      if (updErr) {
+        throw new Error(`Failed updating seller_stores: ${updErr.message}`);
+      }
+    } else {
+      log(`DRY RUN seller_stores update: 1 row (${storeId})`);
+    }
 
     await recordLegacyMap("shop", row.key, "seller_stores", storeId, shop);
   }
@@ -426,11 +599,19 @@ const migrateProducts = async (rows) => {
             type: "business",
           });
 
-    const productId = randomUUID();
     const productName = raw.name || raw.title || "Unnamed product";
+    let productId = state.products.get(row.key);
+    if (!productId) {
+      const { data: existingProduct } = await db
+        .from("products")
+        .select("id")
+        .eq("legacy_kv_key", row.key)
+        .maybeSingle();
+      productId = existingProduct?.id;
+    }
 
-    await upsertRows("products", [{
-      id: productId,
+    const productSlug = `${slugify(productName)}-${slugify(row.key).slice(0, 36)}`;
+    const productRow = {
       legacy_kv_key: row.key,
       seller_store_id: storeId,
       branch_id: branchId,
@@ -438,7 +619,7 @@ const migrateProducts = async (rows) => {
       vertical_type: verticalType,
       status: raw.deleted ? "archived" : "active",
       sku: raw.sku || null,
-      slug: slugify(productName),
+      slug: productSlug,
       name: productName,
       short_description: raw.shortDescription || null,
       description: raw.description || null,
@@ -447,7 +628,26 @@ const migrateProducts = async (rows) => {
       rating_average: toNumber(raw.rating),
       review_count: toNumber(raw.reviewCount ?? raw.reviewsCount),
       published_at: raw.createdAt || new Date().toISOString(),
-    }], "legacy_kv_key");
+    };
+
+    if (!productId) {
+      productId = randomUUID();
+      const { error: pErr } = await db.from("products").insert({
+        id: productId,
+        ...productRow,
+      });
+      if (pErr) {
+        const { data: again } = await db
+          .from("products")
+          .select("id")
+          .eq("legacy_kv_key", row.key)
+          .maybeSingle();
+        if (!again?.id) throw new Error(`Failed inserting products: ${pErr.message}`);
+        productId = again.id;
+      }
+    } else if (!DRY_RUN) {
+      await db.from("products").update(productRow).eq("id", productId);
+    }
 
     state.products.set(row.key, productId);
     await recordLegacyMap("product", row.key, "products", productId, raw);
@@ -466,15 +666,16 @@ const migrateProducts = async (rows) => {
           }];
 
     for (const variant of variants) {
-      const variantId = randomUUID();
+      let variantId = randomUUID();
       const variantKey = `${row.key}:${variant.id || variant.name || variantId}`;
-      await upsertRows("product_variants", [{
+      const variantCode = variant.id || slugify(variant.name || "default");
+      const variantRow = {
         id: variantId,
         product_id: productId,
         legacy_external_id: variant.id || null,
-        variant_code: variant.id || slugify(variant.name || "default"),
+        variant_code: variantCode,
         sku: variant.sku || null,
-        barcode: variant.barcode || null,
+        barcode: null,
         name: variant.name || "Standart",
         attribute_values: variant.attributes || {},
         price_amount: toNumber(variant.price ?? raw.price),
@@ -483,19 +684,43 @@ const migrateProducts = async (rows) => {
         currency_code: "UZS",
         weight_grams: variant.weightGrams ?? null,
         status: "active",
-      }], "id");
+      };
+      const { error: vErr } = await db.from("product_variants").insert(variantRow);
+      if (vErr) {
+        const { data: existingVariant } = await db
+          .from("product_variants")
+          .select("id")
+          .eq("product_id", productId)
+          .eq("variant_code", variantCode)
+          .maybeSingle();
+        if (existingVariant?.id) {
+          variantId = existingVariant.id;
+        } else if (!String(vErr.message).includes("duplicate key")) {
+          throw new Error(`Failed inserting product_variants: ${vErr.message}`);
+        } else {
+          continue;
+        }
+      }
 
       state.variants.set(variantKey, variantId);
 
-      await upsertRows("inventory_items", [{
-        id: randomUUID(),
-        product_variant_id: variantId,
-        seller_store_id: storeId,
-        branch_id: branchId,
-        available_quantity: Math.max(0, toNumber(variant.stock ?? variant.stockQuantity ?? raw.stock ?? raw.stockQuantity)),
-        reserved_quantity: 0,
-        incoming_quantity: 0,
-      }], "product_variant_id,branch_id");
+      const { error: invErr } = await db.from("inventory_items").upsert(
+        {
+          product_variant_id: variantId,
+          seller_store_id: storeId,
+          branch_id: branchId,
+          available_quantity: Math.max(
+            0,
+            toNumber(variant.stock ?? variant.stockQuantity ?? raw.stock ?? raw.stockQuantity),
+          ),
+          reserved_quantity: 0,
+          incoming_quantity: 0,
+        },
+        { onConflict: "product_variant_id,branch_id", ignoreDuplicates: false },
+      );
+      if (invErr && !String(invErr.message).includes("duplicate key")) {
+        log("inventory_items warn:", invErr.message);
+      }
 
       const mediaItems = asArray(variant.images || raw.images || (raw.image ? [raw.image] : []))
         .filter(Boolean)
@@ -509,7 +734,9 @@ const migrateProducts = async (rows) => {
           is_primary: index === 0,
         }));
 
-      await insertRows("product_media", mediaItems);
+      if (!process.env.MIGRATE_SKIP_MEDIA && mediaItems.length) {
+        await insertRows("product_media", mediaItems);
+      }
     }
   }
 };
@@ -687,16 +914,23 @@ const migrateFavoritesAndReviews = async (rows) => {
     const parts = row.key.split(":");
     const targetKey = `${parts[0]}:${parts[1]}`;
     const payload = row.value || {};
+    const productId = state.products.get(targetKey) || null;
+    const listingId = state.listings.get(targetKey) || null;
+    if (!productId && !listingId) {
+      log("reviews skip (no relational target):", row.key);
+      continue;
+    }
+
     const userId = payload.userId
       ? await ensureUser({ legacyKey: `user:${payload.userId}`, displayName: payload.userName, phone: payload.userPhone })
       : await ensureUser({ legacyKey: `review-user:${row.key}`, displayName: payload.userName, phone: payload.userPhone });
 
-    await insertRows("reviews", [{
+    const reviewRow = {
       id: randomUUID(),
       user_id: userId,
-      target_type: state.products.has(targetKey) ? "product" : "listing",
-      product_id: state.products.get(targetKey) || null,
-      listing_id: state.listings.get(targetKey) || null,
+      target_type: productId ? "product" : "listing",
+      product_id: productId,
+      listing_id: listingId,
       rating: Math.min(5, Math.max(1, toNumber(payload.rating, 5))),
       title: payload.title || null,
       body: payload.comment || payload.content || null,
@@ -704,7 +938,11 @@ const migrateFavoritesAndReviews = async (rows) => {
       is_published: true,
       created_at: payload.createdAt || new Date().toISOString(),
       updated_at: payload.updatedAt || payload.createdAt || new Date().toISOString(),
-    }]);
+    };
+    const { error: revErr } = await db.from("reviews").insert(reviewRow);
+    if (revErr && !String(revErr.message).includes("duplicate key")) {
+      log("reviews warn:", row.key, revErr.message);
+    }
   }
 };
 
@@ -717,6 +955,17 @@ const migrateOrdersAndPayments = async (rows) => {
 
   for (const row of orderRows) {
     const raw = row.value || {};
+
+    const { data: existingOrder } = await db
+      .from("orders")
+      .select("id")
+      .eq("legacy_kv_key", row.key)
+      .maybeSingle();
+    if (existingOrder?.id) {
+      await recordLegacyMap("order", row.key, "orders", existingOrder.id, raw);
+      continue;
+    }
+
     const legacyUserKey = raw.userId ? `user:${raw.userId}` : null;
     const userId = await ensureUser({
       legacyKey: legacyUserKey || `order-user:${row.key}`,
@@ -838,25 +1087,28 @@ const migrateOrdersAndPayments = async (rows) => {
     }
 
     for (const group of grouped.values()) {
-      await insertRows("order_groups", [{
-        ...group,
-        items: undefined,
-      }]);
-
-      await insertRows("order_items", group.items || []);
+      const groupItems = group.items || [];
+      const { items: _drop, ...groupRow } = group;
+      await insertRows("order_groups", [groupRow]);
+      const validItems = groupItems.filter(
+        (it) => it.product_id || it.product_variant_id || it.listing_id,
+      );
+      if (validItems.length) {
+        await insertRows("order_items", validItems);
+      }
     }
 
     if (raw.paymentMethod || raw.payment?.method) {
       await insertRows("payments", [{
         id: randomUUID(),
         order_id: orderId,
-        provider: raw.paymentMethod || raw.payment?.method || "cash",
+        provider: mapPaymentProvider(raw.paymentMethod || raw.payment?.method),
         method_type: ["cash", "naqd"].includes(String(raw.paymentMethod || raw.payment?.method || "cash")) ? "cash_on_delivery" : "online",
         status: raw.paymentStatus === "paid" ? "paid" : "pending",
         amount: toNumber(raw.finalTotal ?? raw.totalAmount ?? raw.total),
         currency_code: raw.currency || "UZS",
         idempotency_key: `${row.key}:payment`,
-        merchant_order_ref: raw.orderNumber || null,
+        merchant_order_ref: String(raw.id || raw.orderNumber || row.key).slice(0, 120),
         provider_payment_ref: raw.paymentId || raw.transactionId || null,
         provider_checkout_url: raw.paymentUrl || null,
         is_test: Boolean(raw.isDemoMode),
@@ -882,7 +1134,7 @@ const migrateOrdersAndPayments = async (rows) => {
     await insertRows("payments", [{
       id: randomUUID(),
       order_id: orderRecord.id,
-      provider: raw.method || raw.provider || "cash",
+      provider: mapPaymentProvider(raw.method || raw.provider),
       method_type: raw.method === "cash" ? "cash_on_delivery" : "online",
       status: raw.status === "paid" ? "paid" : raw.status === "failed" ? "failed" : "pending",
       amount: toNumber(raw.amount),
@@ -901,13 +1153,30 @@ const main = async () => {
   const rows = await fetchKvRows();
   log(`Loaded ${rows.length} total KV rows`);
 
-  await migrateUsers(rows);
-  await migrateBranches(rows);
-  await migrateShops(rows);
-  await migrateProducts(rows);
-  await migrateListings(rows);
-  await migrateFavoritesAndReviews(rows);
-  await migrateOrdersAndPayments(rows);
+  const steps = [
+    ["users", () => migrateUsers(rows)],
+    ["branches", () => migrateBranches(rows)],
+    ["shops", () => migrateShops(rows)],
+    ["products", () => migrateProducts(rows)],
+    ["listings", () => migrateListings(rows)],
+    ["favorites+reviews", () => migrateFavoritesAndReviews(rows)],
+    ["orders+payments", () => migrateOrdersAndPayments(rows)],
+  ];
+
+  const onlyRaw = String(process.env.MIGRATE_ONLY || "").trim();
+  const only = onlyRaw
+    ? new Set(onlyRaw.split(",").map((s) => s.trim()).filter(Boolean))
+    : null;
+
+  for (const [name, fn] of steps) {
+    if (only && !only.has(name)) {
+      log(`Step skip: ${name}`);
+      continue;
+    }
+    log(`Step: ${name}...`);
+    await fn();
+    log(`Step done: ${name}`);
+  }
 
   log("Migration completed");
 };

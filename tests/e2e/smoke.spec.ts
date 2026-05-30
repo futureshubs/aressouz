@@ -9,4 +9,14 @@ test.describe('smoke', () => {
     await page.goto(base.replace(/\/$/, '') + '/');
     await expect(page.locator('#root')).toBeVisible({ timeout: 30_000 });
   });
+
+  test('filial login sahifasi ochiladi', async ({ page }) => {
+    await page.goto(base.replace(/\/$/, '') + '/filyal');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 30_000 });
+  });
+
+  test('support login sahifasi ochiladi', async ({ page }) => {
+    await page.goto(base.replace(/\/$/, '') + '/support');
+    await expect(page.locator('#root')).toBeVisible({ timeout: 30_000 });
+  });
 });

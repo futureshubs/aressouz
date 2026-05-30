@@ -29,3 +29,12 @@ jobs:
 
       - name: Production build
         run: npm run build
+
+      - name: Install Playwright (Chromium)
+        run: npx playwright install chromium --with-deps
+
+      - name: E2E smoke (preview)
+        run: |
+          npx vite preview --host 127.0.0.1 --port 4173 &
+          sleep 4
+          PLAYWRIGHT_BASE_URL=http://127.0.0.1:4173 npm run test:e2e

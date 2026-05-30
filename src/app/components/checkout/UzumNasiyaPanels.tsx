@@ -20,10 +20,10 @@ export function UzumNasiyaCountdownBlock({ isDark }: { isDark: boolean }) {
   const card = isDark ? 'rgba(124, 58, 237, 0.12)' : 'rgba(124, 58, 237, 0.08)';
   const border = isDark ? 'rgba(124, 58, 237, 0.35)' : 'rgba(124, 58, 237, 0.25)';
 
-  if (ended) {
+  if (ended && !isUzumNasiyaAvailable()) {
     return (
-      <p className="text-sm font-medium text-emerald-600 dark:text-emerald-400">
-        Uzum Nasiya tez orada yoqiladi — sahifani yangilang.
+      <p className="text-sm font-medium text-amber-600 dark:text-amber-400">
+        Uzum Nasiya vaqtincha o‘chirilgan. Keyinroq qayta urinib ko‘ring.
       </p>
     );
   }

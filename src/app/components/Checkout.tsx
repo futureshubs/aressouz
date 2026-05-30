@@ -25,6 +25,7 @@ import PaymePayment from './PaymePayment';
 import {
   UzumNasiyaInstallmentBlock,
   type UzumNasiyaTerm,
+  isUzumNasiyaAvailable,
 } from './checkout/UzumNasiyaPanels';
 import { buildUserHeaders } from '../utils/requestAuth';
 import { syncMarketplaceV2Order } from '../utils/marketplaceV2Sync';
@@ -729,6 +730,9 @@ export default function Checkout({
   >('cash');
   const [uzumNasiyaMonths, setUzumNasiyaMonths] = useState<UzumNasiyaTerm>(24);
   const [promoCode, setPromoCode] = useState('');
+  const [promoDiscount, setPromoDiscount] = useState(0);
+  const [promoAppliedCode, setPromoAppliedCode] = useState('');
+  const [promoValidating, setPromoValidating] = useState(false);
   const [bonusPoints, setBonusPoints] = useState(0);
   const [useBonus, setUseBonus] = useState(false);
 
@@ -1216,7 +1220,34 @@ export default function Checkout({
       return;
     }
 
-    toast.info('Promo kod funksiyasi tez orada qo‘shiladi');
+    setPromoValidating(true);
+    try {
+      const resp = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/promo/validate`,
+        {
+          method: 'POST',
+          headers: buildUserHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            code: promoCode.trim(),
+            orderSubtotal: goodsAndRentalSubtotal,
+          }),
+        },
+      );
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data?.success) {
+        setPromoDiscount(0);
+        setPromoAppliedCode('');
+        toast.error(data?.error || 'Promo kod qo‘llanmadi');
+        return;
+      }
+      setPromoDiscount(Number(data.discount) || 0);
+      setPromoAppliedCode(String(data.code || promoCode.trim()));
+      toast.success(data.message || 'Promo kod qo‘llandi');
+    } catch {
+      toast.error('Promo tekshirishda xatolik');
+    } finally {
+      setPromoValidating(false);
+    }
   };
 
   const calculateTotal = () => {
@@ -1224,6 +1255,10 @@ export default function Checkout({
 
     if (selectedZone) {
       total += selectedZone.deliveryPrice;
+    }
+
+    if (promoDiscount > 0) {
+      total -= promoDiscount;
     }
 
     if (useBonus && bonusPoints > 0) {
@@ -1347,14 +1382,19 @@ export default function Checkout({
   };
 
   const goToConfirmStep = () => {
-    if (paymentMethod === 'uzum_nasiya') {
-      toast.info('Tez orada qo‘shiladi', {
-        description: 'Uzum Nasiya orqali to‘lov hozircha mavjud emas.',
+    if (paymentMethod === 'uzum_nasiya' && !isUzumNasiyaAvailable()) {
+      toast.info('Uzum Nasiya hali yoqilmagan', {
+        description: 'Ochilish sanasini kuting yoki boshqa to‘lov usulini tanlang.',
       });
       return;
     }
     setStep(4);
   };
+
+  const orderNotesExtra = useMemo(() => {
+    if (paymentMethod !== 'uzum_nasiya') return '';
+    return `Uzum Nasiya: ${uzumNasiyaMonths} oy muddatli to‘lov (kalkulyator).`;
+  }, [paymentMethod, uzumNasiyaMonths]);
 
   // Create order function (called after successful payment for CLICK)
   const createOrder = async () => {
@@ -1648,7 +1688,10 @@ export default function Checkout({
               deliveryPrice: jobDelivery,
               finalTotal: jobFinal,
               paymentMethod: billPaymentMethod,
-              promoCode: promoCode || null,
+              promoCode: promoAppliedCode || promoCode || null,
+              promoDiscount: promoDiscount > 0 ? promoDiscount : 0,
+              uzumNasiyaMonths: paymentMethod === 'uzum_nasiya' ? uzumNasiyaMonths : undefined,
+              orderNotes: orderNotesExtra || undefined,
               bonusUsed: Math.max(0, Math.round(jobBonus)),
               address: resolvedAddressPayload,
               addressText: computedAddressText,
@@ -2096,15 +2139,21 @@ export default function Checkout({
                 </div>
                 <button
                   onClick={handlePromoCode}
-                  className="px-6 py-3 rounded-xl font-semibold transition-all active:scale-95"
+                  disabled={promoValidating}
+                  className="px-6 py-3 rounded-xl font-semibold transition-all active:scale-95 disabled:opacity-60"
                   style={{
                     background: `${accentColor.color}20`,
                     color: accentColor.color,
                   }}
                 >
-                  Qo'llash
+                  {promoValidating ? '...' : "Qo'llash"}
                 </button>
               </div>
+              {promoAppliedCode && promoDiscount > 0 ? (
+                <p className="text-sm" style={{ color: accentColor.color }}>
+                  {promoAppliedCode}: −{promoDiscount.toLocaleString('uz-UZ')} so‘m
+                </p>
+              ) : null}
             </div>
 
             {/* Bonus Points */}
