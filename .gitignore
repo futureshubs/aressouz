@@ -99,3 +99,4 @@ mobile-android/.env.*
 
 # Mobil loyiha shu repoda bo‘lmasa yoki commit qilinmasin desangiz — yoqing:
 /mobile-android
+.vercel

@@ -38,3 +38,6 @@ jobs:
           npx vite preview --host 127.0.0.1 --port 4173 &
           sleep 4
           PLAYWRIGHT_BASE_URL=http://127.0.0.1:4173 npm run test:e2e
+
+      - name: Chat API E2E (production edge)
+        run: npm run test:e2e:chat
