@@ -6,17 +6,17 @@ import { useTheme } from '../context/ThemeContext';
 import { projectId } from '../../../utils/supabase/info';
 import { buildUserHeaders } from '../utils/requestAuth';
 import { validateImageForUpload } from '../utils/imageDimensionRules';
-import { useVisibilityTick } from '../utils/visibilityRefetch';
+import { validateSupportChatImageForUpload } from '../utils/supportChatImageValidation';
+import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { useChatPoll } from '../hooks/useChatPoll';
+import { mergeChatList, mergeChatMessages, isScrollNearBottom } from '../utils/chatSync';
+import { ChatImageBubble } from './chat/ChatImageBubble';
 import {
   USER_SUPPORT_BRANCH_ID,
   chatListTitle,
   formatChatPreview,
 } from '../utils/chatIntegration';
-import {
-  chatImageFallbackLabel,
-  isChatImageMessage,
-} from '../utils/chatMessageDisplay';
+import { isChatImageMessage } from '../utils/chatMessageDisplay';
 
 type UserBranchChatMode = 'split' | 'single';
 type UserBranchChatLayout = 'embedded' | 'fullscreen';
@@ -71,18 +71,23 @@ export function UserBranchChat({
   const [input, setInput] = useState('');
   const [uploadingImage, setUploadingImage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const imageInputRef = useRef<HTMLInputElement>(null);
   const [singleView, setSingleView] = useState<'list' | 'chat'>('list');
-  const visibilityRefetchTick = useVisibilityTick();
+  const nearBottomRef = useRef(true);
+  const prevMessageCountRef = useRef(0);
+  const initialChatsLoadedRef = useRef(false);
 
   const baseUrl = useMemo(
     () => `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`,
     []
   );
 
-  const loadChats = async () => {
+  const loadChats = async (options?: { silent?: boolean }) => {
     try {
-      setLoading(true);
+      if (!options?.silent && !initialChatsLoadedRef.current) {
+        setLoading(true);
+      }
       const resp = await fetch(`${baseUrl}/user/chats`, {
         headers: buildUserHeaders({ 'Content-Type': 'application/json' }),
       });
@@ -93,7 +98,8 @@ export function UserBranchChat({
         return;
       }
       const list: ChatSummary[] = Array.isArray(data.chats) ? data.chats : [];
-      setChats(list);
+      setChats((prev) => mergeChatList(prev, list));
+      initialChatsLoadedRef.current = true;
       if (mode === 'single' && embedTarget === 'support' && list.length > 0) {
         const support = list.find(c => c.branchId === USER_SUPPORT_BRANCH_ID) || list[0];
         setSelectedChat(support);
@@ -107,7 +113,7 @@ export function UserBranchChat({
     }
   };
 
-  const loadMessages = async (chatId: string) => {
+  const loadMessages = async (chatId: string, options?: { silent?: boolean }) => {
     try {
       const resp = await fetch(`${baseUrl}/user/chats/${encodeURIComponent(chatId)}/messages`, {
         headers: buildUserHeaders({ 'Content-Type': 'application/json' }),
@@ -118,7 +124,8 @@ export function UserBranchChat({
         setMessages([]);
         return;
       }
-      setMessages(Array.isArray(data.messages) ? data.messages : []);
+      const rows = Array.isArray(data.messages) ? data.messages : [];
+      setMessages((prev) => mergeChatMessages(prev, rows as Message[]));
     } catch (e) {
       console.error('UserBranchChat loadMessages error:', e);
       toast.error('Xabarlarni yuklashda xatolik');
@@ -132,8 +139,25 @@ export function UserBranchChat({
       setSelectedChat(null);
       return;
     }
-    loadChats();
-  }, [visibilityRefetchTick, embedTarget, isAuthenticated]);
+    initialChatsLoadedRef.current = false;
+    void loadChats();
+  }, [embedTarget, isAuthenticated]);
+
+  useVisibilityRefetch((detail) => {
+    void loadChats({ silent: detail.silent ?? false });
+    if (selectedChat?.id) {
+      void loadMessages(selectedChat.id, { silent: true });
+    }
+  });
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+    const t = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void loadChats({ silent: true });
+    }, 2000);
+    return () => clearInterval(t);
+  }, [isAuthenticated, embedTarget]);
 
   // Chats yuklangach avtomatik ravishda birinchi chatni tanlab qo'yamiz
   // (UI: "Chat tanlang" bo'lib turib qolmasin, o'ng panel darhol ochilsin)
@@ -144,11 +168,29 @@ export function UserBranchChat({
     setSelectedChat(chats[0]);
   }, [chats, selectedChat?.id]);
 
-  useChatPoll(selectedChat?.id, loadMessages, undefined, Boolean(selectedChat));
+  useEffect(() => {
+    if (!selectedChat?.id) {
+      setMessages([]);
+      prevMessageCountRef.current = 0;
+      return;
+    }
+    prevMessageCountRef.current = 0;
+    void loadMessages(selectedChat.id);
+  }, [selectedChat?.id]);
+
+  useChatPoll(selectedChat?.id, loadMessages, 2000, Boolean(selectedChat));
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages.length]);
+    const prev = prevMessageCountRef.current;
+    const grew = messages.length > prev;
+    prevMessageCountRef.current = messages.length;
+    if (!grew && prev > 0) return;
+    const lastOwn = messages[messages.length - 1]?.isOwn;
+    if (!nearBottomRef.current && !lastOwn && prev > 0) return;
+    messagesEndRef.current?.scrollIntoView({
+      behavior: grew && messages.length - prev > 3 ? 'auto' : 'smooth',
+    });
+  }, [messages]);
 
   const sendMessage = async () => {
     if (!selectedChat || !input.trim()) return;
@@ -196,7 +238,11 @@ export function UserBranchChat({
 
     setUploadingImage(true);
     try {
-      const dim = await validateImageForUpload(file);
+      const isSupportChat =
+        embedTarget === 'support' || selectedChat.branchId === USER_SUPPORT_BRANCH_ID;
+      const dim = isSupportChat
+        ? await validateSupportChatImageForUpload(file)
+        : await validateImageForUpload(file);
       if (!dim.valid) {
         toast.error(dim.error || 'Rasm o‘lchami noto‘g‘ri');
         return;
@@ -253,22 +299,14 @@ export function UserBranchChat({
         }}
       >
         {isChatImageMessage(m.type, m.content) ? (
-          <div>
-            <a href={m.content} target="_blank" rel="noopener noreferrer" className="block">
-              <img
-                src={m.content}
-                alt={m.imageCaption || 'Rasm'}
-                className="rounded-xl max-w-full max-h-64 object-cover min-h-[64px]"
-                loading="lazy"
-                onError={(e) => {
-                  e.currentTarget.style.display = 'none';
-                }}
-              />
-            </a>
-            <div className="text-sm whitespace-pre-wrap mt-1.5 opacity-95">
-              {chatImageFallbackLabel(m.isOwn, m.imageCaption)}
-            </div>
-          </div>
+          <ChatImageBubble
+            url={m.content}
+            alt={m.imageCaption || 'Rasm'}
+            isOwn={m.isOwn}
+            imageCaption={m.imageCaption}
+            isDark={isDark}
+            maxThumbHeightClass="max-h-64"
+          />
         ) : (
           <div className="text-sm whitespace-pre-wrap break-words">{m.content?.trim() || '—'}</div>
         )}
@@ -407,7 +445,13 @@ export function UserBranchChat({
             {userChatHeaderTitle(selectedChat.branchId)}
           </div>
         )}
-        <div className="flex-1 p-4 overflow-y-auto space-y-3 min-h-0 overscroll-y-contain">
+        <div
+          ref={messagesScrollRef}
+          className="flex-1 p-4 overflow-y-auto space-y-3 min-h-0 overscroll-y-contain"
+          onScroll={() => {
+            nearBottomRef.current = isScrollNearBottom(messagesScrollRef.current);
+          }}
+        >
           {messages.map(messageBubble)}
           <div ref={messagesEndRef} />
         </div>

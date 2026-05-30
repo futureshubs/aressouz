@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
 
-const base = (process.env.PLAYWRIGHT_BASE_URL || '').trim();
+const base =
+  (process.env.PLAYWRIGHT_BASE_URL || 'https://aresso.app').trim();
 
 test.describe('chat UI smoke', () => {
-  test.skip(!base, 'PLAYWRIGHT_BASE_URL kerak');
 
   test('support panel: chat tab DOM (login sahifasidan keyin)', async ({ page }) => {
     await page.goto(`${base.replace(/\/$/, '')}/support`);

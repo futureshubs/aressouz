@@ -2,7 +2,7 @@ import type { Hono } from "npm:hono";
 import * as kv from "../kv_store.tsx";
 import * as r2 from "../r2-storage.tsx";
 import * as chatMsg from "../chat-messages.ts";
-import { validateImageBuffer500x500 } from "../../_shared/imageDimensions.ts";
+import { validateImageBufferForSupportChat } from "../../_shared/imageDimensions.ts";
 import {
   CHAT_KEY_PREFIX,
   CHAT_MESSAGE_KEY_PREFIX,
@@ -389,7 +389,7 @@ export function registerChatRoutes(app: Hono, deps: ChatRouteDeps): void {
 
       const arrayBuffer = await file.arrayBuffer();
       const buffer = new Uint8Array(arrayBuffer);
-      const dimErr = validateImageBuffer500x500(buffer, file.type);
+      const dimErr = validateImageBufferForSupportChat(buffer, file.type);
       if (dimErr) return c.json({ error: dimErr, message: dimErr }, 400);
 
       const ext = file.name.split(".").pop() || "jpg";
@@ -547,6 +547,49 @@ export function registerChatRoutes(app: Hono, deps: ChatRouteDeps): void {
     }
   };
 
+  const branchChatUploadMediaHandler = async (c: any) => {
+    try {
+      const formData = await c.req.formData();
+      const file = formData.get("file") as File;
+      if (!file || !(file instanceof File)) {
+        return c.json({ error: "Fayl topilmadi" }, 400);
+      }
+      if (!file.type.startsWith("image/")) {
+        return c.json({ error: "Faqat rasm fayli yuklash mumkin" }, 400);
+      }
+      if (file.size > 8 * 1024 * 1024) {
+        return c.json({ error: "Rasm hajmi 8MB dan oshmasligi kerak" }, 400);
+      }
+
+      const arrayBuffer = await file.arrayBuffer();
+      const buffer = new Uint8Array(arrayBuffer);
+      const dimErr = validateImageBufferForSupportChat(buffer, file.type);
+      if (dimErr) return c.json({ error: dimErr, message: dimErr }, 400);
+
+      const ext = file.name.split(".").pop() || "jpg";
+      const filename = `support_chat/branch/${Date.now()}-${Math.random().toString(36).slice(2, 8)}.${ext}`;
+
+      const r2Config = r2.checkR2Config();
+      if (!r2Config.configured) {
+        return c.json({ error: r2Config.message }, 500);
+      }
+
+      const uploadResult = await r2.uploadFile(buffer, filename, file.type);
+      if (!uploadResult.success) {
+        return c.json({ error: uploadResult.error || "Yuklashda xatolik" }, 500);
+      }
+
+      return c.json({
+        success: true,
+        url: uploadResult.url,
+        contentType: file.type,
+      });
+    } catch (error: any) {
+      console.error("Branch chat upload-media error:", error);
+      return c.json({ error: error.message || "Yuklashda xatolik" }, 500);
+    }
+  };
+
   const branchChatMessagesListHandler = async (c: any) => {
     try {
       const chatId = c.req.param("chatId");
@@ -611,9 +654,19 @@ export function registerChatRoutes(app: Hono, deps: ChatRouteDeps): void {
       if (!chatId) return c.json({ error: "chatId kerak" }, 400);
 
       const body = await c.req.json().catch(() => ({}));
-      const content = String(body?.content || "").trim();
       const type = String(body?.type || "text").trim() || "text";
-      if (!content) return c.json({ error: "content kerak" }, 400);
+      const captionRaw = body?.caption != null ? String(body.caption).trim().slice(0, 500) : "";
+      let content = String(body?.content || "").trim();
+      let imageCaption = "";
+
+      if (type === "image") {
+        if (!/^https?:\/\//i.test(content)) {
+          return c.json({ error: "Rasm uchun to'liq https havola kerak" }, 400);
+        }
+        imageCaption = captionRaw;
+      } else if (!content) {
+        return c.json({ error: "content kerak" }, 400);
+      }
 
       const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
       const nowIso = new Date().toISOString();
@@ -622,7 +675,7 @@ export function registerChatRoutes(app: Hono, deps: ChatRouteDeps): void {
         String(body?.senderName || "").trim() ||
         (String(chatMeta?.branchId || "") === USER_SUPPORT_BRANCH_ID ? "Aresso support" : "Filial");
 
-      const message = {
+      const message: Record<string, unknown> = {
         id: messageId,
         chatId,
         senderId: "branch",
@@ -633,6 +686,9 @@ export function registerChatRoutes(app: Hono, deps: ChatRouteDeps): void {
         status: "sent",
         isOwn: true,
       };
+      if (type === "image" && imageCaption) {
+        message.imageCaption = imageCaption;
+      }
 
       await kv.set(`${CHAT_MESSAGE_KEY_PREFIX}${chatId}:${messageId}`, message);
 
@@ -640,12 +696,19 @@ export function registerChatRoutes(app: Hono, deps: ChatRouteDeps): void {
       const chatKey = `${CHAT_KEY_PREFIX}${chatId}`;
       const existing = normalizeKVValueChat(await kv.get(chatKey));
       const updatedAt = nowIso;
+      const lastPreview =
+        type === "image"
+          ? imageCaption
+            ? `📷 ${imageCaption.slice(0, 80)}`
+            : "📷 Rasm"
+          : content;
+
       const updated = existing
         ? {
             ...existing,
             updatedAt,
             lastMessage: {
-              content: message.content,
+              content: lastPreview,
               timestamp: message.timestamp,
               senderName: message.senderName,
               isOwn: message.isOwn,
@@ -664,7 +727,7 @@ export function registerChatRoutes(app: Hono, deps: ChatRouteDeps): void {
             participantType: "customer",
             participantName: String(chatMeta?.participantName || "Mijoz"),
             lastMessage: {
-              content: message.content,
+              content: lastPreview,
               timestamp: message.timestamp,
               senderName: message.senderName,
               isOwn: message.isOwn,
@@ -683,10 +746,18 @@ export function registerChatRoutes(app: Hono, deps: ChatRouteDeps): void {
       const recipientUserId =
         String(updated.participantId || "").trim() || parseCustomerIdFromChatId(chatId) || "";
       if (recipientUserId) {
+        const pushBody =
+          type === "image"
+            ? imageCaption
+              ? `📷 ${imageCaption.slice(0, 120)}`
+              : "📷 Rasm"
+            : content.length > 160
+              ? `${content.slice(0, 157)}...`
+              : content;
         void deps.notifyUserExpoPush(
           recipientUserId,
           branchLabel,
-          content.length > 160 ? `${content.slice(0, 157)}...` : content,
+          pushBody,
           { chatId: String(chatId), type: "branch_chat" },
         );
       }
@@ -769,6 +840,8 @@ export function registerChatRoutes(app: Hono, deps: ChatRouteDeps): void {
 
   // Branch messages (merged)
   app.get("/make-server-27d0d16c/chats/:chatId/messages", branchChatMessagesListHandler);
+
+  app.post("/make-server-27d0d16c/chats/upload-media", branchChatUploadMediaHandler);
 
   // Branch read / send / star / archive
   app.put("/make-server-27d0d16c/chats/:chatId/read", branchChatReadHandler);

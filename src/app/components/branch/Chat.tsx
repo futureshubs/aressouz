@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, type ChangeEvent } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import { 
   MessageCircle, 
@@ -32,17 +32,18 @@ import {
 import { toast } from 'sonner';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildBranchHeaders } from '../../utils/requestAuth';
-import { useVisibilityTick } from '../../utils/visibilityRefetch';
+import { useVisibilityRefetch } from '../../utils/visibilityRefetch';
 import { useChatPoll } from '../../hooks/useChatPoll';
+import { useChatNotifications } from '../../hooks/useChatNotifications';
 import {
   isPlatformSupportChat,
   formatChatPreview,
   formatChatTime,
 } from '../../utils/chatIntegration';
-import {
-  chatImageFallbackLabel,
-  isChatImageMessage,
-} from '../../utils/chatMessageDisplay';
+import { isChatImageMessage } from '../../utils/chatMessageDisplay';
+import { mergeChatList, mergeChatMessages, isScrollNearBottom } from '../../utils/chatSync';
+import { validateSupportChatImageForUpload } from '../../utils/supportChatImageValidation';
+import { ChatImageBubble } from '../chat/ChatImageBubble';
 
 interface Message {
   id: string;
@@ -114,14 +115,21 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
   const [searchTerm, setSearchTerm] = useState('');
   const [messageInput, setMessageInput] = useState('');
   const [filter, setFilter] = useState('all'); // all, unread, starred, archived
+  const [uploadingImage, setUploadingImage] = useState(false);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const messagesScrollRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
+  const imageInputRef = useRef<HTMLInputElement>(null);
   const messagesLoadSeqRef = useRef(0);
-  const visibilityRefetchTick = useVisibilityTick();
+  const prevMessageCountRef = useRef(0);
+  const nearBottomRef = useRef(true);
+  const initialChatsLoadedRef = useRef(false);
 
-  const loadChats = async () => {
+  const loadChats = async (options?: { silent?: boolean }) => {
     try {
-      setIsLoading(true);
+      if (!options?.silent && !initialChatsLoadedRef.current) {
+        setIsLoading(true);
+      }
       console.log('💬 Loading chats for branch:', effectiveBranchId);
 
       const params = new URLSearchParams({
@@ -146,7 +154,9 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
 
       const data = await response.json();
       if (data.success) {
-        setChats(data.chats);
+        const rows = Array.isArray(data.chats) ? data.chats : [];
+        setChats((prev) => mergeChatList(prev, rows));
+        initialChatsLoadedRef.current = true;
         console.log('✅ Chats loaded from API');
       }
     } catch (error) {
@@ -160,7 +170,7 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
   const loadMessages = async (chatId: string, options?: { silent?: boolean }) => {
     const reqId = ++messagesLoadSeqRef.current;
     const isLatest = () => reqId === messagesLoadSeqRef.current;
-    if (!options?.silent) setMessagesLoading(true);
+      if (!options?.silent && messages.length === 0) setMessagesLoading(true);
     try {
       console.log('📨 Loading messages for chat:', chatId);
 
@@ -184,16 +194,15 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
       if (!isLatest()) return;
       if (data.success) {
         const rows = Array.isArray(data.messages) ? data.messages : [];
-        setMessages(
-          rows.map((m: Message) => ({
-            ...m,
-            type:
-              m.type === 'image' || /^https?:\/\//i.test(String(m.content || '').trim())
-                ? 'image'
-                : 'text',
-            isOwn: String(m.senderId || '') === 'branch',
-          })),
-        );
+        const mapped = rows.map((m: Message) => ({
+          ...m,
+          type:
+            m.type === 'image' || /^https?:\/\//i.test(String(m.content || '').trim())
+              ? 'image'
+              : 'text',
+          isOwn: String(m.senderId || '') === 'branch',
+        })) as Message[];
+        setMessages((prev) => mergeChatMessages(prev, mapped));
         console.log('✅ Messages loaded from API', rows.length);
       } else {
         setMessages([]);
@@ -209,23 +218,55 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
   };
 
   useEffect(() => {
-    loadChats();
-  }, [effectiveBranchId, searchTerm, filter, visibilityRefetchTick]);
+    initialChatsLoadedRef.current = false;
+    void loadChats();
+  }, [effectiveBranchId, searchTerm, filter]);
+
+  useVisibilityRefetch((detail) => {
+    void loadChats({ silent: detail.silent ?? false });
+    if (selectedChat?.id) {
+      void loadMessages(selectedChat.id, { silent: true });
+    }
+  });
 
   useEffect(() => {
-    if (!selectedChat) {
+    if (!effectiveBranchId) return;
+    const t = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void loadChats({ silent: true });
+    }, 2000);
+    return () => clearInterval(t);
+  }, [effectiveBranchId, searchTerm, filter]);
+
+  useEffect(() => {
+    if (!selectedChat?.id) {
       setMessages([]);
       setMessagesLoading(false);
-    } else {
-      setMessages([]);
+      prevMessageCountRef.current = 0;
+      return;
     }
+    prevMessageCountRef.current = 0;
+    void loadMessages(selectedChat.id);
   }, [selectedChat?.id]);
 
-  useChatPoll(selectedChat?.id, loadMessages, undefined, Boolean(selectedChat));
+  useChatPoll(selectedChat?.id, loadMessages, 2000, Boolean(selectedChat));
+
+  useChatNotifications(messages, Boolean(isSupportPanel && selectedChat), {
+    panel: 'support',
+    chatLabel: selectedChat?.participantName,
+    documentTitle: 'Platforma support',
+  });
 
   useEffect(() => {
-    // Scroll to bottom when new messages arrive
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    const prev = prevMessageCountRef.current;
+    const grew = messages.length > prev;
+    prevMessageCountRef.current = messages.length;
+    if (!grew && prev > 0) return;
+    const lastOwn = messages[messages.length - 1]?.isOwn;
+    if (!nearBottomRef.current && !lastOwn && prev > 0) return;
+    messagesEndRef.current?.scrollIntoView({
+      behavior: grew && messages.length - prev > 3 ? 'auto' : 'smooth',
+    });
   }, [messages]);
 
   const handleSendMessage = async () => {
@@ -274,6 +315,60 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
           msg.id === optimisticId ? { ...msg, status: 'failed' as const } : msg,
         ),
       );
+    }
+  };
+
+  const handlePickImage = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    event.target.value = '';
+    if (!file || !selectedChat || uploadingImage || !isSupportPanel) return;
+
+    setUploadingImage(true);
+    try {
+      const dim = await validateSupportChatImageForUpload(file);
+      if (!dim.valid) {
+        toast.error(dim.error || 'Rasm noto‘g‘ri');
+        return;
+      }
+      const fd = new FormData();
+      fd.append('file', file);
+      const up = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats/upload-media`,
+        { method: 'POST', headers: buildBranchHeaders(), body: fd },
+      );
+      const upData = await up.json().catch(() => ({}));
+      if (!up.ok || !upData?.success || !upData?.url) {
+        toast.error(upData?.error || 'Rasm yuklanmadi');
+        return;
+      }
+      const caption = messageInput.trim();
+      setMessageInput('');
+      const senderName = 'Aresso support';
+      const resp = await fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats/${encodeURIComponent(selectedChat.id)}/messages`,
+        {
+          method: 'POST',
+          headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
+          body: JSON.stringify({
+            type: 'image',
+            content: String(upData.url),
+            senderName,
+            ...(caption ? { caption } : {}),
+          }),
+        },
+      );
+      const data = await resp.json().catch(() => ({}));
+      if (!resp.ok || !data?.success) {
+        toast.error(data?.error || 'Rasm yuborilmadi');
+        return;
+      }
+      await loadMessages(selectedChat.id, { silent: true });
+      await loadChats({ silent: true });
+    } catch (e) {
+      console.error('Support chat image error:', e);
+      toast.error('Rasm yuborishda xatolik');
+    } finally {
+      setUploadingImage(false);
     }
   };
 
@@ -623,7 +718,13 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
           </div>
 
           {/* Messages */}
-          <div className="flex-1 overflow-y-auto p-4 space-y-4 relative min-h-[200px]">
+          <div
+            ref={messagesScrollRef}
+            className="flex-1 overflow-y-auto p-4 space-y-4 relative min-h-[200px]"
+            onScroll={() => {
+              nearBottomRef.current = isScrollNearBottom(messagesScrollRef.current);
+            }}
+          >
             {messagesLoading ? (
               <div
                 className="absolute inset-0 flex flex-col items-center justify-center gap-2 z-10"
@@ -685,33 +786,13 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
                       }}
                     >
                       {isChatImageMessage(message.type, message.content) ? (
-                        <div>
-                          <a
-                            href={message.content}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            className="block"
-                          >
-                            <img
-                              src={message.content}
-                              alt={message.imageCaption || 'Rasm'}
-                              className="max-w-full max-h-72 rounded-xl object-cover min-h-[80px] bg-black/10"
-                              loading="lazy"
-                              onError={(e) => {
-                                const el = e.currentTarget;
-                                el.style.display = 'none';
-                              }}
-                            />
-                          </a>
-                          <p className="text-sm mt-1.5 whitespace-pre-wrap break-words">
-                            {chatImageFallbackLabel(message.isOwn, message.imageCaption)}
-                          </p>
-                          {message.content ? (
-                            <p className="text-xs mt-1 opacity-80 underline break-all">
-                              Havolani ochish
-                            </p>
-                          ) : null}
-                        </div>
+                        <ChatImageBubble
+                          url={message.content}
+                          alt={message.imageCaption || 'Rasm'}
+                          isOwn={message.isOwn}
+                          imageCaption={message.imageCaption}
+                          isDark={isDark}
+                        />
                       ) : (
                         <p className="text-sm whitespace-pre-wrap break-words">
                           {message.content?.trim() || '—'}
@@ -747,10 +828,28 @@ export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatPro
             }}
           >
             <div className="flex items-center gap-2">
-              <button className="p-2 rounded-lg hover:bg-opacity-10 transition-all"
+              {isSupportPanel ? (
+                <input
+                  ref={imageInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={handlePickImage}
+                />
+              ) : null}
+              <button
+                type="button"
+                className="p-2 rounded-lg hover:bg-opacity-10 transition-all disabled:opacity-40"
                 style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}
+                disabled={!isSupportPanel || uploadingImage || !selectedChat}
+                title={isSupportPanel ? 'Rasm yuborish' : undefined}
+                onClick={() => isSupportPanel && imageInputRef.current?.click()}
               >
-                <Paperclip className="w-5 h-5" />
+                {uploadingImage ? (
+                  <Loader2 className="w-5 h-5 animate-spin" />
+                ) : (
+                  <Paperclip className="w-5 h-5" />
+                )}
               </button>
               <input
                 ref={inputRef}

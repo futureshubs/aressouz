@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 
-const DEFAULT_INTERVAL_MS = 2500;
+const DEFAULT_INTERVAL_MS = 2000;
 const HIDDEN_INTERVAL_MS = 8000;
 
 /**

@@ -117,3 +117,25 @@ export function validateImageBuffer500x500(
   if (!dim.ok) return dim.error;
   return assertImageSquareAspect(dim.width, dim.height);
 }
+
+const SUPPORT_CHAT_MAX_SIDE_PX = 8192;
+const SUPPORT_CHAT_MIN_SIDE_PX = 16;
+
+/** Platforma support ↔ mijoz: istalgan nisbat (1:1 shart emas). */
+export function validateImageBufferForSupportChat(
+  buffer: Uint8Array,
+  mimeType: string,
+): string | null {
+  if (!mimeType.startsWith('image/')) return null;
+  const dim = readImageDimensionsFromBuffer(buffer, mimeType);
+  if (!dim.ok) return dim.error;
+  const { width, height } = dim;
+  if (width < SUPPORT_CHAT_MIN_SIDE_PX || height < SUPPORT_CHAT_MIN_SIDE_PX) {
+    return 'Rasm juda kichik';
+  }
+  const maxSide = Math.max(width, height);
+  if (maxSide > SUPPORT_CHAT_MAX_SIDE_PX) {
+    return `Rasm juda katta (max ${SUPPORT_CHAT_MAX_SIDE_PX}px tomondagi). Sizda: ${width}×${height} px.`;
+  }
+  return null;
+}

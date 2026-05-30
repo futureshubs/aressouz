@@ -6,7 +6,6 @@ import { USER_SUPPORT_BRANCH_ID } from '../../utils/chatIntegration';
 import { Payments } from './Payments';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildBranchHeaders } from '../../utils/requestAuth';
-import { useVisibilityTick } from '../../utils/visibilityRefetch';
 import { toast } from 'sonner';
 import {
   FileText,
@@ -45,7 +44,6 @@ export function OperatorSupportTabs({ branchId, branchInfo, role = 'operator' }:
 
   const [activeTab, setActiveTab] = useState<TabId>('orders_all');
 
-  const visibilityRefetchTick = useVisibilityTick();
   const [counts, setCounts] = useState<Record<string, number>>({
     orders_all: 0,
     orders_market: 0,
@@ -59,9 +57,9 @@ export function OperatorSupportTabs({ branchId, branchInfo, role = 'operator' }:
 
   useEffect(() => {
     let cancelled = false;
-    const loadCounts = async () => {
+    const loadCounts = async (silent = false) => {
       try {
-        setCountsLoading(true);
+        if (!silent) setCountsLoading(true);
         const endpoint = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/v2/branch/orders?branchId=${encodeURIComponent(
           branchId
         )}&type=all`;
@@ -145,11 +143,16 @@ export function OperatorSupportTabs({ branchId, branchInfo, role = 'operator' }:
       }
     };
 
-    loadCounts();
+    void loadCounts(false);
+    const poll = window.setInterval(() => {
+      if (document.visibilityState !== 'visible') return;
+      void loadCounts(true);
+    }, 2000);
     return () => {
       cancelled = true;
+      clearInterval(poll);
     };
-  }, [branchId, visibilityRefetchTick]);
+  }, [branchId]);
 
   const tabs = useMemo(
     () =>

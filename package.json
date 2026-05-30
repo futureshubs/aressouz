@@ -10,6 +10,8 @@
     "test:watch": "vitest",
     "test:e2e": "playwright test",
     "test:e2e:chat": "playwright test tests/e2e/chat-api.spec.ts tests/e2e/chat-ui.spec.ts",
+    "e2e:fetch-tokens": "node scripts/e2e/fetch-e2e-tokens.mjs",
+    "test:e2e:chat:full": "node scripts/e2e/fetch-e2e-tokens.mjs && playwright test tests/e2e/chat-api.spec.ts tests/e2e/chat-ui.spec.ts tests/e2e/chat-authenticated.spec.ts",
     "deploy:vercel": "npm run build && npx vercel deploy --prod --yes",
     "deploy:all": "npm run build && npm run supabase:deploy:server && npm run deploy:vercel",
     "typecheck": "tsc --noEmit -p tsconfig.tools.json",
