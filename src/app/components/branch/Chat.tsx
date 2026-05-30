@@ -30,8 +30,14 @@ import {
   Loader2,
 } from 'lucide-react';
 import { toast } from 'sonner';
-import { projectId, publicAnonKey } from '../../../../utils/supabase/info';
+import { projectId } from '../../../../utils/supabase/info';
+import { buildBranchHeaders } from '../../utils/requestAuth';
 import { useVisibilityTick } from '../../utils/visibilityRefetch';
+import {
+  isPlatformSupportChat,
+  formatChatPreview,
+  formatChatTime,
+} from '../../utils/chatIntegration';
 
 interface Message {
   id: string;
@@ -41,6 +47,7 @@ interface Message {
   senderAvatar?: string;
   content: string;
   type: 'text' | 'image' | 'file' | 'system';
+  imageCaption?: string;
   timestamp: string;
   status: 'sent' | 'delivered' | 'read' | 'failed';
   isOwn: boolean;
@@ -58,6 +65,7 @@ interface Chat {
   branchId: string;
   participantId: string;
   participantName: string;
+  participantPhone?: string;
   participantAvatar?: string;
   participantType: 'customer' | 'courier' | 'employee' | 'system';
   lastMessage: {
@@ -77,6 +85,9 @@ interface Chat {
 
 interface ChatProps {
   branchId: string;
+  /** Support panel: `aresso_support` — widget xabarlari */
+  chatBranchId?: string;
+  panelLabel?: string;
   branchInfo?: {
     region?: string;
     district?: string;
@@ -84,7 +95,9 @@ interface ChatProps {
   };
 }
 
-export function Chat({ branchId, branchInfo }: ChatProps) {
+export function Chat({ branchId, chatBranchId, panelLabel, branchInfo }: ChatProps) {
+  const effectiveBranchId = (chatBranchId || branchId).trim();
+  const isSupportPanel = isPlatformSupportChat(effectiveBranchId);
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
@@ -104,21 +117,18 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
   const loadChats = async () => {
     try {
       setIsLoading(true);
-      console.log('💬 Loading chats for branch:', branchId);
+      console.log('💬 Loading chats for branch:', effectiveBranchId);
 
       const params = new URLSearchParams({
-        branchId,
+        branchId: effectiveBranchId,
         search: searchTerm,
-        filter: filter
+        filter: filter,
       });
 
       const response = await fetch(
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats?${params}`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
         }
       );
 
@@ -142,20 +152,17 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
     }
   };
 
-  const loadMessages = async (chatId: string) => {
+  const loadMessages = async (chatId: string, options?: { silent?: boolean }) => {
     const reqId = ++messagesLoadSeqRef.current;
     const isLatest = () => reqId === messagesLoadSeqRef.current;
-    setMessagesLoading(true);
+    if (!options?.silent) setMessagesLoading(true);
     try {
       console.log('📨 Loading messages for chat:', chatId);
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats/${chatId}/messages`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats/${encodeURIComponent(chatId)}/messages`,
         {
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
         }
       );
 
@@ -169,9 +176,22 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
       }
 
       const data = await response.json();
-      if (data.success && isLatest()) {
-        setMessages(data.messages);
-        console.log('✅ Messages loaded from API');
+      if (!isLatest()) return;
+      if (data.success) {
+        const rows = Array.isArray(data.messages) ? data.messages : [];
+        setMessages(
+          rows.map((m: Message) => ({
+            ...m,
+            type:
+              m.type === 'image' || /^https?:\/\//i.test(String(m.content || '').trim())
+                ? 'image'
+                : 'text',
+            isOwn: String(m.senderId || '') === 'branch',
+          })),
+        );
+        console.log('✅ Messages loaded from API', rows.length);
+      } else {
+        setMessages([]);
       }
     } catch (error) {
       if (isLatest()) {
@@ -185,7 +205,7 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
 
   useEffect(() => {
     loadChats();
-  }, [branchId, searchTerm, filter, visibilityRefetchTick]);
+  }, [effectiveBranchId, searchTerm, filter, visibilityRefetchTick]);
 
   useEffect(() => {
     if (!selectedChat) {
@@ -195,7 +215,9 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
     }
     setMessages([]);
     loadMessages(selectedChat.id);
-  }, [selectedChat, visibilityRefetchTick]);
+    const poll = setInterval(() => loadMessages(selectedChat.id, { silent: true }), 3500);
+    return () => clearInterval(poll);
+  }, [selectedChat?.id, visibilityRefetchTick]);
 
   useEffect(() => {
     // Scroll to bottom when new messages arrive
@@ -210,7 +232,7 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
         id: `msg_${Date.now()}`,
         chatId: selectedChat.id,
         senderId: 'branch',
-        senderName: 'Filial',
+        senderName: isSupportPanel ? 'Aresso support' : 'Filial',
         content: messageInput.trim(),
         type: 'text',
         timestamp: new Date().toISOString(),
@@ -223,17 +245,15 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
       setMessageInput('');
 
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats/${selectedChat.id}/messages`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats/${encodeURIComponent(selectedChat.id)}/messages`,
         {
           method: 'POST',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-            'Content-Type': 'application/json',
-          },
+          headers: buildBranchHeaders({ 'Content-Type': 'application/json' }),
           body: JSON.stringify({
             content: newMessage.content,
-            type: 'text'
-          })
+            type: 'text',
+            senderName: newMessage.senderName,
+          }),
         }
       );
 
@@ -264,15 +284,19 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
 
   const handleSelectChat = (chat: Chat) => {
     setSelectedChat(chat);
-    // Mark as read
     if (chat.unreadCount > 0) {
-      setChats(prev => prev.map(c => 
-        c.id === chat.id 
-          ? { ...c, unreadCount: 0 }
-          : c
+      setChats(prev => prev.map(c =>
+        c.id === chat.id ? { ...c, unreadCount: 0 } : c
       ));
+      fetch(
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats/${encodeURIComponent(chat.id)}/read`,
+        { method: 'PUT', headers: buildBranchHeaders() },
+      ).catch(() => {});
     }
   };
+
+  const isImageMessage = (message: Message) =>
+    message.type === 'image' || /^https?:\/\//i.test(String(message.content || '').trim());
 
   const handleStarChat = async (chatId: string) => {
     try {
@@ -286,9 +310,7 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats/${chatId}/star`,
         {
           method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
+          headers: buildBranchHeaders(),
         }
       );
 
@@ -320,9 +342,7 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
         `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/chats/${chatId}/archive`,
         {
           method: 'PUT',
-          headers: {
-            'Authorization': `Bearer ${publicAnonKey}`,
-          },
+          headers: buildBranchHeaders(),
         }
       );
 
@@ -342,12 +362,7 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
     }
   };
 
-  const formatTime = (timestamp: string) => {
-    return new Date(timestamp).toLocaleTimeString('uz-UZ', {
-      hour: '2-digit',
-      minute: '2-digit'
-    });
-  };
+  const formatTime = formatChatTime;
 
   const getParticipantIcon = (type: string) => {
     switch (type) {
@@ -403,7 +418,12 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
             borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
           }}
         >
-          <h2 className="text-xl font-bold mb-4">Suhbatlar</h2>
+          <h2 className="text-xl font-bold mb-1">{panelLabel || 'Suhbatlar'}</h2>
+          {isSupportPanel && (
+            <p className="text-xs mb-3" style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.5)' }}>
+              Sayt widgetidagi mijoz xabarlari
+            </p>
+          )}
           
           {/* Search */}
           <div className="relative mb-3">
@@ -517,7 +537,10 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
                       <p className="text-sm truncate" style={{ 
                         color: isDark ? 'rgba(255, 255, 255, 0.7)' : 'rgba(0, 0, 0, 0.7)' 
                       }}>
-                        {chat.lastMessage.senderName}: {chat.lastMessage.content}
+                        {chat.lastMessage.senderName}: {formatChatPreview(
+                          chat.lastMessage.content,
+                          chat.lastMessage.content.startsWith('📷') ? 'image' : 'text',
+                        )}
                       </p>
                       <div className="flex items-center gap-1">
                         {chat.isStarred && <Star className="w-3 h-3 text-yellow-500" />}
@@ -576,7 +599,8 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
                 <p className="text-xs" style={{ 
                   color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' 
                 }}>
-                  {selectedChat.isOnline ? 'Onlayn' : 'Oflayn'}
+                  {selectedChat.participantPhone || 'Telefon yo‘q'}
+                  {selectedChat.isOnline ? ' • Onlayn' : ' • Oflayn'}
                   {selectedChat.isTyping && ' • Yozmoqda...'}
                 </p>
               </div>
@@ -621,6 +645,14 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
                 />
               </div>
             ) : null}
+            {!messagesLoading && messages.length === 0 ? (
+              <p
+                className="text-center text-sm py-8"
+                style={{ color: isDark ? 'rgba(255,255,255,0.5)' : 'rgba(0,0,0,0.45)' }}
+              >
+                Hali xabar yo‘q. Mijoz support widget orqali yozsa, shu yerda ko‘rinadi.
+              </p>
+            ) : null}
             {messages.map((message) => {
               const StatusIcon = getStatusIcon(message.status);
               
@@ -646,20 +678,52 @@ export function Chat({ branchId, branchInfo }: ChatProps) {
                           : 'rounded-bl-sm'
                       }`}
                       style={{
-                        background: message.isOwn 
-                          ? accentColor.gradient 
-                          : (isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.05)'),
-                        color: message.isOwn ? '#ffffff' : (isDark ? '#ffffff' : '#000000')
+                        ...(message.isOwn
+                          ? {
+                              backgroundColor: accentColor.color,
+                              backgroundImage: accentColor.gradient,
+                            }
+                          : {
+                              background: isDark
+                                ? 'rgba(255, 255, 255, 0.12)'
+                                : 'rgba(0, 0, 0, 0.06)',
+                            }),
+                        color: message.isOwn ? '#ffffff' : (isDark ? '#f3f4f6' : '#111827'),
                       }}
                     >
-                      {message.type === 'image' ? (
-                        <img
-                          src={message.content}
-                          alt="Image"
-                          className="max-w-full rounded-xl object-contain"
-                        />
+                      {isImageMessage(message) ? (
+                        <div>
+                          <a
+                            href={message.content}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="block"
+                          >
+                            <img
+                              src={message.content}
+                              alt={message.imageCaption || 'Rasm'}
+                              className="max-w-full max-h-72 rounded-xl object-cover min-h-[80px] bg-black/10"
+                              loading="lazy"
+                              onError={(e) => {
+                                const el = e.currentTarget;
+                                el.style.display = 'none';
+                              }}
+                            />
+                          </a>
+                          <p className="text-sm mt-1.5 whitespace-pre-wrap break-words">
+                            {message.imageCaption?.trim() ||
+                              (message.isOwn ? "To'lov cheki (rasm)" : 'Rasm')}
+                          </p>
+                          {message.content ? (
+                            <p className="text-xs mt-1 opacity-80 underline break-all">
+                              Havolani ochish
+                            </p>
+                          ) : null}
+                        </div>
                       ) : (
-                        <p className="text-sm">{message.content}</p>
+                        <p className="text-sm whitespace-pre-wrap break-words">
+                          {message.content?.trim() || '—'}
+                        </p>
                       )}
                     </div>
                     <div className={`flex items-center gap-1 mt-1 text-xs ${

@@ -38,6 +38,7 @@ import {
 import { paycomCallOptsForReceiptIdWithKv } from "./lib/paycom-receipt-helpers.ts";
 import { getOrderRecord, getOrderKeys } from "./services/order-kv-lookup.ts";
 import { registerPaymeReceiptRoutes } from "./routes/payme-receipt-routes.ts";
+import * as chatMsg from "./chat-messages.ts";
 
 import preparersRoutes from "./preparers.tsx";
 import {
@@ -65,6 +66,11 @@ import {
 import relationalRoutes from "./relational-routes.ts";
 import { createCourierBagStore } from "./courier-bags-db.ts";
 import { runBranchCleanup, isValidCleanupTarget } from "./branch-cleanup.ts";
+import {
+  touchBuyerLastLogin,
+  getBuyerLastLoginIso,
+  purgeBuyerUserCompletely,
+} from "./admin-buyer-lifecycle.ts";
 import { syncRelationalOrderFromLegacy } from "../_shared/db/orders.ts";
 import { validateImageBuffer500x500 } from "../_shared/imageDimensions.ts";
 import {
@@ -2038,6 +2044,7 @@ app.post("/make-server-27d0d16c/auth/sms/signup", async (c) => {
     }
 
     // Create user profile in KV store
+    const nowIso = new Date().toISOString();
     const userProfile = {
       id: authData.user.id,
       phone: normalizedPhone,
@@ -2046,7 +2053,8 @@ app.post("/make-server-27d0d16c/auth/sms/signup", async (c) => {
       birthDate,
       gender,
       email,
-      createdAt: new Date().toISOString(),
+      createdAt: nowIso,
+      lastLoginAt: nowIso,
     };
 
     await kv.set(`user:${authData.user.id}`, userProfile);
@@ -2177,10 +2185,11 @@ app.post("/make-server-27d0d16c/auth/sms/signin", async (c) => {
     console.log('🔑 ===== TOKEN CREATION COMPLETE =====');
 
     await kv.del(`sms_code:${normalizedPhone}`);
+    await touchBuyerLastLogin(userId, userProfile);
 
     return c.json({ 
       success: true,
-      user: userProfile,
+      user: { ...userProfile, lastLoginAt: new Date().toISOString() },
       session: {
         access_token: accessToken,
         expires_at: Date.now() + (30 * 24 * 60 * 60 * 1000), // 30 days
@@ -4485,7 +4494,7 @@ app.get("/make-server-27d0d16c/admin/users", async (c) => {
     const { data: relUsers, error: relErr } = await supabase
       .from("users")
       .select(
-        "id, legacy_kv_key, phone, email, first_name, last_name, display_name, status, role, created_at, updated_at, user_profiles(bonus_balance)",
+        "id, legacy_kv_key, phone, email, first_name, last_name, display_name, status, role, created_at, updated_at, avatar_url, user_profiles(bonus_balance, birth_date, gender)",
       )
       .is("deleted_at", null)
       .eq("role", "buyer");
@@ -4536,12 +4545,16 @@ app.get("/make-server-27d0d16c/admin/users", async (c) => {
 
       const { firstName, lastName } = normalizeAdminUserNames(profile, rel);
 
+      const up = rel?.user_profiles;
       enrichedUsers.push({
         ...profile,
         firstName,
         lastName,
         phone: profile.phone || rel?.phone || "",
         email: profile.email || rel?.email || "",
+        birthDate: profile.birthDate || up?.birth_date || undefined,
+        gender: profile.gender || up?.gender || undefined,
+        profileImage: profile.profileImage || rel?.avatar_url || undefined,
         bonusBalance: Number.isFinite(pgBonus) && pgBonus > 0
           ? pgBonus
           : Number(bonusData.balance) || 0,
@@ -4557,7 +4570,9 @@ app.get("/make-server-27d0d16c/admin/users", async (c) => {
           rel?.created_at ||
           new Date().toISOString(),
         updatedAt: profile.updatedAt || rel?.updated_at,
+        lastLoginAt: profile.lastLoginAt || profile.last_login_at || null,
         relationalUserId: relId || undefined,
+        authUserId: ADMIN_USER_UUID_RE.test(bareId) ? bareId : rel?.auth_user_id || undefined,
       });
     }
 
@@ -4573,13 +4588,16 @@ app.get("/make-server-27d0d16c/admin/users", async (c) => {
 
       const { firstName, lastName } = normalizeAdminUserNames({}, rel);
 
+      const up = rel?.user_profiles;
       enrichedUsers.push({
         id: relId,
         phone: rel.phone || "",
         email: rel.email || "",
         firstName,
         lastName,
-        profileImage: undefined,
+        birthDate: up?.birth_date || undefined,
+        gender: up?.gender || undefined,
+        profileImage: rel.avatar_url || undefined,
         bonusBalance: Number.isFinite(pgBonus) ? pgBonus : 0,
         totalBonusEarned: 0,
         purchasesCount: agg.ordersCount,
@@ -4587,8 +4605,10 @@ app.get("/make-server-27d0d16c/admin/users", async (c) => {
         status: relationalAccountStatusToAdminStatus(rel.status, false),
         createdAt: rel.created_at || new Date().toISOString(),
         updatedAt: rel.updated_at,
+        lastLoginAt: null,
         relationalOnly: true,
         relationalUserId: relId,
+        authUserId: rel.auth_user_id || undefined,
       });
     }
 
@@ -4629,7 +4649,7 @@ app.get("/make-server-27d0d16c/admin/users/:userId", async (c) => {
       const { data: relRow } = await supabase
         .from("users")
         .select(
-          "id, legacy_kv_key, phone, email, first_name, last_name, display_name, status, role, created_at, updated_at, user_profiles(bonus_balance)",
+          "id, legacy_kv_key, phone, email, first_name, last_name, display_name, status, role, created_at, updated_at, avatar_url, auth_user_id, user_profiles(bonus_balance, birth_date, gender)",
         )
         .eq("id", userId)
         .maybeSingle();
@@ -4679,13 +4699,16 @@ app.get("/make-server-27d0d16c/admin/users/:userId", async (c) => {
         }
       });
 
+      const up = rel?.user_profiles;
       const userDetails = {
         id: String(rel.id),
         phone: rel.phone || "",
         email: rel.email || "",
         firstName,
         lastName,
-        profileImage: undefined,
+        birthDate: up?.birth_date || undefined,
+        gender: up?.gender || undefined,
+        profileImage: rel.avatar_url || undefined,
         bonus: {
           balance: Number.isFinite(pgBonus) ? pgBonus : 0,
           earnedToday: 0,
@@ -4703,6 +4726,7 @@ app.get("/make-server-27d0d16c/admin/users/:userId", async (c) => {
         createdAt: rel.created_at,
         updatedAt: rel.updated_at,
         relationalOnly: true,
+        lastLoginAt: await getBuyerLastLoginIso(String(rel.id), null),
       };
 
       console.log("✅ User details loaded (relational)");
@@ -4739,7 +4763,7 @@ app.get("/make-server-27d0d16c/admin/users/:userId", async (c) => {
       const { data: relRow } = await supabase
         .from("users")
         .select(
-          "id, legacy_kv_key, phone, email, first_name, last_name, display_name, status, user_profiles(bonus_balance)",
+          "id, legacy_kv_key, phone, email, first_name, last_name, display_name, status, avatar_url, auth_user_id, user_profiles(bonus_balance, birth_date, gender)",
         )
         .eq("legacy_kv_key", legacyKey)
         .maybeSingle();
@@ -4804,6 +4828,9 @@ app.get("/make-server-27d0d16c/admin/users/:userId", async (c) => {
       lastName,
       phone: user.phone || rel?.phone || "",
       email: user.email || rel?.email || "",
+      birthDate: user.birthDate || rel?.user_profiles?.birth_date,
+      gender: user.gender || rel?.user_profiles?.gender,
+      profileImage: user.profileImage || rel?.avatar_url,
       bonus: mergedBonus,
       favorites,
       cart,
@@ -4814,6 +4841,11 @@ app.get("/make-server-27d0d16c/admin/users/:userId", async (c) => {
         rel?.status,
         Boolean(user.blocked),
       ),
+      createdAt: user.createdAt || rel?.created_at,
+      updatedAt: user.updatedAt || rel?.updated_at,
+      lastLoginAt: await getBuyerLastLoginIso(kvBareId, user),
+      relationalUserId: relId || undefined,
+      authUserId: ADMIN_USER_UUID_RE.test(kvBareId) ? kvBareId : rel?.auth_user_id,
     };
 
     console.log("✅ User details loaded");
@@ -4944,7 +4976,7 @@ app.patch("/make-server-27d0d16c/admin/users/:userId/status", async (c) => {
   }
 });
 
-// Delete user (admin only)
+// Delete user (admin only) — KV, relational, Supabase Auth; qayta ro'yxatdan yangi akkaunt
 app.delete("/make-server-27d0d16c/admin/users/:userId", async (c) => {
   try {
     const admin = await validateAdminAccess(c);
@@ -4952,54 +4984,35 @@ app.delete("/make-server-27d0d16c/admin/users/:userId", async (c) => {
       return c.json({ error: admin.error }, 403);
     }
 
-    const userId = c.req.param('userId');
-    
-    console.log('🗑️ Deleting user and all related data:', userId);
-    
-    // Get user profile
-    const user = await kv.get(`user:${userId}`);
-    
-    if (!user) {
-      return c.json({ error: 'Foydalanuvchi topilmadi' }, 404);
-    }
-    
-    // Delete user profile
-    await kv.del(`user:${userId}`);
-    
-    // Delete phone mapping
-    if (user.phone) {
-      await kv.del(`user_phone:${user.phone}`);
-    }
-    
-    // Delete all user-related data
-    await kv.del(`user:${userId}:favorites`);
-    await kv.del(`user:${userId}:cart`);
-    await kv.del(`user:${userId}:bonus`);
-    await kv.del(`user:${userId}:settings`);
-    
-    // Delete all purchase history
-    const purchases = await kv.getByPrefix(`user:${userId}:purchase:`);
-    for (const purchase of purchases) {
-      await kv.del(`user:${userId}:purchase:${purchase.id}`);
-    }
-    
-    // Delete all access tokens
-    const allTokens = await kv.getByPrefix('access_token:');
-    for (const token of allTokens) {
-      if (token.userId === userId) {
-        const tokenKey = `access_token:${token.id}`;
-        await kv.del(tokenKey);
-      }
-    }
-    
-    console.log(`✅ User deleted: ${userId}`);
-    return c.json({ 
+    const userId = c.req.param("userId");
+    console.log("🗑️ Hard-delete buyer:", userId);
+
+    const result = await purgeBuyerUserCompletely(
+      userId,
+      supabase,
+      {
+        deleteUser: (id: string) => supabase.auth.admin.deleteUser(id),
+        getUserById: (id: string) => supabase.auth.admin.getUserById(id),
+      },
+    );
+
+    console.log("✅ Buyer purged:", result.summary);
+    return c.json({
       success: true,
-      message: 'Foydalanuvchi va barcha ma\'lumotlar o\'chirildi',
+      message:
+        "Foydalanuvchi butunlay o'chirildi. Shu telefon bilan qayta kirganda yangi akkaunt yaratiladi.",
+      summary: result.summary,
     });
   } catch (error: any) {
-    console.error('Delete user error:', error);
-    return c.json({ error: 'Foydalanuvchini o\'chirishda xatolik' }, 500);
+    console.error("Delete user error:", error);
+    const msg = String(error?.message || "");
+    if (msg.includes("topilmadi")) {
+      return c.json({ error: msg }, 404);
+    }
+    return c.json(
+      { error: msg || "Foydalanuvchini o'chirishda xatolik" },
+      500,
+    );
   }
 });
 
@@ -17415,6 +17428,26 @@ function parseCustomerIdFromChatId(chatId: string): string | null {
   return id || null;
 }
 
+async function enrichChatWithUserProfile(chat: any): Promise<any> {
+  if (!chat || typeof chat !== 'object') return chat;
+  const pid = String(chat.participantId || '').trim();
+  if (!pid) return chat;
+  const profile = (await kv.get(`user:${pid}`)) as Record<string, unknown> | null;
+  const first = String(profile?.firstName || profile?.first_name || '').trim();
+  const last = String(profile?.lastName || profile?.last_name || '').trim();
+  const fullName = [first, last].filter(Boolean).join(' ').trim();
+  const phone = String(profile?.phone || chat.participantPhone || '').trim();
+  return {
+    ...chat,
+    participantName:
+      fullName ||
+      String(profile?.name || chat.participantName || 'Mijoz').trim() ||
+      'Mijoz',
+    participantPhone: phone || undefined,
+    isSupportChat: String(chat.branchId || '') === USER_SUPPORT_BRANCH_ID,
+  };
+}
+
 const EXPO_PUSH_API_URL = 'https://exp.host/--/api/v2/push/send';
 
 async function sendExpoPushBatch(
@@ -17587,7 +17620,17 @@ app.get("/make-server-27d0d16c/chats", async (c) => {
     let chatsRaw: any[] = (await kv.getByPrefix(CHAT_KEY_PREFIX))
       .map(normalizeKVValueChat)
       .filter(Boolean)
-      .filter((chat: any) => String(chat.branchId || '') === branchId);
+      .filter((chat: any) => chatMsg.chatBelongsToBranch(chat, branchId));
+
+    // Eski yozuvlar: branchId bo‘sh, lekin chatId to‘g‘ri — KV ni tuzatish
+    for (const chat of chatsRaw) {
+      const id = String(chat.id || '');
+      const resolved = chatMsg.resolveChatBranchId(chat);
+      if (!id || !resolved || String(chat.branchId || '') === resolved) continue;
+      const fixed = { ...chat, branchId: resolved };
+      await kv.set(`${CHAT_KEY_PREFIX}${id}`, fixed);
+      Object.assign(chat, fixed);
+    }
 
     // 2) Agar real chats bo'lmasa: branchdagi orderlardan customer chatlarini "bootstrap" qilamiz va KV'ga saqlaymiz.
     if (chatsRaw.length === 0) {
@@ -17640,6 +17683,75 @@ app.get("/make-server-27d0d16c/chats", async (c) => {
       }
     }
 
+    const knownIds = new Set(chatsRaw.map((ch: any) => String(ch.id || '')));
+    const discoveredIds = await chatMsg.discoverChatIdsForBranch(branchId, sanitizeForChatId);
+    for (const chatId of discoveredIds) {
+      if (!chatId || knownIds.has(chatId)) continue;
+      const existing = normalizeKVValueChat(await kv.get(`${CHAT_KEY_PREFIX}${chatId}`));
+      const participantId = parseCustomerIdFromChatId(chatId) || '';
+      const nowIso = new Date().toISOString();
+      chatsRaw.push(
+        existing || {
+          id: chatId,
+          branchId,
+          participantId,
+          participantType: 'customer',
+          participantName: 'Mijoz',
+          lastMessage: {
+            content: 'Yangi xabar',
+            timestamp: nowIso,
+            senderName: 'Mijoz',
+            isOwn: false,
+          },
+          unreadCount: 1,
+          isOnline: false,
+          isTyping: false,
+          isArchived: false,
+          isStarred: false,
+          createdAt: nowIso,
+          updatedAt: nowIso,
+        },
+      );
+      knownIds.add(chatId);
+    }
+
+    const loadMsgsForPreview = async (id: string) => {
+      const ch =
+        chatsRaw.find((c: any) => String(c.id || '') === id) || {};
+      const extra: string[] = [];
+      const pid = String(
+        ch.participantId || parseCustomerIdFromChatId(id) || '',
+      ).trim();
+      if (pid) extra.push(pid);
+      const phone = String(ch.participantPhone || '').trim();
+      if (phone) extra.push(phone);
+      if (pid && !phone) {
+        const profile = (await kv.get(`user:${pid}`)) as Record<string, unknown> | null;
+        const pp = String(profile?.phone || '').trim();
+        if (pp) extra.push(pp);
+      }
+      return chatMsg.loadMergedBranchChatMessages(
+        id,
+        USER_SUPPORT_BRANCH_ID,
+        (participantId) => buildChatId(USER_SUPPORT_BRANCH_ID, 'customer', participantId),
+        parseCustomerIdFromChatId,
+        normalizeKVValueChat,
+        mapMessageStatusToUI,
+        extra,
+      );
+    };
+
+    chatsRaw = await Promise.all(
+      chatsRaw.map((ch: any) =>
+        chatMsg.refreshChatWithLatestMessage(
+          ch,
+          normalizeKVValueChat,
+          mapMessageStatusToUI,
+          loadMsgsForPreview,
+        ),
+      ),
+    );
+
     // filter/search
     let resultChats = chatsRaw;
     if (searchTerm) {
@@ -17654,7 +17766,8 @@ app.get("/make-server-27d0d16c/chats", async (c) => {
     if (filter === 'archived') resultChats = resultChats.filter((ch: any) => Boolean(ch.isArchived));
 
     resultChats.sort((a: any, b: any) => new Date(b.updatedAt || b.createdAt).getTime() - new Date(a.updatedAt || a.createdAt).getTime());
-    return c.json({ success: true, chats: resultChats });
+    const enriched = await Promise.all(resultChats.map((ch: any) => enrichChatWithUserProfile(ch)));
+    return c.json({ success: true, chats: enriched });
   } catch (error: any) {
     console.error('Chats list error:', error);
     return c.json({ error: 'Suhbatlarni olishda xatolik' }, 500);
@@ -17695,7 +17808,11 @@ async function userChatsHandler(c: any) {
           branchId,
           participantId: userId,
           participantType: 'customer',
-          participantName: String(userProfile?.name || userProfile?.firstName || 'Mijoz'),
+          participantName: [userProfile?.firstName, userProfile?.lastName]
+        .filter(Boolean)
+        .join(' ')
+        .trim() ||
+        String(userProfile?.name || userProfile?.firstName || 'Mijoz'),
           lastMessage: {
             content: 'Suhbat boshlandi',
             timestamp: nowIso,
@@ -17722,8 +17839,10 @@ async function userChatsHandler(c: any) {
     const supportKey = `${CHAT_KEY_PREFIX}${supportChatId}`;
     const supportExisting = normalizeKVValueChat(await kv.get(supportKey));
     const nowIsoSupport = new Date().toISOString();
-    const displayName = String(userProfile?.name || userProfile?.firstName || 'Mijoz');
-    const supportChat =
+      const displayName =
+        [userProfile?.firstName, userProfile?.lastName].filter(Boolean).join(' ').trim() ||
+        String(userProfile?.name || userProfile?.firstName || 'Mijoz');
+      const supportChat =
       supportExisting ||
       ({
         id: supportChatId,
@@ -17782,23 +17901,12 @@ const userChatMessagesListHandler = async (c: any) => {
       return c.json({ error: 'Ruxsat yo‘q' }, 403);
     }
 
-    const prefix = `${CHAT_MESSAGE_KEY_PREFIX}${chatId}:`;
-    const raw = await kv.getByPrefix(prefix);
-    const messages = (raw || []).map(normalizeKVValueChat).filter(Boolean);
-    messages.sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
-
-    const uiMessages = messages.map((m: any) => ({
-      id: String(m.id || ''),
-      chatId: String(m.chatId || chatId),
-      senderId: String(m.senderId || ''),
-      senderName: String(m.senderName || ''),
-      content: String(m.content || ''),
-      type: String(m.type || 'text'),
-      imageCaption: m.imageCaption != null ? String(m.imageCaption) : '',
-      timestamp: new Date(m.timestamp || Date.now()).toISOString(),
-      status: mapMessageStatusToUI(m.status),
-      isOwn: String(m.senderId || '') === String(auth.userId),
-    }));
+    const uiMessages = await chatMsg.loadChatMessagesUi(
+      chatId,
+      { view: 'user', userId: String(auth.userId) },
+      normalizeKVValueChat,
+      mapMessageStatusToUI,
+    );
 
     return c.json({ success: true, messages: uiMessages });
   } catch (error: any) {
@@ -17922,10 +18030,14 @@ const userChatSendHandler = async (c: any) => {
     const chatKey = `${CHAT_KEY_PREFIX}${chatId}`;
     const existing = normalizeKVValueChat(await kv.get(chatKey));
     const updatedAt = nowIso;
+    const resolvedBranchId =
+      chatMsg.parseBranchIdFromChatId(chatId) || USER_SUPPORT_BRANCH_ID;
     const updated = existing
       ? {
           ...existing,
+          branchId: String(existing.branchId || '').trim() || resolvedBranchId,
           updatedAt,
+          unreadCount: Number(existing.unreadCount || 0) + 1,
           lastMessage: {
             content: lastPreview,
             timestamp: nowIso,
@@ -17935,7 +18047,8 @@ const userChatSendHandler = async (c: any) => {
         }
       : {
           id: chatId,
-          branchId: '',
+          branchId:
+            chatMsg.parseBranchIdFromChatId(chatId) || USER_SUPPORT_BRANCH_ID,
           participantId: userId,
           participantType: 'customer',
           participantName: senderName,
@@ -17945,7 +18058,7 @@ const userChatSendHandler = async (c: any) => {
             senderName,
             isOwn: false,
           },
-          unreadCount: 0,
+          unreadCount: 1,
           isOnline: false,
           isTyping: false,
           isArchived: false,
@@ -18024,28 +18137,56 @@ app.get("/make-server-27d0d16c/chats/:chatId/messages", async (c) => {
     const chatId = c.req.param('chatId');
     if (!chatId) return c.json({ error: 'chatId kerak' }, 400);
 
-    const prefix = `${CHAT_MESSAGE_KEY_PREFIX}${chatId}:`;
-    const raw = await kv.getByPrefix(prefix);
-    const messages = (raw || []).map(normalizeKVValueChat).filter(Boolean);
-    messages.sort((a: any, b: any) => new Date(a.timestamp).getTime() - new Date(b.timestamp).getTime());
+    const chatMeta = normalizeKVValueChat(await kv.get(`${CHAT_KEY_PREFIX}${chatId}`));
+    const extraParticipantIds: string[] = [];
+    const pid = String(chatMeta?.participantId || parseCustomerIdFromChatId(chatId) || '').trim();
+    if (pid) extraParticipantIds.push(pid);
+    const phone = String(chatMeta?.participantPhone || '').trim();
+    if (phone) extraParticipantIds.push(phone);
+    if (pid && !phone) {
+      const profile = (await kv.get(`user:${pid}`)) as Record<string, unknown> | null;
+      const profilePhone = String(profile?.phone || '').trim();
+      if (profilePhone) extraParticipantIds.push(profilePhone);
+    }
 
-    const uiMessages = messages.map((m: any) => ({
-      id: String(m.id || ''),
-      chatId: String(m.chatId || chatId),
-      senderId: String(m.senderId || ''),
-      senderName: String(m.senderName || ''),
-      content: String(m.content || ''),
-      type: String(m.type || 'text'),
-      imageCaption: m.imageCaption != null ? String(m.imageCaption) : '',
-      timestamp: new Date(m.timestamp || Date.now()).toISOString(),
-      status: mapMessageStatusToUI(m.status),
-      isOwn: Boolean(m.isOwn),
-    }));
+    const uiMessages = await chatMsg.loadMergedBranchChatMessages(
+      chatId,
+      USER_SUPPORT_BRANCH_ID,
+      (participantId) => buildChatId(USER_SUPPORT_BRANCH_ID, 'customer', participantId),
+      parseCustomerIdFromChatId,
+      normalizeKVValueChat,
+      mapMessageStatusToUI,
+      extraParticipantIds,
+    );
 
     return c.json({ success: true, messages: uiMessages });
   } catch (error: any) {
     console.error('Chat messages list error:', error);
     return c.json({ error: 'Xabarlarni olishda xatolik' }, 500);
+  }
+});
+
+app.put("/make-server-27d0d16c/chats/:chatId/read", async (c) => {
+  try {
+    const chatId = c.req.param('chatId');
+    if (!chatId) return c.json({ error: 'chatId kerak' }, 400);
+
+    const chatKey = `${CHAT_KEY_PREFIX}${chatId}`;
+    const existing = normalizeKVValueChat(await kv.get(chatKey));
+    if (!existing) {
+      return c.json({ success: true });
+    }
+
+    await kv.set(chatKey, {
+      ...existing,
+      unreadCount: 0,
+      updatedAt: new Date().toISOString(),
+    });
+
+    return c.json({ success: true });
+  } catch (error: any) {
+    console.error('Chat mark read error:', error);
+    return c.json({ error: 'O‘qilgan deb belgilashda xatolik' }, 500);
   }
 });
 
@@ -18062,12 +18203,18 @@ app.post("/make-server-27d0d16c/chats/:chatId/messages", async (c) => {
 
     const messageId = `msg_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
     const nowIso = new Date().toISOString();
+    const chatMeta = normalizeKVValueChat(await kv.get(`${CHAT_KEY_PREFIX}${chatId}`));
+    const branchLabel =
+      String(body?.senderName || '').trim() ||
+      (String(chatMeta?.branchId || '') === USER_SUPPORT_BRANCH_ID
+        ? 'Aresso support'
+        : 'Filial');
 
     const message = {
       id: messageId,
       chatId,
       senderId: 'branch',
-      senderName: 'Filial',
+      senderName: branchLabel,
       content,
       type,
       timestamp: nowIso,
@@ -18120,13 +18267,13 @@ app.post("/make-server-27d0d16c/chats/:chatId/messages", async (c) => {
     if (recipientUserId) {
       void notifyUserExpoPush(
         recipientUserId,
-        'Filial',
+        branchLabel,
         content.length > 160 ? `${content.slice(0, 157)}...` : content,
         { chatId: String(chatId), type: 'branch_chat' },
       );
     }
 
-    return c.json({ success: true, message });
+    return c.json({ success: true, message: { ...message, isOwn: true } });
   } catch (error: any) {
     console.error('Send chat message error:', error);
     return c.json({ error: 'Xabarni yuborishda xatolik' }, 500);

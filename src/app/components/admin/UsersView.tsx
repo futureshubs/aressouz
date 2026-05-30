@@ -17,7 +17,9 @@ import {
   Loader2,
   AlertTriangle,
   TrendingUp,
-  TrendingDown
+  Mail,
+  Clock,
+  Fingerprint,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { projectId } from '../../../../utils/supabase/info';
@@ -41,9 +43,14 @@ interface UserData {
   blocked?: boolean;
   createdAt: string;
   updatedAt?: string;
+  lastLoginAt?: string | null;
+  relationalUserId?: string;
+  authUserId?: string;
+  relationalOnly?: boolean;
 }
 
 interface UserDetails extends UserData {
+  purchasesCount?: number;
   bonus: {
     balance: number;
     earnedToday: number;
@@ -101,7 +108,24 @@ function normalizeAdminUser(u: Record<string, unknown>): UserData {
     blocked: Boolean(u.blocked),
     createdAt: String(u.createdAt ?? u.created_at ?? new Date().toISOString()),
     updatedAt: (u.updatedAt ?? u.updated_at) as string | undefined,
+    lastLoginAt: (u.lastLoginAt ?? u.last_login_at ?? null) as string | null | undefined,
+    relationalUserId: u.relationalUserId as string | undefined,
+    authUserId: u.authUserId as string | undefined,
+    relationalOnly: Boolean(u.relationalOnly),
   };
+}
+
+function formatGender(g?: string) {
+  if (!g) return '—';
+  const s = g.toLowerCase();
+  if (s === 'male' || s === 'm' || s === 'erkak') return 'Erkak';
+  if (s === 'female' || s === 'f' || s === 'ayol') return 'Ayol';
+  return g;
+}
+
+function shortId(id: string) {
+  if (!id) return '—';
+  return id.length > 12 ? `${id.slice(0, 8)}…${id.slice(-4)}` : id;
 }
 
 export default function UsersView({ onStatsUpdate }: UsersViewProps) {
@@ -228,6 +252,10 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
       };
       const userDetails: UserDetails = {
         ...base,
+        lastLoginAt: (raw.lastLoginAt ?? raw.last_login_at ?? base.lastLoginAt) as string | null | undefined,
+        relationalUserId: (raw.relationalUserId as string) || base.relationalUserId,
+        authUserId: (raw.authUserId as string) || base.authUserId,
+        purchasesCount: Number(raw.purchasesCount) || 0,
         bonus: {
           balance: Number(bonusRaw.balance) ?? base.bonusBalance,
           earnedToday: Number(bonusRaw.earnedToday) || 0,
@@ -274,11 +302,14 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
     }
   };
 
-  const handleDeleteClick = (userId: string, userName: string) => {
+  const resolveDeleteUserId = (user: UserData) =>
+    user.authUserId || user.relationalUserId || user.id;
+
+  const handleDeleteClick = (user: UserData) => {
     setDeleteConfirmation({
       isOpen: true,
-      userId: userId,
-      userName: userName,
+      userId: resolveDeleteUserId(user),
+      userName: `${user.firstName} ${user.lastName}`.trim(),
       isLoading: false,
     });
   };
@@ -290,7 +321,7 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
 
     try {
       const response = await fetch(
-        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/admin/users/${deleteConfirmation.userId}`,
+        `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c/admin/users/${encodeURIComponent(deleteConfirmation.userId)}`,
         {
           method: 'DELETE',
           headers: buildAdminHeaders({
@@ -299,11 +330,15 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
         }
       );
 
+      const body = await response.json().catch(() => ({}));
       if (!response.ok) {
-        throw new Error('Failed to delete user');
+        throw new Error((body as { error?: string }).error || 'Failed to delete user');
       }
 
-      toast.success('Foydalanuvchi o\'chirildi');
+      toast.success(
+        (body as { message?: string }).message ||
+          'Foydalanuvchi butunlay o\'chirildi. Qayta kirganda yangi akkaunt bo\'ladi.',
+      );
       
       setDeleteConfirmation({
         isOpen: false,
@@ -338,12 +373,28 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
     return status === 'active' ? 'Faol' : 'Bloklangan';
   };
 
-  const formatDate = (dateString: string) => {
+  const formatDate = (dateString?: string | null) => {
+    if (!dateString) return '—';
     try {
       return new Date(dateString).toLocaleDateString('uz-UZ', {
         year: 'numeric',
         month: 'long',
         day: 'numeric',
+      });
+    } catch {
+      return dateString;
+    }
+  };
+
+  const formatDateTime = (dateString?: string | null) => {
+    if (!dateString) return '—';
+    try {
+      return new Date(dateString).toLocaleString('uz-UZ', {
+        year: 'numeric',
+        month: 'short',
+        day: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
       });
     } catch {
       return dateString;
@@ -552,23 +603,34 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
                         </span>
                       </div>
 
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        <div className="flex items-center gap-2 text-sm">
-                          <Phone 
-                            className="w-4 h-4 flex-shrink-0"
-                            style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)' }}
-                          />
-                          <span style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                            {user.phone}
-                          </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-x-4 gap-y-2 mt-1">
+                        <div className="flex items-center gap-2 text-sm min-w-0">
+                          <Phone className="w-4 h-4 flex-shrink-0 opacity-40" />
+                          <span className="truncate opacity-70">{user.phone || '—'}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm min-w-0">
+                          <Mail className="w-4 h-4 flex-shrink-0 opacity-40" />
+                          <span className="truncate opacity-70">{user.email || '—'}</span>
                         </div>
                         <div className="flex items-center gap-2 text-sm">
-                          <Calendar 
-                            className="w-4 h-4 flex-shrink-0"
-                            style={{ color: isDark ? 'rgba(255, 255, 255, 0.4)' : 'rgba(0, 0, 0, 0.4)' }}
-                          />
-                          <span style={{ color: isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)' }}>
-                            {formatDate(user.createdAt)}
+                          <Calendar className="w-4 h-4 flex-shrink-0 opacity-40" />
+                          <span className="opacity-70">Ro&apos;yxat: {formatDate(user.createdAt)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <Clock className="w-4 h-4 flex-shrink-0 opacity-40" />
+                          <span className="opacity-70">Oxirgi kirish: {formatDateTime(user.lastLoginAt)}</span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm">
+                          <User className="w-4 h-4 flex-shrink-0 opacity-40" />
+                          <span className="opacity-70">
+                            {formatGender(user.gender)}
+                            {user.birthDate ? ` · ${formatDate(user.birthDate)}` : ''}
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-2 text-sm min-w-0">
+                          <Fingerprint className="w-4 h-4 flex-shrink-0 opacity-40" />
+                          <span className="truncate opacity-50 text-xs font-mono" title={user.id}>
+                            ID {shortId(user.relationalUserId || user.id)}
                           </span>
                         </div>
                       </div>
@@ -595,7 +657,13 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
                     <div className="flex items-center justify-center gap-1 mb-1">
                       <DollarSign className="w-4 h-4" style={{ color: '#10b981' }} />
                     </div>
-                    <p className="text-lg font-bold">{Math.round((user.totalSpent || 0) / 1000)}K</p>
+                    <p className="text-lg font-bold" title={formatCurrency(user.totalSpent || 0)}>
+                      {user.totalSpent >= 1_000_000
+                        ? `${(user.totalSpent / 1_000_000).toFixed(1)}M`
+                        : user.totalSpent >= 1000
+                          ? `${Math.round(user.totalSpent / 1000)}K`
+                          : user.totalSpent || 0}
+                    </p>
                     <p 
                       className="text-xs"
                       style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}
@@ -653,7 +721,7 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
                     {user.status === 'active' ? <Ban className="w-4 h-4" /> : <CheckCircle className="w-4 h-4" />}
                   </button>
                   <button
-                    onClick={() => handleDeleteClick(user.id, `${user.firstName} ${user.lastName}`)}
+                    onClick={() => handleDeleteClick(user)}
                     className="flex-1 lg:flex-none p-2.5 rounded-xl transition-all active:scale-90"
                     style={{ background: 'rgba(239, 68, 68, 0.1)', color: '#ef4444' }}
                     title="O'chirish"
@@ -830,46 +898,61 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
                   )}
                 </div>
 
-                {/* Additional Info */}
-                <div className="grid grid-cols-2 gap-4 text-sm">
+                {/* Profile & activity */}
+                <div 
+                  className="p-4 rounded-2xl border grid grid-cols-2 sm:grid-cols-3 gap-4 text-sm"
+                  style={{
+                    background: isDark ? 'rgba(255, 255, 255, 0.03)' : 'rgba(0, 0, 0, 0.02)',
+                    borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.1)',
+                  }}
+                >
                   <div>
-                    <p 
-                      className="mb-1"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}
-                    >
-                      Sevimlilar
-                    </p>
+                    <p className="mb-1 opacity-50">Email</p>
+                    <p className="font-semibold break-all">{viewUserModal.user.email || '—'}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 opacity-50">Ro&apos;yxatdan o&apos;tgan</p>
+                    <p className="font-semibold">{formatDateTime(viewUserModal.user.createdAt)}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 opacity-50">Oxirgi kirish</p>
+                    <p className="font-semibold">{formatDateTime(viewUserModal.user.lastLoginAt)}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 opacity-50">Tug&apos;ilgan kun</p>
+                    <p className="font-semibold">{formatDate(viewUserModal.user.birthDate)}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 opacity-50">Jinsi</p>
+                    <p className="font-semibold">{formatGender(viewUserModal.user.gender)}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 opacity-50">Jami sarflangan</p>
+                    <p className="font-semibold">{formatCurrency(viewUserModal.user.totalSpent || 0)}</p>
+                  </div>
+                  <div>
+                    <p className="mb-1 opacity-50">Sevimlilar</p>
                     <p className="font-semibold">{viewUserModal.user.favorites.length} ta</p>
                   </div>
                   <div>
-                    <p 
-                      className="mb-1"
-                      style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}
-                    >
-                      Savatda
-                    </p>
+                    <p className="mb-1 opacity-50">Savatda</p>
                     <p className="font-semibold">{viewUserModal.user.cart.length} ta</p>
                   </div>
-                  {viewUserModal.user.birthDate && (
-                    <div>
-                      <p 
-                        className="mb-1"
-                        style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}
-                      >
-                        Tug'ilgan kun
+                  <div>
+                    <p className="mb-1 opacity-50">Xaridlar</p>
+                    <p className="font-semibold">{viewUserModal.user.purchasesCount ?? viewUserModal.user.purchases.length}</p>
+                  </div>
+                  {(viewUserModal.user.relationalUserId || viewUserModal.user.authUserId) && (
+                    <div className="col-span-2 sm:col-span-3">
+                      <p className="mb-1 opacity-50">Texnik ID</p>
+                      <p className="font-mono text-xs break-all opacity-80">
+                        {viewUserModal.user.relationalUserId && (
+                          <span className="block">Rel: {viewUserModal.user.relationalUserId}</span>
+                        )}
+                        {viewUserModal.user.authUserId && (
+                          <span className="block">Auth: {viewUserModal.user.authUserId}</span>
+                        )}
                       </p>
-                      <p className="font-semibold">{formatDate(viewUserModal.user.birthDate)}</p>
-                    </div>
-                  )}
-                  {viewUserModal.user.gender && (
-                    <div>
-                      <p 
-                        className="mb-1"
-                        style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}
-                      >
-                        Jinsi
-                      </p>
-                      <p className="font-semibold">{viewUserModal.user.gender === 'male' ? 'Erkak' : 'Ayol'}</p>
                     </div>
                   )}
                 </div>
@@ -920,15 +1003,16 @@ export default function UsersView({ onStatsUpdate }: UsersViewProps) {
                   borderColor: 'rgba(239, 68, 68, 0.2)',
                 }}
               >
-                <p className="font-semibold text-red-500 mb-2">⚠️ Quyidagilar o'chiriladi:</p>
+                <p className="font-semibold text-red-500 mb-2">⚠️ Butunlay o&apos;chiriladi (qayta tiklanmaydi):</p>
                 <ul className="space-y-1 text-red-500/80">
-                  <li>• Foydalanuvchi profili</li>
-                  <li>• Barcha sevimlilar va savat</li>
-                  <li>• Bonus ma'lumotlari</li>
-                  <li>• Xaridlar tarixi</li>
-                  <li>• Barcha sozlamalar</li>
+                  <li>• Profil, telefon bog&apos;lanishi va kirish tokenlari</li>
+                  <li>• Bonus, sevimlilar, savat, e&apos;lonlar (listing)</li>
+                  <li>• Buyurtmalar va relational ma&apos;lumotlar</li>
+                  <li>• Supabase Auth akkaunti</li>
                 </ul>
-                <p className="mt-3 font-medium text-red-500">Bu amalni bekor qilish mumkin emas!</p>
+                <p className="mt-3 font-medium text-red-500">
+                  Shu telefon bilan qayta kirganda yangi foydalanuvchi sifatida ro&apos;yxatdan o&apos;tadi.
+                </p>
               </div>
             </div>
 

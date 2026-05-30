@@ -77,11 +77,164 @@ function normalizeSmsOtpHost(host: string | undefined | null): string {
   return raw.split(":")[0] || "aresso.app";
 }
 
-/** WebOTP / iOS autofill: SMS oxirida `@domain #123456` */
-export function buildVerificationSmsMessage(code: string, otpHost?: string): string {
+/** Eskiz.uz panelidagi tasdiqlangan shablon (my.eskiz.uz). */
+export const ESKIZ_OTP_TEMPLATE_DEFAULT =
+  "Aresso.app platformasiga kirish tasdiqlash kodi: {{code}}. Kodni hech kimga bermang.";
+
+function resolveOtpTemplateRaw(): string {
+  return Deno.env.get("ESKIZ_OTP_MESSAGE")?.trim() || ESKIZ_OTP_TEMPLATE_DEFAULT;
+}
+
+/** Eskiz’ga yuboriladigan tayyor SMS matni */
+export function buildSimpleVerificationSmsMessage(code: string): string {
+  return fillOtpTemplate(resolveOtpTemplateRaw(), code);
+}
+
+/** WebOTP: `@host #code` — faqat Eskiz’da shu matn shablon sifatida tasdiqlanganda (ESKIZ_SMS_WEBOTP=1). */
+export function buildWebOtpVerificationSmsMessage(code: string, otpHost?: string): string {
   const host = normalizeSmsOtpHost(otpHost);
   const c = String(code || "").replace(/\D/g, "").slice(0, 6);
-  return `Aresso kirish kodi: ${c}. Kodni hech kimga bermang.\n@${host} #${c}`;
+  return `${buildSimpleVerificationSmsMessage(c)}\n@${host} #${c}`;
+}
+
+export function buildVerificationSmsMessage(code: string, otpHost?: string): string {
+  if (Deno.env.get("ESKIZ_SMS_WEBOTP") === "1") {
+    return buildWebOtpVerificationSmsMessage(code, otpHost);
+  }
+  return buildSimpleVerificationSmsMessage(code);
+}
+
+function isEskizTemplateOrTextError(msg: string): boolean {
+  const m = String(msg || "").toLowerCase();
+  return (
+    m.includes("шаблон") ||
+    m.includes("shablon") ||
+    m.includes("template") ||
+    m.includes("текст") ||
+    m.includes("matn") ||
+    m.includes("my.eskiz") ||
+    m.includes("личный кабинет") ||
+    m.includes("cabinet") ||
+    m.includes("ro'yxat") ||
+    m.includes("royxat")
+  );
+}
+
+async function parseEskizJson(response: Response): Promise<EskizSMSResponse & Record<string, unknown>> {
+  const text = await response.text();
+  try {
+    return JSON.parse(text) as EskizSMSResponse & Record<string, unknown>;
+  } catch {
+    return { message: text.slice(0, 500), status: String(response.status) };
+  }
+}
+
+/** Eskiz tasdiqlangan shablon matniga kodni qo‘yish */
+export function fillOtpTemplate(
+  template: string,
+  code: string,
+  otpHost?: string,
+): string {
+  const c = String(code || "").replace(/\D/g, "").slice(0, 6);
+  const host = normalizeSmsOtpHost(otpHost);
+  let msg = String(template || "");
+  const replacements: [RegExp, string][] = [
+    [/\{\{\s*code\s*\}\}/gi, c],
+    [/\{\s*code\s*\}/gi, c],
+    [/%code%/gi, c],
+    [/#code#/gi, c],
+    [/XXXXXX/gi, c],
+    [/######/g, c],
+    [/\b000000\b/g, c],
+    [/\b123456\b/g, c],
+  ];
+  for (const [re, val] of replacements) {
+    msg = msg.replace(re, val);
+  }
+  if (Deno.env.get("ESKIZ_SMS_WEBOTP") === "1" && !msg.includes(`@${host}`)) {
+    msg = `${msg.trim()}\n@${host} #${c}`;
+  }
+  return msg.trim();
+}
+
+type EskizTemplateRow = { id?: number | string; template?: string; text?: string; status?: string };
+
+async function fetchEskizTemplates(token: string): Promise<EskizTemplateRow[]> {
+  try {
+    const response = await fetch(`${ESKIZ_API_URL}/user/templates`, {
+      method: "GET",
+      headers: { Authorization: `Bearer ${token}` },
+    });
+    const data = await parseEskizJson(response);
+    if (!response.ok) {
+      console.error("Eskiz templates list error:", data);
+      return [];
+    }
+    const raw = (data as { data?: unknown }).data ?? (data as { result?: unknown }).result ?? data;
+    if (Array.isArray(raw)) return raw as EskizTemplateRow[];
+    if (raw && typeof raw === "object" && Array.isArray((raw as { data?: unknown }).data)) {
+      return (raw as { data: EskizTemplateRow[] }).data;
+    }
+    return [];
+  } catch (e) {
+    console.error("Eskiz templates fetch exception:", e);
+    return [];
+  }
+}
+
+function pickOtpTemplateRow(rows: EskizTemplateRow[]): EskizTemplateRow | null {
+  const wantedId = Deno.env.get("ESKIZ_OTP_TEMPLATE_ID")?.trim();
+  const approved = rows.filter((r) => {
+    const st = String(r.status || "").toLowerCase();
+    return !st || st === "approved" || st === "service" || st === "moderation" || st === "accepted";
+  });
+  if (wantedId) {
+    const hit = approved.find((r) => String(r.id) === wantedId);
+    if (hit) return hit;
+  }
+  const otpLike = approved.find((r) => {
+    const t = String(r.template || r.text || "").toLowerCase();
+    return t.includes("kod") || t.includes("code") || t.includes("aresso") || t.includes("kirish");
+  });
+  return otpLike || approved[0] || null;
+}
+
+async function buildMessagesToTry(code: string, otpHost?: string): Promise<string[]> {
+  const c = String(code || "").replace(/\D/g, "").slice(0, 6);
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (m: string) => {
+    const t = m.trim();
+    if (!t || seen.has(t)) return;
+    seen.add(t);
+    out.push(t);
+  };
+
+  push(fillOtpTemplate(resolveOtpTemplateRaw(), c, otpHost));
+
+  try {
+    const token = await getAuthToken();
+    const rows = await fetchEskizTemplates(token);
+    const picked = pickOtpTemplateRow(rows);
+    if (picked) {
+      const raw = String(picked.template || picked.text || "");
+      if (raw) push(fillOtpTemplate(raw, c, otpHost));
+    }
+    for (const row of rows) {
+      const raw = String(row.template || row.text || "").trim();
+      if (!raw) continue;
+      push(fillOtpTemplate(raw, c, otpHost));
+    }
+  } catch (e) {
+    console.error("Eskiz template pick error:", e);
+  }
+
+  push(buildSimpleVerificationSmsMessage(c));
+  if (Deno.env.get("ESKIZ_SMS_WEBOTP") === "1") {
+    push(buildWebOtpVerificationSmsMessage(c, otpHost));
+  }
+
+  return out;
 }
 
 /**
@@ -90,58 +243,80 @@ export function buildVerificationSmsMessage(code: string, otpHost?: string): str
  * @param code - Verification code
  * @param otpHost - Sayt hosti (WebOTP: `@host #code`)
  */
+async function sendSmsWithMessage(
+  phone: string,
+  message: string,
+  retryAuth = true,
+): Promise<{ success: boolean; messageId?: string; error?: string }> {
+  const token = await getAuthToken();
+  const from = Deno.env.get("ESKIZ_SENDER") || "4546";
+  const formData = new FormData();
+  formData.append("mobile_phone", phone);
+  formData.append("message", message);
+  formData.append("from", from);
+
+  const response = await fetch(`${ESKIZ_API_URL}/message/sms/send`, {
+    method: "POST",
+    headers: { Authorization: `Bearer ${token}` },
+    body: formData,
+  });
+
+  const data = await parseEskizJson(response);
+
+  if (!response.ok) {
+    console.error("Eskiz SMS error:", data);
+    if (response.status === 401 && retryAuth) {
+      authToken = null;
+      tokenExpiry = 0;
+      return sendSmsWithMessage(phone, message, false);
+    }
+    return {
+      success: false,
+      error: String(data.message || "SMS yuborishda xatolik"),
+    };
+  }
+
+  return { success: true, messageId: data.id };
+}
+
 export async function sendVerificationSMS(
   phone: string,
   code: string,
   otpHost?: string,
-): Promise<{ success: boolean; messageId?: string; error?: string }> {
+): Promise<{ success: boolean; messageId?: string; error?: string; devLogged?: boolean }> {
   try {
-    const token = await getAuthToken();
+    if (Deno.env.get("ESKIZ_SMS_DEV_BYPASS") === "1") {
+      console.log(`[ESKIZ_SMS_DEV_BYPASS] OTP ${phone}: ${code}`);
+      return { success: true, messageId: "dev-bypass", devLogged: true };
+    }
 
-    const message = buildVerificationSmsMessage(code, otpHost);
+    const candidates = await buildMessagesToTry(code, otpHost);
+    let lastError = "SMS yuborishda xatolik";
 
-    // Prepare form data
-    const formData = new FormData();
-    formData.append('mobile_phone', phone);
-    formData.append('message', message);
-    formData.append('from', '4546'); // Eskiz default sender
-
-    const response = await fetch(`${ESKIZ_API_URL}/message/sms/send`, {
-      method: 'POST',
-      headers: {
-        'Authorization': `Bearer ${token}`,
-      },
-      body: formData,
-    });
-
-    const data: EskizSMSResponse = await response.json();
-
-    if (!response.ok) {
-      console.error('Eskiz SMS error:', data);
-      
-      // If token expired, refresh and retry
-      if (response.status === 401) {
-        authToken = null;
-        tokenExpiry = 0;
-        // Retry once
-        return sendVerificationSMS(phone, code, otpHost);
+    for (const message of candidates) {
+      const result = await sendSmsWithMessage(phone, message);
+      if (result.success) return result;
+      lastError = result.error || lastError;
+      if (!isEskizTemplateOrTextError(lastError)) {
+        return result;
       }
+      console.log("Eskiz: template rejected, try next variant");
+    }
 
+    if (isEskizTemplateOrTextError(lastError)) {
       return {
         success: false,
-        error: data.message || 'SMS yuborishda xatolik',
+        error:
+          "SMS shabloni Eskiz’da tasdiqlanmagan. Shablon matni: «Aresso.app platformasiga kirish tasdiqlash kodi: {{code}}. Kodni hech kimga bermang.»",
       };
     }
 
-    return {
-      success: true,
-      messageId: data.id,
-    };
+    return { success: false, error: lastError };
   } catch (error: any) {
-    console.error('Send SMS exception:', error);
+    console.error("Send SMS exception:", error);
     return {
       success: false,
-      error: error.message || 'SMS yuborishda xatolik',
+      error: error.message || "SMS yuborishda xatolik",
     };
   }
 }
@@ -171,14 +346,14 @@ export async function sendCustomSMS(
       body: formData,
     });
 
-    const data: EskizSMSResponse = await response.json();
+    const data = await parseEskizJson(response);
     if (!response.ok) {
       if (response.status === 401) {
         authToken = null;
         tokenExpiry = 0;
         return sendCustomSMS(phone, message);
       }
-      return { success: false, error: data.message || 'SMS yuborishda xatolik' };
+      return { success: false, error: String(data.message || 'SMS yuborishda xatolik') };
     }
     return { success: true, messageId: data.id };
   } catch (error: any) {

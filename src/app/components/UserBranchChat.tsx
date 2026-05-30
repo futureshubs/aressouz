@@ -7,15 +7,14 @@ import { projectId } from '../../../utils/supabase/info';
 import { buildUserHeaders } from '../utils/requestAuth';
 import { validateImageForUpload } from '../utils/imageDimensionRules';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
+import {
+  USER_SUPPORT_BRANCH_ID,
+  chatListTitle,
+  formatChatPreview,
+} from '../utils/chatIntegration';
 
 type UserBranchChatMode = 'split' | 'single';
-
-/** Server bilan mos: `userChatsHandler` dagi USER_SUPPORT_BRANCH_ID */
-const USER_SUPPORT_BRANCH_ID = 'aresso_support';
-
-function userChatListTitle(branchId: string) {
-  return branchId === USER_SUPPORT_BRANCH_ID ? 'Aresso support' : `Filial: ${branchId}`;
-}
+type UserBranchChatLayout = 'embedded' | 'fullscreen';
 
 function userChatHeaderTitle(branchId: string) {
   return branchId === USER_SUPPORT_BRANCH_ID ? 'Aresso support' : branchId;
@@ -48,9 +47,14 @@ export interface UserBranchChatProps {
   mode?: UserBranchChatMode;
   /** Support modal: ro‘yxatsiz, darhol Aresso support chat */
   embedTarget?: 'default' | 'support';
+  layout?: UserBranchChatLayout;
 }
 
-export function UserBranchChat({ mode = 'split', embedTarget = 'default' }: UserBranchChatProps) {
+export function UserBranchChat({
+  mode = 'split',
+  embedTarget = 'default',
+  layout = 'embedded',
+}: UserBranchChatProps) {
   const { theme, accentColor } = useTheme();
   const { isAuthenticated, setIsAuthOpen } = useAuth();
   const isDark = theme === 'dark';
@@ -357,6 +361,8 @@ export function UserBranchChat({ mode = 'split', embedTarget = 'default' }: User
     borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
     height: '100%',
     minHeight: 0,
+    borderRadius: layout === 'fullscreen' ? 0 : undefined,
+    border: layout === 'fullscreen' ? 'none' : undefined,
   };
 
   if (mode === 'single' && embedTarget === 'support') {
@@ -379,13 +385,18 @@ export function UserBranchChat({ mode = 'split', embedTarget = 'default' }: User
     }
 
     return (
-      <div className="rounded-2xl border overflow-hidden flex flex-col h-full min-h-0" style={shellStyle}>
-        <div
-          className="px-4 py-3 border-b font-bold shrink-0"
-          style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)', color: isDark ? '#fff' : '#111827' }}
-        >
-          {userChatHeaderTitle(selectedChat.branchId)}
-        </div>
+      <div
+        className={`overflow-hidden flex flex-col h-full min-h-0 ${layout === 'fullscreen' ? '' : 'rounded-2xl border'}`}
+        style={shellStyle}
+      >
+        {layout !== 'fullscreen' && (
+          <div
+            className="px-4 py-3 border-b font-bold shrink-0"
+            style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)', color: isDark ? '#fff' : '#111827' }}
+          >
+            {userChatHeaderTitle(selectedChat.branchId)}
+          </div>
+        )}
         <div className="flex-1 p-4 overflow-y-auto space-y-3 min-h-0 overscroll-y-contain">
           {messages.map(messageBubble)}
           <div ref={messagesEndRef} />
@@ -421,10 +432,10 @@ export function UserBranchChat({ mode = 'split', embedTarget = 'default' }: User
                       background: selectedChat?.id === c.id ? `${accentColor.color}14` : 'transparent',
                     }}
                   >
-                    <div className="font-semibold">{userChatListTitle(c.branchId)}</div>
+                    <div className="font-semibold">{chatListTitle(c.branchId, c.participantName)}</div>
                     <div className="text-sm" style={{ opacity: 0.7 }}>
                       {c.lastMessage?.senderName ? `${c.lastMessage.senderName}: ` : ''}
-                      {c.lastMessage?.content || 'Suhbat'}
+                      {formatChatPreview(c.lastMessage?.content || '', undefined)}
                     </div>
                   </button>
                 ))
@@ -503,7 +514,7 @@ export function UserBranchChat({ mode = 'split', embedTarget = 'default' }: User
                   background: selectedChat?.id === c.id ? `${accentColor.color}14` : 'transparent',
                 }}
               >
-                <div className="font-semibold">{userChatListTitle(c.branchId)}</div>
+                <div className="font-semibold">{chatListTitle(c.branchId, c.participantName)}</div>
                 <div className="text-sm" style={{ opacity: 0.7 }}>
                   {c.lastMessage?.senderName ? `${c.lastMessage.senderName}: ` : ''}
                   {c.lastMessage?.content || 'Suhbat'}

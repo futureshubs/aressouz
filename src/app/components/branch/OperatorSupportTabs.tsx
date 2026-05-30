@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import OrdersManagement from '../admin/OrdersManagement';
 import { Chat } from './Chat';
+import { USER_SUPPORT_BRANCH_ID } from '../../utils/chatIntegration';
 import { Payments } from './Payments';
 import { projectId } from '../../../../utils/supabase/info';
 import { buildBranchHeaders } from '../../utils/requestAuth';
@@ -273,7 +274,14 @@ export function OperatorSupportTabs({ branchId, branchInfo, role = 'operator' }:
         />
       )}
 
-      {activeTab === 'chat' && <Chat branchId={branchId} branchInfo={branchInfo as any} />}
+      {activeTab === 'chat' && (
+        <Chat
+          branchId={branchId}
+          chatBranchId={role === 'support' ? USER_SUPPORT_BRANCH_ID : branchId}
+          branchInfo={branchInfo as any}
+          panelLabel={role === 'support' ? 'Platforma support' : 'Mijozlar chat'}
+        />
+      )}
 
       {activeTab === 'payments' && <Payments branchId={branchId} branchInfo={branchInfo as any} />}
     </div>
