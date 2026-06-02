@@ -5,8 +5,6 @@ import { Lock, User, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import PanelLoginShell from '../components/brand/PanelLoginShell';
 import {
-  DILLER_DEMO_LOGIN,
-  DILLER_DEMO_PASSWORD,
   readDillerSession,
   saveDillerSession,
   validateDillerCredentials,
@@ -114,16 +112,6 @@ export default function DillerLogin() {
             />
           </div>
         </div>
-
-        <p
-          className="text-xs rounded-xl px-3 py-2"
-          style={{
-            background: isDark ? 'rgba(45,212,191,0.1)' : 'rgba(16,185,129,0.08)',
-            color: isDark ? 'rgba(167,243,208,0.9)' : '#047857',
-          }}
-        >
-          Demo: login <strong>{DILLER_DEMO_LOGIN}</strong>, parol <strong>{DILLER_DEMO_PASSWORD}</strong>
-        </p>
 
         <button
           type="submit"

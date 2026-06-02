@@ -91,3 +91,7 @@ export default function DillerBottomNav({ activeTab, onTabChange, openDebtCount 
 export function dillerTabTitle(tab: DillerTabId): string {
   return TABS.find((t) => t.id === tab)?.label ?? 'Diller';
 }
+
+export function getDillerTabMeta(tab: DillerTabId) {
+  return TABS.find((t) => t.id === tab) ?? TABS[0];
+}
