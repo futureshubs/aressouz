@@ -133,6 +133,11 @@ export function SiteFooter({ onNavigateTab }: SiteFooterProps) {
         </Link>
       </li>
       <li>
+        <Link to="/reklama" className={linkClass}>
+          Hamkorlik taqdimoti
+        </Link>
+      </li>
+      <li>
         <a href={`mailto:${siteSupportEmail}`} className={linkClass}>
           <Mail className={iconSm} aria-hidden />
           Bog‘lanish

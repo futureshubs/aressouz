@@ -41,6 +41,9 @@ const OrdersPage = lazy(() => import('./pages/Orders'));
 const OrderDetailsPage = lazy(() => import('./pages/OrderDetails'));
 const NotFoundPage = lazy(() => import('./pages/NotFound'));
 const MarketingDocPage = lazy(() => import('./pages/MarketingDocPage'));
+const ReklamaPresentationPage = lazy(() => import('./pages/ReklamaPresentationPage'));
+const DillerLogin = lazy(() => import('./pages/DillerLogin'));
+const DillerDashboard = lazy(() => import('./pages/DillerDashboard'));
 
 const withSuspense = (node: ReactNode) => (
   <Suspense fallback={<RouteChunkSkeleton />}>{node}</Suspense>
@@ -115,6 +118,18 @@ export const router = createBrowserRouter([
   {
     path: '/docs/:slug',
     element: <AppRoute>{withSuspense(<MarketingDocPage />)}</AppRoute>,
+  },
+  {
+    path: '/reklama',
+    element: <AppRoute>{withSuspense(<ReklamaPresentationPage />)}</AppRoute>,
+  },
+  {
+    path: '/diller',
+    element: <AdminRoute>{withSuspense(<DillerLogin />)}</AdminRoute>,
+  },
+  {
+    path: '/diller/dashboard',
+    element: <AdminRoute>{withSuspense(<DillerDashboard />)}</AdminRoute>,
   },
   {
     path: '/admin',
