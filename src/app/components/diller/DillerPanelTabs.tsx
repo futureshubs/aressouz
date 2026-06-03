@@ -1,6 +1,7 @@
 import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { Plus, Save, ScanLine, ShoppingCart, Trash2 } from 'lucide-react';
+import { Pencil, Plus, Save, ScanLine, ShoppingCart, Trash2 } from 'lucide-react';
+import { DillerProductEditSheet } from './DillerProductEditSheet';
 import { DillerOmborTab } from './DillerOmborTab';
 import { DillerDokonlarTab } from './DillerDokonlarTab';
 import { DillerProfilTab } from './DillerFirmTab';
@@ -22,6 +23,7 @@ import { DillerSaleReceiptModal } from './DillerSaleReceiptModal';
 import { DillerQarzTab } from './DillerQarzTab';
 import type { DillerSale } from '../../utils/dillerData';
 import type { DillerTabId } from './DillerBottomNav';
+import { dillerListClass, dillerTabContentClass } from './dillerMobileLayout';
 
 type Props = {
   tab: DillerTabId;
@@ -65,7 +67,7 @@ export function DillerSotuvTab({ data, onDataChange }: Omit<Props, 'tab'>) {
   const [receiptSale, setReceiptSale] = useState<DillerSale | null>(null);
 
   return (
-    <div className="space-y-4">
+    <div className={dillerTabContentClass}>
       <button
         type="button"
         onClick={() => setSaleOpen(true)}
@@ -100,7 +102,7 @@ export function DillerSotuvTab({ data, onDataChange }: Omit<Props, 'tab'>) {
         {data.sales.length === 0 ? (
           <p className="text-sm opacity-60">Hali sotuv yo‘q — «Yangi sotuv» tugmasini bosing</p>
         ) : (
-          <ul className="space-y-3 max-h-[50vh] overflow-y-auto">
+          <ul className={dillerListClass}>
             {data.sales.slice(0, 40).map((sale) => (
               <li key={sale.id}>
                 <DillerSaleCard
@@ -129,6 +131,7 @@ export function DillerMahsulotTab({ data, onDataChange }: Omit<Props, 'tab'>) {
   const [unit, setUnit] = useState<DillerProductUnit>('dona');
   const [stock, setStock] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
+  const [editProduct, setEditProduct] = useState<DillerProduct | null>(null);
 
   useEffect(() => {
     if (!firmId && data.firms[0]?.id) setFirmId(data.firms[0].id);
@@ -213,7 +216,7 @@ export function DillerMahsulotTab({ data, onDataChange }: Omit<Props, 'tab'>) {
   const unitLabel = (u: string) => DILLER_PRODUCT_UNITS.find((x) => x.value === u)?.label ?? u;
 
   return (
-    <div className="space-y-4">
+    <div className={dillerTabContentClass}>
       <Card isDark={isDark}>
         <h3 className="font-bold text-base mb-1" style={{ color: isDark ? '#fff' : '#111' }}>
           Mahsulot qo‘shish
@@ -366,6 +369,14 @@ export function DillerMahsulotTab({ data, onDataChange }: Omit<Props, 'tab'>) {
         isDark={isDark}
       />
 
+      <DillerProductEditSheet
+        open={!!editProduct}
+        product={editProduct}
+        data={data}
+        onClose={() => setEditProduct(null)}
+        onSave={onDataChange}
+      />
+
       <Card isDark={isDark}>
         <h3 className="font-bold text-sm mb-2">Ro‘yxat ({data.products.length})</h3>
         {data.products.length === 0 ? (
@@ -381,7 +392,11 @@ export function DillerMahsulotTab({ data, onDataChange }: Omit<Props, 'tab'>) {
                   className="flex gap-2 p-3 rounded-xl"
                   style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc' }}
                 >
-                  <div className="flex-1 min-w-0">
+                  <button
+                    type="button"
+                    onClick={() => setEditProduct(p)}
+                    className="flex-1 min-w-0 text-left active:opacity-80"
+                  >
                     <div className="font-semibold text-sm truncate">{p.name}</div>
                     <div className="text-xs opacity-70 mt-0.5">{p.firmName}</div>
                     {p.sku && p.sku !== '—' ? (
@@ -397,15 +412,29 @@ export function DillerMahsulotTab({ data, onDataChange }: Omit<Props, 'tab'>) {
                     <div className="text-xs opacity-60 mt-1">
                       Ombor: <span className="font-semibold">{qty}</span> {unitLabel(String(p.unit))}
                     </div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => remove(p.id)}
-                    className="p-2 text-red-400 shrink-0 self-start"
-                    aria-label="O‘chirish"
-                  >
-                    <Trash2 className="w-4 h-4" />
+                    <span className="text-[10px] opacity-40 mt-1 inline-block">Tahrirlash uchun bosing</span>
                   </button>
+                  <div className="flex flex-col gap-1 shrink-0 self-start">
+                    <button
+                      type="button"
+                      onClick={() => setEditProduct(p)}
+                      className="p-2 rounded-lg opacity-70 hover:opacity-100"
+                      style={{ color: accentColor.color }}
+                      aria-label="Tahrirlash"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        if (window.confirm(`«${p.name}» o‘chirilsinmi?`)) remove(p.id);
+                      }}
+                      className="p-2 text-red-400 rounded-lg"
+                      aria-label="O‘chirish"
+                    >
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </li>
               );
             })}

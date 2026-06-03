@@ -16,8 +16,13 @@ import {
 import { clearDillerCloudCreds } from '../utils/dillerSyncMeta';
 import { pushDillerLocalNow, runDillerSync, type DillerSyncStatus } from '../utils/dillerSync';
 import { readDillerSyncMeta, touchLocalModified } from '../utils/dillerSyncMeta';
+import {
+  dillerMainScrollClass,
+  dillerPageShellClass,
+  DILLER_NAV_BOTTOM_PADDING,
+} from '../components/diller/dillerMobileLayout';
 
-const NAV_BOTTOM = 'calc(5.5rem + var(--app-safe-bottom, 0px))';
+const NAV_BOTTOM = DILLER_NAV_BOTTOM_PADDING;
 const SAVE_DEBOUNCE_MS = 600;
 const AUTO_SYNC_INTERVAL_MS = 25_000;
 
@@ -33,6 +38,9 @@ export default function DillerDashboard() {
   const [syncState, setSyncState] = useState<DillerSyncStatus>('loading');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const syncInFlightRef = useRef(false);
+  const mainScrollRef = useRef<HTMLElement | null>(null);
+  const syncStateRef = useRef(syncState);
+  syncStateRef.current = syncState;
 
   const applySync = useCallback((silent: boolean) => {
     if (syncInFlightRef.current) return Promise.resolve();
@@ -78,7 +86,7 @@ export default function DillerDashboard() {
 
     const interval = window.setInterval(() => {
       const meta = readDillerSyncMeta();
-      if (meta.pendingPush || syncState === 'offline') {
+      if (meta.pendingPush || syncStateRef.current === 'offline') {
         void applySync(true);
       }
     }, AUTO_SYNC_INTERVAL_MS);
@@ -88,7 +96,14 @@ export default function DillerDashboard() {
       document.removeEventListener('visibilitychange', onVisible);
       window.clearInterval(interval);
     };
-  }, [applySync, syncState]);
+  }, [applySync]);
+
+  const handleTabChange = useCallback((tab: DillerTabId) => {
+    setActiveTab(tab);
+    requestAnimationFrame(() => {
+      mainScrollRef.current?.scrollTo({ top: 0 });
+    });
+  }, []);
 
   const persist = useCallback(
     (next: DillerData) => {
@@ -171,7 +186,7 @@ export default function DillerDashboard() {
 
   return (
     <div
-      className="flex flex-col h-[var(--app-viewport-height,100dvh)] max-h-[var(--app-viewport-height,100dvh)] min-h-0 overflow-hidden"
+      className={dillerPageShellClass}
       style={{
         background: isDark ? '#000' : '#f4f4f5',
         color: isDark ? '#fff' : '#111',
@@ -280,13 +295,18 @@ export default function DillerDashboard() {
       ) : null}
 
       <main
-        className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 py-4 max-w-lg mx-auto w-full [-webkit-overflow-scrolling:touch]"
-        style={{ paddingBottom: NAV_BOTTOM, touchAction: 'pan-y' }}
+        ref={mainScrollRef}
+        className={`${dillerMainScrollClass} px-4 py-4 max-w-lg mx-auto w-full`}
+        style={{ paddingBottom: NAV_BOTTOM }}
       >
         <DillerPanelContent tab={activeTab} data={data} onDataChange={persist} />
       </main>
 
-      <DillerBottomNav activeTab={activeTab} onTabChange={setActiveTab} openDebtCount={openDebtCount} />
+      <DillerBottomNav
+        activeTab={activeTab}
+        onTabChange={handleTabChange}
+        openDebtCount={openDebtCount}
+      />
     </div>
   );
 }

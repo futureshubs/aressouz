@@ -11,6 +11,7 @@ import {
   formatStoreCoords,
   getWarehouseQty,
 } from '../../utils/dillerData';
+import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 
 type Props = {
   open: boolean;
@@ -159,8 +160,8 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
 
   return (
     <div
-      className="fixed inset-0 z-[110] flex flex-col app-safe-pad"
-      style={{ background: isDark ? '#0a0a0a' : '#f1f5f9' }}
+      className={dillerSheetShellClass}
+      style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: 110 }}
     >
       <header
         className="shrink-0 flex items-center justify-between px-4 py-3 border-b"
@@ -196,7 +197,7 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
         </div>
       ) : (
         <>
-          <div className="flex-1 overflow-y-auto overscroll-y-contain px-4 py-4 space-y-5 max-w-lg mx-auto w-full">
+          <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-5 max-w-lg mx-auto w-full`}>
             {/* Mahsulot */}
             <section>
               <h3 className="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">Mahsulot</h3>
@@ -247,7 +248,7 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
                   </div>
 
                   {productSearch.trim() ? (
-                    <div className="space-y-2 max-h-[32vh] overflow-y-auto">
+                    <div className="space-y-2">
                       {searchResults.length === 0 ? (
                         <p className="text-sm opacity-60 text-center py-6">Mahsulot topilmadi</p>
                       ) : (
@@ -381,7 +382,7 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
                   </div>
 
                   {storeSearch.trim() ? (
-                    <div className="space-y-2 max-h-[28vh] overflow-y-auto">
+                    <div className="space-y-2">
                       {storeSearchResults.length === 0 ? (
                         <p className="text-sm opacity-60 text-center py-6">Do‘kon topilmadi</p>
                       ) : (

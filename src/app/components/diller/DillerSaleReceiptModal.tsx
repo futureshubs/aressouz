@@ -3,6 +3,7 @@ import { Printer, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerSale } from '../../utils/dillerData';
 import { DILLER_PRODUCT_UNITS, formatMoney } from '../../utils/dillerData';
+import { dillerSheetScrollClass } from './dillerMobileLayout';
 
 type Props = {
   open: boolean;
@@ -68,7 +69,7 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data }: Props) {
       onClick={onClose}
     >
       <div
-        className="w-full max-w-md max-h-[92vh] overflow-hidden flex flex-col rounded-t-3xl sm:rounded-3xl"
+        className="w-full max-w-md max-h-[min(92dvh,100%)] min-h-0 overflow-hidden flex flex-col rounded-t-3xl sm:rounded-3xl"
         style={{ background: isDark ? '#111' : '#fff' }}
         onClick={(e) => e.stopPropagation()}
       >
@@ -99,7 +100,7 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data }: Props) {
           </div>
         </div>
 
-        <div className="flex-1 overflow-y-auto overscroll-y-contain p-4">
+        <div className={`${dillerSheetScrollClass} p-4 pb-6`}>
           <div ref={printRef}>
             <div className="text-center mb-4 pb-4 border-b border-dashed" style={{ borderColor: border }}>
               <div className="text-xs font-bold tracking-widest opacity-60">ARESSO DILLER</div>

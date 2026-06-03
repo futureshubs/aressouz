@@ -40,6 +40,19 @@ export type DillerStore = {
 
 export type DillerPaymentType = 'naqd' | 'qarz';
 
+/** Xarajat to‘lov usuli */
+export type DillerExpensePayment = 'naqd' | 'karta';
+
+export type DillerExpense = {
+  id: string;
+  /** Nima uchun (maqsad) */
+  purpose: string;
+  amount: number;
+  paymentMethod: DillerExpensePayment;
+  note: string;
+  createdAt: string;
+};
+
 export type DillerSale = {
   id: string;
   storeId: string;
@@ -84,6 +97,7 @@ export type DillerData = {
   stores: DillerStore[];
   warehouse: DillerWarehouseRow[];
   sales: DillerSale[];
+  expenses: DillerExpense[];
 };
 
 const DATA_KEY = 'aresso:diller:data:v3';
@@ -147,6 +161,18 @@ function normalizeStore(s: Partial<DillerStore> & { id: string }): DillerStore {
     lat: Number.isFinite(lat) ? lat : undefined,
     lng: Number.isFinite(lng) ? lng : undefined,
     createdAt: s.createdAt ?? new Date().toISOString(),
+  };
+}
+
+function normalizeExpense(e: Partial<DillerExpense> & { id: string }): DillerExpense {
+  const method = String(e.paymentMethod ?? 'naqd').toLowerCase();
+  return {
+    id: e.id,
+    purpose: String(e.purpose ?? '').trim(),
+    amount: Math.max(0, Math.round(Number(e.amount) || 0)),
+    paymentMethod: method === 'karta' ? 'karta' : 'naqd',
+    note: String(e.note ?? '').trim(),
+    createdAt: e.createdAt ?? new Date().toISOString(),
   };
 }
 
@@ -290,6 +316,7 @@ export function createEmptyDillerData(): DillerData {
     stores: [],
     warehouse: [],
     sales: [],
+    expenses: [],
   };
 }
 
@@ -299,6 +326,7 @@ export function hasDillerDataContent(data: DillerData): boolean {
     data.products.length > 0 ||
     data.stores.length > 0 ||
     data.sales.length > 0 ||
+    data.expenses.length > 0 ||
     data.warehouse.some((w) => (w.qty ?? 0) > 0)
   );
 }
@@ -324,6 +352,9 @@ export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData
     ),
     warehouse: Array.isArray(raw.warehouse) ? raw.warehouse : base.warehouse,
     sales: (Array.isArray(raw.sales) ? raw.sales : []).map((s) => normalizeSale(s as DillerSale)),
+    expenses: (Array.isArray(raw.expenses) ? raw.expenses : []).map((e) =>
+      normalizeExpense(e as DillerExpense),
+    ),
   };
 }
 
@@ -426,6 +457,124 @@ export function createProduct(
     next = setWarehouseQty(next, product.id, initialStock);
   }
   return { data: next };
+}
+
+export function updateProduct(
+  data: DillerData,
+  productId: string,
+  input: {
+    name?: string;
+    firmId?: string;
+    firmName?: string;
+    sku?: string;
+    unitPrice?: number;
+    buyPrice?: number;
+    unit?: DillerProductUnit | string;
+  },
+  stock?: number,
+): { data: DillerData; error?: string } {
+  const idx = data.products.findIndex((p) => p.id === productId);
+  if (idx < 0) return { data, error: 'Mahsulot topilmadi' };
+
+  const existing = data.products[idx];
+  const sku = (input.sku ?? existing.sku).trim() || '—';
+  if (sku !== '—') {
+    const dup = findProductBySku(data, sku);
+    if (dup && dup.id !== productId) {
+      return { data, error: 'Bu SKU allaqachon mavjud' };
+    }
+  }
+
+  const firm =
+    (input.firmId ? data.firms.find((f) => f.id === input.firmId) : undefined) ??
+    data.firms.find((f) => f.id === existing.firmId);
+  const firmName = (input.firmName ?? firm?.name ?? existing.firmName).trim();
+  const firmId = input.firmId ?? existing.firmId ?? firm?.id;
+
+  const product = normalizeProduct({
+    ...existing,
+    name: input.name ?? existing.name,
+    firmName,
+    firmId,
+    sku,
+    unitPrice: input.unitPrice ?? existing.unitPrice,
+    buyPrice: input.buyPrice ?? existing.buyPrice,
+    unit: input.unit ?? existing.unit,
+    id: productId,
+    createdAt: existing.createdAt,
+  });
+
+  const products = [...data.products];
+  products[idx] = product;
+  let next: DillerData = { ...data, products };
+  if (typeof stock === 'number') {
+    next = setWarehouseQty(next, productId, stock);
+  }
+  return { data: next };
+}
+
+export function createExpense(
+  data: DillerData,
+  input: {
+    purpose: string;
+    amount: number;
+    paymentMethod: DillerExpensePayment;
+    note?: string;
+    createdAt?: string;
+  },
+): { data: DillerData; error?: string } {
+  const purpose = input.purpose.trim();
+  if (!purpose) return { data, error: 'Nima uchun ishlatilganini yozing' };
+  const amount = Math.round(Number(input.amount) || 0);
+  if (amount <= 0) return { data, error: 'Summa 0 dan katta bo‘lishi kerak' };
+
+  const expense = normalizeExpense({
+    id: uid('exp'),
+    purpose,
+    amount,
+    paymentMethod: input.paymentMethod,
+    note: input.note ?? '',
+    createdAt: input.createdAt ?? new Date().toISOString(),
+  });
+  return { data: { ...data, expenses: [expense, ...data.expenses] } };
+}
+
+export function updateExpense(
+  data: DillerData,
+  expenseId: string,
+  input: {
+    purpose?: string;
+    amount?: number;
+    paymentMethod?: DillerExpensePayment;
+    note?: string;
+    createdAt?: string;
+  },
+): { data: DillerData; error?: string } {
+  const idx = data.expenses.findIndex((e) => e.id === expenseId);
+  if (idx < 0) return { data, error: 'Xarajat topilmadi' };
+
+  const existing = data.expenses[idx];
+  const purpose = (input.purpose ?? existing.purpose).trim();
+  if (!purpose) return { data, error: 'Nima uchun ishlatilganini yozing' };
+  const amount = Math.round(Number(input.amount ?? existing.amount) || 0);
+  if (amount <= 0) return { data, error: 'Summa 0 dan katta bo‘lishi kerak' };
+
+  const expense = normalizeExpense({
+    ...existing,
+    purpose,
+    amount,
+    paymentMethod: input.paymentMethod ?? existing.paymentMethod,
+    note: input.note ?? existing.note,
+    createdAt: input.createdAt ?? existing.createdAt,
+    id: expenseId,
+  });
+  const expenses = [...data.expenses];
+  expenses[idx] = expense;
+  return { data: { ...data, expenses } };
+}
+
+export function deleteExpense(data: DillerData, expenseId: string): DillerData {
+  return { ...data, expenses: data.expenses.filter((e) => e.id !== expenseId) };
 }
 
 export function deleteProduct(data: DillerData, productId: string): DillerData {

@@ -14,7 +14,10 @@ import {
   TrendingUp,
   Wallet,
   CircleDollarSign,
+  Receipt,
 } from 'lucide-react';
+import { DillerHarajatSection } from './DillerHarajatSection';
+import { computeAllExpenseSummary } from '../../utils/dillerExpenseAnalytics';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerSale } from '../../utils/dillerData';
 import { formatMoney, recordDebtPayment, settleDebtFully } from '../../utils/dillerData';
@@ -35,13 +38,14 @@ import {
   type HistoryDateRange,
   type HistoryPeriod,
 } from '../../utils/dillerDebtAnalytics';
+import { dillerListClass, dillerTabContentClass } from './dillerMobileLayout';
 
 type Props = {
   data: DillerData;
   onDataChange: (next: DillerData) => void;
 };
 
-type QarzSection = 'qarz' | 'statistika' | 'tarix';
+type QarzSection = 'qarz' | 'statistika' | 'tarix' | 'xarajat';
 
 function Card({
   children,
@@ -108,6 +112,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
   const [receiptSale, setReceiptSale] = useState<DillerSale | null>(null);
 
   const analytics = useMemo(() => computeExtendedAnalytics(data), [data]);
+  const expenseAll = useMemo(() => computeAllExpenseSummary(data), [data]);
   const maxStoreDebt = Math.max(1, ...analytics.byStore.map((s) => s.openDebt));
   const maxMonthTotal = getMaxMonthlyTotal(analytics.monthly);
   const maxMonthProfit = getMaxMonthlyProfit(analytics.monthly);
@@ -198,10 +203,11 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
     { id: 'qarz', label: 'Qarz', icon: Wallet },
     { id: 'statistika', label: 'Statistika', icon: BarChart3 },
     { id: 'tarix', label: 'Tarix', icon: History },
+    { id: 'xarajat', label: 'Xarajat', icon: Receipt },
   ];
 
   return (
-    <div className="space-y-4">
+    <div className={dillerTabContentClass}>
       <DillerSaleReceiptModal
         open={!!receiptSale}
         onClose={() => setReceiptSale(null)}
@@ -223,7 +229,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
               key={s.id}
               type="button"
               onClick={() => setSection(s.id)}
-              className={`flex-1 flex flex-col items-center gap-0.5 py-2.5 rounded-xl text-xs font-bold transition-all ${
+              className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all min-w-0 ${
                 active ? 'shadow-sm' : 'opacity-60'
               }`}
               style={
@@ -303,7 +309,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 {analytics.openDebtCount === 0 ? 'Ochiq qarz yo‘q' : 'Filtr bo‘yicha topilmadi'}
               </p>
             ) : (
-              <ul className="space-y-3 max-h-[55vh] overflow-y-auto">
+              <ul className={dillerListClass}>
                 {filteredSales.map((sale) => {
                   const store = data.stores.find((s) => s.id === sale.storeId);
                   const product = data.products.find((p) => p.id === sale.productId);
@@ -494,6 +500,22 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 color="#6366f1"
                 isDark={isDark}
               />
+              <StatTile
+                label="Operatsion xarajat"
+                value={formatMoney(expenseAll.total)}
+                sub={`Naqd ${formatMoney(expenseAll.naqdTotal)} · Karta ${formatMoney(expenseAll.kartaTotal)}`}
+                color="#f87171"
+                isDark={isDark}
+              />
+              <StatTile
+                label="Sof foyda (taxminiy)"
+                value={formatMoney(analytics.totalProfit - expenseAll.total)}
+                sub="Foyda − xarajatlar"
+                color={
+                  analytics.totalProfit - expenseAll.total >= 0 ? '#10b981' : '#ef4444'
+                }
+                isDark={isDark}
+              />
             </div>
 
             <div className="mt-4">
@@ -572,7 +594,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 <BarChart3 className="w-4 h-4" style={{ color: accentColor.color }} />
                 Oylik aylanma va foyda
               </h3>
-              <ul className="space-y-3 max-h-[32vh] overflow-y-auto">
+              <ul className={dillerListClass}>
                 {analytics.monthly.map((m) => (
                   <li key={m.key}>
                     <div className="flex justify-between text-xs mb-1 gap-2">
@@ -694,6 +716,10 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
             </Card>
           ) : null}
         </>
+      ) : null}
+
+      {section === 'xarajat' ? (
+        <DillerHarajatSection data={data} onDataChange={onDataChange} isDark={isDark} />
       ) : null}
 
       {section === 'tarix' ? (

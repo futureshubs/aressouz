@@ -24,6 +24,7 @@ import {
 import { openExternalUrlSync } from '../../utils/openExternalUrl';
 import { DillerSaleCard } from './DillerSaleCard';
 import { DillerSaleReceiptModal } from './DillerSaleReceiptModal';
+import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 
 type Props = {
   open: boolean;
@@ -66,8 +67,8 @@ export function DillerStoreDetailSheet({ open, store, data, onClose, onDelete }:
   return (
     <>
       <div
-        className="fixed inset-0 z-[115] flex flex-col app-safe-pad"
-        style={{ background: isDark ? '#0a0a0a' : '#f1f5f9' }}
+        className={dillerSheetShellClass}
+        style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: 115 }}
       >
         <header
           className="shrink-0 flex items-center gap-3 px-4 py-3 border-b"
@@ -96,7 +97,7 @@ export function DillerStoreDetailSheet({ open, store, data, onClose, onDelete }:
           </button>
         </header>
 
-        <div className="flex-1 overflow-y-auto overscroll-y-contain px-4 py-4 space-y-4 max-w-lg mx-auto w-full">
+        <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-4 max-w-lg mx-auto w-full pb-6`}>
           <div className="grid grid-cols-2 gap-2">
             <StatBox
               isDark={isDark}

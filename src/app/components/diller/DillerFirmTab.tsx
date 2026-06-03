@@ -6,6 +6,7 @@ import type { DillerData, DillerFirm } from '../../utils/dillerData';
 import { createFirm, deleteFirm, formatMoney } from '../../utils/dillerData';
 import { formatDillerDateTime, getFirmStats } from '../../utils/dillerFirmStats';
 import { DillerFirmDetailSheet } from './DillerFirmDetailSheet';
+import { dillerTabContentClass } from './dillerMobileLayout';
 
 type Props = {
   data: DillerData;
@@ -107,7 +108,7 @@ export function DillerProfilTab({ data, onDataChange }: Props) {
     : null;
 
   return (
-    <div className="space-y-4">
+    <div className={dillerTabContentClass}>
       <Card isDark={isDark}>
         <div className="flex items-center gap-2 mb-2">
           <Building2 className="w-5 h-5" style={{ color: accentColor.color }} />

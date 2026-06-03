@@ -20,6 +20,7 @@ import { formatDillerDateTime, getStoreStats } from '../../utils/dillerStoreStat
 import { CheckoutMapPickerModal } from '../CheckoutMapPickerModal';
 import { reverseGeocodeDisplayLine } from '../../utils/geolocationDetect';
 import { DillerStoreDetailSheet } from './DillerStoreDetailSheet';
+import { dillerTabContentClass } from './dillerMobileLayout';
 
 type Props = {
   data: DillerData;
@@ -149,7 +150,7 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
     : null;
 
   return (
-    <div className="space-y-4">
+    <div className={dillerTabContentClass}>
       <Card isDark={isDark}>
         <div className="flex items-center gap-2 mb-1">
           <Store className="w-5 h-5" style={{ color: accentColor.color }} />

@@ -10,6 +10,7 @@ import {
   getWarehouseQty,
   setWarehouseQty,
 } from '../../utils/dillerData';
+import { dillerTabContentClass } from './dillerMobileLayout';
 
 type Props = {
   data: DillerData;
@@ -106,7 +107,7 @@ export function DillerOmborTab({ data, onDataChange }: Props) {
   }`;
 
   return (
-    <div className="space-y-4">
+    <div className={dillerTabContentClass}>
       <Card isDark={isDark}>
         <div className="flex items-center gap-2 mb-3">
           <Warehouse className="w-5 h-5" style={{ color: accentColor.color }} />
