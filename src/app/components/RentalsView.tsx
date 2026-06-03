@@ -19,6 +19,7 @@ import { collectProductGalleryImages } from '../utils/cardGalleryImages';
 import { useInfiniteQuery } from '@tanstack/react-query';
 import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
+import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
 import { fetchPagedRentalProducts } from '../services/pagedCatalogApi';
 
 interface RentalsViewProps {
@@ -73,7 +74,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
     onIntersect: () => {
       if (rentalsQuery.hasNextPage) void rentalsQuery.fetchNextPage();
     },
-    rootMargin: '900px 0px',
+    rootMargin: '320px 0px',
   });
 
   useVisibilityRefetch(() => {
@@ -206,11 +207,40 @@ export function RentalsView({ platform }: RentalsViewProps) {
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'rental' });
   }, [headerSearch, rentalCatalogs, rentalCategories]);
 
-  const progressiveRentalProducts = loading ? [] : searchFilteredBackendProducts;
-  const progressiveRentalCategoryProducts = loading ? [] : searchFinalCatalogProducts;
+  const rentalMainRevealKey = useMemo(
+    () =>
+      `${selectedRegionId}-${selectedDistrictId}-${debouncedSearch}-${activeView}-main`,
+    [selectedRegionId, selectedDistrictId, debouncedSearch, activeView],
+  );
+
+  const rentalCategoryRevealKey = useMemo(
+    () =>
+      `${selectedRegionId}-${selectedDistrictId}-${debouncedSearch}-${selectedCatalogId}-${selectedCategoryId}-cat`,
+    [selectedRegionId, selectedDistrictId, debouncedSearch, selectedCatalogId, selectedCategoryId],
+  );
+
+  const mainProductSource = loading ? [] : searchFilteredBackendProducts;
+  const categoryProductSource = loading ? [] : searchFinalCatalogProducts;
+
+  const { visibleItems: visibleMainProducts, sentinelRef: mainRevealSentinelRef } =
+    useProgressiveListReveal(mainProductSource, rentalMainRevealKey, {
+      batchSize: 8,
+      initialCount: 12,
+      rootMargin: '0px 0px 280px 0px',
+    });
+
+  const { visibleItems: visibleCategoryProducts, sentinelRef: categoryRevealSentinelRef } =
+    useProgressiveListReveal(categoryProductSource, rentalCategoryRevealKey, {
+      batchSize: 8,
+      initialCount: 12,
+      rootMargin: '0px 0px 280px 0px',
+    });
+
+  const rentalCardShellClass =
+    'rounded-2xl sm:rounded-3xl overflow-hidden border transition-shadow duration-300 sm:hover:scale-[1.02] [content-visibility:auto] [contain-intrinsic-size:auto_280px]';
 
   return (
-    <div className="min-h-screen pb-[max(5.5rem,calc(4.5rem+env(safe-area-inset-bottom)))]">
+    <div className="w-full min-w-0">
       {/* Banner - Only show on main view */}
       {!selectedCatalogId && !selectedCategoryId && selectedRegionName && selectedDistrictName && (
         <div className="px-4 pt-6 pb-2">
@@ -310,7 +340,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
           ) : searchFilteredBackendProducts.length > 0 ? (
             /* Backend products */
             <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-2 sm:gap-3 md:gap-4">
-              {progressiveRentalProducts.map((product) => (
+              {visibleMainProducts.map((product) => (
                 <div
                   key={product.id}
                   onClick={() => {
@@ -344,10 +374,10 @@ export function RentalsView({ platform }: RentalsViewProps) {
                     };
                     setSelectedItem(rentalItem);
                   }}
-                  className="group cursor-pointer w-full"
+                  className="group cursor-pointer w-full min-w-0"
                 >
                   <div 
-                    className="rounded-2xl sm:rounded-3xl overflow-hidden border transition-all duration-300 hover:scale-[1.02]"
+                    className={rentalCardShellClass}
                     style={{
                       background: isDark
                         ? 'rgba(0, 0, 0, 0.8)'
@@ -374,7 +404,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
                               alt={product.name}
                               loading="lazy"
                               decoding="async"
-                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                              className="w-full h-full object-cover sm:transition-transform sm:duration-500 sm:group-hover:scale-110"
                             />
                           );
                         }
@@ -506,8 +536,19 @@ export function RentalsView({ platform }: RentalsViewProps) {
                   </div>
                 </div>
               ))}
-              {rentalsQuery.hasNextPage ? (
-                <div ref={rentalsSentinelRef} className="col-span-full h-4 w-full shrink-0" aria-hidden />
+              {visibleMainProducts.length < searchFilteredBackendProducts.length ? (
+                <div
+                  ref={mainRevealSentinelRef}
+                  className="col-span-full h-3 w-full shrink-0"
+                  aria-hidden
+                />
+              ) : null}
+              {rentalsQuery.hasNextPage || rentalsQuery.isFetchingNextPage ? (
+                <div ref={rentalsSentinelRef} className="col-span-full py-4 flex justify-center">
+                  {rentalsQuery.isFetchingNextPage ? (
+                    <span className="text-xs opacity-60">Yuklanmoqda…</span>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           ) : (
@@ -721,7 +762,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
             />
           ) : searchFinalCatalogProducts.length > 0 ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4">
-              {progressiveRentalCategoryProducts.map((product) => (
+              {visibleCategoryProducts.map((product) => (
                 <div
                   key={product.id}
                   onClick={() => {
@@ -755,10 +796,10 @@ export function RentalsView({ platform }: RentalsViewProps) {
                     };
                     setSelectedItem(rentalItem);
                   }}
-                  className="group cursor-pointer"
+                  className="group cursor-pointer min-w-0"
                 >
                   <div 
-                    className="rounded-2xl sm:rounded-3xl overflow-hidden border transition-all duration-300 hover:scale-[1.02]"
+                    className={rentalCardShellClass}
                     style={{
                       background: isDark ? 'rgba(255, 255, 255, 0.05)' : '#ffffff',
                       borderColor: isDark ? 'rgba(255, 255, 255, 0.1)' : 'rgba(0, 0, 0, 0.08)',
@@ -783,7 +824,7 @@ export function RentalsView({ platform }: RentalsViewProps) {
                               alt={product.name}
                               loading="lazy"
                               decoding="async"
-                              className="w-full h-full object-cover transition-transform duration-500 group-hover:scale-110"
+                              className="w-full h-full object-cover sm:transition-transform sm:duration-500 sm:group-hover:scale-110"
                             />
                           );
                         }
@@ -843,8 +884,19 @@ export function RentalsView({ platform }: RentalsViewProps) {
                   </div>
                 </div>
               ))}
-              {rentalsQuery.hasNextPage ? (
-                <div ref={rentalsSentinelRef} className="col-span-full h-4 w-full shrink-0" aria-hidden />
+              {visibleCategoryProducts.length < searchFinalCatalogProducts.length ? (
+                <div
+                  ref={categoryRevealSentinelRef}
+                  className="col-span-full h-3 w-full shrink-0"
+                  aria-hidden
+                />
+              ) : null}
+              {rentalsQuery.hasNextPage || rentalsQuery.isFetchingNextPage ? (
+                <div ref={rentalsSentinelRef} className="col-span-full py-4 flex justify-center">
+                  {rentalsQuery.isFetchingNextPage ? (
+                    <span className="text-xs opacity-60">Yuklanmoqda…</span>
+                  ) : null}
+                </div>
               ) : null}
             </div>
           ) : (

@@ -50,10 +50,22 @@ export function useProgressiveListReveal<T>(
   itemsLenRef.current = items.length;
 
   const [visibleCount, setVisibleCount] = useState(() => Math.min(initialCount, items.length));
+  const prevResetKeyRef = useRef(resetKey);
 
   useLayoutEffect(() => {
-    setVisibleCount(Math.min(initialCount, items.length));
-  }, [resetKey, initialCount, items.length]);
+    if (prevResetKeyRef.current !== resetKey) {
+      prevResetKeyRef.current = resetKey;
+      setVisibleCount(Math.min(initialCount, items.length));
+      return;
+    }
+    setVisibleCount((c) => {
+      if (items.length < c) return items.length;
+      if (items.length > c) {
+        return Math.min(c + batchSize, items.length);
+      }
+      return c;
+    });
+  }, [resetKey, initialCount, items.length, batchSize]);
 
   const visibleItems = useMemo(() => Array.from(items).slice(0, visibleCount), [items, visibleCount]);
 
