@@ -32,18 +32,16 @@ export function isOfflineDillerToken(token: string): boolean {
   return token.startsWith('diller_local_');
 }
 
-/** Server diller API mavjudligi (login endpoint javob beradi) */
+/** Server mavjudligi — `/health` (konsolda 400 login xatosi chiqmasin) */
 export async function dillerApiPing(): Promise<boolean> {
   try {
-    const res = await fetch(`${getDillerApiBase()}/diller/login`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${publicAnonKey}`,
-        'Content-Type': 'application/json',
-      },
-      body: JSON.stringify({ login: '', password: '' }),
+    const res = await fetch(`${getDillerApiBase()}/health`, {
+      method: 'GET',
+      headers: { Authorization: `Bearer ${publicAnonKey}` },
     });
-    return res.status === 400 || res.status === 401 || res.ok;
+    if (!res.ok) return false;
+    const data = await res.json().catch(() => ({}));
+    return data?.status === 'ok' || res.ok;
   } catch {
     return false;
   }
