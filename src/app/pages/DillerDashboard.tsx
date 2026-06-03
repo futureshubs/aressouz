@@ -9,22 +9,17 @@ import { DillerPanelContent } from '../components/diller/DillerPanelTabs';
 import { clearDillerSession, readDillerSession } from '../utils/dillerSession';
 import {
   createEmptyDillerData,
-  hasDillerDataContent,
   loadDillerData,
-  normalizeDillerData,
   saveDillerData,
   type DillerData,
 } from '../utils/dillerData';
-import {
-  dillerApiFetchData,
-  dillerApiPushData,
-  isOfflineDillerToken,
-} from '../utils/dillerApi';
+import { clearDillerCloudCreds } from '../utils/dillerSyncMeta';
+import { pushDillerLocalNow, runDillerSync, type DillerSyncStatus } from '../utils/dillerSync';
+import { readDillerSyncMeta, touchLocalModified } from '../utils/dillerSyncMeta';
 
 const NAV_BOTTOM = 'calc(5.5rem + var(--app-safe-bottom, 0px))';
-const SAVE_DEBOUNCE_MS = 700;
-
-type SyncState = 'loading' | 'synced' | 'saving' | 'offline' | 'error';
+const SAVE_DEBOUNCE_MS = 600;
+const AUTO_SYNC_INTERVAL_MS = 25_000;
 
 export default function DillerDashboard() {
   const navigate = useNavigate();
@@ -33,119 +28,87 @@ export default function DillerDashboard() {
 
   const [session, setSession] = useState(readDillerSession());
   const [activeTab, setActiveTab] = useState<DillerTabId>('sotuv');
-  const [data, setData] = useState<DillerData>(createEmptyDillerData);
+  const [data, setData] = useState<DillerData>(() => loadDillerData() || createEmptyDillerData());
   const [booting, setBooting] = useState(true);
-  const [syncState, setSyncState] = useState<SyncState>('loading');
+  const [syncState, setSyncState] = useState<DillerSyncStatus>('loading');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const syncInFlightRef = useRef(false);
 
-  const hydrateFromServer = useCallback(async (token: string) => {
-    setSyncState('loading');
-    const local = loadDillerData();
-
-    if (isOfflineDillerToken(token)) {
-      setData(local);
-      setSyncState('offline');
-      return;
-    }
-
-    const remote = await dillerApiFetchData(token);
-
-    if (!remote.ok) {
-      if (remote.unauthorized) {
-        clearDillerSession();
-        navigate('/diller', { replace: true });
-        return;
-      }
-      if (hasDillerDataContent(local)) {
-        setData(local);
-        setSyncState('offline');
-        toast.error('Serverga ulanilmadi — mahalliy nusxa ishlatilmoqda');
-      } else {
-        setData(local);
-        setSyncState('offline');
-      }
-      return;
-    }
-
-    const serverRaw = remote.data;
-    const serverHas = serverRaw && hasDillerDataContent(normalizeDillerData(serverRaw));
-    const localHas = hasDillerDataContent(local);
-
-    if (serverHas && serverRaw) {
-      const normalized = normalizeDillerData(serverRaw);
-      setData(normalized);
-      saveDillerData(normalized);
-      setSyncState('synced');
-      return;
-    }
-
-    if (localHas) {
-      setData(local);
-      saveDillerData(local);
-      const push = await dillerApiPushData(token, local);
-      if (push.ok) {
-        setSyncState('synced');
-        toast.success('Mahalliy ma’lumot serverga ko‘chirildi');
-      } else {
-        setSyncState(push.unauthorized ? 'error' : 'offline');
-        if (!push.unauthorized) toast.error(push.error);
-      }
-      return;
-    }
-
-    const empty = normalizeDillerData(null);
-    setData(empty);
-    saveDillerData(empty);
-    setSyncState('synced');
-  }, [navigate]);
+  const applySync = useCallback((silent: boolean) => {
+    if (syncInFlightRef.current) return Promise.resolve();
+    syncInFlightRef.current = true;
+    return runDillerSync({ silent })
+      .then((outcome) => {
+        setData(outcome.data);
+        setSyncState(outcome.status);
+        setSession(readDillerSession());
+        if (outcome.message && !silent) {
+          toast.success(outcome.message);
+        }
+        return outcome;
+      })
+      .finally(() => {
+        syncInFlightRef.current = false;
+      });
+  }, []);
 
   useEffect(() => {
-    const s = readDillerSession();
-    if (!s?.token) {
+    if (!readDillerSession()) {
       navigate('/diller', { replace: true });
       return;
     }
-    setSession(s);
-    void (async () => {
-      await hydrateFromServer(s.token);
-      setBooting(false);
-    })();
-  }, [navigate, hydrateFromServer]);
+    setSession(readDillerSession());
+    setData(loadDillerData());
+    setBooting(false);
 
-  const flushSave = useCallback(async (token: string, payload: DillerData) => {
-    setSyncState('saving');
-    saveDillerData(payload);
-    if (isOfflineDillerToken(token)) {
-      setSyncState('offline');
-      return;
-    }
-    const result = await dillerApiPushData(token, payload);
-    if (result.ok) {
-      setSyncState('synced');
-      return;
-    }
-    if (result.unauthorized) {
-      clearDillerSession();
-      toast.error('Sessiya tugadi — qayta kiring');
-      navigate('/diller', { replace: true });
-      return;
-    }
-    setSyncState('offline');
-    toast.error(result.error || 'Serverga saqlanmadi');
-  }, [navigate]);
+    void applySync(false);
+  }, [navigate, applySync]);
+
+  useEffect(() => {
+    const onOnline = () => {
+      void applySync(false);
+    };
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') {
+        void applySync(true);
+      }
+    };
+    window.addEventListener('online', onOnline);
+    document.addEventListener('visibilitychange', onVisible);
+
+    const interval = window.setInterval(() => {
+      const meta = readDillerSyncMeta();
+      if (meta.pendingPush || syncState === 'offline') {
+        void applySync(true);
+      }
+    }, AUTO_SYNC_INTERVAL_MS);
+
+    return () => {
+      window.removeEventListener('online', onOnline);
+      document.removeEventListener('visibilitychange', onVisible);
+      window.clearInterval(interval);
+    };
+  }, [applySync, syncState]);
 
   const persist = useCallback(
     (next: DillerData) => {
       setData(next);
       saveDillerData(next);
-      const token = readDillerSession()?.token;
-      if (!token) return;
+      touchLocalModified();
+      setSyncState((s) => (s === 'loading' ? s : 'saving'));
+
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
-        void flushSave(token, next);
+        void pushDillerLocalNow().then((outcome) => {
+          setData(outcome.data);
+          setSyncState(outcome.status);
+          if (outcome.status === 'offline' && readDillerSyncMeta().pendingPush) {
+            /* keyingi online/sync interval yuboradi */
+          }
+        });
       }, SAVE_DEBOUNCE_MS);
     },
-    [flushSave],
+    [],
   );
 
   useEffect(() => {
@@ -156,18 +119,15 @@ export default function DillerDashboard() {
 
   const logout = () => {
     if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    clearDillerCloudCreds();
     clearDillerSession();
     toast.success('Chiqildi');
     navigate('/diller', { replace: true });
   };
 
-  const reload = async () => {
-    const s = readDillerSession();
-    if (!s?.token) return;
-    setBooting(true);
-    await hydrateFromServer(s.token);
-    setBooting(false);
-    toast.success('Serverdan yangilandi');
+  const reload = () => {
+    setSyncState('loading');
+    void applySync(false);
   };
 
   const openDebtCount = useMemo(
@@ -176,6 +136,7 @@ export default function DillerDashboard() {
   );
 
   const syncLabel = useMemo(() => {
+    const meta = readDillerSyncMeta();
     switch (syncState) {
       case 'loading':
         return 'Yuklanmoqda…';
@@ -184,9 +145,7 @@ export default function DillerDashboard() {
       case 'synced':
         return 'Bulutda saqlangan';
       case 'offline':
-        return 'Oflayn rejim';
-      case 'error':
-        return 'Xatolik';
+        return meta.pendingPush ? 'Oflayn · navbatda' : 'Oflayn · mahalliy';
       default:
         return '';
     }
@@ -207,7 +166,8 @@ export default function DillerDashboard() {
   const tabMeta = getDillerTabMeta(activeTab);
   const TabIcon = tabMeta.icon;
   const logoSrc = resolveAressoPanelLogoSrc('seller', isDark);
-  const SyncIcon = syncState === 'offline' || syncState === 'error' ? CloudOff : Cloud;
+  const SyncIcon = syncState === 'offline' ? CloudOff : Cloud;
+  const meta = readDillerSyncMeta();
 
   return (
     <div
@@ -247,7 +207,7 @@ export default function DillerDashboard() {
                 </h1>
                 <p className="text-[10px] opacity-55 truncate mt-0.5 flex items-center gap-1">
                   <SyncIcon
-                    className={`w-3 h-3 shrink-0 ${syncState === 'saving' ? 'animate-pulse' : ''}`}
+                    className={`w-3 h-3 shrink-0 ${syncState === 'saving' || syncState === 'loading' ? 'animate-pulse' : ''}`}
                     style={{
                       color:
                         syncState === 'synced'
@@ -286,7 +246,7 @@ export default function DillerDashboard() {
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={() => void reload()}
+                onClick={reload}
                 disabled={syncState === 'loading' || syncState === 'saving'}
                 className="p-2 rounded-xl active:scale-95 disabled:opacity-40"
                 style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}
@@ -309,6 +269,15 @@ export default function DillerDashboard() {
           </div>
         </div>
       </header>
+
+      {syncState === 'offline' && meta.pendingPush ? (
+        <div
+          className="mx-4 mt-2 px-3 py-2 rounded-xl text-[10px] text-center max-w-lg w-full self-center"
+          style={{ background: isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.15)' }}
+        >
+          Internet qaytganida avtomatik Supabase ga yuboriladi
+        </div>
+      ) : null}
 
       <main
         className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 py-4 max-w-lg mx-auto w-full [-webkit-overflow-scrolling:touch]"

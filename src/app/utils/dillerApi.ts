@@ -32,6 +32,23 @@ export function isOfflineDillerToken(token: string): boolean {
   return token.startsWith('diller_local_');
 }
 
+/** Server diller API mavjudligi (login endpoint javob beradi) */
+export async function dillerApiPing(): Promise<boolean> {
+  try {
+    const res = await fetch(`${getDillerApiBase()}/diller/login`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${publicAnonKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({ login: '', password: '' }),
+    });
+    return res.status === 400 || res.status === 401 || res.ok;
+  } catch {
+    return false;
+  }
+}
+
 export async function dillerApiLogin(login: string, password: string): Promise<DillerLoginResult> {
   try {
     const res = await fetch(`${getDillerApiBase()}/diller/login`, {

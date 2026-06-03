@@ -36,3 +36,8 @@ export function readDillerSession(): DillerSession | null {
 export function clearDillerSession(): void {
   localStorage.removeItem(SESSION_KEY);
 }
+
+/** Chiqish — sessiya tozalanadi, mahalliy ma’lumot qoladi */
+export function clearDillerSessionKeepData(): void {
+  clearDillerSession();
+}
