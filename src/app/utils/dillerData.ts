@@ -275,30 +275,6 @@ function firmsFromLegacyProducts(products: DillerProduct[]): DillerFirm[] {
   return [...seen.values()];
 }
 
-export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData {
-  const base = createEmptyDillerData();
-  if (!raw) return base;
-
-  const products = (Array.isArray(raw.products) ? raw.products : base.products).map((p) =>
-    normalizeProduct(p as DillerProduct),
-  );
-  let firms = Array.isArray(raw.firms) ? raw.firms : [];
-  if (firms.length === 0 && products.length > 0) {
-    firms = firmsFromLegacyProducts(products);
-  }
-
-  return {
-    profile: { ...base.profile, ...(raw.profile ?? {}) },
-    firms,
-    products,
-    stores: (Array.isArray(raw.stores) ? raw.stores : base.stores).map((s) =>
-      normalizeStore(s as DillerStore),
-    ),
-    warehouse: Array.isArray(raw.warehouse) ? raw.warehouse : base.warehouse,
-    sales: (Array.isArray(raw.sales) ? raw.sales : []).map((s) => normalizeSale(s as DillerSale)),
-  };
-}
-
 /** Bo‘sh ish maydoni (demo seedsiz) */
 export function createEmptyDillerData(): DillerData {
   return {
@@ -325,6 +301,30 @@ export function hasDillerDataContent(data: DillerData): boolean {
     data.sales.length > 0 ||
     data.warehouse.some((w) => (w.qty ?? 0) > 0)
   );
+}
+
+export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData {
+  const base = createEmptyDillerData();
+  if (!raw) return base;
+
+  const products = (Array.isArray(raw.products) ? raw.products : base.products).map((p) =>
+    normalizeProduct(p as DillerProduct),
+  );
+  let firms = Array.isArray(raw.firms) ? raw.firms : [];
+  if (firms.length === 0 && products.length > 0) {
+    firms = firmsFromLegacyProducts(products);
+  }
+
+  return {
+    profile: { ...base.profile, ...(raw.profile ?? {}) },
+    firms,
+    products,
+    stores: (Array.isArray(raw.stores) ? raw.stores : base.stores).map((s) =>
+      normalizeStore(s as DillerStore),
+    ),
+    warehouse: Array.isArray(raw.warehouse) ? raw.warehouse : base.warehouse,
+    sales: (Array.isArray(raw.sales) ? raw.sales : []).map((s) => normalizeSale(s as DillerSale)),
+  };
 }
 
 /** Brauzer keshi — oflayn/zaxira */

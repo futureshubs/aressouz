@@ -15,7 +15,11 @@ import {
   saveDillerData,
   type DillerData,
 } from '../utils/dillerData';
-import { dillerApiFetchData, dillerApiPushData } from '../utils/dillerApi';
+import {
+  dillerApiFetchData,
+  dillerApiPushData,
+  isOfflineDillerToken,
+} from '../utils/dillerApi';
 
 const NAV_BOTTOM = 'calc(5.5rem + var(--app-safe-bottom, 0px))';
 const SAVE_DEBOUNCE_MS = 700;
@@ -29,7 +33,7 @@ export default function DillerDashboard() {
 
   const [session, setSession] = useState(readDillerSession());
   const [activeTab, setActiveTab] = useState<DillerTabId>('sotuv');
-  const [data, setData] = useState<DillerData>(() => createEmptyDillerData());
+  const [data, setData] = useState<DillerData>(createEmptyDillerData);
   const [booting, setBooting] = useState(true);
   const [syncState, setSyncState] = useState<SyncState>('loading');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -37,6 +41,13 @@ export default function DillerDashboard() {
   const hydrateFromServer = useCallback(async (token: string) => {
     setSyncState('loading');
     const local = loadDillerData();
+
+    if (isOfflineDillerToken(token)) {
+      setData(local);
+      setSyncState('offline');
+      return;
+    }
+
     const remote = await dillerApiFetchData(token);
 
     if (!remote.ok) {
@@ -104,6 +115,10 @@ export default function DillerDashboard() {
   const flushSave = useCallback(async (token: string, payload: DillerData) => {
     setSyncState('saving');
     saveDillerData(payload);
+    if (isOfflineDillerToken(token)) {
+      setSyncState('offline');
+      return;
+    }
     const result = await dillerApiPushData(token, payload);
     if (result.ok) {
       setSyncState('synced');

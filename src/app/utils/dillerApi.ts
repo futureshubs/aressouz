@@ -24,6 +24,14 @@ export type DillerLoginResult =
   | { ok: true; token: string; login: string; displayName: string }
   | { ok: false; error: string };
 
+export function createOfflineDillerToken(): string {
+  return `diller_local_${Date.now()}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+export function isOfflineDillerToken(token: string): boolean {
+  return token.startsWith('diller_local_');
+}
+
 export async function dillerApiLogin(login: string, password: string): Promise<DillerLoginResult> {
   try {
     const res = await fetch(`${getDillerApiBase()}/diller/login`, {
@@ -43,9 +51,12 @@ export async function dillerApiLogin(login: string, password: string): Promise<D
         displayName: String(data.displayName || login),
       };
     }
+    if (res.status === 404) {
+      return { ok: false, error: 'SERVER_NOT_DEPLOYED' };
+    }
     return { ok: false, error: String(data.error || 'Kirishda xatolik') };
   } catch {
-    return { ok: false, error: 'Serverga ulanishda xatolik' };
+    return { ok: false, error: 'NETWORK_ERROR' };
   }
 }
 

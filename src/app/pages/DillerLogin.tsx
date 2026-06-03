@@ -4,7 +4,7 @@ import { toast } from 'sonner';
 import { Lock, User, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import PanelLoginShell from '../components/brand/PanelLoginShell';
-import { dillerApiLogin } from '../utils/dillerApi';
+import { createOfflineDillerToken, dillerApiLogin } from '../utils/dillerApi';
 import {
   readDillerSession,
   saveDillerSession,
@@ -45,19 +45,31 @@ export default function DillerLogin() {
       const result = await dillerApiLogin(login.trim(), password);
       setLoading(false);
 
-      if (!result.ok) {
-        toast.error(result.error);
+      if (result.ok) {
+        saveDillerSession({
+          token: result.token,
+          login: result.login,
+          displayName: result.displayName,
+          loggedInAt: new Date().toISOString(),
+        });
+        toast.success('Xush kelibsiz!');
+        navigate('/diller/dashboard', { replace: true });
         return;
       }
 
-      saveDillerSession({
-        token: result.token,
-        login: result.login,
-        displayName: result.displayName,
-        loggedInAt: new Date().toISOString(),
-      });
-      toast.success('Xush kelibsiz!');
-      navigate('/diller/dashboard', { replace: true });
+      if (result.error === 'SERVER_NOT_DEPLOYED' || result.error === 'NETWORK_ERROR') {
+        saveDillerSession({
+          token: createOfflineDillerToken(),
+          login: login.trim(),
+          displayName: login.trim(),
+          loggedInAt: new Date().toISOString(),
+        });
+        toast.warning('Server hali yangilanmagan — mahalliy rejimda ishlaydi');
+        navigate('/diller/dashboard', { replace: true });
+        return;
+      }
+
+      toast.error(result.error);
     },
     [login, password, navigate],
   );
