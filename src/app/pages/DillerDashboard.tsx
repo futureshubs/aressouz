@@ -1,15 +1,26 @@
-import { useEffect, useState, useCallback, useMemo } from 'react';
+import { useEffect, useState, useCallback, useMemo, useRef } from 'react';
 import { useNavigate } from 'react-router';
-import { LogOut, RefreshCw } from 'lucide-react';
+import { Cloud, CloudOff, Loader2, LogOut, RefreshCw } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
 import DillerBottomNav, { getDillerTabMeta, type DillerTabId } from '../components/diller/DillerBottomNav';
 import { resolveAressoPanelLogoSrc } from '../components/brand/AressoPanelBrand';
 import { DillerPanelContent } from '../components/diller/DillerPanelTabs';
 import { clearDillerSession, readDillerSession } from '../utils/dillerSession';
-import { loadDillerData, saveDillerData, type DillerData } from '../utils/dillerData';
+import {
+  createEmptyDillerData,
+  hasDillerDataContent,
+  loadDillerData,
+  normalizeDillerData,
+  saveDillerData,
+  type DillerData,
+} from '../utils/dillerData';
+import { dillerApiFetchData, dillerApiPushData } from '../utils/dillerApi';
 
 const NAV_BOTTOM = 'calc(5.5rem + var(--app-safe-bottom, 0px))';
+const SAVE_DEBOUNCE_MS = 700;
+
+type SyncState = 'loading' | 'synced' | 'saving' | 'offline' | 'error';
 
 export default function DillerDashboard() {
   const navigate = useNavigate();
@@ -18,31 +29,130 @@ export default function DillerDashboard() {
 
   const [session, setSession] = useState(readDillerSession());
   const [activeTab, setActiveTab] = useState<DillerTabId>('sotuv');
-  const [data, setData] = useState<DillerData>(() => loadDillerData());
+  const [data, setData] = useState<DillerData>(() => createEmptyDillerData());
+  const [booting, setBooting] = useState(true);
+  const [syncState, setSyncState] = useState<SyncState>('loading');
+  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  const hydrateFromServer = useCallback(async (token: string) => {
+    setSyncState('loading');
+    const local = loadDillerData();
+    const remote = await dillerApiFetchData(token);
+
+    if (!remote.ok) {
+      if (remote.unauthorized) {
+        clearDillerSession();
+        navigate('/diller', { replace: true });
+        return;
+      }
+      if (hasDillerDataContent(local)) {
+        setData(local);
+        setSyncState('offline');
+        toast.error('Serverga ulanilmadi — mahalliy nusxa ishlatilmoqda');
+      } else {
+        setData(local);
+        setSyncState('offline');
+      }
+      return;
+    }
+
+    const serverRaw = remote.data;
+    const serverHas = serverRaw && hasDillerDataContent(normalizeDillerData(serverRaw));
+    const localHas = hasDillerDataContent(local);
+
+    if (serverHas && serverRaw) {
+      const normalized = normalizeDillerData(serverRaw);
+      setData(normalized);
+      saveDillerData(normalized);
+      setSyncState('synced');
+      return;
+    }
+
+    if (localHas) {
+      setData(local);
+      saveDillerData(local);
+      const push = await dillerApiPushData(token, local);
+      if (push.ok) {
+        setSyncState('synced');
+        toast.success('Mahalliy ma’lumot serverga ko‘chirildi');
+      } else {
+        setSyncState(push.unauthorized ? 'error' : 'offline');
+        if (!push.unauthorized) toast.error(push.error);
+      }
+      return;
+    }
+
+    const empty = normalizeDillerData(null);
+    setData(empty);
+    saveDillerData(empty);
+    setSyncState('synced');
+  }, [navigate]);
 
   useEffect(() => {
     const s = readDillerSession();
-    if (!s) {
+    if (!s?.token) {
       navigate('/diller', { replace: true });
       return;
     }
     setSession(s);
+    void (async () => {
+      await hydrateFromServer(s.token);
+      setBooting(false);
+    })();
+  }, [navigate, hydrateFromServer]);
+
+  const flushSave = useCallback(async (token: string, payload: DillerData) => {
+    setSyncState('saving');
+    saveDillerData(payload);
+    const result = await dillerApiPushData(token, payload);
+    if (result.ok) {
+      setSyncState('synced');
+      return;
+    }
+    if (result.unauthorized) {
+      clearDillerSession();
+      toast.error('Sessiya tugadi — qayta kiring');
+      navigate('/diller', { replace: true });
+      return;
+    }
+    setSyncState('offline');
+    toast.error(result.error || 'Serverga saqlanmadi');
   }, [navigate]);
 
-  const persist = useCallback((next: DillerData) => {
-    setData(next);
-    saveDillerData(next);
+  const persist = useCallback(
+    (next: DillerData) => {
+      setData(next);
+      saveDillerData(next);
+      const token = readDillerSession()?.token;
+      if (!token) return;
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = setTimeout(() => {
+        void flushSave(token, next);
+      }, SAVE_DEBOUNCE_MS);
+    },
+    [flushSave],
+  );
+
+  useEffect(() => {
+    return () => {
+      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+    };
   }, []);
 
   const logout = () => {
+    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
     clearDillerSession();
     toast.success('Chiqildi');
     navigate('/diller', { replace: true });
   };
 
-  const reload = () => {
-    setData(loadDillerData());
-    toast.success('Ma’lumot yangilandi');
+  const reload = async () => {
+    const s = readDillerSession();
+    if (!s?.token) return;
+    setBooting(true);
+    await hydrateFromServer(s.token);
+    setBooting(false);
+    toast.success('Serverdan yangilandi');
   };
 
   const openDebtCount = useMemo(
@@ -50,17 +160,43 @@ export default function DillerDashboard() {
     [data.sales],
   );
 
-  if (!session) {
-    return null;
+  const syncLabel = useMemo(() => {
+    switch (syncState) {
+      case 'loading':
+        return 'Yuklanmoqda…';
+      case 'saving':
+        return 'Saqlanmoqda…';
+      case 'synced':
+        return 'Bulutda saqlangan';
+      case 'offline':
+        return 'Oflayn rejim';
+      case 'error':
+        return 'Xatolik';
+      default:
+        return '';
+    }
+  }, [syncState]);
+
+  if (!session || booting) {
+    return (
+      <div
+        className="flex flex-col items-center justify-center gap-3 min-h-[var(--app-viewport-height,100dvh)]"
+        style={{ background: isDark ? '#000' : '#f4f4f5', color: isDark ? '#fff' : '#111' }}
+      >
+        <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} />
+        <p className="text-sm opacity-60">Ma’lumot yuklanmoqda…</p>
+      </div>
+    );
   }
 
   const tabMeta = getDillerTabMeta(activeTab);
   const TabIcon = tabMeta.icon;
   const logoSrc = resolveAressoPanelLogoSrc('seller', isDark);
+  const SyncIcon = syncState === 'offline' || syncState === 'error' ? CloudOff : Cloud;
 
   return (
     <div
-      className="flex flex-col min-h-[var(--app-viewport-height,100dvh)]"
+      className="flex flex-col h-[var(--app-viewport-height,100dvh)] max-h-[var(--app-viewport-height,100dvh)] min-h-0 overflow-hidden"
       style={{
         background: isDark ? '#000' : '#f4f4f5',
         color: isDark ? '#fff' : '#111',
@@ -94,8 +230,19 @@ export default function DillerDashboard() {
                 >
                   {tabMeta.label}
                 </h1>
-                <p className="text-[10px] opacity-55 truncate mt-0.5">
-                  {session.displayName} · Diller panel
+                <p className="text-[10px] opacity-55 truncate mt-0.5 flex items-center gap-1">
+                  <SyncIcon
+                    className={`w-3 h-3 shrink-0 ${syncState === 'saving' ? 'animate-pulse' : ''}`}
+                    style={{
+                      color:
+                        syncState === 'synced'
+                          ? '#10b981'
+                          : syncState === 'offline'
+                            ? '#f59e0b'
+                            : undefined,
+                    }}
+                  />
+                  {session.displayName} · {syncLabel}
                 </p>
               </div>
             </div>
@@ -124,12 +271,15 @@ export default function DillerDashboard() {
             <div className="flex items-center gap-1">
               <button
                 type="button"
-                onClick={reload}
-                className="p-2 rounded-xl active:scale-95"
+                onClick={() => void reload()}
+                disabled={syncState === 'loading' || syncState === 'saving'}
+                className="p-2 rounded-xl active:scale-95 disabled:opacity-40"
                 style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}
                 aria-label="Yangilash"
               >
-                <RefreshCw className="w-4 h-4" />
+                <RefreshCw
+                  className={`w-4 h-4 ${syncState === 'loading' ? 'animate-spin' : ''}`}
+                />
               </button>
               <button
                 type="button"
@@ -146,8 +296,8 @@ export default function DillerDashboard() {
       </header>
 
       <main
-        className="flex-1 overflow-y-auto overscroll-y-contain px-4 py-4 max-w-lg mx-auto w-full"
-        style={{ paddingBottom: NAV_BOTTOM }}
+        className="flex-1 min-h-0 overflow-y-auto overscroll-y-contain px-4 py-4 max-w-lg mx-auto w-full [-webkit-overflow-scrolling:touch]"
+        style={{ paddingBottom: NAV_BOTTOM, touchAction: 'pan-y' }}
       >
         <DillerPanelContent tab={activeTab} data={data} onDataChange={persist} />
       </main>

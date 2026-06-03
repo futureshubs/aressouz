@@ -11,7 +11,10 @@ export const DILLER_DEMO_LOGIN = 'Admin';
 export const DILLER_DEMO_PASSWORD = 'Admin123';
 
 export function validateDillerCredentials(login: string, password: string): boolean {
-  return login.trim() === DILLER_DEMO_LOGIN && password === DILLER_DEMO_PASSWORD;
+  return (
+    login.trim().toLowerCase() === DILLER_DEMO_LOGIN.toLowerCase() &&
+    password === DILLER_DEMO_PASSWORD
+  );
 }
 
 export function saveDillerSession(session: DillerSession): void {

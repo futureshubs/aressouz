@@ -4,6 +4,7 @@ import { toast } from 'sonner';
 import { Lock, User, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import PanelLoginShell from '../components/brand/PanelLoginShell';
+import { dillerApiLogin } from '../utils/dillerApi';
 import {
   readDillerSession,
   saveDillerSession,
@@ -29,29 +30,34 @@ export default function DillerLogin() {
   }, [navigate]);
 
   const submit = useCallback(
-    (e: React.FormEvent) => {
+    async (e: React.FormEvent) => {
       e.preventDefault();
       if (!login.trim() || !password) {
         toast.error('Login va parol kiriting');
         return;
       }
+      if (!validateDillerCredentials(login.trim(), password)) {
+        toast.error('Login yoki parol noto‘g‘ri');
+        return;
+      }
+
       setLoading(true);
-      window.setTimeout(() => {
-        if (!validateDillerCredentials(login.trim(), password)) {
-          toast.error('Login yoki parol noto‘g‘ri');
-          setLoading(false);
-          return;
-        }
-        saveDillerSession({
-          token: `diller_${Date.now()}`,
-          login: login.trim(),
-          displayName: login.trim(),
-          loggedInAt: new Date().toISOString(),
-        });
-        toast.success('Xush kelibsiz!');
-        navigate('/diller/dashboard', { replace: true });
-        setLoading(false);
-      }, 400);
+      const result = await dillerApiLogin(login.trim(), password);
+      setLoading(false);
+
+      if (!result.ok) {
+        toast.error(result.error);
+        return;
+      }
+
+      saveDillerSession({
+        token: result.token,
+        login: result.login,
+        displayName: result.displayName,
+        loggedInAt: new Date().toISOString(),
+      });
+      toast.success('Xush kelibsiz!');
+      navigate('/diller/dashboard', { replace: true });
     },
     [login, password, navigate],
   );
@@ -83,7 +89,7 @@ export default function DillerLogin() {
               autoComplete="username"
               value={login}
               onChange={(e) => setLogin(e.target.value)}
-              placeholder="Admin"
+              placeholder="Login"
               className="w-full pl-10 pr-4 py-3 rounded-xl border outline-none"
               style={{
                 background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',

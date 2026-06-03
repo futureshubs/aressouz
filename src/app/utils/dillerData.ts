@@ -275,8 +275,8 @@ function firmsFromLegacyProducts(products: DillerProduct[]): DillerFirm[] {
   return [...seen.values()];
 }
 
-function normalizeData(raw: Partial<DillerData> | null): DillerData {
-  const base = seedData();
+export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData {
+  const base = createEmptyDillerData();
   if (!raw) return base;
 
   const products = (Array.isArray(raw.products) ? raw.products : base.products).map((p) =>
@@ -299,29 +299,54 @@ function normalizeData(raw: Partial<DillerData> | null): DillerData {
   };
 }
 
+/** Bo‘sh ish maydoni (demo seedsiz) */
+export function createEmptyDillerData(): DillerData {
+  return {
+    profile: {
+      companyName: '',
+      directorName: '',
+      phone: '',
+      region: '',
+      note: '',
+    },
+    firms: [],
+    products: [],
+    stores: [],
+    warehouse: [],
+    sales: [],
+  };
+}
+
+export function hasDillerDataContent(data: DillerData): boolean {
+  return (
+    data.firms.length > 0 ||
+    data.products.length > 0 ||
+    data.stores.length > 0 ||
+    data.sales.length > 0 ||
+    data.warehouse.some((w) => (w.qty ?? 0) > 0)
+  );
+}
+
+/** Brauzer keshi — oflayn/zaxira */
 export function loadDillerData(): DillerData {
   try {
     const rawCurrent = localStorage.getItem(DATA_KEY);
     if (rawCurrent) {
-      return normalizeData(JSON.parse(rawCurrent) as DillerData);
+      return normalizeDillerData(JSON.parse(rawCurrent) as DillerData);
     }
 
     for (const legacyKey of LEGACY_KEYS) {
       const rawLegacy = localStorage.getItem(legacyKey);
       if (rawLegacy) {
-        const migrated = normalizeData(JSON.parse(rawLegacy) as DillerData);
+        const migrated = normalizeDillerData(JSON.parse(rawLegacy) as DillerData);
         saveDillerData(migrated);
         return migrated;
       }
     }
 
-    const seed = seedData();
-    saveDillerData(seed);
-    return seed;
+    return createEmptyDillerData();
   } catch {
-    const seed = seedData();
-    saveDillerData(seed);
-    return seed;
+    return createEmptyDillerData();
   }
 }
 

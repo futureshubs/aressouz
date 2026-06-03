@@ -142,6 +142,7 @@ import { registerSellerExpenseRoutes } from "./seller-expenses-routes.ts";
 import { buildShopStaffKey } from "./seller-staff-routes.ts";
 import { registerSellerDebtRoutes, createShopDebtFromSale } from "./seller-debt-routes.ts";
 import { registerSmsBillingRoutes } from "./sms-billing-routes.ts";
+import { registerDillerRoutes } from "./diller-routes.ts";
 
 const DEBUG_HTTP =
   Deno.env.get("DEBUG_HTTP") === "1" || Deno.env.get("DEBUG_HTTP") === "true";
@@ -15044,6 +15045,8 @@ registerSellerDebtRoutes(app, {
   validateSellerSession,
   sellerShopIdsMatchFn: sellerShopIdsMatch,
 });
+
+registerDillerRoutes(app, { kv });
 
 registerSmsBillingRoutes(app, {
   kv,
