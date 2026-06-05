@@ -34,6 +34,7 @@ import {
   groupSalesByMonth,
   sumSalesProfit,
   isSaleOverdue,
+  isSaleDebtClosed,
   type DebtFilter,
   type HistoryDateRange,
   type HistoryPeriod,
@@ -117,16 +118,20 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
   const maxMonthTotal = getMaxMonthlyTotal(analytics.monthly);
   const maxMonthProfit = getMaxMonthlyProfit(analytics.monthly);
 
-  const filteredSales = useMemo(
-    () =>
-      filterDebtSales(data.sales, filter).sort((a, b) => {
-        const aOver = isSaleOverdue(a) ? 1 : 0;
-        const bOver = isSaleOverdue(b) ? 1 : 0;
-        if (bOver !== aOver) return bOver - aOver;
-        return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-      }),
-    [data.sales, filter],
-  );
+  const filteredSales = useMemo(() => {
+    const list = filterDebtSales(data.sales, filter);
+    if (filter === 'closed') {
+      return list.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+    }
+    return list.sort((a, b) => {
+      const aOver = isSaleOverdue(a) ? 1 : 0;
+      const bOver = isSaleOverdue(b) ? 1 : 0;
+      if (bOver !== aOver) return bOver - aOver;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+  }, [data.sales, filter]);
 
   const historySales = useMemo(() => {
     let list = filterSalesByPeriod(
@@ -184,6 +189,13 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
     { id: 'all', label: 'Hammasi' },
     { id: 'overdue', label: 'Muddati o‘tgan' },
     { id: 'soon', label: '7 kun ichida' },
+    {
+      id: 'closed',
+      label:
+        analytics.closedDebtCount > 0
+          ? `Yakunlangan (${analytics.closedDebtCount})`
+          : 'Yakunlangan',
+    },
   ];
 
   const periodOptions: { id: HistoryPeriod; label: string }[] = [
@@ -283,17 +295,25 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
           <Card isDark={isDark}>
             <div className="flex items-center gap-2 mb-3">
               <Wallet className="w-5 h-5 text-amber-400" />
-              <h3 className="font-bold text-sm">Ochiq qarzlar</h3>
+              <h3 className="font-bold text-sm">
+                {filter === 'closed' ? 'Yakunlangan qarzlar' : 'Ochiq qarzlar'}
+              </h3>
             </div>
             <div className="flex gap-1.5 mb-3 flex-wrap">
               {debtFilters.map((f) => (
                 <button
                   key={f.id}
                   type="button"
-                  onClick={() => setFilter(f.id)}
+                  onClick={() => {
+                    setFilter(f.id);
+                    setPaySaleId(null);
+                    setPayAmount('');
+                  }}
                   className={`px-3 py-1.5 rounded-full text-xs font-bold ${
                     filter === f.id
-                      ? 'bg-amber-500/20 text-amber-400'
+                      ? f.id === 'closed'
+                        ? 'bg-emerald-500/20 text-emerald-400'
+                        : 'bg-amber-500/20 text-amber-400'
                       : isDark
                         ? 'bg-white/5 opacity-70'
                         : 'bg-gray-100 opacity-80'
@@ -306,14 +326,19 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
 
             {filteredSales.length === 0 ? (
               <p className="text-sm opacity-60 py-6 text-center">
-                {analytics.openDebtCount === 0 ? 'Ochiq qarz yo‘q' : 'Filtr bo‘yicha topilmadi'}
+                {filter === 'closed'
+                  ? 'Yakunlangan qarz yo‘q'
+                  : analytics.openDebtCount === 0
+                    ? 'Ochiq qarz yo‘q'
+                    : 'Filtr bo‘yicha topilmadi'}
               </p>
             ) : (
               <ul className={dillerListClass}>
                 {filteredSales.map((sale) => {
                   const store = data.stores.find((s) => s.id === sale.storeId);
                   const product = data.products.find((p) => p.id === sale.productId);
-                  const overdue = isSaleOverdue(sale);
+                  const overdue = filter !== 'closed' && isSaleOverdue(sale);
+                  const closed = isSaleDebtClosed(sale);
                   const paying = paySaleId === sale.id;
 
                   return (
@@ -322,11 +347,13 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                       className="p-3 rounded-xl border"
                       style={{
                         background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
-                        borderColor: overdue
-                          ? 'rgba(239,68,68,0.35)'
-                          : isDark
-                            ? 'rgba(255,255,255,0.06)'
-                            : 'rgba(0,0,0,0.06)',
+                        borderColor: closed
+                          ? 'rgba(16,185,129,0.35)'
+                          : overdue
+                            ? 'rgba(239,68,68,0.35)'
+                            : isDark
+                              ? 'rgba(255,255,255,0.06)'
+                              : 'rgba(0,0,0,0.06)',
                       }}
                     >
                       <div className="flex items-start justify-between gap-2">
@@ -336,7 +363,12 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                             {product?.name} × {sale.qty}
                           </div>
                         </div>
-                        {overdue ? (
+                        {closed ? (
+                          <span className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold text-emerald-400">
+                            <CheckCircle2 className="w-3 h-3" />
+                            Yakunlandi
+                          </span>
+                        ) : overdue ? (
                           <span className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold text-red-400">
                             <AlertTriangle className="w-3 h-3" />
                             Kechikkan
@@ -344,25 +376,56 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                         ) : null}
                       </div>
                       <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                        <div>
-                          <span className="opacity-50">Qarz</span>
-                          <div className="font-bold text-amber-500">{formatMoney(sale.debtAmount)}</div>
-                        </div>
-                        <div>
-                          <span className="opacity-50">Oldin olingan</span>
-                          <div className="font-semibold text-emerald-500/90">
-                            {formatMoney(sale.paidAmount)}
-                          </div>
-                        </div>
+                        {closed ? (
+                          <>
+                            <div>
+                              <span className="opacity-50">Jami to‘langan</span>
+                              <div className="font-bold text-emerald-500">{formatMoney(sale.total)}</div>
+                            </div>
+                            <div>
+                              <span className="opacity-50">Sana</span>
+                              <div className="font-semibold opacity-80">
+                                {new Date(sale.createdAt).toLocaleDateString('uz-UZ')}
+                              </div>
+                            </div>
+                          </>
+                        ) : (
+                          <>
+                            <div>
+                              <span className="opacity-50">Qarz</span>
+                              <div className="font-bold text-amber-500">
+                                {formatMoney(sale.debtAmount)}
+                              </div>
+                            </div>
+                            <div>
+                              <span className="opacity-50">Oldin olingan</span>
+                              <div className="font-semibold text-emerald-500/90">
+                                {formatMoney(sale.paidAmount)}
+                              </div>
+                            </div>
+                          </>
+                        )}
                       </div>
-                      {sale.debtDueDate ? (
+                      {!closed && sale.debtDueDate ? (
                         <div className="text-[10px] opacity-60 mt-1 flex items-center gap-1">
                           <CalendarClock className="w-3 h-3" />
                           Qaytarish: {new Date(sale.debtDueDate).toLocaleDateString('uz-UZ')}
                         </div>
                       ) : null}
 
-                      {paying ? (
+                      {closed ? (
+                        <button
+                          type="button"
+                          onClick={() => setReceiptSale(sale)}
+                          className="mt-3 w-full py-2 rounded-xl text-xs font-bold border"
+                          style={{
+                            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                            color: accentColor.color,
+                          }}
+                        >
+                          Chekni ko‘rish
+                        </button>
+                      ) : paying ? (
                         <div className="mt-3 flex gap-2">
                           <input
                             type="number"

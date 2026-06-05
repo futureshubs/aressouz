@@ -41,6 +41,11 @@ export function isSaleDebtOpen(sale: DillerSale): boolean {
   return (sale.debtAmount ?? 0) > 0;
 }
 
+/** Qarzli sotuv to‘liq yopilgan (debtAmount = 0) */
+export function isSaleDebtClosed(sale: DillerSale): boolean {
+  return sale.paymentType === 'qarz' && !isSaleDebtOpen(sale);
+}
+
 export function isSaleOverdue(sale: DillerSale, now = startOfToday()): boolean {
   if (!isSaleDebtOpen(sale)) return false;
   const due = parseDueDate(sale.debtDueDate);
@@ -140,10 +145,14 @@ export function computeDebtAnalytics(data: DillerData): DebtAnalytics {
   };
 }
 
-export type DebtFilter = 'all' | 'overdue' | 'soon' | 'open';
+export type DebtFilter = 'all' | 'overdue' | 'soon' | 'open' | 'closed';
 
 export function filterDebtSales(sales: DillerSale[], filter: DebtFilter): DillerSale[] {
-  const open = sales.filter(isSaleDebtOpen);
+  const creditSales = sales.filter((s) => s.paymentType === 'qarz');
+  const open = creditSales.filter(isSaleDebtOpen);
+  const closed = creditSales.filter(isSaleDebtClosed);
+
+  if (filter === 'closed') return closed;
   if (filter === 'all') return open;
   if (filter === 'open') return open;
   if (filter === 'overdue') return open.filter((s) => isSaleOverdue(s));
