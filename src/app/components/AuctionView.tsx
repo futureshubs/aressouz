@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
@@ -40,6 +40,8 @@ import { Header } from './Header';
 import { BottomNav } from './BottomNav';
 import { AuctionDetailModal, type AuctionParticipationPayMethod } from './AuctionDetailModal';
 import { CardImageScroll } from './CardImageScroll';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
+import { auctionItemSignals } from '../utils/catalogFeedRanking';
 
 interface AuctionViewProps {
   onClose?: () => void;
@@ -179,6 +181,16 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
   useEffect(() => {
     loadAuctions();
   }, [selectedCategory]);
+
+  const rankedAuctions = useRankedCatalogFeed(auctions, 'auction', false, {
+    getSignals: auctionItemSignals,
+  });
+  const rankedCatalogAuctions = useRankedCatalogFeed(
+    selectedCatalogId ? auctions.filter((a) => a.category === selectedCatalogId) : [],
+    'auction',
+    false,
+    { getSignals: auctionItemSignals },
+  );
 
   const loadAuctions = async () => {
     try {
@@ -573,7 +585,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                  {auctions.map((auction) => {
+                  {rankedAuctions.map((auction) => {
                     const timeRemaining = getTimeRemaining(auction.endDate);
                     const minimumBid = calculateMinimumBid(auction);
                     const isUserParticipating = user && auction.participants.includes(user.id);
@@ -788,7 +800,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
               </h2>
 
               {/* Mahsulotlar (auksion mahsulotlaridan filter qilamiz) */}
-              {auctions.filter(a => a.category === selectedCatalogId).length === 0 ? (
+              {rankedCatalogAuctions.length === 0 ? (
                 <div
                   className="text-center py-20 rounded-3xl border"
                   style={{
@@ -814,7 +826,7 @@ export function AuctionView({ onClose, cartCount, onCartClick, onProfileClick, a
                 </div>
               ) : (
                 <div className="grid grid-cols-2 gap-3 sm:gap-4">
-                  {auctions.filter(a => a.category === selectedCatalogId).map((product) => (
+                  {rankedCatalogAuctions.map((product) => (
                     <div
                       key={product.id}
                       onClick={() => setSelectedAuction(product)}

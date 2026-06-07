@@ -15,6 +15,8 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { CarGridSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
+import { listingItemSignals } from '../utils/catalogFeedRanking';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -277,6 +279,11 @@ export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsVi
     });
   }, [cars, selectedCategory, selectedRegion, selectedDistrict, headerSearch]);
 
+  const isCarSearch = Boolean(normalizeHeaderSearch(headerSearch));
+  const rankedCars = useRankedCatalogFeed(filteredCars, 'car', isCarSearch, {
+    getSignals: listingItemSignals,
+  });
+
   // Add "all" category to beginning
   const categoriesWithAll = useMemo(() => [
     { id: 'all', name: 'Hammasi', icon: Grid3x3, count: 0, image: 'https://images.unsplash.com/photo-1762517355525-eca3a813db32?crop=entropy&cs=tinysrgb&fit=max&fm=jpg&ixid=M3w3Nzg4Nzd8MHwxfHNlYXJjaHwxfHxtb2Rlcm4lMjBjYXJzJTIwY29sbGVjdGlvbnxlbnwxfHx8fDE3NzI5MDIxNTd8MA&ixlib=rb-4.1.0&q=80&w=1080' },
@@ -361,7 +368,7 @@ export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsVi
               color: activeTab === 'cars' ? accentColor.color : undefined
             }}
           >
-            Avtomobillar ({filteredCars.length})
+            Avtomobillar ({rankedCars.length})
           </button>
           <button
             onClick={() => setActiveTab('categories')}
@@ -401,9 +408,9 @@ export const CarsView = memo(function CarsView({ platform, onAddToCart }: CarsVi
             <div className="px-0 pb-4">
               <CarGridSkeleton isDark={isDark} count={6} />
             </div>
-          ) : filteredCars.length > 0 ? (
+          ) : rankedCars.length > 0 ? (
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-              {filteredCars.map((car) => (
+              {rankedCars.map((car) => (
                 <CarItemCard
                   key={car.id}
                   car={car}

@@ -15,6 +15,8 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
+import { placeItemSignals } from '../utils/catalogFeedRanking';
 
 interface AroundViewProps {
   platform: Platform;
@@ -73,13 +75,18 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'place' });
   }, [filteredPlaces, headerSearch]);
 
-  filteredPlacesLenRef.current = searchFilteredPlaces.length;
+  const isAroundSearch = Boolean(normalizeHeaderSearch(headerSearch));
+  const rankedPlaces = useRankedCatalogFeed(searchFilteredPlaces, 'around', isAroundSearch, {
+    getSignals: placeItemSignals,
+  });
+
+  filteredPlacesLenRef.current = rankedPlaces.length;
 
   // Intersection Observer — visibleCount dependency yo'q: aks holda observer qayta yaratilib,
   // sentinel hali ko'rinsa ketma-ket +10 bo'lib, kartalar "doim yangilanayotgandek" bo'lardi.
   useEffect(() => {
     const node = loadMoreRef.current;
-    if (!node || searchFilteredPlaces.length === 0) return;
+    if (!node || rankedPlaces.length === 0) return;
 
     const observer = new IntersectionObserver(
       (entries) => {
@@ -96,7 +103,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
 
     observer.observe(node);
     return () => observer.disconnect();
-  }, [searchFilteredPlaces.length]);
+  }, [rankedPlaces.length]);
 
   // Reset visible count when filters change
   useEffect(() => {
@@ -320,7 +327,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                         {loading ? (
                           <Loader2 className="size-3.5 sm:size-4 animate-spin shrink-0" style={{ color: accentColor.color }} />
                         ) : (
-                          `${searchFilteredPlaces.length} ta`
+                          `${rankedPlaces.length} ta`
                         )}
                       </span>
                     </div>
@@ -340,7 +347,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                       {loading ? (
                         <Loader2 className="size-3.5 sm:size-4 animate-spin shrink-0" style={{ color: accentColor.color }} />
                       ) : (
-                        `${searchFilteredPlaces.length} ta`
+                        `${rankedPlaces.length} ta`
                       )}
                     </span>
                   </div>
@@ -355,7 +362,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                       gridClassName="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4"
                     />
                   </div>
-                ) : searchFilteredPlaces.length === 0 ? (
+                ) : rankedPlaces.length === 0 ? (
                   <div className="text-center py-12 sm:py-20">
                     <MapPin className="size-12 sm:size-16 mx-auto mb-3 sm:mb-4 opacity-30" />
                     <p className="text-base sm:text-lg font-semibold mb-1 sm:mb-2"
@@ -381,7 +388,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-3 xl:grid-cols-4 2xl:grid-cols-5 gap-2.5 sm:gap-3 md:gap-4">
-                    {searchFilteredPlaces.slice(0, visibleCount).map((place) => (
+                    {rankedPlaces.slice(0, visibleCount).map((place) => (
                       <PlaceCard
                         key={place.id}
                         place={place}
@@ -391,7 +398,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                       />
                     ))}
                     {/* Lazy loading sentinel */}
-                    {searchFilteredPlaces.length > visibleCount && (
+                    {rankedPlaces.length > visibleCount && (
                       <div ref={loadMoreRef} className="col-span-full text-center py-4 mt-2">
                         <div className="inline-flex items-center gap-2 px-4 py-2 rounded-xl"
                           style={{

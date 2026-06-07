@@ -17,6 +17,8 @@ import { ProductGridSkeleton } from './skeletons';
 import { regions as allRegions } from '../data/regions';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
+import { listingItemSignals } from '../utils/catalogFeedRanking';
 
 const API_BASE_URL = `https://${projectId}.supabase.co/functions/v1/make-server-27d0d16c`;
 
@@ -236,6 +238,14 @@ export function HousesView() {
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'rental' });
   }, [categoriesWithCounts, headerSearch]);
 
+  const isHouseSearch = Boolean(normalizeHeaderSearch(headerSearch));
+  const rankedHousesAll = useRankedCatalogFeed(searchFilteredHousesAll, 'house', isHouseSearch, {
+    getSignals: listingItemSignals,
+  });
+  const rankedHouses = useRankedCatalogFeed(searchFilteredHouses, 'house', isHouseSearch, {
+    getSignals: listingItemSignals,
+  });
+
   const selectedCategory = houseCategories.find(c => c.id === selectedCategoryId);
 
   return (
@@ -342,7 +352,7 @@ export function HousesView() {
                 Hozircha uylar yo'q
               </p>
             </div>
-          ) : searchFilteredHousesAll.length === 0 ? (
+          ) : rankedHousesAll.length === 0 ? (
             <div className="text-center py-12">
               <p style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
                 Qidiruv bo‘yicha uy topilmadi.
@@ -350,7 +360,7 @@ export function HousesView() {
             </div>
           ) : (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3 [grid-auto-rows:min-content]">
-              {searchFilteredHousesAll.map((house) => (
+              {rankedHousesAll.map((house) => (
                 <ListingCard
                   key={house.id}
                   listing={houseToListingCardModel(house)}
@@ -411,12 +421,12 @@ export function HousesView() {
             className="text-lg font-semibold mb-3 sm:mb-4"
             style={{ color: isDark ? '#ffffff' : '#111827' }}
           >
-            {selectedCategory?.name} - {searchFilteredHouses.length} ta uy
+            {selectedCategory?.name} - {rankedHouses.length} ta uy
           </h2>
 
-          {searchFilteredHouses.length > 0 ? (
+          {rankedHouses.length > 0 ? (
             <div className="grid grid-cols-3 gap-2 sm:grid-cols-4 sm:gap-2.5 md:grid-cols-5 md:gap-3 [grid-auto-rows:min-content]">
-              {searchFilteredHouses.map((house, index) => (
+              {rankedHouses.map((house, index) => (
                 <ListingCard
                   key={house.id != null && String(house.id) !== '' ? String(house.id) : `house-row-${index}`}
                   listing={houseToListingCardModel(house)}

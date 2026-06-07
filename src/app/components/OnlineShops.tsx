@@ -25,6 +25,9 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
 import { fetchPagedProducts, fetchPagedShopProducts } from '../services/pagedCatalogApi';
 import { postRecoEvents, cartRecoPayload, productToRecoPayload } from '../utils/recommendationsClient';
+import { catalogItemId, recordCatalogEngagement, interleaveCatalogByShop, catalogShopKey } from '../utils/catalogFeedRanking';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
+import { useCatalogFeedBoosts } from '../hooks/useCatalogFeedBoosts';
 import { MarketplaceRecoCarousels } from './MarketplaceRecoCarousels';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
 import { CardImageScroll } from './CardImageScroll';
@@ -205,23 +208,82 @@ export default function OnlineShops({
     )
   );
 
-  const filteredShopIds = new Set(filteredShops.map(shop => shop.id));
+  const filteredShopIds = useMemo(
+    () => new Set(filteredShops.map((shop) => String(shop.id))),
+    [filteredShops],
+  );
+  const filteredShopIdList = useMemo(
+    () => filteredShops.map((shop) => String(shop.id)),
+    [filteredShops],
+  );
+  const useMixedShopFeed = !debouncedSearch && filteredShopIdList.length > 1;
+
   const productsQuery = useInfiniteQuery({
-    queryKey: ['onlineShops-products', selectedRegion, selectedDistrict, debouncedSearch, catalogRefreshKey],
-    enabled: activeTab === 'products',
+    queryKey: [
+      'onlineShops-products',
+      useMixedShopFeed ? 'mixed' : 'flat',
+      selectedRegion,
+      selectedDistrict,
+      debouncedSearch,
+      filteredShopIdList.join(','),
+      catalogRefreshKey,
+    ],
+    enabled: activeTab === 'products' && (!useMixedShopFeed || filteredShopIdList.length > 0),
     initialPageParam: 1,
     queryFn: async ({ pageParam, signal }) => {
       const page = Number(pageParam) || 1;
+
+      if (useMixedShopFeed) {
+        const perShop = 5;
+        const results = await Promise.all(
+          filteredShopIdList.map((shopId) =>
+            fetchPagedShopProducts<any>({
+              shopId,
+              region: selectedRegion || undefined,
+              district: selectedDistrict || undefined,
+              page,
+              limit: perShop,
+              signal,
+            }).catch(() => ({
+              success: true,
+              products: [] as any[],
+              page,
+              limit: perShop,
+              total: 0,
+              hasMore: false,
+            })),
+          ),
+        );
+        const products = interleaveCatalogByShop(
+          results.flatMap((r) =>
+            (r.products || []).map((p: any) => ({
+              ...p,
+              stockQuantity: getEffectiveProductStockQuantity(p),
+            })),
+          ),
+          (p) => catalogShopKey(p as Record<string, unknown>),
+        );
+        const hasMore = results.some((r) => r.hasMore);
+        return {
+          success: true,
+          products,
+          page,
+          limit: perShop * filteredShopIdList.length,
+          total: 0,
+          hasMore,
+        };
+      }
+
       const r = await fetchPagedProducts<any>({
         source: 'shop',
         region: selectedRegion || undefined,
         district: selectedDistrict || undefined,
         q: debouncedSearch,
+        sortBy: debouncedSearch ? undefined : 'feed',
         page,
         limit: 20,
         signal,
       });
-      // keep legacy derived fields used across UI
       r.products = (r.products || []).map((p: any) => ({
         ...p,
         stockQuantity: getEffectiveProductStockQuantity(p),
@@ -233,15 +295,16 @@ export default function OnlineShops({
 
   const allLoadedProducts = useMemo(() => {
     const raw = productsQuery.data?.pages?.flatMap((p) => p.products || []) ?? [];
-    return raw;
+    return interleaveCatalogByShop(raw, (p) => catalogShopKey(p as Record<string, unknown>));
   }, [productsQuery.data]);
 
   const filteredProducts = useMemo(() => {
     const list = allLoadedProducts;
     if (!filteredShopIds.size) return [];
     return list.filter((product: any) => {
+      const sid = product.shopId != null ? String(product.shopId) : '';
       return (
-        filteredShopIds.has(product.shopId) ||
+        (sid && filteredShopIds.has(sid)) ||
         matchesSelectedLocation(product, locationSelection) ||
         matchesSelectedLocation(
           product,
@@ -329,8 +392,20 @@ export default function OnlineShops({
     });
   }, [filteredProducts, headerSearch, productSearchParts]);
 
+  const isProductSearch = Boolean(normalizeHeaderSearch(headerSearch));
+  const { forYouIds, trendingIds } = useCatalogFeedBoosts(
+    accessToken,
+    selectedRegion,
+    selectedDistrict,
+    activeTab === 'products' && !isProductSearch,
+  );
+  const rankedProducts = useRankedCatalogFeed(searchFilteredProducts, 'shop', isProductSearch, {
+    recoBoostIds: forYouIds,
+    trendingBoostIds: trendingIds,
+  });
+
   const onlineShopsProductGridSource =
-    activeTab !== 'products' || productsQuery.isLoading ? [] : searchFilteredProducts;
+    activeTab !== 'products' || productsQuery.isLoading ? [] : rankedProducts;
   const progressiveOnlineShopProducts = onlineShopsProductGridSource;
   const onlineShopGridSentinelRef = useIntersectionSentinel({
     enabled: Boolean(activeTab === 'products' && productsQuery.hasNextPage && !productsQuery.isFetchingNextPage),
@@ -341,7 +416,7 @@ export default function OnlineShops({
   });
 
   useEffect(() => {
-    if (selectedShop && !filteredShopIds.has(selectedShop.id)) {
+    if (selectedShop && !filteredShopIds.has(String(selectedShop.id))) {
       setSelectedShop(null);
     }
   }, [selectedShop, filteredShopIds]);
@@ -398,6 +473,8 @@ export default function OnlineShops({
   const openProductWithReco = useCallback(
     (product: any) => {
       const row = product as Record<string, unknown>;
+      const id = catalogItemId(row);
+      if (id) recordCatalogEngagement('shop', id, 'click');
       void postRecoEvents([{ ...productToRecoPayload(row), type: 'click' }], accessToken).finally(() => {
         bumpReco();
       });
@@ -765,6 +842,7 @@ export default function OnlineShops({
               accessToken={accessToken}
               accentColor={accentColor}
               isDark={isDark}
+              vertical="shop"
               onProductOpen={(p) => setSelectedProduct(p)}
               onRecoBump={bumpReco}
               refreshKey={`${catalogRefreshKey}-${recoRefreshTick}`}
@@ -774,7 +852,7 @@ export default function OnlineShops({
             <div className="flex items-center justify-between mb-4">
               <h2 className="text-lg font-bold">Barcha mahsulotlar</h2>
               <span className="text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
-                {searchFilteredProducts.length} ta
+                {rankedProducts.length} ta
               </span>
             </div>
 

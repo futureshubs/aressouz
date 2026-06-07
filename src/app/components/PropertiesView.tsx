@@ -8,6 +8,8 @@ import { propertyCategories, properties, Property, PropertyCategory } from '../d
 import { Home, FolderOpen } from 'lucide-react';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
+import { listingItemSignals } from '../utils/catalogFeedRanking';
 import { ProductGridSkeleton } from './skeletons';
 
 interface PropertiesViewProps {
@@ -74,6 +76,11 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
       },
     });
   }, [filteredProperties, headerSearch]);
+
+  const isPropertySearch = Boolean(normalizeHeaderSearch(headerSearch));
+  const rankedProperties = useRankedCatalogFeed(searchFilteredProperties, 'property', isPropertySearch, {
+    getSignals: listingItemSignals,
+  });
 
   const isAndroid = platform === 'android';
 
@@ -148,7 +155,7 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
         ) : (
           // Properties Grid
           <div className="grid grid-cols-2 gap-4">
-            {searchFilteredProperties.map((property) => (
+            {rankedProperties.map((property) => (
               <PropertyCard
                 key={property.id}
                 property={property}
@@ -159,7 +166,7 @@ export function PropertiesView({ platform }: PropertiesViewProps) {
         )}
 
         {/* Empty State */}
-        {!sectionLoading && viewMode === 'properties' && searchFilteredProperties.length === 0 && (
+        {!sectionLoading && viewMode === 'properties' && rankedProperties.length === 0 && (
           <div className="flex flex-col items-center justify-center py-16">
             <div 
               className="size-20 rounded-2xl flex items-center justify-center mb-4"

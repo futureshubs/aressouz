@@ -21,6 +21,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
 import { useProgressiveListReveal } from '../hooks/useProgressiveListReveal';
 import { fetchPagedRentalProducts } from '../services/pagedCatalogApi';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
 
 interface RentalsViewProps {
   platform: Platform;
@@ -219,8 +220,20 @@ export function RentalsView({ platform }: RentalsViewProps) {
     [selectedRegionId, selectedDistrictId, debouncedSearch, selectedCatalogId, selectedCategoryId],
   );
 
-  const mainProductSource = loading ? [] : searchFilteredBackendProducts;
-  const categoryProductSource = loading ? [] : searchFinalCatalogProducts;
+  const isRentalSearch = Boolean(normalizeHeaderSearch(headerSearch));
+  const rankedBackendProducts = useRankedCatalogFeed(
+    searchFilteredBackendProducts as Record<string, unknown>[],
+    'rental',
+    isRentalSearch,
+  );
+  const rankedCatalogProducts = useRankedCatalogFeed(
+    searchFinalCatalogProducts as Record<string, unknown>[],
+    'rental',
+    isRentalSearch,
+  );
+
+  const mainProductSource = loading ? [] : rankedBackendProducts;
+  const categoryProductSource = loading ? [] : rankedCatalogProducts;
 
   const { visibleItems: visibleMainProducts, sentinelRef: mainRevealSentinelRef } =
     useProgressiveListReveal(mainProductSource, rentalMainRevealKey, {

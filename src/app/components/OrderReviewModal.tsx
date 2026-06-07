@@ -14,6 +14,12 @@ function parseJsonFromResponse(raw: string): { ok: boolean; data: Record<string,
   }
 }
 
+const MIN_REVIEW_COMMENT_LEN = 3;
+
+function isReviewCommentValid(text: string): boolean {
+  return text.trim().length >= MIN_REVIEW_COMMENT_LEN;
+}
+
 export interface OrderReviewModalOrder {
   id: string;
   orderNumber?: string;
@@ -52,13 +58,20 @@ export function OrderReviewModal({
   const [loadingExisting, setLoadingExisting] = useState(false);
   const [shareBusy, setShareBusy] = useState(false);
   const [lastShareUrl, setLastShareUrl] = useState('');
+  const [showCommentErrors, setShowCommentErrors] = useState(false);
 
   const orderId = order?.id ? String(order.id) : '';
   const visibilityRefetchTick = useVisibilityTick();
+  const commentTrimmed = comment.trim();
+  const courierCommentTrimmed = courierComment.trim();
+  const commentValid = isReviewCommentValid(comment);
+  const courierCommentValid = isReviewCommentValid(courierComment);
+  const canSave = commentValid && (!courierAvailable || courierCommentValid);
 
   useEffect(() => {
     if (!isOpen) {
       setLastShareUrl('');
+      setShowCommentErrors(false);
     }
   }, [isOpen]);
 
@@ -142,7 +155,22 @@ export function OrderReviewModal({
 
   if (!isOpen || !order) return null;
 
+  const validateBeforeSave = (): boolean => {
+    if (!commentValid) {
+      setShowCommentErrors(true);
+      toast.error('Baholaganingizdan keyin sharh yozish majburiy');
+      return false;
+    }
+    if (courierAvailable && !courierCommentValid) {
+      setShowCommentErrors(true);
+      toast.error('Kuryer bahosi uchun ham sharh yozing');
+      return false;
+    }
+    return true;
+  };
+
   const save = async () => {
+    if (!validateBeforeSave()) return;
     if (!accessToken || !orderId) {
       toast.error('Tizimga kiring');
       return;
@@ -157,7 +185,7 @@ export function OrderReviewModal({
           apikey: publicAnonKey,
           'X-Access-Token': accessToken,
         },
-        body: JSON.stringify({ orderId, rating, comment }),
+        body: JSON.stringify({ orderId, rating, comment: commentTrimmed }),
       });
       const raw = await res.text();
       const parsed = parseJsonFromResponse(raw);
@@ -175,6 +203,7 @@ export function OrderReviewModal({
   };
 
   const saveWithCourier = async () => {
+    if (!validateBeforeSave()) return;
     if (!accessToken || !orderId) {
       toast.error('Tizimga kiring');
       return;
@@ -189,7 +218,13 @@ export function OrderReviewModal({
           apikey: publicAnonKey,
           'X-Access-Token': accessToken,
         },
-        body: JSON.stringify({ orderId, rating, comment, courierRating, courierComment }),
+        body: JSON.stringify({
+          orderId,
+          rating,
+          comment: commentTrimmed,
+          courierRating,
+          courierComment: courierCommentTrimmed,
+        }),
       });
       const raw = await res.text();
       const parsed = parseJsonFromResponse(raw);
@@ -303,7 +338,10 @@ export function OrderReviewModal({
                 <button
                   key={n}
                   type="button"
-                  onClick={() => setRating(n)}
+                  onClick={() => {
+                    setRating(n);
+                    setShowCommentErrors(true);
+                  }}
                   className="p-1 transition-transform active:scale-90"
                   aria-label={`${n} yulduz`}
                 >
@@ -317,20 +355,41 @@ export function OrderReviewModal({
             </div>
 
             <label className="mb-1 block text-sm font-medium" style={{ color: isDark ? '#e5e7eb' : '#374151' }}>
-              Sharxingiz
+              Sharxingiz <span style={{ color: accentHex }}>*</span>
             </label>
             <textarea
               value={comment}
               onChange={(e) => setComment(e.target.value.slice(0, 4000))}
+              onBlur={() => setShowCommentErrors(true)}
               rows={4}
-              className="mb-4 w-full resize-none rounded-xl border px-3 py-2 text-sm"
+              required
+              aria-required="true"
+              aria-invalid={showCommentErrors && !commentValid}
+              className="mb-1 w-full resize-none rounded-xl border px-3 py-2 text-sm"
               style={{
                 background: isDark ? 'rgba(255,255,255,0.05)' : '#f9fafb',
-                borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                borderColor:
+                  showCommentErrors && !commentValid
+                    ? '#ef4444'
+                    : isDark
+                      ? 'rgba(255,255,255,0.12)'
+                      : 'rgba(0,0,0,0.1)',
                 color: isDark ? '#fff' : '#111827',
               }}
-              placeholder="Yetkazib berish, sifat, tavsiyalar…"
+              placeholder="Yetkazib berish, sifat, tavsiyalar… (majburiy)"
             />
+            {showCommentErrors && !commentValid ? (
+              <p className="mb-4 text-xs" style={{ color: '#ef4444' }}>
+                Kamida {MIN_REVIEW_COMMENT_LEN} ta belgi bilan sharh yozing
+              </p>
+            ) : (
+              <p
+                className="mb-4 text-xs"
+                style={{ color: isDark ? 'rgba(255,255,255,0.45)' : 'rgba(0,0,0,0.45)' }}
+              >
+                Yulduz belgilaganingizdan keyin sharh yozish shart
+              </p>
+            )}
 
             {courierAvailable ? (
               <div
@@ -348,7 +407,10 @@ export function OrderReviewModal({
                     <button
                       key={n}
                       type="button"
-                      onClick={() => setCourierRating(n)}
+                      onClick={() => {
+                        setCourierRating(n);
+                        setShowCommentErrors(true);
+                      }}
                       className="p-1 transition-transform active:scale-90"
                       aria-label={`${n} yulduz (kuryer)`}
                     >
@@ -360,18 +422,35 @@ export function OrderReviewModal({
                     </button>
                   ))}
                 </div>
+                <label className="mb-1 block text-xs font-medium" style={{ color: isDark ? '#d1d5db' : '#4b5563' }}>
+                  Kuryer sharhi <span style={{ color: accentHex }}>*</span>
+                </label>
                 <textarea
                   value={courierComment}
                   onChange={(e) => setCourierComment(e.target.value.slice(0, 4000))}
+                  onBlur={() => setShowCommentErrors(true)}
                   rows={3}
+                  required
+                  aria-required="true"
+                  aria-invalid={showCommentErrors && !courierCommentValid}
                   className="w-full resize-none rounded-xl border px-3 py-2 text-sm"
                   style={{
                     background: isDark ? 'rgba(255,255,255,0.05)' : '#f9fafb',
-                    borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                    borderColor:
+                      showCommentErrors && !courierCommentValid
+                        ? '#ef4444'
+                        : isDark
+                          ? 'rgba(255,255,255,0.12)'
+                          : 'rgba(0,0,0,0.1)',
                     color: isDark ? '#fff' : '#111827',
                   }}
-                  placeholder="Kuryer haqida sharh (ixtiyoriy)"
+                  placeholder="Kuryer xizmati haqida sharh (majburiy)"
                 />
+                {showCommentErrors && !courierCommentValid ? (
+                  <p className="mt-1 text-xs" style={{ color: '#ef4444' }}>
+                    Kuryer bahosi uchun kamida {MIN_REVIEW_COMMENT_LEN} ta belgi yozing
+                  </p>
+                ) : null}
               </div>
             ) : null}
 
@@ -402,7 +481,7 @@ export function OrderReviewModal({
               </button>
               <button
                 type="button"
-                disabled={loading}
+                disabled={loading || !canSave}
                 onClick={() => void (courierAvailable ? saveWithCourier() : save())}
                 className="rounded-xl px-4 py-2.5 text-sm font-semibold text-white disabled:opacity-60"
                 style={{ background: accentHex }}

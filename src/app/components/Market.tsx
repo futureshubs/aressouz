@@ -16,6 +16,8 @@ import { useIntersectionSentinel } from '../hooks/useIntersectionSentinel';
 import { fetchPagedBranchProducts } from '../services/pagedCatalogApi';
 import { useAuth } from '../context/AuthContext';
 import { MarketplaceRecoCarousels } from './MarketplaceRecoCarousels';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
+import { useCatalogFeedBoosts } from '../hooks/useCatalogFeedBoosts';
 import { useDeliveryZonesByBranchIds } from '../hooks/useDeliveryZonesByBranchIds';
 import { pickDeliveryZoneForLocation } from '../utils/deliveryZoneForLocation';
 import { evaluateMerchantHours } from '../utils/businessHoursClient';
@@ -289,6 +291,18 @@ export default function Market() {
     });
   }, [products, headerSearch]);
 
+  const isMarketSearch = Boolean(normalizeHeaderSearch(headerSearch));
+  const { forYouIds, trendingIds } = useCatalogFeedBoosts(
+    accessToken,
+    selectedRegion,
+    selectedDistrict,
+    !isMarketSearch && !isLoading && !marketProductsQuery.isLoading,
+  );
+  const rankedMarketProducts = useRankedCatalogFeed(searchFilteredProducts, 'market', isMarketSearch, {
+    recoBoostIds: forYouIds,
+    trendingBoostIds: trendingIds,
+  });
+
   const searchFilteredBranches = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) return filteredBranches;
     const q = headerSearch;
@@ -302,7 +316,7 @@ export default function Market() {
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'branch' });
   }, [filteredBranches, headerSearch, regions]);
 
-  const marketGridSource = isLoading || marketProductsQuery.isLoading ? [] : searchFilteredProducts;
+  const marketGridSource = isLoading || marketProductsQuery.isLoading ? [] : rankedMarketProducts;
   const marketSearchSentinelRef = useIntersectionSentinel({
     enabled: Boolean(marketProductsQuery.hasNextPage && !marketProductsQuery.isFetchingNextPage),
     onIntersect: () => {
@@ -474,6 +488,7 @@ export default function Market() {
                   accessToken={accessToken}
                   accentColor={accentColor}
                   isDark={isDark}
+                  vertical="market"
                   onProductOpen={() => {}}
                   refreshKey={`${products.length}-${headerSearch}-${selectedRegion}-${selectedDistrict}`}
                   shopClosedContent={marketRecoShopClosed}
@@ -681,6 +696,7 @@ export default function Market() {
                     accessToken={accessToken}
                     accentColor={accentColor}
                     isDark={isDark}
+                    vertical="market"
                     onProductOpen={() => {}}
                     refreshKey={`${selectedBranch.id}-${branchProducts.length}-${headerSearch}`}
                     shopClosedContent={branchRecoShopClosed}

@@ -15,6 +15,7 @@ import { useDebouncedValue } from '../hooks/useDebouncedValue';
 import { fetchPagedProducts } from '../services/pagedCatalogApi';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { normalizeHeaderSearch } from '../utils/headerSearchMatch';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
 
 interface Product {
   id: number;
@@ -68,6 +69,13 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
   const progressiveShopProducts = useMemo(() => {
     return shopProductsQuery.data?.pages?.flatMap((p) => p.products || []) ?? [];
   }, [shopProductsQuery.data]);
+
+  const isShopSearch = Boolean(normalizeHeaderSearch(headerSearch) || debouncedSearch);
+  const rankedShopProducts = useRankedCatalogFeed(
+    progressiveShopProducts as Record<string, unknown>[],
+    'shop',
+    isShopSearch,
+  );
 
   const shopViewGridSentinelRef = useIntersectionSentinel({
     enabled: Boolean(activeTab === 'products' && shopProductsQuery.hasNextPage && !shopProductsQuery.isFetchingNextPage),
@@ -275,7 +283,7 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
                         
                       </>
                     ) : (
-                      <>{progressiveShopProducts.length} ta</>
+                      <>{rankedShopProducts.length} ta</>
                     )}
                   </span>
                 </div>
@@ -291,7 +299,7 @@ export const ShopView = memo(function ShopView({ platform, onAddToCart, shopProd
                     </div>
                   ) : (
                     <>
-                      {progressiveShopProducts.map((product) => (
+                      {rankedShopProducts.map((product) => (
                         <ProductCard
                           key={product.id}
                           product={product}

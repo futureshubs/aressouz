@@ -21,6 +21,7 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductGridSkeleton } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
 import {
   filterProfessionGridCategories,
   isKnownProfession,
@@ -116,6 +117,16 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
     const matched = filteredServices.filter((s) => matchesHeaderSearch(q, parts(s), { vertical: 'general' }));
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'general' });
   }, [filteredServices, headerSearch]);
+
+  const isServiceSearch = Boolean(normalizeHeaderSearch(headerSearch));
+  const rankedServices = useRankedCatalogFeed(searchFilteredServices, 'service', isServiceSearch, {
+    getSignals: (s) => ({
+      id: String(s.id ?? ''),
+      categoryKey: String(s.categoryId ?? s.catalogId ?? 'service'),
+      rating: Number(s.rating) || 0,
+      reviewCount: Number(s.reviews) || 0,
+    }),
+  });
 
   const effectiveProfessionQuery = useMemo(() => {
     const header = normalizeHeaderSearch(headerSearch);
@@ -748,10 +759,10 @@ export function ServicesView({ platform = 'ios' }: ServicesViewProps) {
             className="text-lg font-semibold mb-3 sm:mb-4"
             style={{ color: isDark ? '#ffffff' : '#111827' }}
           >
-            {selectedCategory?.name} - {searchFilteredServices.length} ta usta
+            {selectedCategory?.name} - {rankedServices.length} ta usta
           </h2>
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5 2xl:grid-cols-6 gap-2.5 sm:gap-3 md:gap-4">
-            {searchFilteredServices.map((service) => (
+            {rankedServices.map((service) => (
               <ServiceCard
                 key={service.id}
                 service={service}

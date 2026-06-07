@@ -43,6 +43,8 @@ import { useVisibilityRefetch } from '../utils/visibilityRefetch';
 import { ProductCardSkeleton, ProductGridSkeleton, ShopListSkeleton, SkeletonBox } from './skeletons';
 import { useHeaderSearchOptional } from '../context/HeaderSearchContext';
 import { matchesHeaderSearch, normalizeHeaderSearch, sortByHeaderSearchRelevance } from '../utils/headerSearchMatch';
+import { foodDishSignals } from '../utils/catalogFeedRanking';
+import { useRankedCatalogFeed } from '../hooks/useRankedCatalogFeed';
 import {
   diningRoomCapacityRange,
   diningRoomImageList,
@@ -706,27 +708,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
 
   const filteredRestaurants = useMemo(() => {
     if (!normalizeHeaderSearch(headerSearch)) {
-      const list = [...restaurants];
-      list.sort((a, b) => {
-        const aOpen = a.isActive ? 1 : 0;
-        const bOpen = b.isActive ? 1 : 0;
-        if (bOpen !== aOpen) return bOpen - aOpen;
-
-        const ar = typeof a.rating === 'number' ? a.rating : 0;
-        const br = typeof b.rating === 'number' ? b.rating : 0;
-        if (br !== ar) return br - ar;
-
-        const ac = typeof a.reviews === 'number' ? a.reviews : 0;
-        const bc = typeof b.reviews === 'number' ? b.reviews : 0;
-        if (bc !== ac) return bc - ac;
-
-        const ao = typeof a.totalOrders === 'number' ? a.totalOrders : 0;
-        const bo = typeof b.totalOrders === 'number' ? b.totalOrders : 0;
-        if (bo !== ao) return bo - ao;
-
-        return String(a.name || '').localeCompare(String(b.name || ''), 'uz');
-      });
-      return list;
+      return [...restaurants];
     }
     const q = headerSearch;
     const parts = (r: (typeof restaurants)[number]) => [
@@ -740,10 +722,24 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     return sortByHeaderSearchRelevance(matched, q, parts, { vertical: 'food' });
   }, [restaurants, headerSearch]);
 
+  const isFoodSearch = Boolean(normalizeHeaderSearch(headerSearch));
+  const rankedDishes = useRankedCatalogFeed(filteredDishes, 'food', isFoodSearch, {
+    getSignals: foodDishSignals,
+  });
+  const rankedRestaurants = useRankedCatalogFeed(filteredRestaurants, 'food', isFoodSearch, {
+    getSignals: (r) => ({
+      id: String(r.id ?? ''),
+      categoryKey: String(r.type ?? 'restaurant'),
+      rating: Number(r.rating) || 0,
+      reviewCount: Number(r.reviews) || 0,
+      viewCount: Number(r.totalOrders) || 0,
+    }),
+  });
+
   const storyRestaurants = useMemo(() => {
-    const list = [...filteredRestaurants];
+    const list = [...rankedRestaurants];
     return list.slice(0, 24);
-  }, [filteredRestaurants]);
+  }, [rankedRestaurants]);
 
   const dishModalRestaurant = useMemo(() => {
     if (!selectedDish?.restaurantId) return null;
@@ -910,28 +906,22 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   }, [selectedRestaurant, allDishes, headerSearch]);
 
   const visibleDishes = useMemo(
-    () => filteredDishes.slice(0, visibleDishCount),
-    [filteredDishes, visibleDishCount],
+    () => rankedDishes.slice(0, visibleDishCount),
+    [rankedDishes, visibleDishCount],
   );
-  const hasMoreDishes = visibleDishCount < filteredDishes.length;
+  const hasMoreDishes = visibleDishCount < rankedDishes.length;
 
   /** Do‘kon lentlari bilan mos: faqat joriy ro‘yxat (taomlar bo‘limi) ichidan */
   const dishStripForYou = useMemo(() => {
-    if (filteredDishes.length === 0) return [];
-    return [...filteredDishes]
+    if (rankedDishes.length === 0) return [];
+    return rankedDishes
       .filter((d) => !isDishTemporarilyStopped(d))
-      .sort(
-        (a, b) =>
-          (Number(b.likesPercent) || 0) - (Number(a.likesPercent) || 0) ||
-          (Number(b.weeklyPopularityScore) || 0) - (Number(a.weeklyPopularityScore) || 0) ||
-          a.name.localeCompare(b.name),
-      )
       .slice(0, 18);
-  }, [filteredDishes]);
+  }, [rankedDishes]);
 
   const dishStripTrending = useMemo(() => {
-    if (filteredDishes.length === 0) return [];
-    return [...filteredDishes]
+    if (rankedDishes.length === 0) return [];
+    return [...rankedDishes]
       .filter((d) => !isDishTemporarilyStopped(d))
       .sort(
         (a, b) =>
@@ -939,7 +929,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           (Number(b.weeklyPopularityScore) || 0) - (Number(a.weeklyPopularityScore) || 0),
       )
       .slice(0, 18);
-  }, [filteredDishes]);
+  }, [rankedDishes]);
 
   const visibleMenuDishes = useMemo(
     () => selectedRestaurantDishes.slice(0, visibleMenuDishCount),
@@ -953,8 +943,8 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
   }, [selectedRegion, selectedDistrict, headerSearch, activeTab]);
 
   useEffect(() => {
-    setVisibleDishCount((c) => Math.min(c, filteredDishes.length));
-  }, [filteredDishes.length]);
+    setVisibleDishCount((c) => Math.min(c, rankedDishes.length));
+  }, [rankedDishes.length]);
 
   useEffect(() => {
     setVisibleMenuDishCount(FOODS_MENU_UI_INITIAL);
@@ -975,7 +965,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
         if (!entries.some((e) => e.isIntersecting)) return;
         if (dishScrollGateRef.current) return;
         dishScrollGateRef.current = true;
-        setVisibleDishCount((c) => Math.min(c + FOODS_DISH_UI_STEP, filteredDishes.length));
+        setVisibleDishCount((c) => Math.min(c + FOODS_DISH_UI_STEP, rankedDishes.length));
         window.setTimeout(() => {
           dishScrollGateRef.current = false;
         }, 220);
@@ -984,7 +974,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
     );
     obs.observe(el);
     return () => obs.disconnect();
-  }, [activeTab, loading, hasMoreDishes, visibleDishCount, filteredDishes.length]);
+  }, [activeTab, loading, hasMoreDishes, visibleDishCount, rankedDishes.length]);
 
   useEffect(() => {
     if (!selectedRestaurant?.id) return;
@@ -1216,8 +1206,8 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           </h1>
           <p className="text-xs sm:text-sm" style={{ color: isDark ? 'rgba(255, 255, 255, 0.5)' : 'rgba(0, 0, 0, 0.5)' }}>
             {activeTab === 'dishes' 
-              ? `${filteredDishes.length} ta` 
-              : `${filteredRestaurants.length} ta`}
+              ? `${rankedDishes.length} ta` 
+              : `${rankedRestaurants.length} ta`}
           </p>
         </div>
       </div>
@@ -1304,7 +1294,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           {/* DISHES TAB */}
           {activeTab === 'dishes' && (
             <div className="px-4 pb-2">
-              {!loading && filteredDishes.length > 0 && (
+              {!loading && rankedDishes.length > 0 && (
                 <>
                   <div className="mb-6">
                     <div className="flex items-center gap-2 mb-3 min-w-0">
@@ -1489,7 +1479,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
                     </div>
                   );
                 })}
-                {filteredDishes.length === 0 &&
+                {rankedDishes.length === 0 &&
                   dishFetchesRemaining > 0 &&
                   Array.from({ length: Math.min(8, Math.max(dishFetchesRemaining, 4)) }, (_, i) => (
                     <ProductCardSkeleton
@@ -1515,7 +1505,7 @@ export default function FoodsView({ platform, onAddToCart }: FoodsViewProps) {
           {/* RESTAURANTS TAB */}
           {activeTab === 'restaurants' && (
             <div className="space-y-3 px-3 sm:space-y-4 sm:px-4">
-              {filteredRestaurants.map(restaurant => (
+              {rankedRestaurants.map(restaurant => (
                 <div
                   key={restaurant.id}
                   onClick={() => handleRestaurantClick(restaurant)}

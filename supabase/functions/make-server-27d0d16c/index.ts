@@ -3440,6 +3440,48 @@ function applyTextSearch(list: any[], q: string) {
   });
 }
 
+/** Do‘kon mahsulotlarini feed uchun aralashtirish — bitta do‘kon blok bo‘lmasin */
+function interleaveProductsByShopFeed(products: any[]): any[] {
+  if (!Array.isArray(products) || products.length <= 1) return products;
+  const buckets = new Map<string, any[]>();
+  const order: string[] = [];
+  for (const p of products) {
+    const sid = String(p?.shopId ?? p?.shopName ?? 'unknown').trim() || 'unknown';
+    if (!buckets.has(sid)) {
+      buckets.set(sid, []);
+      order.push(sid);
+    }
+    buckets.get(sid)!.push(p);
+  }
+  if (order.length <= 1) return products;
+
+  for (const sid of order) {
+    const list = buckets.get(sid)!;
+    list.sort((a, b) => {
+      const scoreA = Number(a?.rating ?? 0) * Math.log1p(Number(a?.reviewCount ?? 0));
+      const scoreB = Number(b?.rating ?? 0) * Math.log1p(Number(b?.reviewCount ?? 0));
+      if (scoreB !== scoreA) return scoreB - scoreA;
+      return new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime();
+    });
+  }
+
+  const out: any[] = [];
+  let round = 0;
+  while (out.length < products.length) {
+    let added = false;
+    for (const sid of order) {
+      const list = buckets.get(sid)!;
+      if (round >= list.length) continue;
+      out.push(list[round]);
+      added = true;
+      if (out.length >= products.length) break;
+    }
+    if (!added) break;
+    round += 1;
+  }
+  return out;
+}
+
 function parseNum(v: unknown): number | null {
   const n = Number(v);
   return Number.isFinite(n) ? n : null;
@@ -3562,10 +3604,14 @@ app.get("/make-server-27d0d16c/products", async (c) => {
       allProducts = allProducts.filter((p: any) => Number(p?.rating ?? 0) >= ratingMin);
     }
     if (sortBy) {
-      if (sortBy === 'price_low') allProducts.sort((a: any, b: any) => Number(a?.price ?? 0) - Number(b?.price ?? 0));
+      if (sortBy === 'feed') {
+        allProducts = interleaveProductsByShopFeed(allProducts);
+      } else if (sortBy === 'price_low') allProducts.sort((a: any, b: any) => Number(a?.price ?? 0) - Number(b?.price ?? 0));
       else if (sortBy === 'price_high') allProducts.sort((a: any, b: any) => Number(b?.price ?? 0) - Number(a?.price ?? 0));
       else if (sortBy === 'rating') allProducts.sort((a: any, b: any) => Number(b?.rating ?? 0) - Number(a?.rating ?? 0));
       else if (sortBy === 'newest') allProducts.sort((a: any, b: any) => new Date(b?.createdAt || 0).getTime() - new Date(a?.createdAt || 0).getTime());
+    } else if (source === 'shop') {
+      allProducts = interleaveProductsByShopFeed(allProducts);
     }
     
     console.log(`✅ Total products: ${allProducts.length} (${formattedMarketProducts.length} market + ${formattedShopProducts.length} shop)`);
@@ -19636,6 +19682,12 @@ app.post("/make-server-27d0d16c/user/order-reviews", async (c) => {
         400,
       );
     }
+    if (!comment || comment.length < 3) {
+      return c.json(
+        { success: false, error: "Baholaganingizdan keyin sharh yozish majburiy (kamida 3 ta belgi)" },
+        400,
+      );
+    }
     if (courierRating != null && (!Number.isFinite(courierRating) || courierRating < 1 || courierRating > 5)) {
       return c.json({ success: false, error: "courierRating (1–5) noto‘g‘ri" }, 400);
     }
@@ -19669,6 +19721,12 @@ app.post("/make-server-27d0d16c/user/order-reviews", async (c) => {
         const ord = await findKvOrderById(orderId);
         const courierId = String(ord?.assignedCourierId || ord?.deliveryCourierId || '').trim();
         if (courierId) {
+          if (!courierComment || courierComment.length < 3) {
+            return c.json(
+              { success: false, error: "Kuryer bahosi uchun sharh yozish majburiy (kamida 3 ta belgi)" },
+              400,
+            );
+          }
           const ck = `user:${auth.userId}:courier_review:${courierId}:${orderId}`;
           const prev = (await kv.get(ck)) || {};
           const courierReview = {

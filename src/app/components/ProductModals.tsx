@@ -3,6 +3,7 @@ import { useTheme } from '../context/ThemeContext';
 import { useAuth } from '../context/AuthContext';
 import { useFavorites } from '../context/FavoritesContext';
 import { postRecoEvents, productToRecoPayload } from '../utils/recommendationsClient';
+import { catalogItemId, recordCatalogEngagement, type CatalogVertical } from '../utils/catalogFeedRanking';
 import { X, Heart, Share2, Star, ChevronLeft, ChevronRight, ShoppingCart, Package, Clock, RotateCcw, Settings, MapPin, ChevronRight as ChevronRightIcon, Minus, Plus } from 'lucide-react';
 import { toast } from 'sonner';
 import { notifyCartAdded } from '../utils/appToast';
@@ -50,6 +51,10 @@ export function ProductDetailModal({
   useEffect(() => {
     if (!product?.id) return;
     const row = product as Record<string, unknown>;
+    const vertical: CatalogVertical =
+      row.branchId != null || row.branchName != null ? 'market' : 'shop';
+    const id = catalogItemId(row);
+    if (id) recordCatalogEngagement(vertical, id, 'view');
     const start = Date.now();
     void postRecoEvents([productToRecoPayload(row)], accessToken);
     return () => {

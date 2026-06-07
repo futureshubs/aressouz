@@ -1,6 +1,12 @@
 import { useState, useEffect, useMemo, useCallback, useRef } from 'react';
 import { Clock, Loader2, Package, Star, Truck } from 'lucide-react';
 import { fetchPersonalizedProducts, fetchRecommendationFeed, postRecoEvents, productToRecoPayload } from '../utils/recommendationsClient';
+import {
+  catalogItemId,
+  recordCatalogEngagement,
+  topCatalogFromList,
+  type CatalogVertical,
+} from '../utils/catalogFeedRanking';
 import { getEffectiveProductStockQuantity } from '../utils/cartStock';
 import { CardImageScroll } from './CardImageScroll';
 import { collectProductGalleryImages } from '../utils/cardGalleryImages';
@@ -30,34 +36,22 @@ function uniqByKey<T extends Record<string, unknown>>(items: T[], limit: number)
   return out;
 }
 
-/** Bo‘lim katalogidan «Sizga mos» uchun yordamchi tanlov */
-function fallbackForYouFromCatalog(catalog: Record<string, unknown>[], exclude: Set<string>, limit: number) {
-  const scored = [...catalog]
-    .filter((p) => {
-      const k = productKey(p);
-      return k && !exclude.has(k);
-    })
-    .sort((a, b) => {
-      const ra = (Number(a.rating) || 0) * Math.log1p(Number(a.reviewCount) || 0);
-      const rb = (Number(b.rating) || 0) * Math.log1p(Number(b.reviewCount) || 0);
-      return rb - ra;
-    });
-  return scored.slice(0, limit).map((p) => withStock(p));
+function fallbackForYouFromCatalog(
+  catalog: Record<string, unknown>[],
+  exclude: Set<string>,
+  limit: number,
+  vertical: CatalogVertical,
+) {
+  return topCatalogFromList(catalog, vertical, exclude, limit).map((p) => withStock(p));
 }
 
-/** Trend uchun — zaxira va reyting */
-function fallbackTrendingFromCatalog(catalog: Record<string, unknown>[], exclude: Set<string>, limit: number) {
-  const scored = [...catalog]
-    .filter((p) => {
-      const k = productKey(p);
-      return k && !exclude.has(k);
-    })
-    .sort((a, b) => {
-      const sa = (Number(a.stockCount) || Number((a as { stockQuantity?: number }).stockQuantity) || 0) + (Number(a.rating) || 0) * 2;
-      const sb = (Number(b.stockCount) || Number((b as { stockQuantity?: number }).stockQuantity) || 0) + (Number(b.rating) || 0) * 2;
-      return sb - sa;
-    });
-  return scored.slice(0, limit).map((p) => withStock(p));
+function fallbackTrendingFromCatalog(
+  catalog: Record<string, unknown>[],
+  exclude: Set<string>,
+  limit: number,
+  vertical: CatalogVertical,
+) {
+  return topCatalogFromList(catalog, vertical, exclude, limit).map((p) => withStock(p));
 }
 
 export type MarketplaceRecoCarouselsProps = {
@@ -73,6 +67,7 @@ export type MarketplaceRecoCarouselsProps = {
   onRecoBump?: () => void;
   refreshKey?: number;
   labels?: { forYou?: string; trending?: string };
+  vertical?: CatalogVertical;
   /** Do‘kon: ish vaqti tashqarisida rasm ustida «Yopiq» (mas. OnlineShops) */
   shopClosedContent?: (product: Record<string, unknown>) => { title: string; subtitle?: string | null } | null;
 };
@@ -92,6 +87,7 @@ export function MarketplaceRecoCarousels({
   onRecoBump,
   refreshKey = 0,
   labels,
+  vertical = 'shop',
   shopClosedContent,
 }: MarketplaceRecoCarouselsProps) {
   const forYouLabel = labels?.forYou ?? 'Sizga mos';
@@ -130,7 +126,7 @@ export function MarketplaceRecoCarousels({
         const inSection = mapped.filter((p) => allowedIds.has(productKey(p)));
         const exclude = new Set(inSection.map(productKey));
         const need = Math.max(0, 12 - inSection.length);
-        const fill = need > 0 ? fallbackForYouFromCatalog(catalogProducts as Record<string, unknown>[], exclude, need) : [];
+        const fill = need > 0 ? fallbackForYouFromCatalog(catalogProducts as Record<string, unknown>[], exclude, need, vertical) : [];
         setRecoProducts(uniqByKey([...inSection, ...fill], 18));
       })
       .finally(() => {
@@ -169,7 +165,7 @@ export function MarketplaceRecoCarousels({
         const inSection = mapped.filter((p) => allowedIds.has(productKey(p)));
         const exclude = new Set(inSection.map(productKey));
         const need = Math.max(0, 12 - inSection.length);
-        const fill = need > 0 ? fallbackTrendingFromCatalog(catalogProducts as Record<string, unknown>[], exclude, need) : [];
+        const fill = need > 0 ? fallbackTrendingFromCatalog(catalogProducts as Record<string, unknown>[], exclude, need, vertical) : [];
         setFeedTrending(uniqByKey([...inSection, ...fill], 18));
       })
       .finally(() => {
@@ -193,6 +189,8 @@ export function MarketplaceRecoCarousels({
   const openUnlessGallery = useCallback(
     (product: Record<string, unknown>) => {
       if (skipAfterGalleryRef.current.has(tileKey(product))) return;
+      const id = catalogItemId(product);
+      if (id) recordCatalogEngagement(vertical, id, 'click');
       void postRecoEvents([{ ...productToRecoPayload(product), type: 'click' }], accessToken).finally(() => onRecoBump?.());
       onProductOpen(product);
     },
