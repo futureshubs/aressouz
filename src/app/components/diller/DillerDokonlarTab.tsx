@@ -4,9 +4,12 @@ import {
   ChevronRight,
   Map,
   MapPin,
+  Pencil,
   Plus,
   Search,
+  ShoppingCart,
   Store,
+  Trash2,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerStore } from '../../utils/dillerData';
@@ -18,7 +21,9 @@ import {
 import { formatDillerDateTime, getStoreStats } from '../../utils/dillerStoreStats';
 import { DillerStoreDetailSheet } from './DillerStoreDetailSheet';
 import { DillerStoreAddSheet } from './DillerStoreAddSheet';
+import { DillerStoreDeleteDialog, type StoreDeleteCandidate } from './DillerStoreDeleteDialog';
 import { DillerStoresMapSheet } from './DillerStoresMapSheet';
+import { DillerSaleSheet } from './DillerSaleSheet';
 import { dillerTabContentClass } from './dillerMobileLayout';
 
 type Props = {
@@ -51,9 +56,13 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const [addOpen, setAddOpen] = useState(false);
+  const [editStore, setEditStore] = useState<DillerStore | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [search, setSearch] = useState('');
   const [detailStore, setDetailStore] = useState<DillerStore | null>(null);
+  const [deleteCandidate, setDeleteCandidate] = useState<StoreDeleteCandidate | null>(null);
+  const [saleOpen, setSaleOpen] = useState(false);
+  const [saleStoreId, setSaleStoreId] = useState<string | null>(null);
 
   const sortedStores = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -74,9 +83,44 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
     });
   }, [data.stores, data.sales, search, data]);
 
-  const remove = (id: string) => {
+  const requestDelete = (store: DillerStore) => {
+    const stats = getStoreStats(data, store.id);
+    setDeleteCandidate({
+      id: store.id,
+      name: store.name,
+      saleCount: stats.saleCount,
+    });
+  };
+
+  const confirmDelete = () => {
+    if (!deleteCandidate) return;
+    const { id } = deleteCandidate;
     onDataChange(deleteStore(data, id));
+    if (detailStore?.id === id) setDetailStore(null);
+    if (editStore?.id === id) setEditStore(null);
+    setDeleteCandidate(null);
     toast.success('Do‘kon o‘chirildi');
+  };
+
+  const openAdd = () => {
+    setEditStore(null);
+    setAddOpen(true);
+  };
+
+  const openEdit = (store: DillerStore) => {
+    setEditStore(store);
+    setAddOpen(true);
+    setDetailStore(null);
+  };
+
+  const startSale = (store: DillerStore) => {
+    if (data.products.length === 0) {
+      toast.error('Avval mahsulot qo‘shing');
+      return;
+    }
+    setSaleStoreId(store.id);
+    setSaleOpen(true);
+    setDetailStore(null);
   };
 
   const activeDetail = detailStore
@@ -85,6 +129,27 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
 
   return (
     <div className={dillerTabContentClass}>
+      <DillerStoreDeleteDialog
+        open={deleteCandidate != null}
+        candidate={deleteCandidate}
+        isDark={isDark}
+        onOpenChange={(next) => {
+          if (!next) setDeleteCandidate(null);
+        }}
+        onConfirm={confirmDelete}
+      />
+
+      <DillerSaleSheet
+        open={saleOpen}
+        initialStoreId={saleStoreId}
+        data={data}
+        onClose={() => {
+          setSaleOpen(false);
+          setSaleStoreId(null);
+        }}
+        onComplete={onDataChange}
+      />
+
       <button
         type="button"
         onClick={() => setMapOpen(true)}
@@ -101,7 +166,7 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
 
       <button
         type="button"
-        onClick={() => setAddOpen(true)}
+        onClick={() => openAdd()}
         className="w-full py-4 rounded-2xl font-bold text-slate-900 flex items-center justify-center gap-2 shadow-lg active:scale-[0.99] transition-transform"
         style={{ background: accentColor.gradient }}
       >
@@ -119,7 +184,11 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
       <DillerStoreAddSheet
         open={addOpen}
         data={data}
-        onClose={() => setAddOpen(false)}
+        editStore={editStore}
+        onClose={() => {
+          setAddOpen(false);
+          setEditStore(null);
+        }}
         onSave={onDataChange}
       />
 
@@ -139,7 +208,7 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
           <h3 className="font-bold text-sm">Tarqatish nuqtalari ({data.stores.length})</h3>
           <button
             type="button"
-            onClick={() => setAddOpen(true)}
+            onClick={() => openAdd()}
             className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center active:scale-95"
             style={{
               background: `${accentColor.color}22`,
@@ -164,6 +233,9 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
                 isDark={isDark}
                 accentColor={accentColor}
                 onOpen={() => setDetailStore(s)}
+                onEdit={() => openEdit(s)}
+                onDelete={() => requestDelete(s)}
+                onStartSale={() => startSale(s)}
               />
             ))}
           </ul>
@@ -175,7 +247,9 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
         store={activeDetail}
         data={data}
         onClose={() => setDetailStore(null)}
-        onDelete={remove}
+        onEdit={() => activeDetail && openEdit(activeDetail)}
+        onDeleteRequest={() => activeDetail && requestDelete(activeDetail)}
+        onStartSale={() => activeDetail && startSale(activeDetail)}
       />
     </div>
   );
@@ -187,12 +261,18 @@ function StoreListCard({
   isDark,
   accentColor,
   onOpen,
+  onEdit,
+  onDelete,
+  onStartSale,
 }: {
   store: DillerStore;
   data: DillerData;
   isDark: boolean;
   accentColor: { color: string; gradient: string };
   onOpen: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+  onStartSale: () => void;
 }) {
   const stats = getStoreStats(data, store.id);
   const coords = formatStoreCoords(store);
@@ -200,10 +280,8 @@ function StoreListCard({
 
   return (
     <li>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="w-full text-left rounded-2xl border overflow-hidden transition-all active:scale-[0.99] group"
+      <div
+        className="rounded-2xl border overflow-hidden transition-all group"
         style={{
           background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
           borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
@@ -211,13 +289,11 @@ function StoreListCard({
       >
         <div className="h-1" style={{ background: hasDebt ? '#f59e0b' : accentColor.gradient }} />
         <div className="p-3.5 flex items-start gap-3">
-          <div
-            className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
-            style={{ background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}
+          <button
+            type="button"
+            onClick={onOpen}
+            className="flex-1 min-w-0 text-left active:scale-[0.99] transition-transform"
           >
-            <Store className="w-5 h-5 opacity-70" style={{ color: accentColor.color }} />
-          </div>
-          <div className="flex-1 min-w-0">
             <div className="flex items-center gap-2 flex-wrap">
               {stats.saleCount > 0 ? (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500">
@@ -252,21 +328,66 @@ function StoreListCard({
                 Oxirgi: {formatDillerDateTime(stats.lastSaleAt)}
               </div>
             ) : null}
+          </button>
+          <div className="flex flex-col gap-1 shrink-0">
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onStartSale();
+              }}
+              className="p-2 rounded-lg active:scale-95 text-emerald-400"
+              aria-label="Sotuv boshlash"
+            >
+              <ShoppingCart className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onEdit();
+              }}
+              className="p-2 rounded-lg active:scale-95"
+              style={{ color: accentColor.color }}
+              aria-label="Tahrirlash"
+            >
+              <Pencil className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={(e) => {
+                e.stopPropagation();
+                onDelete();
+              }}
+              className="p-2 rounded-lg text-red-400 active:scale-95"
+              aria-label="O‘chirish"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
+            <button
+              type="button"
+              onClick={onOpen}
+              className="p-2 rounded-lg opacity-30 group-hover:opacity-60 active:scale-95"
+              aria-label="Batafsil"
+            >
+              <ChevronRight className="w-5 h-5" />
+            </button>
           </div>
-          <ChevronRight className="w-5 h-5 opacity-30 shrink-0 group-hover:opacity-60 mt-2" />
         </div>
         {stats.totalRevenue > 0 ? (
-          <div
-            className="px-3.5 pb-3 flex justify-between text-[10px] border-t pt-2 mx-3.5"
+          <button
+            type="button"
+            onClick={onOpen}
+            className="w-full px-3.5 pb-3 flex justify-between text-[10px] border-t pt-2 mx-3.5 text-left"
             style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}
           >
             <span className="opacity-50">Jami berilgan</span>
             <span className="font-bold" style={{ color: accentColor.color }}>
               {formatMoney(stats.totalRevenue)}
             </span>
-          </div>
+          </button>
         ) : null}
-      </button>
+      </div>
     </li>
   );
 }

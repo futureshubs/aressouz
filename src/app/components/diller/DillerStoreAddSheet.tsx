@@ -1,9 +1,9 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
 import { toast } from 'sonner';
 import { MapPin, Navigation, Save, Store, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
-import type { DillerData } from '../../utils/dillerData';
-import { createStore } from '../../utils/dillerData';
+import type { DillerData, DillerStore } from '../../utils/dillerData';
+import { createStore, ensureUniqueStoreName, updateStore } from '../../utils/dillerData';
 import { CheckoutMapPickerModal } from '../CheckoutMapPickerModal';
 import { reverseGeocodeDisplayLine } from '../../utils/geolocationDetect';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
@@ -11,6 +11,7 @@ import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLay
 type Props = {
   open: boolean;
   data: DillerData;
+  editStore?: DillerStore | null;
   onClose: () => void;
   onSave: (next: DillerData) => void;
 };
@@ -22,9 +23,10 @@ const inputCls = (isDark: boolean) =>
       : 'bg-white border-gray-200 text-gray-900'
   }`;
 
-export function DillerStoreAddSheet({ open, data, onClose, onSave }: Props) {
+export function DillerStoreAddSheet({ open, data, editStore = null, onClose, onSave }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
+  const isEdit = editStore != null;
 
   const [name, setName] = useState('');
   const [address, setAddress] = useState('');
@@ -34,6 +36,25 @@ export function DillerStoreAddSheet({ open, data, onClose, onSave }: Props) {
   const [lng, setLng] = useState<number | null>(null);
   const [mapOpen, setMapOpen] = useState(false);
   const [locBusy, setLocBusy] = useState(false);
+
+  useEffect(() => {
+    if (!open) return;
+    if (editStore) {
+      setName(editStore.name);
+      setAddress(editStore.address);
+      setPhone(editStore.phone);
+      setContactName(editStore.contactName);
+      setLat(editStore.lat ?? null);
+      setLng(editStore.lng ?? null);
+    } else {
+      setName('');
+      setAddress('');
+      setPhone('');
+      setContactName('');
+      setLat(null);
+      setLng(null);
+    }
+  }, [open, editStore]);
 
   if (!open) return null;
 
@@ -81,23 +102,47 @@ export function DillerStoreAddSheet({ open, data, onClose, onSave }: Props) {
   };
 
   const save = () => {
-    const result = createStore(data, {
+    const payload = {
       name: name.trim(),
       address: address.trim(),
       phone: phone.trim(),
       contactName: contactName.trim(),
       lat: lat ?? undefined,
       lng: lng ?? undefined,
-    });
+    };
+
+    const result = isEdit
+      ? updateStore(data, editStore.id, payload)
+      : createStore(data, payload);
+
     if (result.error) {
       toast.error(result.error);
       return;
     }
+
+    const savedStore = isEdit
+      ? result.data.stores.find((s) => s.id === editStore.id)
+      : result.data.stores.find(
+          (s) => !data.stores.some((prev) => prev.id === s.id),
+        );
+    const savedName = savedStore?.name ?? payload.name;
+    const autoRenamed =
+      savedName !== payload.name && payload.name.trim().length > 0;
+
     onSave(result.data);
     resetForm();
     onClose();
-    toast.success('Do‘kon saqlandi');
+    if (autoRenamed) {
+      toast.success(`Saqlendi: «${savedName}» (nom band edi, avtomatik raqamlangan)`);
+    } else {
+      toast.success(isEdit ? 'Do‘kon yangilandi' : 'Do‘kon saqlandi');
+    }
   };
+
+  const previewName = name.trim()
+    ? ensureUniqueStoreName(name.trim(), data.stores, editStore?.id)
+    : '';
+  const willRename = name.trim().length > 0 && previewName !== name.trim();
 
   const coordsText =
     lat != null && lng != null ? `${lat.toFixed(5)}, ${lng.toFixed(5)}` : null;
@@ -119,7 +164,7 @@ export function DillerStoreAddSheet({ open, data, onClose, onSave }: Props) {
             <Store className="w-5 h-5" style={{ color: accentColor.color }} />
           </div>
           <div className="flex-1 min-w-0">
-            <h2 className="font-bold text-base">Do‘kon qo‘shish</h2>
+            <h2 className="font-bold text-base">{isEdit ? 'Do‘konni tahrirlash' : 'Do‘kon qo‘shish'}</h2>
             <p className="text-[10px] opacity-50 truncate">Nom, manzil, GPS, telefon</p>
           </div>
           <button
@@ -144,6 +189,11 @@ export function DillerStoreAddSheet({ open, data, onClose, onSave }: Props) {
               onChange={(e) => setName(e.target.value)}
               className={inputCls(isDark)}
             />
+            {willRename ? (
+              <p className="text-[10px] text-amber-500/90 mt-1">
+                Saqlanganda nom: <strong>{previewName}</strong> (bunday nom allaqachon bor)
+              </p>
+            ) : null}
           </div>
           <div>
             <label className="block text-xs font-medium opacity-80 mb-1">Manzil</label>
@@ -224,7 +274,7 @@ export function DillerStoreAddSheet({ open, data, onClose, onSave }: Props) {
             style={{ background: accentColor.gradient }}
           >
             <Save className="w-4 h-4" />
-            Do‘konni saqlash
+            {isEdit ? 'O‘zgarishlarni saqlash' : 'Do‘konni saqlash'}
           </button>
         </div>
       </div>

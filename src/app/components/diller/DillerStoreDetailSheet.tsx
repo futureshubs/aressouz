@@ -3,8 +3,10 @@ import {
   Calendar,
   ExternalLink,
   MapPin,
+  Pencil,
   Phone,
   Receipt,
+  ShoppingCart,
   Store,
   Trash2,
   User,
@@ -31,10 +33,20 @@ type Props = {
   store: DillerStore | null;
   data: DillerData;
   onClose: () => void;
-  onDelete: (storeId: string) => void;
+  onEdit: () => void;
+  onDeleteRequest: () => void;
+  onStartSale: () => void;
 };
 
-export function DillerStoreDetailSheet({ open, store, data, onClose, onDelete }: Props) {
+export function DillerStoreDetailSheet({
+  open,
+  store,
+  data,
+  onClose,
+  onEdit,
+  onDeleteRequest,
+  onStartSale,
+}: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const [receiptSale, setReceiptSale] = useState<DillerSale | null>(null);
@@ -55,9 +67,7 @@ export function DillerStoreDetailSheet({ open, store, data, onClose, onDelete }:
   const telHref = getStoreTelHref(store);
 
   const handleDelete = () => {
-    if (!window.confirm(`«${store.name}» do‘konini o‘chirasizmi? Bog‘liq sotuvlar ham yo‘qoladi.`)) return;
-    onDelete(store.id);
-    onClose();
+    onDeleteRequest();
   };
 
   const openMap = (url: string) => {
@@ -88,6 +98,18 @@ export function DillerStoreDetailSheet({ open, store, data, onClose, onDelete }:
           </div>
           <button
             type="button"
+            onClick={onEdit}
+            className="p-2.5 rounded-xl shrink-0"
+            style={{
+              background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+              color: accentColor.color,
+            }}
+            aria-label="Tahrirlash"
+          >
+            <Pencil className="w-5 h-5" />
+          </button>
+          <button
+            type="button"
             onClick={onClose}
             className="p-2.5 rounded-xl shrink-0"
             style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
@@ -98,6 +120,19 @@ export function DillerStoreDetailSheet({ open, store, data, onClose, onDelete }:
         </header>
 
         <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-4 max-w-lg mx-auto w-full pb-6`}>
+          <button
+            type="button"
+            onClick={onStartSale}
+            className="w-full py-4 rounded-2xl font-bold text-slate-900 flex items-center justify-center gap-2 shadow-lg active:scale-[0.99] transition-transform"
+            style={{ background: accentColor.gradient }}
+          >
+            <ShoppingCart className="w-5 h-5" />
+            Sotuv boshlash
+          </button>
+          <p className="text-[10px] opacity-50 text-center -mt-2 mb-1">
+            Do‘kon avtomatik tanlanadi — faqat mahsulot va to‘lovni kiriting
+          </p>
+
           <div className="grid grid-cols-2 gap-2">
             <StatBox
               isDark={isDark}
@@ -257,14 +292,28 @@ export function DillerStoreDetailSheet({ open, store, data, onClose, onDelete }:
             )}
           </Section>
 
-          <button
-            type="button"
-            onClick={handleDelete}
-            className="w-full py-3 rounded-xl border border-red-500/40 text-red-400 font-bold flex items-center justify-center gap-2 mb-6"
-          >
-            <Trash2 className="w-4 h-4" />
-            Do‘konni o‘chirish
-          </button>
+          <div className="grid grid-cols-2 gap-2 mb-6">
+            <button
+              type="button"
+              onClick={onEdit}
+              className="py-3 rounded-xl border font-bold flex items-center justify-center gap-2"
+              style={{
+                borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                color: accentColor.color,
+              }}
+            >
+              <Pencil className="w-4 h-4" />
+              Tahrirlash
+            </button>
+            <button
+              type="button"
+              onClick={handleDelete}
+              className="py-3 rounded-xl border border-red-500/40 text-red-400 font-bold flex items-center justify-center gap-2"
+            >
+              <Trash2 className="w-4 h-4" />
+              O‘chirish
+            </button>
+          </div>
         </div>
       </div>
 

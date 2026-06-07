@@ -15,6 +15,72 @@ export type ExpenseSummary = {
   kartaCount: number;
 };
 
+export type ExpenseCategorySummary = {
+  key: string;
+  label: string;
+  total: number;
+  count: number;
+  naqdTotal: number;
+  kartaTotal: number;
+  sharePercent: number;
+  expenses: DillerExpense[];
+};
+
+export function normalizeExpensePurposeKey(purpose: string): string {
+  return purpose.trim().toLowerCase().replace(/\s+/g, ' ') || 'boshqa';
+}
+
+function pickCategoryLabel(expenses: DillerExpense[]): string {
+  const counts = new Map<string, number>();
+  for (const e of expenses) {
+    const label = e.purpose.trim() || 'Boshqa';
+    counts.set(label, (counts.get(label) ?? 0) + 1);
+  }
+  return [...counts.entries()].sort((a, b) => b[1] - a[1])[0]?.[0] ?? 'Boshqa';
+}
+
+export function groupExpensesByPurpose(expenses: DillerExpense[]): ExpenseCategorySummary[] {
+  const map = new Map<string, DillerExpense[]>();
+  for (const e of expenses) {
+    const key = normalizeExpensePurposeKey(e.purpose);
+    const list = map.get(key) ?? [];
+    list.push(e);
+    map.set(key, list);
+  }
+
+  const grandTotal = expenses.reduce((s, e) => s + e.amount, 0);
+
+  return [...map.entries()]
+    .map(([key, list]) => {
+      const sorted = [...list].sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+      );
+      let total = 0;
+      let naqdTotal = 0;
+      let kartaTotal = 0;
+      for (const e of sorted) {
+        total += e.amount;
+        if (e.paymentMethod === 'karta') kartaTotal += e.amount;
+        else naqdTotal += e.amount;
+      }
+      return {
+        key,
+        label: pickCategoryLabel(sorted),
+        total,
+        count: sorted.length,
+        naqdTotal,
+        kartaTotal,
+        sharePercent: grandTotal > 0 ? Math.round((total / grandTotal) * 1000) / 10 : 0,
+        expenses: sorted,
+      };
+    })
+    .sort((a, b) => b.total - a.total || b.count - a.count);
+}
+
+export function getMaxExpenseCategoryTotal(categories: ExpenseCategorySummary[]): number {
+  return Math.max(1, ...categories.map((c) => c.total));
+}
+
 export function filterExpensesByPeriod(
   expenses: DillerExpense[],
   period: HistoryPeriod,
@@ -68,13 +134,18 @@ export function computeAllExpenseSummary(data: DillerData): ExpenseSummary {
 
 export function formatExpenseDate(iso: string): string {
   try {
-    return new Date(iso).toLocaleString('uz-UZ', {
-      day: '2-digit',
+    const d = new Date(iso);
+    if (Number.isNaN(d.getTime())) return iso;
+    const date = d.toLocaleDateString('uz-UZ', {
+      day: 'numeric',
       month: 'short',
       year: 'numeric',
+    });
+    const time = d.toLocaleTimeString('uz-UZ', {
       hour: '2-digit',
       minute: '2-digit',
     });
+    return `${date}, ${time}`;
   } catch {
     return iso;
   }

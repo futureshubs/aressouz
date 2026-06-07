@@ -164,6 +164,55 @@ function normalizeStore(s: Partial<DillerStore> & { id: string }): DillerStore {
   };
 }
 
+/** «Do‘kon (2)» kabi qo‘shimchani olib tashlaydi */
+export function stripStoreNameSuffix(name: string): string {
+  return name.trim().replace(/\s*\(\d+\)\s*$/, '').trim();
+}
+
+export function normalizeStoreNameKey(name: string): string {
+  return stripStoreNameSuffix(name).toLowerCase();
+}
+
+/** Bir xil nom bo‘lsa avtomatik (1), (2) … qo‘shadi */
+export function ensureUniqueStoreName(
+  rawName: string,
+  stores: DillerStore[],
+  excludeStoreId?: string,
+): string {
+  const base = stripStoreNameSuffix(rawName.trim());
+  if (!base) return rawName.trim();
+
+  const others = stores.filter((s) => s.id !== excludeStoreId);
+  const baseKey = base.toLowerCase();
+  const conflicting = others.filter(
+    (s) => stripStoreNameSuffix(s.name).toLowerCase() === baseKey,
+  );
+
+  if (conflicting.length === 0) return base;
+
+  const baseTaken = conflicting.some((s) => s.name.trim().toLowerCase() === baseKey);
+  if (!baseTaken) return base;
+
+  const used = new Set<number>();
+  for (const s of conflicting) {
+    const match = s.name.trim().match(/\(\s*(\d+)\s*\)\s*$/);
+    if (match) used.add(Number(match[1]));
+  }
+
+  let n = 1;
+  while (used.has(n)) n += 1;
+  return `${base} (${n})`;
+}
+
+function reconcileStoreNames(stores: DillerStore[]): DillerStore[] {
+  const result: DillerStore[] = [];
+  for (const store of stores) {
+    const uniqueName = ensureUniqueStoreName(store.name, result);
+    result.push(normalizeStore({ ...store, name: uniqueName }));
+  }
+  return result;
+}
+
 function normalizeExpense(e: Partial<DillerExpense> & { id: string }): DillerExpense {
   const method = String(e.paymentMethod ?? 'naqd').toLowerCase();
   return {
@@ -347,8 +396,10 @@ export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData
     profile: { ...base.profile, ...(raw.profile ?? {}) },
     firms,
     products,
-    stores: (Array.isArray(raw.stores) ? raw.stores : base.stores).map((s) =>
-      normalizeStore(s as DillerStore),
+    stores: reconcileStoreNames(
+      (Array.isArray(raw.stores) ? raw.stores : base.stores).map((s) =>
+        normalizeStore(s as DillerStore),
+      ),
     ),
     warehouse: Array.isArray(raw.warehouse) ? raw.warehouse : base.warehouse,
     sales: (Array.isArray(raw.sales) ? raw.sales : []).map((s) => normalizeSale(s as DillerSale)),
@@ -594,9 +645,11 @@ export function createStore(
   if (!input.phone.trim()) return { data, error: 'Telefon raqam kerak' };
   if (!input.contactName.trim()) return { data, error: 'Mas‘ul ism kerak' };
 
+  const uniqueName = ensureUniqueStoreName(input.name.trim(), data.stores);
+
   const store = normalizeStore({
     ...input,
-    name: input.name.trim(),
+    name: uniqueName,
     address: input.address.trim(),
     phone: input.phone.trim(),
     contactName: input.contactName.trim(),
@@ -604,6 +657,39 @@ export function createStore(
     createdAt: new Date().toISOString(),
   });
   return { data: { ...data, stores: [store, ...data.stores] } };
+}
+
+export function updateStore(
+  data: DillerData,
+  storeId: string,
+  input: Partial<Omit<DillerStore, 'id' | 'createdAt'>>,
+): { data: DillerData; error?: string } {
+  const idx = data.stores.findIndex((s) => s.id === storeId);
+  if (idx < 0) return { data, error: 'Do‘kon topilmadi' };
+
+  const existing = data.stores[idx];
+  const nameRaw = (input.name ?? existing.name).trim();
+  const phoneRaw = (input.phone ?? existing.phone).trim();
+  const contactRaw = (input.contactName ?? existing.contactName).trim();
+
+  if (!nameRaw) return { data, error: 'Do‘kon nomi kerak' };
+  if (!phoneRaw) return { data, error: 'Telefon raqam kerak' };
+  if (!contactRaw) return { data, error: 'Mas‘ul ism kerak' };
+
+  const uniqueName = ensureUniqueStoreName(nameRaw, data.stores, storeId);
+  const store = normalizeStore({
+    ...existing,
+    ...input,
+    name: uniqueName,
+    address: (input.address ?? existing.address).trim(),
+    phone: phoneRaw,
+    contactName: contactRaw,
+    id: storeId,
+  });
+
+  const stores = [...data.stores];
+  stores[idx] = store;
+  return { data: { ...data, stores } };
 }
 
 export function deleteStore(data: DillerData, storeId: string): DillerData {

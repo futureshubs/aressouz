@@ -17,20 +17,22 @@ import {
   Receipt,
 } from 'lucide-react';
 import { DillerHarajatSection } from './DillerHarajatSection';
-import { computeAllExpenseSummary } from '../../utils/dillerExpenseAnalytics';
+import { computeExpenseSummary, filterExpensesByPeriod } from '../../utils/dillerExpenseAnalytics';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerSale } from '../../utils/dillerData';
 import { formatMoney, recordDebtPayment, settleDebtFully } from '../../utils/dillerData';
 import { DillerSaleCard } from './DillerSaleCard';
 import { DillerSaleReceiptModal } from './DillerSaleReceiptModal';
 import {
-  computeExtendedAnalytics,
-  filterDebtSales,
+  computeExtendedAnalyticsForPeriod,
+  applyDebtFilterToCreditSales,
+  computePeriodDebtSummaryFromCreditSales,
   defaultCustomHistoryRange,
   filterSalesByPeriod,
   toIsoDate,
   getMaxMonthlyProfit,
   getMaxMonthlyTotal,
+  getHistoryPeriodLabel,
   groupSalesByMonth,
   sumSalesProfit,
   isSaleOverdue,
@@ -102,8 +104,16 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
   const isDark = theme === 'dark';
   const [section, setSection] = useState<QarzSection>('qarz');
   const [filter, setFilter] = useState<DebtFilter>('all');
+  const [debtPeriod, setDebtPeriod] = useState<HistoryPeriod>('all');
+  const [debtCustomRange, setDebtCustomRange] = useState<HistoryDateRange>(() =>
+    defaultCustomHistoryRange(),
+  );
   const [paySaleId, setPaySaleId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState('');
+  const [statPeriod, setStatPeriod] = useState<HistoryPeriod>('all');
+  const [statCustomRange, setStatCustomRange] = useState<HistoryDateRange>(() =>
+    defaultCustomHistoryRange(),
+  );
   const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('all');
   const [historyCustomRange, setHistoryCustomRange] = useState<HistoryDateRange>(() =>
     defaultCustomHistoryRange(),
@@ -112,14 +122,46 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
   const [receiptSale, setReceiptSale] = useState<DillerSale | null>(null);
 
-  const analytics = useMemo(() => computeExtendedAnalytics(data), [data]);
-  const expenseAll = useMemo(() => computeAllExpenseSummary(data), [data]);
-  const maxStoreDebt = Math.max(1, ...analytics.byStore.map((s) => s.openDebt));
-  const maxMonthTotal = getMaxMonthlyTotal(analytics.monthly);
-  const maxMonthProfit = getMaxMonthlyProfit(analytics.monthly);
+  const statAnalytics = useMemo(
+    () =>
+      computeExtendedAnalyticsForPeriod(
+        data,
+        statPeriod,
+        statPeriod === 'custom' ? statCustomRange : undefined,
+      ),
+    [data, statPeriod, statCustomRange],
+  );
+
+  const statExpenses = useMemo(() => {
+    const list = filterExpensesByPeriod(
+      data.expenses,
+      statPeriod,
+      statPeriod === 'custom' ? statCustomRange : undefined,
+    );
+    return computeExpenseSummary(list);
+  }, [data.expenses, statPeriod, statCustomRange]);
+
+  const maxStoreDebt = Math.max(1, ...statAnalytics.byStore.map((s) => s.openDebt));
+  const maxMonthTotal = getMaxMonthlyTotal(statAnalytics.monthly);
+  const maxMonthProfit = getMaxMonthlyProfit(statAnalytics.monthly);
+
+  const periodQarzSales = useMemo(
+    () =>
+      filterSalesByPeriod(
+        data.sales.filter((s) => s.paymentType === 'qarz'),
+        debtPeriod,
+        debtPeriod === 'custom' ? debtCustomRange : undefined,
+      ),
+    [data.sales, debtPeriod, debtCustomRange],
+  );
+
+  const debtSummary = useMemo(
+    () => computePeriodDebtSummaryFromCreditSales(periodQarzSales),
+    [periodQarzSales],
+  );
 
   const filteredSales = useMemo(() => {
-    const list = filterDebtSales(data.sales, filter);
+    const list = applyDebtFilterToCreditSales(periodQarzSales, filter);
     if (filter === 'closed') {
       return list.sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
@@ -131,7 +173,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
       if (bOver !== aOver) return bOver - aOver;
       return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
     });
-  }, [data.sales, filter]);
+  }, [periodQarzSales, filter]);
 
   const historySales = useMemo(() => {
     let list = filterSalesByPeriod(
@@ -192,14 +234,38 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
     {
       id: 'closed',
       label:
-        analytics.closedDebtCount > 0
-          ? `Yakunlangan (${analytics.closedDebtCount})`
+        debtSummary.closedDebtCount > 0
+          ? `Yakunlangan (${debtSummary.closedDebtCount})`
           : 'Yakunlangan',
     },
   ];
 
+  const statPeriodOptions: { id: HistoryPeriod; label: string }[] = [
+    { id: '1d', label: '1 kun' },
+    { id: '2d', label: '2 kun' },
+    { id: '1w', label: '1 hafta' },
+    { id: '1m', label: '1 oy' },
+    { id: '3m', label: '3 oy' },
+    { id: '6m', label: '6 oy' },
+    { id: 'all', label: 'Barcha' },
+    { id: '1y', label: '1 yil' },
+    { id: 'custom', label: 'Tanlash' },
+  ];
+
+  const debtPeriodOptions: { id: HistoryPeriod; label: string }[] = [
+    { id: '1d', label: '1 kun' },
+    { id: '2d', label: '2 kun' },
+    { id: '1w', label: '1 hafta' },
+    { id: '1m', label: '1 oy' },
+    { id: '3m', label: '3 oy' },
+    { id: '6m', label: '6 oy' },
+    { id: 'all', label: 'Barcha' },
+    { id: 'custom', label: 'Tanlash' },
+  ];
+
   const periodOptions: { id: HistoryPeriod; label: string }[] = [
     { id: '1d', label: '1 kun' },
+    { id: '2d', label: '2 kun' },
     { id: '1w', label: '1 hafta' },
     { id: '1m', label: '1 oy' },
     { id: '3m', label: '3 oy' },
@@ -263,30 +329,121 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
       {section === 'qarz' ? (
         <>
           <Card isDark={isDark}>
+            <div className="flex items-center justify-between gap-2 mb-3">
+              <div className="flex items-center gap-2 min-w-0">
+                <Wallet className="w-5 h-5 text-amber-400 shrink-0" />
+                <div className="min-w-0">
+                  <h3 className="font-bold text-sm">Qarz hulosasi</h3>
+                  <p className="text-[10px] opacity-55 truncate">
+                    {getHistoryPeriodLabel(debtPeriod)}
+                    {debtPeriod !== 'all' ? ` · ${debtSummary.creditSalesCount} ta qarzli sotuv` : ''}
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="flex gap-1.5 mb-2 flex-wrap">
+              {debtPeriodOptions.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setDebtPeriod(p.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+                    debtPeriod === p.id
+                      ? 'bg-amber-500/20 text-amber-400'
+                      : isDark
+                        ? 'bg-white/5 opacity-70'
+                        : 'bg-gray-100 opacity-80'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {debtPeriod === 'custom' ? (
+              <div
+                className="grid grid-cols-2 gap-2 mb-3 p-3 rounded-xl"
+                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc' }}
+              >
+                <div>
+                  <label className="block text-[10px] opacity-60 mb-1">Dan (boshlanish)</label>
+                  <input
+                    type="date"
+                    value={debtCustomRange.from}
+                    max={debtCustomRange.to}
+                    onChange={(e) =>
+                      setDebtCustomRange((r) => ({ ...r, from: e.target.value }))
+                    }
+                    className={`w-full px-2 py-2 rounded-lg border text-sm ${
+                      isDark
+                        ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]'
+                        : 'bg-white border-gray-200'
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] opacity-60 mb-1">Gacha (tugash)</label>
+                  <input
+                    type="date"
+                    value={debtCustomRange.to}
+                    min={debtCustomRange.from}
+                    max={toIsoDate(new Date())}
+                    onChange={(e) =>
+                      setDebtCustomRange((r) => ({ ...r, to: e.target.value }))
+                    }
+                    className={`w-full px-2 py-2 rounded-lg border text-sm ${
+                      isDark
+                        ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]'
+                        : 'bg-white border-gray-200'
+                    }`}
+                  />
+                </div>
+              </div>
+            ) : null}
+
             <div className="grid grid-cols-2 gap-2">
               <StatTile
                 label="Ochiq qarz"
-                value={formatMoney(analytics.openDebtTotal)}
-                sub={`${analytics.openDebtCount} ta`}
+                value={formatMoney(debtSummary.openDebtTotal)}
+                sub={`${debtSummary.openDebtCount} ta`}
                 color="#f59e0b"
                 isDark={isDark}
               />
               <StatTile
                 label="Muddati o‘tgan"
-                value={formatMoney(analytics.overdueTotal)}
-                sub={`${analytics.overdueCount} ta`}
+                value={formatMoney(debtSummary.overdueTotal)}
+                sub={`${debtSummary.overdueCount} ta`}
                 color="#ef4444"
                 isDark={isDark}
               />
+              <StatTile
+                label="Yakunlangan"
+                value={formatMoney(debtSummary.closedDebtTotal)}
+                sub={`${debtSummary.closedDebtCount} ta`}
+                color="#10b981"
+                isDark={isDark}
+              />
+              <StatTile
+                label="Undirilgan"
+                value={formatMoney(debtSummary.collectedTotal)}
+                sub={
+                  debtSummary.creditSalesTotal > 0
+                    ? `${Math.round((debtSummary.collectedTotal / debtSummary.creditSalesTotal) * 100)}%`
+                    : '0%'
+                }
+                color={accentColor.color}
+                isDark={isDark}
+              />
             </div>
-            {analytics.dueSoonCount > 0 ? (
+            {debtSummary.dueSoonCount > 0 ? (
               <div
                 className="mt-3 flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
                 style={{ background: isDark ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.1)' }}
               >
                 <CalendarClock className="w-4 h-4 text-blue-400 shrink-0" />
                 <span>
-                  <strong>{analytics.dueSoonCount}</strong> ta qarz 7 kun ichida
+                  <strong>{debtSummary.dueSoonCount}</strong> ta qarz 7 kun ichida
                 </span>
               </div>
             ) : null}
@@ -327,9 +484,13 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
             {filteredSales.length === 0 ? (
               <p className="text-sm opacity-60 py-6 text-center">
                 {filter === 'closed'
-                  ? 'Yakunlangan qarz yo‘q'
-                  : analytics.openDebtCount === 0
-                    ? 'Ochiq qarz yo‘q'
+                  ? debtPeriod === 'all'
+                    ? 'Yakunlangan qarz yo‘q'
+                    : 'Tanlangan davrda yakunlangan qarz yo‘q'
+                  : debtSummary.openDebtCount === 0
+                    ? debtPeriod === 'all'
+                      ? 'Ochiq qarz yo‘q'
+                      : 'Tanlangan davrda ochiq qarz yo‘q'
                     : 'Filtr bo‘yicha topilmadi'}
               </p>
             ) : (
@@ -485,10 +646,83 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
       {section === 'statistika' ? (
         <>
           <Card isDark={isDark}>
-            <div className="flex items-center gap-2 mb-3">
-              <PieChart className="w-5 h-5" style={{ color: accentColor.color }} />
-              <h3 className="font-bold text-base">Umumiy ko‘rsatkichlar</h3>
+            <div className="flex items-center gap-2 mb-2">
+              <PieChart className="w-5 h-5 shrink-0" style={{ color: accentColor.color }} />
+              <div className="min-w-0">
+                <h3 className="font-bold text-base">Umumiy ko‘rsatkichlar</h3>
+                <p className="text-[10px] opacity-55 truncate">
+                  {getHistoryPeriodLabel(statPeriod)}
+                  {statPeriod !== 'all'
+                    ? ` · ${statAnalytics.totalSalesCount} ta sotuv`
+                    : ''}
+                </p>
+              </div>
             </div>
+
+            <p className="text-xs opacity-60 mb-3">
+              Vaqt oralig‘ini tanlang yoki «Tanlash» orqali aniq sanani belgilang.
+            </p>
+
+            <div className="flex gap-1.5 mb-2 flex-wrap">
+              {statPeriodOptions.map((p) => (
+                <button
+                  key={p.id}
+                  type="button"
+                  onClick={() => setStatPeriod(p.id)}
+                  className={`px-3 py-1.5 rounded-full text-xs font-bold ${
+                    statPeriod === p.id
+                      ? 'bg-emerald-500/20 text-emerald-400'
+                      : isDark
+                        ? 'bg-white/5 opacity-70'
+                        : 'bg-gray-100 opacity-80'
+                  }`}
+                >
+                  {p.label}
+                </button>
+              ))}
+            </div>
+
+            {statPeriod === 'custom' ? (
+              <div
+                className="grid grid-cols-2 gap-2 mb-3 p-3 rounded-xl"
+                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc' }}
+              >
+                <div>
+                  <label className="block text-[10px] opacity-60 mb-1">Dan (boshlanish)</label>
+                  <input
+                    type="date"
+                    value={statCustomRange.from}
+                    max={statCustomRange.to}
+                    onChange={(e) =>
+                      setStatCustomRange((r) => ({ ...r, from: e.target.value }))
+                    }
+                    className={`w-full px-2 py-2 rounded-lg border text-sm ${
+                      isDark
+                        ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]'
+                        : 'bg-white border-gray-200'
+                    }`}
+                  />
+                </div>
+                <div>
+                  <label className="block text-[10px] opacity-60 mb-1">Gacha (tugash)</label>
+                  <input
+                    type="date"
+                    value={statCustomRange.to}
+                    min={statCustomRange.from}
+                    max={toIsoDate(new Date())}
+                    onChange={(e) =>
+                      setStatCustomRange((r) => ({ ...r, to: e.target.value }))
+                    }
+                    className={`w-full px-2 py-2 rounded-lg border text-sm ${
+                      isDark
+                        ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]'
+                        : 'bg-white border-gray-200'
+                    }`}
+                  />
+                </div>
+              </div>
+            ) : null}
+
             <div
               className="rounded-xl p-4 mb-3"
               style={{
@@ -503,19 +737,19 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 Jami foyda (yalpi)
               </div>
               <div
-                className={`text-2xl font-black ${analytics.totalProfit < 0 ? 'text-red-400' : 'text-emerald-500'}`}
+                className={`text-2xl font-black ${statAnalytics.totalProfit < 0 ? 'text-red-400' : 'text-emerald-500'}`}
               >
-                {formatMoney(analytics.totalProfit)}
+                {formatMoney(statAnalytics.totalProfit)}
               </div>
               <div className="text-[10px] opacity-55 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
                 <span>
-                  Xarajat: <strong>{formatMoney(analytics.totalCost)}</strong>
+                  Xarajat: <strong>{formatMoney(statAnalytics.totalCost)}</strong>
                 </span>
                 <span>
-                  Marja: <strong>{analytics.profitMarginPercent}%</strong>
+                  Marja: <strong>{statAnalytics.profitMarginPercent}%</strong>
                 </span>
                 <span>
-                  O‘rtacha: <strong>{formatMoney(analytics.avgProfitPerSale)}</strong>/sotuv
+                  O‘rtacha: <strong>{formatMoney(statAnalytics.avgProfitPerSale)}</strong>/sotuv
                 </span>
               </div>
             </div>
@@ -523,59 +757,59 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
             <div className="grid grid-cols-2 gap-2">
               <StatTile
                 label="Jami aylanma"
-                value={formatMoney(analytics.totalRevenue)}
-                sub={`${analytics.totalSalesCount} ta sotuv`}
+                value={formatMoney(statAnalytics.totalRevenue)}
+                sub={`${statAnalytics.totalSalesCount} ta sotuv`}
                 color={accentColor.color}
                 isDark={isDark}
               />
               <StatTile
                 label="Jami foyda"
-                value={formatMoney(analytics.totalProfit)}
-                sub={`Marja ${analytics.profitMarginPercent}%`}
-                color={analytics.totalProfit >= 0 ? '#10b981' : '#ef4444'}
+                value={formatMoney(statAnalytics.totalProfit)}
+                sub={`Marja ${statAnalytics.profitMarginPercent}%`}
+                color={statAnalytics.totalProfit >= 0 ? '#10b981' : '#ef4444'}
                 isDark={isDark}
               />
               <StatTile
                 label="O‘rtacha sotuv"
-                value={formatMoney(analytics.avgSaleAmount)}
-                sub={`Foyda ${formatMoney(analytics.avgProfitPerSale)}`}
+                value={formatMoney(statAnalytics.avgSaleAmount)}
+                sub={`Foyda ${formatMoney(statAnalytics.avgProfitPerSale)}`}
                 isDark={isDark}
                 color={isDark ? '#fff' : '#111'}
               />
               <StatTile
                 label="Foyda (naqd / qarz)"
-                value={formatMoney(analytics.naqdProfit)}
-                sub={`Qarzli ${formatMoney(analytics.qarzProfit)}`}
+                value={formatMoney(statAnalytics.naqdProfit)}
+                sub={`Qarzli ${formatMoney(statAnalytics.qarzProfit)}`}
                 color="#22d3ee"
                 isDark={isDark}
               />
               <StatTile
                 label="Undirilgan (kredit)"
-                value={formatMoney(analytics.paidOnCreditTotal)}
-                sub={`Undirish ${analytics.collectionRate}%`}
+                value={formatMoney(statAnalytics.paidOnCreditTotal)}
+                sub={`Undirish ${statAnalytics.collectionRate}%`}
                 color="#10b981"
                 isDark={isDark}
               />
               <StatTile
                 label="Yopilgan qarzlar"
-                value={String(analytics.closedDebtCount)}
-                sub={`Naqd ${analytics.naqdSalesCount} · Qarz ${analytics.qarzSalesCount}`}
+                value={String(statAnalytics.closedDebtCount)}
+                sub={`Naqd ${statAnalytics.naqdSalesCount} · Qarz ${statAnalytics.qarzSalesCount}`}
                 color="#6366f1"
                 isDark={isDark}
               />
               <StatTile
                 label="Operatsion xarajat"
-                value={formatMoney(expenseAll.total)}
-                sub={`Naqd ${formatMoney(expenseAll.naqdTotal)} · Karta ${formatMoney(expenseAll.kartaTotal)}`}
+                value={formatMoney(statExpenses.total)}
+                sub={`Naqd ${formatMoney(statExpenses.naqdTotal)} · Karta ${formatMoney(statExpenses.kartaTotal)}`}
                 color="#f87171"
                 isDark={isDark}
               />
               <StatTile
                 label="Sof foyda (taxminiy)"
-                value={formatMoney(analytics.totalProfit - expenseAll.total)}
+                value={formatMoney(statAnalytics.totalProfit - statExpenses.total)}
                 sub="Foyda − xarajatlar"
                 color={
-                  analytics.totalProfit - expenseAll.total >= 0 ? '#10b981' : '#ef4444'
+                  statAnalytics.totalProfit - statExpenses.total >= 0 ? '#10b981' : '#ef4444'
                 }
                 isDark={isDark}
               />
@@ -588,8 +822,8 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                   Naqd vs qarzli
                 </span>
                 <span className="font-mono text-[10px] opacity-60">
-                  {analytics.totalRevenue > 0
-                    ? `${Math.round((analytics.naqdRevenue / analytics.totalRevenue) * 100)}% naqd`
+                  {statAnalytics.totalRevenue > 0
+                    ? `${Math.round((statAnalytics.naqdRevenue / statAnalytics.totalRevenue) * 100)}% naqd`
                     : '—'}
                 </span>
               </div>
@@ -600,28 +834,28 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 <div
                   className="h-full bg-emerald-500"
                   style={{
-                    width: analytics.totalRevenue
-                      ? `${(analytics.naqdRevenue / analytics.totalRevenue) * 100}%`
+                    width: statAnalytics.totalRevenue
+                      ? `${(statAnalytics.naqdRevenue / statAnalytics.totalRevenue) * 100}%`
                       : '0%',
                   }}
                 />
                 <div
                   className="h-full bg-amber-500"
                   style={{
-                    width: analytics.totalRevenue
-                      ? `${(analytics.creditSalesTotal / analytics.totalRevenue) * 100}%`
+                    width: statAnalytics.totalRevenue
+                      ? `${(statAnalytics.creditSalesTotal / statAnalytics.totalRevenue) * 100}%`
                       : '0%',
                   }}
                 />
               </div>
             </div>
 
-            {analytics.totalRevenue > 0 ? (
+            {statAnalytics.totalRevenue > 0 ? (
               <div className="mt-4">
                 <div className="flex justify-between text-xs mb-1.5">
                   <span className="opacity-70">Aylanma vs foyda</span>
                   <span className="font-mono text-[10px] opacity-60">
-                    Foyda {analytics.profitMarginPercent}%
+                    Foyda {statAnalytics.profitMarginPercent}%
                   </span>
                 </div>
                 <div
@@ -631,34 +865,43 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                   <div
                     className="h-full bg-slate-500/60"
                     style={{
-                      width: `${Math.min(100, (analytics.totalCost / analytics.totalRevenue) * 100)}%`,
+                      width: `${Math.min(100, (statAnalytics.totalCost / statAnalytics.totalRevenue) * 100)}%`,
                     }}
                     title="Xarajat"
                   />
                   <div
                     className="h-full bg-emerald-500"
                     style={{
-                      width: `${Math.max(0, Math.min(100, (analytics.totalProfit / analytics.totalRevenue) * 100))}%`,
+                      width: `${Math.max(0, Math.min(100, (statAnalytics.totalProfit / statAnalytics.totalRevenue) * 100))}%`,
                     }}
                     title="Foyda"
                   />
                 </div>
                 <div className="flex justify-between text-[10px] opacity-50 mt-1">
-                  <span>Xarajat {formatMoney(analytics.totalCost)}</span>
-                  <span className="text-emerald-500/90">Foyda {formatMoney(analytics.totalProfit)}</span>
+                  <span>Xarajat {formatMoney(statAnalytics.totalCost)}</span>
+                  <span className="text-emerald-500/90">Foyda {formatMoney(statAnalytics.totalProfit)}</span>
                 </div>
               </div>
+            ) : statPeriod !== 'all' ? (
+              <p className="text-sm opacity-60 text-center py-4 mt-2">
+                Tanlangan davrda sotuv topilmadi
+              </p>
             ) : null}
           </Card>
 
-          {analytics.monthly.length > 0 ? (
+          {statAnalytics.monthly.length > 0 ? (
             <Card isDark={isDark}>
               <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
                 <BarChart3 className="w-4 h-4" style={{ color: accentColor.color }} />
                 Oylik aylanma va foyda
+                {statPeriod !== 'all' ? (
+                  <span className="text-[10px] font-normal opacity-50">
+                    ({getHistoryPeriodLabel(statPeriod)})
+                  </span>
+                ) : null}
               </h3>
               <ul className={dillerListClass}>
-                {analytics.monthly.map((m) => (
+                {statAnalytics.monthly.map((m) => (
                   <li key={m.key}>
                     <div className="flex justify-between text-xs mb-1 gap-2">
                       <span className="font-semibold">{m.label}</span>
@@ -703,14 +946,19 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
             </Card>
           ) : null}
 
-          {analytics.byStore.length > 0 ? (
+          {statAnalytics.byStore.length > 0 ? (
             <Card isDark={isDark}>
               <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
                 <Store className="w-4 h-4 text-emerald-400" />
                 Do‘konlar bo‘yicha ochiq qarz
+                {statPeriod !== 'all' ? (
+                  <span className="text-[10px] font-normal opacity-50">
+                    ({getHistoryPeriodLabel(statPeriod)})
+                  </span>
+                ) : null}
               </h3>
               <ul className="space-y-3">
-                {analytics.byStore.slice(0, 10).map((row) => (
+                {statAnalytics.byStore.slice(0, 10).map((row) => (
                   <li key={row.storeId}>
                     <div className="flex justify-between text-xs mb-1 gap-2">
                       <span className="font-semibold truncate">{row.storeName}</span>
@@ -733,11 +981,18 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
             </Card>
           ) : null}
 
-          {analytics.topStoresByRevenue.length > 0 ? (
+          {statAnalytics.topStoresByRevenue.length > 0 ? (
             <Card isDark={isDark}>
-              <h3 className="font-bold text-sm mb-3">Top do‘konlar (sotuv)</h3>
+              <h3 className="font-bold text-sm mb-3">
+                Top do‘konlar (sotuv)
+                {statPeriod !== 'all' ? (
+                  <span className="text-[10px] font-normal opacity-50 ml-1">
+                    ({getHistoryPeriodLabel(statPeriod)})
+                  </span>
+                ) : null}
+              </h3>
               <ul className="space-y-2">
-                {analytics.topStoresByRevenue.map((row, i) => (
+                {statAnalytics.topStoresByRevenue.map((row, i) => (
                   <li
                     key={row.storeId}
                     className="flex justify-between text-sm py-2 border-b last:border-0"
@@ -756,11 +1011,18 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
             </Card>
           ) : null}
 
-          {analytics.topProductsByQty.length > 0 ? (
+          {statAnalytics.topProductsByQty.length > 0 ? (
             <Card isDark={isDark}>
-              <h3 className="font-bold text-sm mb-3">Top mahsulotlar</h3>
+              <h3 className="font-bold text-sm mb-3">
+                Top mahsulotlar
+                {statPeriod !== 'all' ? (
+                  <span className="text-[10px] font-normal opacity-50 ml-1">
+                    ({getHistoryPeriodLabel(statPeriod)})
+                  </span>
+                ) : null}
+              </h3>
               <ul className="space-y-2">
-                {analytics.topProductsByQty.map((row, i) => (
+                {statAnalytics.topProductsByQty.map((row, i) => (
                   <li
                     key={row.productId}
                     className="flex justify-between text-sm py-2 border-b last:border-0 gap-2"

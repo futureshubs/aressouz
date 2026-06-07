@@ -64,7 +64,7 @@ export function isSaleDueSoon(sale: DillerSale, now = startOfToday(), withinDays
   return due.getTime() >= now.getTime() && due.getTime() <= end.getTime();
 }
 
-export function computeDebtAnalytics(data: DillerData): DebtAnalytics {
+export function computeDebtAnalytics(data: DillerData, sales = data.sales): DebtAnalytics {
   const today = startOfToday();
   let openDebtTotal = 0;
   let paidOnCreditTotal = 0;
@@ -78,7 +78,7 @@ export function computeDebtAnalytics(data: DillerData): DebtAnalytics {
 
   const storeMap = new Map<string, DebtStoreSummary>();
 
-  for (const sale of data.sales) {
+  for (const sale of sales) {
     totalRevenue += sale.total;
     if (sale.paymentType === 'naqd') {
       naqdRevenue += sale.total;
@@ -147,8 +147,10 @@ export function computeDebtAnalytics(data: DillerData): DebtAnalytics {
 
 export type DebtFilter = 'all' | 'overdue' | 'soon' | 'open' | 'closed';
 
-export function filterDebtSales(sales: DillerSale[], filter: DebtFilter): DillerSale[] {
-  const creditSales = sales.filter((s) => s.paymentType === 'qarz');
+export function applyDebtFilterToCreditSales(
+  creditSales: DillerSale[],
+  filter: DebtFilter,
+): DillerSale[] {
   const open = creditSales.filter(isSaleDebtOpen);
   const closed = creditSales.filter(isSaleDebtClosed);
 
@@ -160,9 +162,93 @@ export function filterDebtSales(sales: DillerSale[], filter: DebtFilter): Diller
   return open;
 }
 
+export function filterDebtSales(sales: DillerSale[], filter: DebtFilter): DillerSale[] {
+  return applyDebtFilterToCreditSales(
+    sales.filter((s) => s.paymentType === 'qarz'),
+    filter,
+  );
+}
+
+export type PeriodDebtSummary = {
+  openDebtTotal: number;
+  openDebtCount: number;
+  overdueTotal: number;
+  overdueCount: number;
+  closedDebtTotal: number;
+  closedDebtCount: number;
+  dueSoonCount: number;
+  collectedTotal: number;
+  creditSalesTotal: number;
+  creditSalesCount: number;
+};
+
+export function computePeriodDebtSummaryFromCreditSales(
+  creditSales: DillerSale[],
+  now = startOfToday(),
+): PeriodDebtSummary {
+  let openDebtTotal = 0;
+  let openDebtCount = 0;
+  let overdueTotal = 0;
+  let overdueCount = 0;
+  let closedDebtTotal = 0;
+  let closedDebtCount = 0;
+  let dueSoonCount = 0;
+  let collectedTotal = 0;
+  let creditSalesTotal = 0;
+
+  for (const sale of creditSales) {
+    creditSalesTotal += sale.total;
+    collectedTotal += sale.paidAmount ?? 0;
+
+    if (isSaleDebtClosed(sale)) {
+      closedDebtCount += 1;
+      closedDebtTotal += sale.total;
+      continue;
+    }
+
+    const debt = sale.debtAmount ?? 0;
+    if (debt <= 0) continue;
+
+    openDebtTotal += debt;
+    openDebtCount += 1;
+    if (isSaleOverdue(sale, now)) {
+      overdueCount += 1;
+      overdueTotal += debt;
+    }
+    if (isSaleDueSoon(sale, now)) dueSoonCount += 1;
+  }
+
+  return {
+    openDebtTotal,
+    openDebtCount,
+    overdueTotal,
+    overdueCount,
+    closedDebtTotal,
+    closedDebtCount,
+    dueSoonCount,
+    collectedTotal,
+    creditSalesTotal,
+    creditSalesCount: creditSales.length,
+  };
+}
+
+export function computePeriodDebtSummary(
+  data: DillerData,
+  period: HistoryPeriod,
+  customRange?: HistoryDateRange,
+): PeriodDebtSummary {
+  const creditSales = filterSalesByPeriod(
+    data.sales.filter((s) => s.paymentType === 'qarz'),
+    period,
+    customRange,
+  );
+  return computePeriodDebtSummaryFromCreditSales(creditSales);
+}
+
 export type HistoryPeriod =
   | 'all'
   | '1d'
+  | '2d'
   | '1w'
   | '1m'
   | '3m'
@@ -210,6 +296,7 @@ function periodWindow(
   const dayMs = 24 * 60 * 60 * 1000;
   const rollingDays: Partial<Record<HistoryPeriod, number>> = {
     '1d': 1,
+    '2d': 2,
     '1w': 7,
     '1m': 30,
     '3m': 90,
@@ -312,6 +399,24 @@ function monthLabel(key: string): string {
   return `${name} ${y}`;
 }
 
+const PERIOD_LABELS: Record<HistoryPeriod, string> = {
+  all: 'Barcha vaqt',
+  '1d': '1 kun',
+  '2d': '2 kun',
+  '1w': '1 hafta',
+  '1m': '1 oy',
+  '3m': '3 oy',
+  '6m': '6 oy',
+  '1y': '1 yil',
+  '3y': '3 yil',
+  '5y': '5 yil',
+  custom: 'Tanlangan davr',
+};
+
+export function getHistoryPeriodLabel(period: HistoryPeriod): string {
+  return PERIOD_LABELS[period] ?? period;
+}
+
 export function filterSalesByPeriod(
   sales: DillerSale[],
   period: HistoryPeriod,
@@ -350,9 +455,11 @@ export function groupSalesByMonth(sales: DillerSale[]): SaleHistoryGroup[] {
     }));
 }
 
-export function computeExtendedAnalytics(data: DillerData): ExtendedDebtAnalytics {
-  const base = computeDebtAnalytics(data);
-  const sales = data.sales;
+export function computeExtendedAnalytics(
+  data: DillerData,
+  sales = data.sales,
+): ExtendedDebtAnalytics {
+  const base = computeDebtAnalytics(data, sales);
 
   let naqdSalesCount = 0;
   let qarzSalesCount = 0;
@@ -442,6 +549,15 @@ export function computeExtendedAnalytics(data: DillerData): ExtendedDebtAnalytic
     topStoresByRevenue: [...storeRev.values()].sort((a, b) => b.total - a.total).slice(0, 8),
     topProductsByQty: [...productQty.values()].sort((a, b) => b.qty - a.qty).slice(0, 8),
   };
+}
+
+export function computeExtendedAnalyticsForPeriod(
+  data: DillerData,
+  period: HistoryPeriod,
+  customRange?: HistoryDateRange,
+): ExtendedDebtAnalytics {
+  const sales = filterSalesByPeriod(data.sales, period, customRange);
+  return computeExtendedAnalytics(data, sales);
 }
 
 export function getMaxMonthlyTotal(monthly: MonthlyStat[]): number {

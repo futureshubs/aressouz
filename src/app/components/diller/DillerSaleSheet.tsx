@@ -18,6 +18,8 @@ type Props = {
   onClose: () => void;
   data: DillerData;
   onComplete: (next: DillerData) => void;
+  /** Do‘kondan sotuv — do‘kon avtomatik tanlanadi */
+  initialStoreId?: string | null;
 };
 
 const inputCls = (isDark: boolean) =>
@@ -31,7 +33,7 @@ function unitLabel(u: string) {
   return DILLER_PRODUCT_UNITS.find((x) => x.value === u)?.label ?? u;
 }
 
-export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
+export function DillerSaleSheet({ open, onClose, data, onComplete, initialStoreId = null }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
@@ -47,11 +49,21 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
   const [debtDueDate, setDebtDueDate] = useState('');
   const [note, setNote] = useState('');
 
+  const presetStore = initialStoreId
+    ? data.stores.find((s) => s.id === initialStoreId)
+    : undefined;
+
+  const inStockProducts = useMemo(
+    () =>
+      data.products.filter((p) => getWarehouseQty(data, p.id) > 0).slice(0, 40),
+    [data],
+  );
+
   useEffect(() => {
     if (!open) return;
     setProductId('');
     setProductSearch('');
-    setStoreId('');
+    setStoreId(presetStore?.id ?? '');
     setStoreSearch('');
     setQty(1);
     setDiscountOn(false);
@@ -60,7 +72,7 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
     setPaidNow('');
     setDebtDueDate('');
     setNote('');
-  }, [open, data.products, data.stores]);
+  }, [open, data.products, data.stores, initialStoreId, presetStore?.id]);
 
   const product = data.products.find((p) => p.id === productId);
   const stock = product ? getWarehouseQty(data, product.id) : 0;
@@ -161,7 +173,7 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
   return (
     <div
       className={dillerSheetShellClass}
-      style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: 110 }}
+      style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: initialStoreId ? 116 : 110 }}
     >
       <header
         className="shrink-0 flex items-center justify-between px-4 py-3 border-b"
@@ -169,9 +181,13 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
       >
         <div>
           <h2 className="text-lg font-bold" style={{ color: isDark ? '#fff' : '#111' }}>
-            Yangi sotuv
+            {presetStore ? 'Do‘konga sotuv' : 'Yangi sotuv'}
           </h2>
-          <p className="text-xs opacity-60">Mahsulot → miqdor → do‘kon → to‘lov</p>
+          <p className="text-xs opacity-60">
+            {presetStore
+              ? `${presetStore.name} · mahsulot tanlang`
+              : 'Mahsulot → miqdor → do‘kon → to‘lov'}
+          </p>
         </div>
         <button
           type="button"
@@ -198,6 +214,34 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
       ) : (
         <>
           <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-5 max-w-lg mx-auto w-full`}>
+            {presetStore ? (
+              <section>
+                <div
+                  className="p-3 rounded-2xl border flex items-center gap-3"
+                  style={{
+                    background: isDark ? 'rgba(66,133,244,0.12)' : 'rgba(66,133,244,0.08)',
+                    borderColor: isDark ? 'rgba(66,133,244,0.25)' : 'rgba(66,133,244,0.2)',
+                  }}
+                >
+                  <div
+                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-lg"
+                    style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#fff' }}
+                  >
+                    🏪
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="text-[10px] font-bold uppercase tracking-wide text-blue-400">
+                      Sotuv do‘koni
+                    </div>
+                    <div className="font-bold text-sm truncate">{presetStore.name}</div>
+                    {presetStore.address ? (
+                      <div className="text-[10px] opacity-60 truncate">{presetStore.address}</div>
+                    ) : null}
+                  </div>
+                </div>
+              </section>
+            ) : null}
+
             {/* Mahsulot */}
             <section>
               <h3 className="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">Mahsulot</h3>
@@ -286,9 +330,45 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
                       )}
                     </div>
                   ) : (
-                    <p className="text-xs opacity-50 text-center py-4 px-2">
-                      Qidiruv yozing — mahsulot chiqadi, ustiga bosing va tanlang
-                    </p>
+                    <>
+                      {presetStore && inStockProducts.length > 0 ? (
+                        <div className="mb-3">
+                          <p className="text-[10px] font-bold uppercase tracking-wide opacity-45 mb-2">
+                            Ombordagi mahsulotlar
+                          </p>
+                          <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
+                            {inStockProducts.map((p) => {
+                              const q = getWarehouseQty(data, p.id);
+                              return (
+                                <button
+                                  key={p.id}
+                                  type="button"
+                                  onClick={() => selectProduct(p)}
+                                  className="w-full text-left p-3 rounded-2xl border transition-all active:scale-[0.99]"
+                                  style={{
+                                    background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                                    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+                                  }}
+                                >
+                                  <div className="font-semibold text-sm truncate">{p.name}</div>
+                                  <div className="text-xs opacity-70">{p.firmName}</div>
+                                  <div className="flex justify-between items-center mt-1">
+                                    <span className="text-sm font-bold text-emerald-500">
+                                      {formatMoney(p.unitPrice)}
+                                    </span>
+                                    <span className="text-xs opacity-60">Ombor: {q}</span>
+                                  </div>
+                                </button>
+                              );
+                            })}
+                          </div>
+                          <p className="text-[10px] opacity-40 text-center mt-2">yoki qidiruv orqali toping</p>
+                        </div>
+                      ) : null}
+                      <p className="text-xs opacity-50 text-center py-2 px-2">
+                        Qidiruv yozing — mahsulot chiqadi, ustiga bosing va tanlang
+                      </p>
+                    </>
                   )}
                 </>
               )}
@@ -332,6 +412,7 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
             ) : null}
 
             {/* Do'kon */}
+            {!presetStore ? (
             <section>
               <h3 className="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">Do‘kon</h3>
 
@@ -417,6 +498,7 @@ export function DillerSaleSheet({ open, onClose, data, onComplete }: Props) {
                 </>
               )}
             </section>
+            ) : null}
 
             {/* Chegirma */}
             {totals ? (
