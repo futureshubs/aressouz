@@ -11,22 +11,27 @@ import {
   PieChart,
   Search,
   Store,
-  TrendingUp,
   Wallet,
   CircleDollarSign,
   Receipt,
+  Banknote,
+  HandCoins,
+  Navigation,
 } from 'lucide-react';
+import { useDillerUserLocation } from '../../hooks/useDillerUserLocation';
 import { DillerHarajatSection } from './DillerHarajatSection';
 import { computeExpenseSummary, filterExpensesByPeriod } from '../../utils/dillerExpenseAnalytics';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerSale } from '../../utils/dillerData';
 import { formatMoney, recordDebtPayment, settleDebtFully } from '../../utils/dillerData';
+import { formatStoreDistance, getStoreDistanceKm, getStoreStats } from '../../utils/dillerStoreStats';
 import { DillerSaleCard } from './DillerSaleCard';
 import { DillerSaleReceiptModal } from './DillerSaleReceiptModal';
 import {
   computeExtendedAnalyticsForPeriod,
   applyDebtFilterToCreditSales,
   computePeriodDebtSummaryFromCreditSales,
+  computePaymentFlowBreakdown,
   defaultCustomHistoryRange,
   filterSalesByPeriod,
   toIsoDate,
@@ -141,6 +146,16 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
     return computeExpenseSummary(list);
   }, [data.expenses, statPeriod, statCustomRange]);
 
+  const paymentFlow = useMemo(
+    () =>
+      computePaymentFlowBreakdown(
+        data,
+        statPeriod,
+        statPeriod === 'custom' ? statCustomRange : undefined,
+      ),
+    [data, statPeriod, statCustomRange],
+  );
+
   const maxStoreDebt = Math.max(1, ...statAnalytics.byStore.map((s) => s.openDebt));
   const maxMonthTotal = getMaxMonthlyTotal(statAnalytics.monthly);
   const maxMonthProfit = getMaxMonthlyProfit(statAnalytics.monthly);
@@ -160,6 +175,28 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
     [periodQarzSales],
   );
 
+  const { location: userLoc } = useDillerUserLocation(section === 'qarz');
+
+  const storeById = useMemo(
+    () => new Map(data.stores.map((s) => [s.id, s])),
+    [data.stores],
+  );
+
+  const storeDebtById = useMemo(() => {
+    const map = new Map<string, { openDebt: number; openCount: number; totalPaid: number }>();
+    for (const store of data.stores) {
+      const stats = getStoreStats(data, store.id);
+      if (stats.openDebt > 0) {
+        map.set(store.id, {
+          openDebt: stats.openDebt,
+          openCount: stats.openDebtSaleCount,
+          totalPaid: stats.totalPaid,
+        });
+      }
+    }
+    return map;
+  }, [data]);
+
   const filteredSales = useMemo(() => {
     const list = applyDebtFilterToCreditSales(periodQarzSales, filter);
     if (filter === 'closed') {
@@ -168,12 +205,25 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
       );
     }
     return list.sort((a, b) => {
+      const storeDebtA = storeDebtById.get(a.storeId)?.openDebt ?? 0;
+      const storeDebtB = storeDebtById.get(b.storeId)?.openDebt ?? 0;
+      if (storeDebtA !== storeDebtB) return storeDebtA - storeDebtB;
+
+      const distA = getStoreDistanceKm(storeById.get(a.storeId), userLoc) ?? Infinity;
+      const distB = getStoreDistanceKm(storeById.get(b.storeId), userLoc) ?? Infinity;
+      if (distA !== distB) return distA - distB;
+
+      const saleDebtA = a.debtAmount ?? 0;
+      const saleDebtB = b.debtAmount ?? 0;
+      if (saleDebtA !== saleDebtB) return saleDebtA - saleDebtB;
+
       const aOver = isSaleOverdue(a) ? 1 : 0;
       const bOver = isSaleOverdue(b) ? 1 : 0;
       if (bOver !== aOver) return bOver - aOver;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+
+      return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
-  }, [periodQarzSales, filter]);
+  }, [periodQarzSales, filter, storeDebtById, storeById, userLoc]);
 
   const historySales = useMemo(() => {
     let list = filterSalesByPeriod(
@@ -498,9 +548,17 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 {filteredSales.map((sale) => {
                   const store = data.stores.find((s) => s.id === sale.storeId);
                   const product = data.products.find((p) => p.id === sale.productId);
+                  const storeDebt = storeDebtById.get(sale.storeId);
+                  const distanceLabel = formatStoreDistance(
+                    getStoreDistanceKm(store, userLoc),
+                  );
                   const overdue = filter !== 'closed' && isSaleOverdue(sale);
                   const closed = isSaleDebtClosed(sale);
                   const paying = paySaleId === sale.id;
+                  const salePaid = sale.paidAmount ?? 0;
+                  const saleDebt = sale.debtAmount ?? 0;
+                  const saleSettledPercent =
+                    sale.total > 0 ? Math.min(100, Math.round((salePaid / sale.total) * 100)) : 0;
 
                   return (
                     <li
@@ -517,6 +575,42 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                               : 'rgba(0,0,0,0.06)',
                       }}
                     >
+                      {!closed && storeDebt ? (
+                        <div
+                          className="mb-3 rounded-xl px-3 py-2.5"
+                          style={{
+                            background: isDark
+                              ? 'linear-gradient(135deg, rgba(245,158,11,0.16), rgba(217,119,6,0.06))'
+                              : 'linear-gradient(135deg, rgba(245,158,11,0.12), #fffbeb)',
+                            border: isDark
+                              ? '1px solid rgba(245,158,11,0.22)'
+                              : '1px solid rgba(245,158,11,0.18)',
+                          }}
+                        >
+                          <div className="flex items-start justify-between gap-2">
+                            <div className="min-w-0">
+                              <div className="text-[10px] font-semibold opacity-65 uppercase tracking-wide">
+                                Do‘konda qoldiq
+                              </div>
+                              <div className="text-base font-black text-amber-500 truncate">
+                                {formatMoney(storeDebt.openDebt)}
+                              </div>
+                            </div>
+                            <div className="flex flex-col items-end gap-1 shrink-0">
+                              {distanceLabel ? (
+                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-blue-500/15 text-blue-400">
+                                  <Navigation className="w-3 h-3" />
+                                  {distanceLabel}
+                                </span>
+                              ) : null}
+                              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-500/15 text-amber-500">
+                                {storeDebt.openCount} ta ochiq
+                              </span>
+                            </div>
+                          </div>
+                        </div>
+                      ) : null}
+
                       <div className="flex items-start justify-between gap-2">
                         <div className="min-w-0">
                           <div className="font-semibold text-sm truncate">{store?.name ?? '—'}</div>
@@ -553,20 +647,35 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                         ) : (
                           <>
                             <div>
-                              <span className="opacity-50">Qarz</span>
-                              <div className="font-bold text-amber-500">
-                                {formatMoney(sale.debtAmount)}
-                              </div>
+                              <span className="opacity-50">Bu sotuv qarzi</span>
+                              <div className="font-bold text-amber-500">{formatMoney(saleDebt)}</div>
                             </div>
                             <div>
                               <span className="opacity-50">Oldin olingan</span>
                               <div className="font-semibold text-emerald-500/90">
-                                {formatMoney(sale.paidAmount)}
+                                {formatMoney(salePaid)}
                               </div>
                             </div>
                           </>
                         )}
                       </div>
+                      {!closed ? (
+                        <div className="mt-2">
+                          <div className="flex justify-between text-[10px] opacity-55 mb-1">
+                            <span>To‘langan {saleSettledPercent}%</span>
+                            <span>{formatMoney(salePaid)} / {formatMoney(sale.total)}</span>
+                          </div>
+                          <div
+                            className="h-1.5 rounded-full overflow-hidden"
+                            style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0' }}
+                          >
+                            <div
+                              className="h-full rounded-full bg-emerald-500"
+                              style={{ width: `${saleSettledPercent}%` }}
+                            />
+                          </div>
+                        </div>
+                      ) : null}
                       {!closed && sale.debtDueDate ? (
                         <div className="text-[10px] opacity-60 mt-1 flex items-center gap-1">
                           <CalendarClock className="w-3 h-3" />
@@ -754,6 +863,136 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
               </div>
             </div>
 
+            {/* Naqd, yangi qarz, eski qarz undiruvi — alohida */}
+            <div className="mb-3">
+              <div className="flex items-center gap-2 mb-3">
+                <Wallet className="w-4 h-4 shrink-0" style={{ color: accentColor.color }} />
+                <div>
+                  <h4 className="font-bold text-sm">Pul oqimi — alohida</h4>
+                  <p className="text-[10px] opacity-55">
+                    Naqd, yangi qarz va eski qarz undiruvi bir-biriga aralashmaydi
+                  </p>
+                </div>
+              </div>
+
+              <div className="space-y-2 mb-3">
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: isDark
+                      ? 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.08))'
+                      : 'linear-gradient(135deg, rgba(16,185,129,0.14), #ecfdf5)',
+                    border: isDark ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(16,185,129,0.2)',
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold opacity-80 mb-1">
+                        <Banknote className="w-4 h-4 text-emerald-500 shrink-0" />
+                        Naqd sotuv
+                      </div>
+                      <div className="text-[10px] opacity-55">
+                        To‘liq naqd pul bilan sotilgan mahsulotlar
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-xl font-black text-emerald-500">
+                        {formatMoney(paymentFlow.naqd.amount)}
+                      </div>
+                      <div className="text-[10px] opacity-60 mt-0.5">
+                        {paymentFlow.naqd.count} ta sotuv
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: isDark
+                      ? 'linear-gradient(135deg, rgba(245,158,11,0.18), rgba(217,119,6,0.08))'
+                      : 'linear-gradient(135deg, rgba(245,158,11,0.14), #fffbeb)',
+                    border: isDark ? '1px solid rgba(245,158,11,0.25)' : '1px solid rgba(245,158,11,0.2)',
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold opacity-80 mb-1">
+                        <HandCoins className="w-4 h-4 text-amber-500 shrink-0" />
+                        Yangi qarz berilgan
+                      </div>
+                      <div className="text-[10px] opacity-55">
+                        Sotuv paytida yangi ochilgan qarz summasi
+                      </div>
+                      {paymentFlow.newDebt.downPaymentAtSale > 0 ? (
+                        <div className="text-[10px] text-emerald-500/90 mt-1">
+                          Sotuvda oldindan olingan:{' '}
+                          {formatMoney(paymentFlow.newDebt.downPaymentAtSale)}
+                        </div>
+                      ) : null}
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-xl font-black text-amber-500">
+                        {formatMoney(paymentFlow.newDebt.amount)}
+                      </div>
+                      <div className="text-[10px] opacity-60 mt-0.5">
+                        {paymentFlow.newDebt.count} ta sotuv
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div
+                  className="rounded-xl p-4"
+                  style={{
+                    background: isDark
+                      ? 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(79,70,229,0.08))'
+                      : 'linear-gradient(135deg, rgba(99,102,241,0.12), #eef2ff)',
+                    border: isDark ? '1px solid rgba(99,102,241,0.25)' : '1px solid rgba(99,102,241,0.2)',
+                  }}
+                >
+                  <div className="flex items-center justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-1.5 text-xs font-semibold opacity-80 mb-1">
+                        <Receipt className="w-4 h-4 shrink-0" style={{ color: accentColor.color }} />
+                        Eski qarz undirildi
+                      </div>
+                      <div className="text-[10px] opacity-55">
+                        Oldingi qarzlardan olingan to‘lovlar (yopilgan yoki qisman)
+                      </div>
+                    </div>
+                    <div className="text-right shrink-0">
+                      <div className="text-xl font-black" style={{ color: accentColor.color }}>
+                        {formatMoney(paymentFlow.debtCollected.amount)}
+                      </div>
+                      <div className="text-[10px] opacity-60 mt-0.5">
+                        {paymentFlow.debtCollected.count} ta to‘lov
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              <div
+                className="rounded-xl px-4 py-3 flex items-center justify-between gap-2"
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
+                  border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)',
+                }}
+              >
+                <div className="min-w-0">
+                  <div className="text-[10px] opacity-65">Jami kirim (naqd + undirilgan + oldindan)</div>
+                  <div className="text-lg font-black truncate text-emerald-500">
+                    {formatMoney(paymentFlow.totalCashIn)}
+                  </div>
+                </div>
+                <div className="text-right shrink-0 text-[10px] opacity-55">
+                  <div>Aylanma</div>
+                  <div className="font-bold">{formatMoney(statAnalytics.totalRevenue)}</div>
+                </div>
+              </div>
+            </div>
+
             <div className="grid grid-cols-2 gap-2">
               <StatTile
                 label="Jami aylanma"
@@ -770,6 +1009,27 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 isDark={isDark}
               />
               <StatTile
+                label="Jami kirim"
+                value={formatMoney(paymentFlow.totalCashIn)}
+                sub={`Naqd ${formatMoney(paymentFlow.naqd.amount)} · Undirilgan ${formatMoney(paymentFlow.debtCollected.amount)}`}
+                color="#6366f1"
+                isDark={isDark}
+              />
+              <StatTile
+                label="Yangi qarz berilgan"
+                value={formatMoney(paymentFlow.newDebt.amount)}
+                sub={`${paymentFlow.newDebt.count} ta sotuv`}
+                color="#f59e0b"
+                isDark={isDark}
+              />
+              <StatTile
+                label="Qarz qoldig‘i"
+                value={formatMoney(statAnalytics.openDebtTotal)}
+                sub={`${statAnalytics.openDebtCount} ta ochiq`}
+                color="#f59e0b"
+                isDark={isDark}
+              />
+              <StatTile
                 label="O‘rtacha sotuv"
                 value={formatMoney(statAnalytics.avgSaleAmount)}
                 sub={`Foyda ${formatMoney(statAnalytics.avgProfitPerSale)}`}
@@ -777,24 +1037,10 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 color={isDark ? '#fff' : '#111'}
               />
               <StatTile
-                label="Foyda (naqd / qarz)"
-                value={formatMoney(statAnalytics.naqdProfit)}
-                sub={`Qarzli ${formatMoney(statAnalytics.qarzProfit)}`}
-                color="#22d3ee"
-                isDark={isDark}
-              />
-              <StatTile
-                label="Undirilgan (kredit)"
-                value={formatMoney(statAnalytics.paidOnCreditTotal)}
-                sub={`Undirish ${statAnalytics.collectionRate}%`}
+                label="Eski qarz undirildi"
+                value={formatMoney(paymentFlow.debtCollected.amount)}
+                sub={`${paymentFlow.debtCollected.count} ta to‘lov`}
                 color="#10b981"
-                isDark={isDark}
-              />
-              <StatTile
-                label="Yopilgan qarzlar"
-                value={String(statAnalytics.closedDebtCount)}
-                sub={`Naqd ${statAnalytics.naqdSalesCount} · Qarz ${statAnalytics.qarzSalesCount}`}
-                color="#6366f1"
                 isDark={isDark}
               />
               <StatTile
@@ -813,41 +1059,6 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 }
                 isDark={isDark}
               />
-            </div>
-
-            <div className="mt-4">
-              <div className="flex justify-between text-xs mb-1.5">
-                <span className="opacity-70 flex items-center gap-1">
-                  <TrendingUp className="w-3.5 h-3.5" />
-                  Naqd vs qarzli
-                </span>
-                <span className="font-mono text-[10px] opacity-60">
-                  {statAnalytics.totalRevenue > 0
-                    ? `${Math.round((statAnalytics.naqdRevenue / statAnalytics.totalRevenue) * 100)}% naqd`
-                    : '—'}
-                </span>
-              </div>
-              <div
-                className="h-3 rounded-full overflow-hidden flex"
-                style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0' }}
-              >
-                <div
-                  className="h-full bg-emerald-500"
-                  style={{
-                    width: statAnalytics.totalRevenue
-                      ? `${(statAnalytics.naqdRevenue / statAnalytics.totalRevenue) * 100}%`
-                      : '0%',
-                  }}
-                />
-                <div
-                  className="h-full bg-amber-500"
-                  style={{
-                    width: statAnalytics.totalRevenue
-                      ? `${(statAnalytics.creditSalesTotal / statAnalytics.totalRevenue) * 100}%`
-                      : '0%',
-                  }}
-                />
-              </div>
             </div>
 
             {statAnalytics.totalRevenue > 0 ? (
@@ -938,7 +1149,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                       />
                     </div>
                     <div className="text-[10px] opacity-50 mt-0.5">
-                      {m.count} sotuv · Xarajat {formatMoney(m.cost)} · Naqd {formatMoney(m.naqd)}
+                      {m.count} sotuv · Naqd {formatMoney(m.naqd)} · Qarz {formatMoney(m.qarz)}
                     </div>
                   </li>
                 ))}

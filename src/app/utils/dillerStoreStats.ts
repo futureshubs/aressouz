@@ -1,4 +1,5 @@
 import type { DillerData, DillerSale, DillerStore } from './dillerData';
+import { distanceKm } from './leafletMapTiles';
 import {
   googleMapsUrlForAddressQuery,
   googleMapsUrlForCoordinates,
@@ -24,6 +25,7 @@ export type DillerStoreStats = {
   totalRevenue: number;
   totalPaid: number;
   openDebt: number;
+  openDebtSaleCount: number;
   closedDebtSales: number;
   lastSaleAt: string | null;
   firstSaleAt: string | null;
@@ -50,6 +52,23 @@ export function formatDillerDate(iso: string | null | undefined): string {
   return d.toLocaleDateString('uz-UZ', { day: 'numeric', month: 'long', year: 'numeric' });
 }
 
+export function getStoreDistanceKm(
+  store: DillerStore | null | undefined,
+  user: { lat: number; lng: number } | null | undefined,
+): number | null {
+  if (!store || !user) return null;
+  const lat = store.lat;
+  const lng = store.lng;
+  if (lat == null || lng == null || !Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return distanceKm(user.lat, user.lng, lat, lng);
+}
+
+export function formatStoreDistance(km: number | null | undefined): string | null {
+  if (km == null || !Number.isFinite(km)) return null;
+  if (km < 1) return `${Math.max(1, Math.round(km * 1000))} m`;
+  return `${km.toFixed(km < 10 ? 1 : 0)} km`;
+}
+
 export function getStoreSales(data: DillerData, storeId: string): DillerSale[] {
   return data.sales
     .filter((s) => s.storeId === storeId)
@@ -61,6 +80,7 @@ export function getStoreStats(data: DillerData, storeId: string): DillerStoreSta
   let totalRevenue = 0;
   let totalPaid = 0;
   let openDebt = 0;
+  let openDebtSaleCount = 0;
   let closedDebtSales = 0;
   const byProduct = new Map<string, DillerStoreProductRow>();
 
@@ -68,8 +88,10 @@ export function getStoreStats(data: DillerData, storeId: string): DillerStoreSta
     totalRevenue += s.total;
     totalPaid += s.paidAmount ?? 0;
     const debt = s.debtAmount ?? 0;
-    if (debt > 0) openDebt += debt;
-    else if (s.paymentType === 'qarz') closedDebtSales += 1;
+    if (debt > 0) {
+      openDebt += debt;
+      openDebtSaleCount += 1;
+    } else if (s.paymentType === 'qarz') closedDebtSales += 1;
 
     const product = data.products.find((p) => p.id === s.productId);
     const name = product?.name ?? 'Mahsulot';
@@ -93,6 +115,7 @@ export function getStoreStats(data: DillerData, storeId: string): DillerStoreSta
     totalRevenue,
     totalPaid,
     openDebt,
+    openDebtSaleCount,
     closedDebtSales,
     lastSaleAt: sales[0]?.createdAt ?? null,
     firstSaleAt: sales.length > 0 ? sales[sales.length - 1].createdAt : null,

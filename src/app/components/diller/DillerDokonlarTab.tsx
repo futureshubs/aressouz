@@ -10,7 +10,9 @@ import {
   ShoppingCart,
   Store,
   Trash2,
+  Navigation,
 } from 'lucide-react';
+import { useDillerUserLocation } from '../../hooks/useDillerUserLocation';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerStore } from '../../utils/dillerData';
 import {
@@ -18,7 +20,12 @@ import {
   formatMoney,
   formatStoreCoords,
 } from '../../utils/dillerData';
-import { formatDillerDateTime, getStoreStats } from '../../utils/dillerStoreStats';
+import {
+  formatDillerDateTime,
+  formatStoreDistance,
+  getStoreDistanceKm,
+  getStoreStats,
+} from '../../utils/dillerStoreStats';
 import { DillerStoreDetailSheet } from './DillerStoreDetailSheet';
 import { DillerStoreAddSheet } from './DillerStoreAddSheet';
 import { DillerStoreDeleteDialog, type StoreDeleteCandidate } from './DillerStoreDeleteDialog';
@@ -63,6 +70,7 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
   const [deleteCandidate, setDeleteCandidate] = useState<StoreDeleteCandidate | null>(null);
   const [saleOpen, setSaleOpen] = useState(false);
   const [saleStoreId, setSaleStoreId] = useState<string | null>(null);
+  const { location: userLoc } = useDillerUserLocation(true);
 
   const sortedStores = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -76,12 +84,20 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
     return list.sort((a, b) => {
       const sa = getStoreStats(data, a.id);
       const sb = getStoreStats(data, b.id);
+      const da = sa.openDebt;
+      const db = sb.openDebt;
+      if (da > 0 && db <= 0) return -1;
+      if (da <= 0 && db > 0) return 1;
+      if (da !== db) return da - db;
+      const distA = getStoreDistanceKm(a, userLoc) ?? Infinity;
+      const distB = getStoreDistanceKm(b, userLoc) ?? Infinity;
+      if (distA !== distB) return distA - distB;
       const ta = sa.lastSaleAt ? new Date(sa.lastSaleAt).getTime() : 0;
       const tb = sb.lastSaleAt ? new Date(sb.lastSaleAt).getTime() : 0;
       if (tb !== ta) return tb - ta;
       return a.name.localeCompare(b.name, 'uz');
     });
-  }, [data.stores, data.sales, search, data]);
+  }, [data.stores, data.sales, search, data, userLoc]);
 
   const requestDelete = (store: DillerStore) => {
     const stats = getStoreStats(data, store.id);
@@ -232,6 +248,7 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
                 data={data}
                 isDark={isDark}
                 accentColor={accentColor}
+                userLoc={userLoc}
                 onOpen={() => setDetailStore(s)}
                 onEdit={() => openEdit(s)}
                 onDelete={() => requestDelete(s)}
@@ -260,6 +277,7 @@ function StoreListCard({
   data,
   isDark,
   accentColor,
+  userLoc,
   onOpen,
   onEdit,
   onDelete,
@@ -269,6 +287,7 @@ function StoreListCard({
   data: DillerData;
   isDark: boolean;
   accentColor: { color: string; gradient: string };
+  userLoc: { lat: number; lng: number } | null;
   onOpen: () => void;
   onEdit: () => void;
   onDelete: () => void;
@@ -277,6 +296,11 @@ function StoreListCard({
   const stats = getStoreStats(data, store.id);
   const coords = formatStoreCoords(store);
   const hasDebt = stats.openDebt > 0;
+  const distanceLabel = formatStoreDistance(getStoreDistanceKm(store, userLoc));
+  const debtSettledPercent =
+    stats.totalRevenue > 0
+      ? Math.min(100, Math.round((stats.totalPaid / stats.totalRevenue) * 100))
+      : 0;
 
   return (
     <li>
@@ -284,10 +308,65 @@ function StoreListCard({
         className="rounded-2xl border overflow-hidden transition-all group"
         style={{
           background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
+          borderColor: hasDebt
+            ? isDark
+              ? 'rgba(245,158,11,0.28)'
+              : 'rgba(245,158,11,0.22)'
+            : isDark
+              ? 'rgba(255,255,255,0.08)'
+              : 'rgba(0,0,0,0.08)',
         }}
       >
         <div className="h-1" style={{ background: hasDebt ? '#f59e0b' : accentColor.gradient }} />
+        {hasDebt ? (
+          <div
+            className="px-3.5 pt-3 pb-2"
+            style={{
+              background: isDark
+                ? 'linear-gradient(135deg, rgba(245,158,11,0.14), rgba(217,119,6,0.05))'
+                : 'linear-gradient(135deg, rgba(245,158,11,0.1), #fffbeb)',
+            }}
+          >
+            <div className="flex items-start justify-between gap-2">
+              <div className="min-w-0">
+                <div className="text-[10px] font-semibold opacity-60 uppercase tracking-wide">
+                  Do‘konda qoldiq
+                </div>
+                <div className="text-lg font-black text-amber-500 truncate">
+                  {formatMoney(stats.openDebt)}
+                </div>
+              </div>
+              <div className="flex flex-col items-end gap-1 shrink-0">
+                {distanceLabel ? (
+                  <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-blue-500/15 text-blue-400">
+                    <Navigation className="w-3 h-3" />
+                    {distanceLabel}
+                  </span>
+                ) : null}
+                <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-500/15 text-amber-500">
+                  {stats.openDebtSaleCount} ta ochiq
+                </span>
+              </div>
+            </div>
+            <div className="mt-2">
+              <div className="flex justify-between text-[10px] opacity-55 mb-1">
+                <span>Undirilgan {debtSettledPercent}%</span>
+                <span>
+                  {formatMoney(stats.totalPaid)} / {formatMoney(stats.totalRevenue)}
+                </span>
+              </div>
+              <div
+                className="h-1.5 rounded-full overflow-hidden"
+                style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
+              >
+                <div
+                  className="h-full rounded-full bg-emerald-500"
+                  style={{ width: `${debtSettledPercent}%` }}
+                />
+              </div>
+            </div>
+          </div>
+        ) : null}
         <div className="p-3.5 flex items-start gap-3">
           <button
             type="button"
@@ -306,11 +385,23 @@ function StoreListCard({
               )}
               {hasDebt ? (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">
-                  Qarz {formatMoney(stats.openDebt)}
+                  Qarz qoldi
+                </span>
+              ) : stats.saleCount > 0 ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/10 text-emerald-500/80">
+                  Qarz yo‘q
                 </span>
               ) : null}
             </div>
-            <div className="font-bold text-sm mt-1 truncate">{store.name}</div>
+            <div className="font-bold text-sm mt-1 truncate flex items-center gap-2">
+              <span className="truncate">{store.name}</span>
+              {!hasDebt && distanceLabel ? (
+                <span className="shrink-0 inline-flex items-center gap-1 text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400">
+                  <Navigation className="w-3 h-3" />
+                  {distanceLabel}
+                </span>
+              ) : null}
+            </div>
             <div className="text-xs opacity-70 truncate mt-0.5">
               {store.address || 'Manzil kiritilmagan'}
             </div>

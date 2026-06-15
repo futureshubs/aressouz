@@ -361,6 +361,14 @@ export type ExtendedDebtAnalytics = DebtAnalytics & {
   profitMarginPercent: number;
   naqdProfit: number;
   qarzProfit: number;
+  /** Naqd + qarzdan undirilgan — haqiqiy tushum */
+  totalCashReceived: number;
+  /** Aylanmadagi naqd ulushi (%) */
+  naqdSharePercent: number;
+  /** Aylanmadagi qarz ulushi (%) */
+  qarzSharePercent: number;
+  /** Qarzdan undirilgan ulush (qarz aylanmasi ichida, %) */
+  creditCollectedSharePercent: number;
   monthly: MonthlyStat[];
   topStoresByRevenue: {
     storeId: string;
@@ -531,6 +539,15 @@ export function computeExtendedAnalytics(
   const monthly = [...monthMap.values()].sort((a, b) => b.key.localeCompare(a.key)).slice(0, 36);
   const profitMarginPercent =
     base.totalRevenue > 0 ? Math.round((totalProfit / base.totalRevenue) * 1000) / 10 : 0;
+  const totalCashReceived = base.naqdRevenue + base.paidOnCreditTotal;
+  const naqdSharePercent =
+    base.totalRevenue > 0 ? Math.round((base.naqdRevenue / base.totalRevenue) * 1000) / 10 : 0;
+  const qarzSharePercent =
+    base.totalRevenue > 0 ? Math.round((base.creditSalesTotal / base.totalRevenue) * 1000) / 10 : 0;
+  const creditCollectedSharePercent =
+    base.creditSalesTotal > 0
+      ? Math.round((base.paidOnCreditTotal / base.creditSalesTotal) * 1000) / 10
+      : 0;
 
   return {
     ...base,
@@ -545,6 +562,10 @@ export function computeExtendedAnalytics(
     profitMarginPercent,
     naqdProfit,
     qarzProfit,
+    totalCashReceived,
+    naqdSharePercent,
+    qarzSharePercent,
+    creditCollectedSharePercent,
     monthly,
     topStoresByRevenue: [...storeRev.values()].sort((a, b) => b.total - a.total).slice(0, 8),
     topProductsByQty: [...productQty.values()].sort((a, b) => b.qty - a.qty).slice(0, 8),
@@ -566,4 +587,226 @@ export function getMaxMonthlyTotal(monthly: MonthlyStat[]): number {
 
 export function getMaxMonthlyProfit(monthly: MonthlyStat[]): number {
   return Math.max(1, ...monthly.map((m) => Math.abs(m.profit)));
+}
+
+export type DebtSaleInsight = {
+  saleId: string;
+  storeId: string;
+  storeName: string;
+  productName: string;
+  total: number;
+  paidAmount: number;
+  debtAmount: number;
+  debtDueDate: string;
+  createdAt: string;
+  isOverdue: boolean;
+  isClosed: boolean;
+  isPartiallyPaid: boolean;
+  daysOverdue: number;
+  daysSinceSale: number;
+};
+
+export type DebtStoreCollectionRow = {
+  storeId: string;
+  storeName: string;
+  collected: number;
+  openRemaining: number;
+  closedCount: number;
+  openCount: number;
+  overdueCount: number;
+  creditTotal: number;
+};
+
+export type DebtCollectionAnalytics = {
+  summary: PeriodDebtSummary;
+  openDebts: DebtSaleInsight[];
+  closedDebts: DebtSaleInsight[];
+  partiallyPaidOpen: DebtSaleInsight[];
+  overdueDebts: DebtSaleInsight[];
+  oldOpenDebts: DebtSaleInsight[];
+  byStore: DebtStoreCollectionRow[];
+  collectionRate: number;
+};
+
+function daysBetween(from: Date, to: Date): number {
+  return Math.floor((to.getTime() - from.getTime()) / 86_400_000);
+}
+
+function enrichCreditSale(sale: DillerSale, data: DillerData, now = startOfToday()): DebtSaleInsight {
+  const store = data.stores.find((s) => s.id === sale.storeId);
+  const product = data.products.find((p) => p.id === sale.productId);
+  const isClosed = isSaleDebtClosed(sale);
+  const isOverdue = !isClosed && isSaleOverdue(sale, now);
+  const debtAmount = sale.debtAmount ?? 0;
+  const paidAmount = sale.paidAmount ?? 0;
+  let daysOverdue = 0;
+  if (isOverdue && sale.debtDueDate) {
+    const due = parseDueDate(sale.debtDueDate);
+    if (due) {
+      due.setHours(0, 0, 0, 0);
+      daysOverdue = Math.max(0, daysBetween(due, now));
+    }
+  }
+  const created = new Date(sale.createdAt);
+  const daysSinceSale = Number.isNaN(created.getTime())
+    ? 0
+    : Math.max(0, daysBetween(created, new Date()));
+
+  return {
+    saleId: sale.id,
+    storeId: sale.storeId,
+    storeName: store?.name ?? 'Noma’lum do‘kon',
+    productName: product?.name ?? 'Mahsulot',
+    total: sale.total,
+    paidAmount,
+    debtAmount,
+    debtDueDate: sale.debtDueDate,
+    createdAt: sale.createdAt,
+    isOverdue,
+    isClosed,
+    isPartiallyPaid: !isClosed && paidAmount > 0 && debtAmount > 0,
+    daysOverdue,
+    daysSinceSale,
+  };
+}
+
+function sortOpenDebts(a: DebtSaleInsight, b: DebtSaleInsight): number {
+  if (a.isOverdue !== b.isOverdue) return a.isOverdue ? -1 : 1;
+  if (a.isOverdue && b.isOverdue && b.daysOverdue !== a.daysOverdue) {
+    return b.daysOverdue - a.daysOverdue;
+  }
+  if (b.daysSinceSale !== a.daysSinceSale) return b.daysSinceSale - a.daysSinceSale;
+  return b.debtAmount - a.debtAmount;
+}
+
+function sortClosedDebts(a: DebtSaleInsight, b: DebtSaleInsight): number {
+  return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+}
+
+export function computeDebtCollectionAnalytics(
+  data: DillerData,
+  creditSales: DillerSale[],
+): DebtCollectionAnalytics {
+  const now = startOfToday();
+  const summary = computePeriodDebtSummaryFromCreditSales(creditSales, now);
+  const insights = creditSales.map((s) => enrichCreditSale(s, data, now));
+
+  const openDebts = insights.filter((r) => !r.isClosed && r.debtAmount > 0).sort(sortOpenDebts);
+  const closedDebts = insights.filter((r) => r.isClosed).sort(sortClosedDebts);
+  const partiallyPaidOpen = openDebts.filter((r) => r.isPartiallyPaid);
+  const overdueDebts = openDebts.filter((r) => r.isOverdue);
+  const oldOpenDebts = openDebts.filter((r) => r.daysSinceSale >= 14 || r.isOverdue);
+
+  const storeMap = new Map<string, DebtStoreCollectionRow>();
+  for (const row of insights) {
+    let s = storeMap.get(row.storeId);
+    if (!s) {
+      s = {
+        storeId: row.storeId,
+        storeName: row.storeName,
+        collected: 0,
+        openRemaining: 0,
+        closedCount: 0,
+        openCount: 0,
+        overdueCount: 0,
+        creditTotal: 0,
+      };
+      storeMap.set(row.storeId, s);
+    }
+    s.creditTotal += row.total;
+    s.collected += row.paidAmount;
+    if (row.isClosed) {
+      s.closedCount += 1;
+    } else if (row.debtAmount > 0) {
+      s.openCount += 1;
+      s.openRemaining += row.debtAmount;
+      if (row.isOverdue) s.overdueCount += 1;
+    }
+  }
+
+  const creditPaidPlusOpen = summary.collectedTotal + summary.openDebtTotal;
+  const collectionRate =
+    creditPaidPlusOpen > 0
+      ? Math.round((summary.collectedTotal / creditPaidPlusOpen) * 1000) / 10
+      : summary.creditSalesTotal > 0
+        ? 100
+        : 0;
+
+  return {
+    summary,
+    openDebts,
+    closedDebts,
+    partiallyPaidOpen,
+    overdueDebts,
+    oldOpenDebts,
+    byStore: [...storeMap.values()]
+      .filter((s) => s.creditTotal > 0)
+      .sort((a, b) => b.openRemaining - a.openRemaining || b.collected - a.collected),
+    collectionRate,
+  };
+}
+
+export function computeDebtCollectionForPeriod(
+  data: DillerData,
+  period: HistoryPeriod,
+  customRange?: HistoryDateRange,
+): DebtCollectionAnalytics {
+  const creditSales = filterSalesByPeriod(
+    data.sales.filter((s) => s.paymentType === 'qarz'),
+    period,
+    customRange,
+  );
+  return computeDebtCollectionAnalytics(data, creditSales);
+}
+
+/** Hozirgi ochiq / eski qarzlar — davr filtrisiz */
+export function computeCurrentDebtSnapshot(data: DillerData): DebtCollectionAnalytics {
+  const openCreditSales = data.sales.filter(
+    (s) => s.paymentType === 'qarz' && (s.debtAmount ?? 0) > 0,
+  );
+  return computeDebtCollectionAnalytics(data, openCreditSales);
+}
+
+export function formatDebtInsightDate(iso: string): string {
+  if (!iso.trim()) return '—';
+  const d = new Date(iso.length <= 10 ? `${iso}T12:00:00` : iso);
+  if (Number.isNaN(d.getTime())) return iso;
+  return d.toLocaleDateString('uz-UZ', { day: '2-digit', month: 'short', year: 'numeric' });
+}
+
+export type PaymentFlowBreakdown = {
+  naqd: { amount: number; count: number };
+  /** Yangi berilgan qarz (sotuv paytida) */
+  newDebt: { amount: number; count: number; downPaymentAtSale: number };
+  /** Qarzdan undirilgan to‘lovlar (sotuvdagi paidAmount) */
+  debtCollected: { amount: number; count: number };
+  /** Haqiqiy kirim: naqd + qarzdan undirilgan (eski hisob) */
+  totalCashIn: number;
+};
+
+export function computePaymentFlowBreakdown(
+  data: DillerData,
+  period: HistoryPeriod,
+  customRange?: HistoryDateRange,
+): PaymentFlowBreakdown {
+  const salesInPeriod = filterSalesByPeriod(data.sales, period, customRange);
+  const analytics = computeExtendedAnalytics(data, salesInPeriod);
+
+  const qarzWithPayment = salesInPeriod.filter(
+    (s) => s.paymentType === 'qarz' && (s.paidAmount ?? 0) > 0,
+  );
+
+  return {
+    naqd: { amount: analytics.naqdRevenue, count: analytics.naqdSalesCount },
+    newDebt: {
+      amount: analytics.creditSalesTotal,
+      count: analytics.qarzSalesCount,
+      downPaymentAtSale: 0,
+    },
+    debtCollected: {
+      amount: analytics.paidOnCreditTotal,
+      count: qarzWithPayment.length,
+    },
+    totalCashIn: analytics.totalCashReceived,
+  };
 }

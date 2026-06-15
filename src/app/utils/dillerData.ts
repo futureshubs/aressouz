@@ -101,7 +101,11 @@ export type DillerData = {
 };
 
 const DATA_KEY = 'aresso:diller:data:v3';
-const LEGACY_KEYS = ['aresso:diller:data:v2', 'aresso:diller:data:v1'];
+const LEGACY_KEYS = [
+  'aresso:diller:data:v4',
+  'aresso:diller:data:v2',
+  'aresso:diller:data:v1',
+];
 
 export const DILLER_PRODUCT_UNITS: { value: DillerProductUnit; label: string }[] = [
   { value: 'dona', label: 'Dona' },
@@ -412,12 +416,41 @@ export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData
 /** Brauzer keshi — oflayn/zaxira */
 export function loadDillerData(): DillerData {
   try {
-    const rawCurrent = localStorage.getItem(DATA_KEY);
-    if (rawCurrent) {
-      return normalizeDillerData(JSON.parse(rawCurrent) as DillerData);
+    const rawV3 = localStorage.getItem(DATA_KEY);
+    const rawV4 = localStorage.getItem('aresso:diller:data:v4');
+
+    if (rawV3) {
+      const v3 = normalizeDillerData(JSON.parse(rawV3) as DillerData);
+      if (hasDillerDataContent(v3)) {
+        saveDillerData(v3);
+        if (rawV4) {
+          try {
+            localStorage.removeItem('aresso:diller:data:v4');
+          } catch {
+            /* ignore */
+          }
+        }
+        return v3;
+      }
+    }
+
+    if (rawV4) {
+      const downgraded = normalizeDillerData(JSON.parse(rawV4) as DillerData);
+      saveDillerData(downgraded);
+      try {
+        localStorage.removeItem('aresso:diller:data:v4');
+      } catch {
+        /* ignore */
+      }
+      return downgraded;
+    }
+
+    if (rawV3) {
+      return normalizeDillerData(JSON.parse(rawV3) as DillerData);
     }
 
     for (const legacyKey of LEGACY_KEYS) {
+      if (legacyKey === 'aresso:diller:data:v4') continue;
       const rawLegacy = localStorage.getItem(legacyKey);
       if (rawLegacy) {
         const migrated = normalizeDillerData(JSON.parse(rawLegacy) as DillerData);
@@ -434,7 +467,7 @@ export function loadDillerData(): DillerData {
 
 export function saveDillerData(data: DillerData): void {
   try {
-    localStorage.setItem(DATA_KEY, JSON.stringify(data));
+    localStorage.setItem(DATA_KEY, JSON.stringify(normalizeDillerData(data)));
   } catch (e) {
     console.error('Diller ma’lumot saqlanmadi:', e);
   }
