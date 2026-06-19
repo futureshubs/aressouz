@@ -53,6 +53,20 @@ export type DillerExpense = {
   createdAt: string;
 };
 
+/** Balans — qo‘lda kiritilgan kirim / chiqim */
+export type DillerBalanceKind = 'kirim' | 'chiqim';
+export type DillerBalanceChannel = 'naqd' | 'karta';
+
+export type DillerBalanceEntry = {
+  id: string;
+  kind: DillerBalanceKind;
+  channel: DillerBalanceChannel;
+  amount: number;
+  purpose: string;
+  note: string;
+  createdAt: string;
+};
+
 export type DillerSale = {
   id: string;
   storeId: string;
@@ -98,6 +112,7 @@ export type DillerData = {
   warehouse: DillerWarehouseRow[];
   sales: DillerSale[];
   expenses: DillerExpense[];
+  balanceEntries: DillerBalanceEntry[];
 };
 
 const DATA_KEY = 'aresso:diller:data:v3';
@@ -224,6 +239,20 @@ function normalizeExpense(e: Partial<DillerExpense> & { id: string }): DillerExp
     purpose: String(e.purpose ?? '').trim(),
     amount: Math.max(0, Math.round(Number(e.amount) || 0)),
     paymentMethod: method === 'karta' ? 'karta' : 'naqd',
+    note: String(e.note ?? '').trim(),
+    createdAt: e.createdAt ?? new Date().toISOString(),
+  };
+}
+
+function normalizeBalanceEntry(e: Partial<DillerBalanceEntry> & { id: string }): DillerBalanceEntry {
+  const kind = e.kind === 'chiqim' ? 'chiqim' : 'kirim';
+  const channel = e.channel === 'karta' ? 'karta' : 'naqd';
+  return {
+    id: e.id,
+    kind,
+    channel,
+    amount: Math.max(0, Math.round(Number(e.amount) || 0)),
+    purpose: String(e.purpose ?? '').trim(),
     note: String(e.note ?? '').trim(),
     createdAt: e.createdAt ?? new Date().toISOString(),
   };
@@ -370,6 +399,7 @@ export function createEmptyDillerData(): DillerData {
     warehouse: [],
     sales: [],
     expenses: [],
+    balanceEntries: [],
   };
 }
 
@@ -409,6 +439,9 @@ export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData
     sales: (Array.isArray(raw.sales) ? raw.sales : []).map((s) => normalizeSale(s as DillerSale)),
     expenses: (Array.isArray(raw.expenses) ? raw.expenses : []).map((e) =>
       normalizeExpense(e as DillerExpense),
+    ),
+    balanceEntries: (Array.isArray(raw.balanceEntries) ? raw.balanceEntries : []).map((e) =>
+      normalizeBalanceEntry(e as DillerBalanceEntry),
     ),
   };
 }
@@ -659,6 +692,77 @@ export function updateExpense(
 
 export function deleteExpense(data: DillerData, expenseId: string): DillerData {
   return { ...data, expenses: data.expenses.filter((e) => e.id !== expenseId) };
+}
+
+export function createBalanceEntry(
+  data: DillerData,
+  input: {
+    kind: DillerBalanceKind;
+    channel: DillerBalanceChannel;
+    purpose: string;
+    amount: number;
+    note?: string;
+    createdAt?: string;
+  },
+): { data: DillerData; error?: string } {
+  const purpose = input.purpose.trim();
+  if (!purpose) return { data, error: 'Maqsadni yozing' };
+  const amount = Math.round(Number(input.amount) || 0);
+  if (amount <= 0) return { data, error: 'Summa 0 dan katta bo‘lishi kerak' };
+
+  const entry = normalizeBalanceEntry({
+    id: uid('bal'),
+    kind: input.kind,
+    channel: input.channel,
+    purpose,
+    amount,
+    note: input.note ?? '',
+    createdAt: input.createdAt ?? new Date().toISOString(),
+  });
+  return { data: { ...data, balanceEntries: [entry, ...(data.balanceEntries ?? [])] } };
+}
+
+export function deleteBalanceEntry(data: DillerData, entryId: string): DillerData {
+  return {
+    ...data,
+    balanceEntries: (data.balanceEntries ?? []).filter((e) => e.id !== entryId),
+  };
+}
+
+export function updateBalanceEntry(
+  data: DillerData,
+  entryId: string,
+  input: {
+    kind?: DillerBalanceKind;
+    channel?: DillerBalanceChannel;
+    purpose?: string;
+    amount?: number;
+    note?: string;
+    createdAt?: string;
+  },
+): { data: DillerData; error?: string } {
+  const idx = (data.balanceEntries ?? []).findIndex((e) => e.id === entryId);
+  if (idx < 0) return { data, error: 'Yozuv topilmadi' };
+
+  const existing = data.balanceEntries[idx];
+  const purpose = (input.purpose ?? existing.purpose).trim();
+  if (!purpose) return { data, error: 'Maqsadni yozing' };
+  const amount = Math.round(Number(input.amount ?? existing.amount) || 0);
+  if (amount <= 0) return { data, error: 'Summa 0 dan katta bo‘lishi kerak' };
+
+  const entry = normalizeBalanceEntry({
+    ...existing,
+    kind: input.kind ?? existing.kind,
+    channel: input.channel ?? existing.channel,
+    purpose,
+    amount,
+    note: input.note ?? existing.note,
+    createdAt: input.createdAt ?? existing.createdAt,
+    id: entryId,
+  });
+  const balanceEntries = [...(data.balanceEntries ?? [])];
+  balanceEntries[idx] = entry;
+  return { data: { ...data, balanceEntries } };
 }
 
 export function deleteProduct(data: DillerData, productId: string): DillerData {

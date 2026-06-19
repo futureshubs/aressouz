@@ -17,8 +17,10 @@ import {
   Banknote,
   HandCoins,
   Navigation,
+  Landmark,
 } from 'lucide-react';
 import { useDillerUserLocation } from '../../hooks/useDillerUserLocation';
+import { DillerBalansSection } from './DillerBalansSection';
 import { DillerHarajatSection } from './DillerHarajatSection';
 import { computeExpenseSummary, filterExpensesByPeriod } from '../../utils/dillerExpenseAnalytics';
 import { useTheme } from '../../context/ThemeContext';
@@ -53,7 +55,7 @@ type Props = {
   onDataChange: (next: DillerData) => void;
 };
 
-type QarzSection = 'qarz' | 'statistika' | 'tarix' | 'xarajat';
+type QarzSection = 'qarz' | 'statistika' | 'balans' | 'tarix' | 'xarajat';
 
 function Card({
   children,
@@ -330,6 +332,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
   const sections: { id: QarzSection; label: string; icon: typeof Wallet }[] = [
     { id: 'qarz', label: 'Qarz', icon: Wallet },
     { id: 'statistika', label: 'Statistika', icon: BarChart3 },
+    { id: 'balans', label: 'Balans', icon: Landmark },
     { id: 'tarix', label: 'Tarix', icon: History },
     { id: 'xarajat', label: 'Xarajat', icon: Receipt },
   ];
@@ -344,7 +347,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
       />
 
       <div
-        className="flex gap-1 p-1 rounded-2xl"
+        className="flex gap-1 p-1 rounded-2xl overflow-x-auto [-webkit-overflow-scrolling:touch]"
         style={{
           background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
         }}
@@ -357,7 +360,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
               key={s.id}
               type="button"
               onClick={() => setSection(s.id)}
-              className={`flex-1 flex flex-col items-center gap-0.5 py-2 rounded-xl text-[10px] sm:text-xs font-bold transition-all min-w-0 ${
+              className={`flex-1 min-w-[4.25rem] flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl text-[10px] sm:text-xs font-bold transition-all shrink-0 ${
                 active ? 'shadow-sm' : 'opacity-60'
               }`}
               style={
@@ -1256,6 +1259,10 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
 
       {section === 'xarajat' ? (
         <DillerHarajatSection data={data} onDataChange={onDataChange} isDark={isDark} />
+      ) : null}
+
+      {section === 'balans' ? (
+        <DillerBalansSection data={data} onDataChange={onDataChange} isDark={isDark} />
       ) : null}
 
       {section === 'tarix' ? (
