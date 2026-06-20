@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
   ClipboardList,
@@ -14,7 +14,7 @@ import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerShopOrder, DillerShopOrderStatus } from '../../utils/dillerData';
 import {
   ensureOrderToken,
-  findStoreByPhone,
+  findStoresByPhone,
   formatMoney,
   getQrcodeOrderUrl,
   mergeShopOrders,
@@ -22,6 +22,7 @@ import {
   updateDillerProfile,
   acceptShopOrder,
   rejectShopOrder,
+  loadDillerData,
 } from '../../utils/dillerData';
 import {
   dillerApiFetchShopOrders,
@@ -84,20 +85,33 @@ const statusColor: Record<DillerShopOrderStatus, string> = {
   done: '#10b981',
 };
 
+function resolveOrderStore(data: DillerData, order: DillerShopOrder) {
+  if (order.storeId) {
+    return data.stores.find((s) => s.id === order.storeId) ?? null;
+  }
+  const matches = findStoresByPhone(data, order.customerPhone);
+  if (order.storeName) {
+    return matches.find((s) => s.name === order.storeName) ?? matches[0] ?? null;
+  }
+  return matches[0] ?? null;
+}
+
 export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
   const { accentColor } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   const [downloading, setDownloading] = useState(false);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [saleOrderId, setSaleOrderId] = useState<string | null>(null);
+  const tokenInitRef = useRef(false);
 
   const dataWithToken = useMemo(() => ensureOrderToken(data), [data]);
   const orderToken = dataWithToken.profile.orderToken ?? '';
 
   useEffect(() => {
+    if (tokenInitRef.current) return;
     if (dataWithToken.profile.orderToken && dataWithToken.profile.orderToken !== data.profile.orderToken) {
+      tokenInitRef.current = true;
       onDataChange(dataWithToken);
-      void pushDillerLocalNow();
     }
   }, [data.profile.orderToken, dataWithToken, onDataChange]);
 
@@ -133,8 +147,8 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
       toast.error(res.error);
       return;
     }
-    onDataChange(mergeShopOrders(dataWithToken, res.orders));
-  }, [dataWithToken, onDataChange]);
+    onDataChange(mergeShopOrders(loadDillerData(), res.orders));
+  }, [onDataChange]);
 
   useEffect(() => {
     void refreshOrders();
@@ -154,7 +168,7 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
 
   const patchServerStatus = async (orderId: string, status: DillerShopOrderStatus) => {
     const sess = readDillerSession();
-    if (!sess?.token || isOfflineDillerToken(sess.token)) return true;
+    if (!sess?.token || isOfflineDillerToken(sess.token)) return false;
     const res = await dillerApiPatchShopOrderStatus(sess.token, orderId, status);
     if (!res.ok) {
       toast.error(res.error);
@@ -186,7 +200,6 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
     }
 
     onDataChange(nextData);
-    void pushDillerLocalNow();
 
     const ok = await patchServerStatus(order.id, status);
     if (!ok) {
@@ -208,7 +221,6 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
     onDataChange(nextData);
     setSaleOrderId(null);
     setDetailOrderId(null);
-    void pushDillerLocalNow();
     if (!orderId) return;
     const ok = await patchServerStatus(orderId, 'done');
     if (!ok) {
@@ -357,7 +369,8 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
         ) : (
           <ul className={dillerListClass}>
             {(data.shopOrders ?? []).map((order) => {
-              const store = findStoreByPhone(data, order.customerPhone);
+              const store = resolveOrderStore(data, order);
+              const storeMatches = findStoresByPhone(data, order.customerPhone);
               const totalItems = order.items.reduce((s, it) => s + it.qty, 0);
               const previewName = store?.name ?? order.storeName ?? order.customerName;
               return (
@@ -378,6 +391,11 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
                           <Phone className="w-3 h-3 shrink-0" />
                           <span className="truncate">{order.customerPhone}</span>
                         </div>
+                        {storeMatches.length > 1 ? (
+                          <div className="text-[10px] text-sky-500/90 mt-0.5">
+                            {storeMatches.length} ta do‘kon mos keldi
+                          </div>
+                        ) : null}
                       </div>
                       <div className="flex flex-col items-end gap-1 shrink-0">
                         <span

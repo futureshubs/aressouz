@@ -5,7 +5,7 @@ import { Lock, User, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import PanelLoginShell from '../components/brand/PanelLoginShell';
 import { createOfflineDillerToken, dillerApiLogin, dillerApiPing } from '../utils/dillerApi';
-import { pushDillerLocalNow } from '../utils/dillerSync';
+import { runDillerSync } from '../utils/dillerSync';
 import { saveDillerCloudCreds, touchLocalModified } from '../utils/dillerSyncMeta';
 import {
   readDillerSession,
@@ -57,10 +57,8 @@ export default function DillerLogin() {
           displayName: result.displayName,
           loggedInAt: new Date().toISOString(),
         });
-        const local = loadDillerData();
-        touchLocalModified();
-        const push = await pushDillerLocalNow();
-        if (push.status === 'synced') {
+        const sync = await runDillerSync({ silent: true, preferLocal: false });
+        if (sync.status === 'synced') {
           toast.success('Xush kelibsiz — bulut bilan ulandi');
         } else {
           toast.success('Xush kelibsiz — ma’lumot mahalliy saqlandi, internetda bulutga chiqadi');

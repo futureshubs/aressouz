@@ -61,6 +61,11 @@ export function DillerSaleCard({ sale, data, isDark, onOpenChek }: Props) {
                   −{formatMoney(sale.discountAmount)}
                 </span>
               ) : null}
+              {sale.shopOrderId ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-sky-500/15 text-sky-400">
+                  QR
+                </span>
+              ) : null}
             </div>
             <div className="font-bold text-sm mt-1.5 truncate">{store?.name ?? 'Do‘kon'}</div>
             <div className="text-xs opacity-70 truncate mt-0.5">

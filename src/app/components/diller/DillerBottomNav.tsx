@@ -26,9 +26,16 @@ type Props = {
   onTabChange: (tab: DillerTabId) => void;
   /** Ochiq qarzli sotuvlar soni (badge) */
   openDebtCount?: number;
+  /** Kutilayotgan QR buyurtmalar */
+  pendingOrderCount?: number;
 };
 
-export default function DillerBottomNav({ activeTab, onTabChange, openDebtCount = 0 }: Props) {
+export default function DillerBottomNav({
+  activeTab,
+  onTabChange,
+  openDebtCount = 0,
+  pendingOrderCount = 0,
+}: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
@@ -44,6 +51,13 @@ export default function DillerBottomNav({ activeTab, onTabChange, openDebtCount 
         {TABS.map((tab) => {
           const active = activeTab === tab.id;
           const Icon = tab.icon;
+          const badgeCount =
+            tab.id === 'qarz'
+              ? pendingOrderCount > 0
+                ? pendingOrderCount
+                : openDebtCount
+              : 0;
+          const badgeColor = pendingOrderCount > 0 && tab.id === 'qarz' ? '#ef4444' : '#f59e0b';
           return (
             <button
               key={tab.id}
@@ -65,12 +79,12 @@ export default function DillerBottomNav({ activeTab, onTabChange, openDebtCount 
                     strokeWidth: active ? 2.5 : 2,
                   }}
                 />
-                {tab.id === 'qarz' && openDebtCount > 0 ? (
+                {tab.id === 'qarz' && badgeCount > 0 ? (
                   <span
                     className="absolute -top-1 -right-1 min-w-[14px] h-[14px] px-0.5 rounded-full text-[8px] font-bold flex items-center justify-center text-slate-900"
-                    style={{ background: '#f59e0b' }}
+                    style={{ background: badgeColor }}
                   >
-                    {openDebtCount > 9 ? '9+' : openDebtCount}
+                    {badgeCount > 9 ? '9+' : badgeCount}
                   </span>
                 ) : null}
               </span>

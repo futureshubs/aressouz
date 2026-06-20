@@ -14,7 +14,7 @@ import {
   type DillerData,
 } from '../utils/dillerData';
 import { clearDillerCloudCreds } from '../utils/dillerSyncMeta';
-import { pushDillerLocalNow, runDillerSync, type DillerSyncStatus } from '../utils/dillerSync';
+import { pushDillerLocalNow, runDillerSync, flushDillerToCloud, type DillerSyncStatus } from '../utils/dillerSync';
 import { readDillerSyncMeta, touchLocalModified } from '../utils/dillerSyncMeta';
 import {
   dillerMainScrollClass,
@@ -25,6 +25,7 @@ import {
 const NAV_BOTTOM = DILLER_NAV_BOTTOM_PADDING;
 const SAVE_DEBOUNCE_MS = 600;
 const AUTO_SYNC_INTERVAL_MS = 25_000;
+const ORDER_POLL_INTERVAL_MS = 20_000;
 
 export default function DillerDashboard() {
   const navigate = useNavigate();
@@ -37,27 +38,21 @@ export default function DillerDashboard() {
   const [booting, setBooting] = useState(true);
   const [syncState, setSyncState] = useState<DillerSyncStatus>('loading');
   const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const syncInFlightRef = useRef(false);
+  const pendingDataRef = useRef<DillerData | null>(null);
   const mainScrollRef = useRef<HTMLElement | null>(null);
   const syncStateRef = useRef(syncState);
   syncStateRef.current = syncState;
 
   const applySync = useCallback((silent: boolean) => {
-    if (syncInFlightRef.current) return Promise.resolve();
-    syncInFlightRef.current = true;
-    return runDillerSync({ silent })
-      .then((outcome) => {
-        setData(outcome.data);
-        setSyncState(outcome.status);
-        setSession(readDillerSession());
-        if (outcome.message && !silent) {
-          toast.success(outcome.message);
-        }
-        return outcome;
-      })
-      .finally(() => {
-        syncInFlightRef.current = false;
-      });
+    return runDillerSync({ silent }).then((outcome) => {
+      setData(outcome.data);
+      setSyncState(outcome.status);
+      setSession(readDillerSession());
+      if (outcome.message && !silent) {
+        toast.success(outcome.message);
+      }
+      return outcome;
+    });
   }, []);
 
   useEffect(() => {
@@ -91,10 +86,15 @@ export default function DillerDashboard() {
       }
     }, AUTO_SYNC_INTERVAL_MS);
 
+    const orderPoll = window.setInterval(() => {
+      void applySync(true);
+    }, ORDER_POLL_INTERVAL_MS);
+
     return () => {
       window.removeEventListener('online', onOnline);
       document.removeEventListener('visibilitychange', onVisible);
       window.clearInterval(interval);
+      window.clearInterval(orderPoll);
     };
   }, [applySync]);
 
@@ -107,6 +107,7 @@ export default function DillerDashboard() {
 
   const persist = useCallback(
     (next: DillerData) => {
+      pendingDataRef.current = next;
       setData(next);
       saveDillerData(next);
       touchLocalModified();
@@ -114,12 +115,10 @@ export default function DillerDashboard() {
 
       if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
       saveTimerRef.current = setTimeout(() => {
+        pendingDataRef.current = null;
         void pushDillerLocalNow().then((outcome) => {
           setData(outcome.data);
           setSyncState(outcome.status);
-          if (outcome.status === 'offline' && readDillerSyncMeta().pendingPush) {
-            /* keyingi online/sync interval yuboradi */
-          }
         });
       }, SAVE_DEBOUNCE_MS);
     },
@@ -132,8 +131,16 @@ export default function DillerDashboard() {
     };
   }, []);
 
-  const logout = () => {
-    if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
+  const logout = async () => {
+    if (saveTimerRef.current) {
+      clearTimeout(saveTimerRef.current);
+      saveTimerRef.current = null;
+    }
+    if (pendingDataRef.current) {
+      saveDillerData(pendingDataRef.current);
+      touchLocalModified();
+    }
+    await flushDillerToCloud();
     clearDillerCloudCreds();
     clearDillerSession();
     toast.success('Chiqildi');
@@ -148,6 +155,11 @@ export default function DillerDashboard() {
   const openDebtCount = useMemo(
     () => data.sales.filter((s) => (s.debtAmount ?? 0) > 0).length,
     [data.sales],
+  );
+
+  const pendingOrderCount = useMemo(
+    () => (data.shopOrders ?? []).filter((o) => o.status === 'pending').length,
+    [data.shopOrders],
   );
 
   const syncLabel = useMemo(() => {
@@ -294,6 +306,16 @@ export default function DillerDashboard() {
         </div>
       ) : null}
 
+      {pendingOrderCount > 0 ? (
+        <div
+          className="mx-4 mt-2 px-3 py-2 rounded-xl text-[10px] text-center max-w-lg w-full self-center flex items-center justify-center gap-1.5"
+          style={{ background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.1)' }}
+        >
+          <span className="font-bold text-red-400">{pendingOrderCount} ta yangi QR buyurtma</span>
+          <span className="opacity-60">— Qarz → Buyurtma</span>
+        </div>
+      ) : null}
+
       <main
         ref={mainScrollRef}
         className={`${dillerMainScrollClass} px-4 py-4 max-w-lg mx-auto w-full`}
@@ -306,6 +328,7 @@ export default function DillerDashboard() {
         activeTab={activeTab}
         onTabChange={handleTabChange}
         openDebtCount={openDebtCount}
+        pendingOrderCount={pendingOrderCount}
       />
     </div>
   );

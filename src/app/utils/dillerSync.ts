@@ -3,11 +3,13 @@ import {
   hasDillerDataContent,
   loadDillerData,
   mergeDillerData,
+  mergeShopOrders,
   normalizeDillerData,
   saveDillerData,
 } from './dillerData';
 import {
   dillerApiFetchData,
+  dillerApiFetchShopOrders,
   dillerApiLogin,
   dillerApiPing,
   dillerApiPushData,
@@ -31,6 +33,15 @@ export type DillerSyncOutcome = {
   message?: string;
   upgradedToken?: boolean;
 };
+
+let syncChain: Promise<unknown> = Promise.resolve();
+
+/** Push/pull bir vaqtda ikki marta ishlamasligi uchun navbat */
+export function withDillerSyncLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = syncChain.then(fn, fn);
+  syncChain = run.catch(() => undefined);
+  return run;
+}
 
 /** Bulut tokenini olish: mavjud yoki creds bilan avtomatik login */
 export async function ensureCloudToken(): Promise<{
@@ -63,8 +74,18 @@ export async function ensureCloudToken(): Promise<{
   return { token: loginResult.token, upgraded: true };
 }
 
-/** Mahalliy + serverni birlashtirish */
-export async function runDillerSync(opts?: {
+async function pullRemoteShopOrders(token: string, data: DillerData): Promise<DillerData> {
+  if (isOfflineDillerToken(token)) return data;
+  const res = await dillerApiFetchShopOrders(token);
+  if (!res.ok) return data;
+  const merged = mergeShopOrders(data, res.orders);
+  if (merged.shopOrders !== data.shopOrders) {
+    saveDillerData(merged);
+  }
+  return merged;
+}
+
+async function syncInner(opts?: {
   silent?: boolean;
   preferLocal?: boolean;
 }): Promise<DillerSyncOutcome> {
@@ -95,9 +116,10 @@ export async function runDillerSync(opts?: {
     if (remote.unauthorized) {
       return { status: 'offline', data: local };
     }
+    const withOrders = await pullRemoteShopOrders(token, local);
     return {
       status: 'offline',
-      data: local,
+      data: withOrders,
       message: silent ? undefined : remote.error,
     };
   }
@@ -117,9 +139,10 @@ export async function runDillerSync(opts?: {
     const push = await dillerApiPushData(token, local);
     if (push.ok) {
       markDillerSynced(push.updatedAt);
+      const withOrders = await pullRemoteShopOrders(token, local);
       return {
         status: 'synced',
-        data: local,
+        data: withOrders,
         upgradedToken: upgraded,
         message: silent
           ? undefined
@@ -128,9 +151,10 @@ export async function runDillerSync(opts?: {
             : 'Bulutga saqlandi',
       };
     }
+    const withOrders = await pullRemoteShopOrders(token, local);
     return {
       status: 'offline',
-      data: local,
+      data: withOrders,
       message: push.error,
     };
   }
@@ -138,33 +162,47 @@ export async function runDillerSync(opts?: {
   if (serverHas && serverData) {
     const localToken = local.profile.orderToken?.trim();
     const mergedBase = mergeDillerData(local, serverData);
-    const merged =
+    const mergedProfile =
       localToken && !serverData.profile.orderToken?.trim()
         ? {
             ...mergedBase,
             profile: { ...mergedBase.profile, orderToken: localToken },
           }
         : mergedBase;
-    saveDillerData(merged);
+    const withOrders = await pullRemoteShopOrders(token, mergedProfile);
+    saveDillerData(withOrders);
     markDillerSynced(remote.updatedAt || new Date().toISOString());
-    if (merged !== serverData && token) {
-      void dillerApiPushData(token, merged);
+    if (withOrders !== serverData && token) {
+      void dillerApiPushData(token, withOrders);
     }
     return {
       status: 'synced',
-      data: merged,
+      data: withOrders,
       upgradedToken: upgraded,
       message: silent ? undefined : 'Serverdan yangilandi',
     };
   }
 
-  const empty = normalizeDillerData(null);
-  saveDillerData(empty);
+  if (localHas) {
+    const withOrders = await pullRemoteShopOrders(token, local);
+    return { status: 'synced', data: withOrders, upgradedToken: upgraded };
+  }
+
+  const withOrders = await pullRemoteShopOrders(token, normalizeDillerData(null));
+  saveDillerData(withOrders);
   markDillerSynced(new Date().toISOString());
-  return { status: 'synced', data: empty, upgradedToken: upgraded };
+  return { status: 'synced', data: withOrders, upgradedToken: upgraded };
 }
 
-export async function pushDillerLocalNow(): Promise<DillerSyncOutcome> {
+/** Mahalliy + serverni birlashtirish */
+export async function runDillerSync(opts?: {
+  silent?: boolean;
+  preferLocal?: boolean;
+}): Promise<DillerSyncOutcome> {
+  return withDillerSyncLock(() => syncInner(opts));
+}
+
+async function pushInner(): Promise<DillerSyncOutcome> {
   const local = loadDillerData();
   touchLocalModified();
 
@@ -181,7 +219,20 @@ export async function pushDillerLocalNow(): Promise<DillerSyncOutcome> {
   const push = await dillerApiPushData(token, local);
   if (push.ok) {
     markDillerSynced(push.updatedAt);
-    return { status: 'synced', data: local, upgradedToken: upgraded };
+    const withOrders = await pullRemoteShopOrders(token, local);
+    return { status: 'synced', data: withOrders, upgradedToken: upgraded };
   }
-  return { status: 'offline', data: local, message: push.error };
+  const withOrders = await pullRemoteShopOrders(token, local);
+  return { status: 'offline', data: withOrders, message: push.error };
+}
+
+export async function pushDillerLocalNow(): Promise<DillerSyncOutcome> {
+  return withDillerSyncLock(() => pushInner());
+}
+
+/** Chiqish yoki majburiy saqlash — navbatdagi o‘zgarishlarni darhol yuboradi */
+export async function flushDillerToCloud(): Promise<DillerSyncOutcome> {
+  saveDillerData(loadDillerData());
+  touchLocalModified();
+  return pushDillerLocalNow();
 }

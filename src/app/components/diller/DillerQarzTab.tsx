@@ -36,6 +36,8 @@ import {
   applyDebtFilterToCreditSales,
   computePeriodDebtSummaryFromCreditSales,
   computePaymentFlowBreakdown,
+  computeDebtAnalytics,
+  countSaleTransactions,
   defaultCustomHistoryRange,
   filterSalesByPeriod,
   toIsoDate,
@@ -160,7 +162,9 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
     [data, statPeriod, statCustomRange],
   );
 
-  const maxStoreDebt = Math.max(1, ...statAnalytics.byStore.map((s) => s.openDebt));
+  const currentDebt = useMemo(() => computeDebtAnalytics(data, data.sales), [data]);
+
+  const maxStoreDebt = Math.max(1, ...currentDebt.byStore.map((s) => s.openDebt));
   const maxMonthTotal = getMaxMonthlyTotal(statAnalytics.monthly);
   const maxMonthProfit = getMaxMonthlyProfit(statAnalytics.monthly);
 
@@ -248,8 +252,10 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
   const historyTotals = useMemo(
     () => ({
       count: historySales.length,
+      transactions: countSaleTransactions(historySales),
       sum: historySales.reduce((s, x) => s + x.total, 0),
       profit: sumSalesProfit(historySales, data),
+      discount: historySales.reduce((s, x) => s + (x.discountAmount ?? 0), 0),
     }),
     [historySales, data],
   );
@@ -764,7 +770,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 <p className="text-[10px] opacity-55 truncate">
                   {getHistoryPeriodLabel(statPeriod)}
                   {statPeriod !== 'all'
-                    ? ` · ${statAnalytics.totalSalesCount} ta sotuv`
+                    ? ` · ${statAnalytics.transactionCount} tranzaksiya`
                     : ''}
                 </p>
               </div>
@@ -902,7 +908,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                         {formatMoney(paymentFlow.naqd.amount)}
                       </div>
                       <div className="text-[10px] opacity-60 mt-0.5">
-                        {paymentFlow.naqd.count} ta sotuv
+                        {paymentFlow.naqd.count} ta tranzaksiya
                       </div>
                     </div>
                   </div>
@@ -938,7 +944,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                         {formatMoney(paymentFlow.newDebt.amount)}
                       </div>
                       <div className="text-[10px] opacity-60 mt-0.5">
-                        {paymentFlow.newDebt.count} ta sotuv
+                        {paymentFlow.newDebt.count} ta tranzaksiya
                       </div>
                     </div>
                   </div>
@@ -999,7 +1005,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
               <StatTile
                 label="Jami aylanma"
                 value={formatMoney(statAnalytics.totalRevenue)}
-                sub={`${statAnalytics.totalSalesCount} ta sotuv`}
+                sub={`${statAnalytics.transactionCount} tranzaksiya · ${statAnalytics.totalSalesCount} qator`}
                 color={accentColor.color}
                 isDark={isDark}
               />
@@ -1020,15 +1026,33 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
               <StatTile
                 label="Yangi qarz berilgan"
                 value={formatMoney(paymentFlow.newDebt.amount)}
-                sub={`${paymentFlow.newDebt.count} ta sotuv`}
+                sub={`${paymentFlow.newDebt.count} ta tranzaksiya`}
                 color="#f59e0b"
                 isDark={isDark}
               />
               <StatTile
                 label="Qarz qoldig‘i"
-                value={formatMoney(statAnalytics.openDebtTotal)}
-                sub={`${statAnalytics.openDebtCount} ta ochiq`}
+                value={formatMoney(currentDebt.openDebtTotal)}
+                sub={`${currentDebt.openDebtCount} ta ochiq · hozirgi holat`}
                 color="#f59e0b"
+                isDark={isDark}
+              />
+              <StatTile
+                label="Chegirma berilgan"
+                value={formatMoney(statAnalytics.totalDiscount)}
+                sub={
+                  statAnalytics.totalRevenue > 0
+                    ? `${Math.round((statAnalytics.totalDiscount / (statAnalytics.totalRevenue + statAnalytics.totalDiscount)) * 1000) / 10}%`
+                    : undefined
+                }
+                color="#f43f5e"
+                isDark={isDark}
+              />
+              <StatTile
+                label="QR buyurtma"
+                value={formatMoney(statAnalytics.shopOrderRevenue)}
+                sub={`${statAnalytics.shopOrderTransactionCount} ta buyurtma`}
+                color="#0ea5e9"
                 isDark={isDark}
               />
               <StatTile
@@ -1159,19 +1183,15 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
             </Card>
           ) : null}
 
-          {statAnalytics.byStore.length > 0 ? (
+          {currentDebt.byStore.length > 0 ? (
             <Card isDark={isDark}>
               <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
                 <Store className="w-4 h-4 text-emerald-400" />
                 Do‘konlar bo‘yicha ochiq qarz
-                {statPeriod !== 'all' ? (
-                  <span className="text-[10px] font-normal opacity-50">
-                    ({getHistoryPeriodLabel(statPeriod)})
-                  </span>
-                ) : null}
+                <span className="text-[10px] font-normal opacity-50">(hozirgi holat)</span>
               </h3>
               <ul className="space-y-3">
-                {statAnalytics.byStore.slice(0, 10).map((row) => (
+                {currentDebt.byStore.slice(0, 10).map((row) => (
                   <li key={row.storeId}>
                     <div className="flex justify-between text-xs mb-1 gap-2">
                       <span className="font-semibold truncate">{row.storeName}</span>
@@ -1357,8 +1377,8 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
             <div className="grid grid-cols-2 gap-2">
               <StatTile
                 label="Ko‘rsatilmoqda"
-                value={String(historyTotals.count)}
-                sub="ta sotuv"
+                value={String(historyTotals.transactions)}
+                sub={`${historyTotals.count} qator`}
                 color={accentColor.color}
                 isDark={isDark}
               />
@@ -1380,12 +1400,10 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                 isDark={isDark}
               />
               <StatTile
-                label="O‘rtacha foyda"
-                value={formatMoney(
-                  historyTotals.count ? Math.round(historyTotals.profit / historyTotals.count) : 0,
-                )}
+                label="Chegirma"
+                value={formatMoney(historyTotals.discount)}
                 isDark={isDark}
-                color={isDark ? '#fff' : '#111'}
+                color="#f43f5e"
               />
             </div>
           </Card>

@@ -547,6 +547,9 @@ export function hasDillerDataContent(data: DillerData): boolean {
     data.stores.length > 0 ||
     data.sales.length > 0 ||
     data.expenses.length > 0 ||
+    (data.balanceEntries?.length ?? 0) > 0 ||
+    (data.shopOrders?.length ?? 0) > 0 ||
+    Boolean(data.profile.orderToken?.trim()) ||
     data.warehouse.some((w) => (w.qty ?? 0) > 0)
   );
 }
@@ -1259,7 +1262,8 @@ export function mergeDillerData(local: DillerData, remote: DillerData): DillerDa
 
   const whMap = new Map<string, DillerWarehouseRow>();
   for (const w of remote.warehouse) whMap.set(w.productId, w);
-  if (localHasExtraSales) {
+  const localHasReservedOrders = (local.shopOrders ?? []).some((o) => o.warehouseReserved);
+  if (localHasExtraSales || localHasReservedOrders) {
     for (const w of local.warehouse) whMap.set(w.productId, w);
   } else {
     for (const w of local.warehouse) {

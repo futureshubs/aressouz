@@ -13,7 +13,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerShopOrder, DillerShopOrderStatus } from '../../utils/dillerData';
-import { findStoreByPhone, formatMoney } from '../../utils/dillerData';
+import { findStoresByPhone, formatMoney } from '../../utils/dillerData';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 
 const statusLabel: Record<DillerShopOrderStatus, string> = {
@@ -95,7 +95,12 @@ export function DillerShopOrderDetailSheet({
 
   if (!open || !order) return null;
 
-  const store = findStoreByPhone(data, order.customerPhone);
+  const storeMatches = findStoresByPhone(data, order.customerPhone);
+  const store =
+    (order.storeId ? data.stores.find((s) => s.id === order.storeId) : null) ??
+    (order.storeName ? storeMatches.find((s) => s.name === order.storeName) : null) ??
+    storeMatches[0] ??
+    null;
   const displayStore = store ?? (order.storeName
     ? {
         name: order.storeName,
