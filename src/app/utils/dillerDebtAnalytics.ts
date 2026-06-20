@@ -339,6 +339,33 @@ export function computeSaleGrossProfit(sale: DillerSale, product?: DillerProduct
   return sale.total - cost;
 }
 
+export function getSaleTransactionKey(sale: DillerSale): string {
+  return sale.shopOrderId ? `order:${sale.shopOrderId}` : `sale:${sale.id}`;
+}
+
+export function countSaleTransactions(sales: DillerSale[]): number {
+  return new Set(sales.map(getSaleTransactionKey)).size;
+}
+
+export function getInitialDebtAmount(sale: DillerSale): number {
+  if (sale.paymentType !== 'qarz') return 0;
+  if (sale.initialDebtAmount != null) return Math.max(0, sale.initialDebtAmount);
+  const paidLater = (sale.debtPayments ?? []).reduce((sum, row) => sum + row.amount, 0);
+  return Math.max(0, (sale.debtAmount ?? 0) + paidLater);
+}
+
+export function getDownPaymentAtSale(sale: DillerSale): number {
+  if (sale.paymentType !== 'qarz') return 0;
+  return Math.max(0, sale.total - getInitialDebtAmount(sale));
+}
+
+function isTimestampInWindow(at: string, window: { start: number; end: number } | null): boolean {
+  const t = new Date(at).getTime();
+  if (!Number.isFinite(t)) return false;
+  if (!window) return true;
+  return t >= window.start && t <= window.end;
+}
+
 export function sumSalesProfit(sales: DillerSale[], data: DillerData): number {
   return sales.reduce((sum, sale) => {
     const product = data.products.find((p) => p.id === sale.productId);
@@ -348,6 +375,8 @@ export function sumSalesProfit(sales: DillerSale[], data: DillerData): number {
 
 export type ExtendedDebtAnalytics = DebtAnalytics & {
   totalSalesCount: number;
+  /** QR buyurtma bo‘yicha guruhlangan tranzaksiyalar */
+  transactionCount: number;
   naqdSalesCount: number;
   qarzSalesCount: number;
   closedDebtCount: number;
@@ -369,6 +398,14 @@ export type ExtendedDebtAnalytics = DebtAnalytics & {
   qarzSharePercent: number;
   /** Qarzdan undirilgan ulush (qarz aylanmasi ichida, %) */
   creditCollectedSharePercent: number;
+  /** Jami chegirma */
+  totalDiscount: number;
+  /** QR buyurtmadan kelgan aylanma */
+  shopOrderRevenue: number;
+  /** QR buyurtma tranzaksiyalari */
+  shopOrderTransactionCount: number;
+  /** Panel orqali to‘g‘ridan-to‘g‘ri sotuvlar */
+  directSaleCount: number;
   monthly: MonthlyStat[];
   topStoresByRevenue: {
     storeId: string;
@@ -476,6 +513,11 @@ export function computeExtendedAnalytics(
   let totalProfit = 0;
   let naqdProfit = 0;
   let qarzProfit = 0;
+  let totalDiscount = 0;
+  let shopOrderRevenue = 0;
+  const transactionKeys = new Set<string>();
+  const shopOrderKeys = new Set<string>();
+  const directSaleKeys = new Set<string>();
   const monthMap = new Map<string, MonthlyStat>();
   const storeRev = new Map<
     string,
@@ -487,6 +529,15 @@ export function computeExtendedAnalytics(
   >();
 
   for (const sale of sales) {
+    transactionKeys.add(getSaleTransactionKey(sale));
+    if (sale.shopOrderId) {
+      shopOrderKeys.add(sale.shopOrderId);
+      shopOrderRevenue += sale.total;
+    } else {
+      directSaleKeys.add(sale.id);
+    }
+    totalDiscount += sale.discountAmount ?? 0;
+
     if (sale.paymentType === 'naqd') naqdSalesCount += 1;
     else qarzSalesCount += 1;
     if (sale.paymentType === 'qarz' && (sale.debtAmount ?? 0) <= 0) closedDebtCount += 1;
@@ -552,6 +603,7 @@ export function computeExtendedAnalytics(
   return {
     ...base,
     totalSalesCount: sales.length,
+    transactionCount: transactionKeys.size,
     naqdSalesCount,
     qarzSalesCount,
     closedDebtCount,
@@ -566,6 +618,10 @@ export function computeExtendedAnalytics(
     naqdSharePercent,
     qarzSharePercent,
     creditCollectedSharePercent,
+    totalDiscount,
+    shopOrderRevenue,
+    shopOrderTransactionCount: shopOrderKeys.size,
+    directSaleCount: directSaleKeys.size,
     monthly,
     topStoresByRevenue: [...storeRev.values()].sort((a, b) => b.total - a.total).slice(0, 8),
     topProductsByQty: [...productQty.values()].sort((a, b) => b.qty - a.qty).slice(0, 8),
@@ -789,24 +845,48 @@ export function computePaymentFlowBreakdown(
   period: HistoryPeriod,
   customRange?: HistoryDateRange,
 ): PaymentFlowBreakdown {
+  const window = periodWindow(period, customRange);
   const salesInPeriod = filterSalesByPeriod(data.sales, period, customRange);
-  const analytics = computeExtendedAnalytics(data, salesInPeriod);
 
-  const qarzWithPayment = salesInPeriod.filter(
-    (s) => s.paymentType === 'qarz' && (s.paidAmount ?? 0) > 0,
-  );
+  let naqdAmount = 0;
+  let newDebtAmount = 0;
+  let downPaymentAtSale = 0;
+  const naqdTx = new Set<string>();
+  const qarzTx = new Set<string>();
+
+  for (const sale of salesInPeriod) {
+    const txKey = getSaleTransactionKey(sale);
+    if (sale.paymentType === 'naqd') {
+      naqdAmount += sale.total;
+      naqdTx.add(txKey);
+      continue;
+    }
+    qarzTx.add(txKey);
+    newDebtAmount += getInitialDebtAmount(sale);
+    downPaymentAtSale += getDownPaymentAtSale(sale);
+  }
+
+  let debtCollectedAmount = 0;
+  let debtCollectedCount = 0;
+  for (const sale of data.sales) {
+    for (const payment of sale.debtPayments ?? []) {
+      if (!isTimestampInWindow(payment.at, window)) continue;
+      debtCollectedAmount += payment.amount;
+      debtCollectedCount += 1;
+    }
+  }
 
   return {
-    naqd: { amount: analytics.naqdRevenue, count: analytics.naqdSalesCount },
+    naqd: { amount: naqdAmount, count: naqdTx.size },
     newDebt: {
-      amount: analytics.creditSalesTotal,
-      count: analytics.qarzSalesCount,
-      downPaymentAtSale: 0,
+      amount: newDebtAmount,
+      count: qarzTx.size,
+      downPaymentAtSale,
     },
     debtCollected: {
-      amount: analytics.paidOnCreditTotal,
-      count: qarzWithPayment.length,
+      amount: debtCollectedAmount,
+      count: debtCollectedCount,
     },
-    totalCashIn: analytics.totalCashReceived,
+    totalCashIn: naqdAmount + downPaymentAtSale + debtCollectedAmount,
   };
 }
