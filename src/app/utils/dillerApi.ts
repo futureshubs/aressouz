@@ -3,7 +3,7 @@ import {
   DEV_API_BASE_URL,
   publicAnonKey,
 } from '../../../utils/supabase/info';
-import type { DillerData } from './dillerData';
+import type { DillerData, DillerShopOrder, DillerShopOrderStatus } from './dillerData';
 
 export function getDillerApiBase(): string {
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
@@ -135,6 +135,127 @@ export async function dillerApiPushData(token: string, data: DillerData): Promis
       ok: true,
       updatedAt: String(body.updatedAt || new Date().toISOString()),
     };
+  } catch {
+    return { ok: false, error: 'Serverga ulanishda xatolik' };
+  }
+}
+
+export type QrcodeCatalogProduct = {
+  id: string;
+  name: string;
+  unitPrice: number;
+  unit: string;
+  stock: number;
+};
+
+export type QrcodeCatalog = {
+  companyName: string;
+  phone: string;
+  telegram: string;
+  instagram: string;
+  products: QrcodeCatalogProduct[];
+};
+
+export async function dillerApiFetchQrcodeCatalog(
+  orderToken: string,
+): Promise<{ ok: true; catalog: QrcodeCatalog } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${getDillerApiBase()}/public/qrcode/${encodeURIComponent(orderToken)}`,
+      {
+        headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+      },
+    );
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.success) {
+      return { ok: false, error: String(body.error || 'Katalog topilmadi') };
+    }
+    return {
+      ok: true,
+      catalog: {
+        companyName: String(body.companyName ?? ''),
+        phone: String(body.phone ?? ''),
+        telegram: String(body.telegram ?? ''),
+        instagram: String(body.instagram ?? ''),
+        products: Array.isArray(body.products) ? body.products : [],
+      },
+    };
+  } catch {
+    return { ok: false, error: 'Serverga ulanishda xatolik' };
+  }
+}
+
+export async function dillerApiSubmitQrcodeOrder(
+  orderToken: string,
+  payload: {
+    customerName: string;
+    customerPhone: string;
+    note?: string;
+    items: { productId: string; qty: number }[];
+  },
+): Promise<{ ok: true; orderId: string } | { ok: false; error: string }> {
+  try {
+    const res = await fetch(
+      `${getDillerApiBase()}/public/qrcode/${encodeURIComponent(orderToken)}/orders`,
+      {
+        method: 'POST',
+        headers: {
+          Authorization: `Bearer ${publicAnonKey}`,
+          apikey: publicAnonKey,
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify(payload),
+      },
+    );
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.success) {
+      return { ok: false, error: String(body.error || 'Buyurtma yuborilmadi') };
+    }
+    return { ok: true, orderId: String(body.order?.id ?? '') };
+  } catch {
+    return { ok: false, error: 'Serverga ulanishda xatolik' };
+  }
+}
+
+export async function dillerApiFetchShopOrders(
+  token: string,
+): Promise<{ ok: true; orders: DillerShopOrder[] } | { ok: false; error: string }> {
+  if (isOfflineDillerToken(token)) {
+    return { ok: true, orders: [] };
+  }
+  try {
+    const res = await fetch(`${getDillerApiBase()}/diller/orders`, {
+      headers: authHeaders(token),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.success) {
+      return { ok: false, error: String(body.error || 'Buyurtmalar yuklanmadi') };
+    }
+    return { ok: true, orders: Array.isArray(body.orders) ? body.orders : [] };
+  } catch {
+    return { ok: false, error: 'Serverga ulanishda xatolik' };
+  }
+}
+
+export async function dillerApiPatchShopOrderStatus(
+  token: string,
+  orderId: string,
+  status: DillerShopOrderStatus,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  if (isOfflineDillerToken(token)) {
+    return { ok: false, error: 'Oflayn rejimda server bilan ishlamaydi' };
+  }
+  try {
+    const res = await fetch(`${getDillerApiBase()}/diller/orders/${encodeURIComponent(orderId)}`, {
+      method: 'PATCH',
+      headers: authHeaders(token),
+      body: JSON.stringify({ status }),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.success) {
+      return { ok: false, error: String(body.error || 'Yangilanmadi') };
+    }
+    return { ok: true };
   } catch {
     return { ok: false, error: 'Serverga ulanishda xatolik' };
   }

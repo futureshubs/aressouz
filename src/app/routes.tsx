@@ -44,6 +44,9 @@ const MarketingDocPage = lazy(() => import('./pages/MarketingDocPage'));
 const ReklamaPresentationPage = lazy(() => import('./pages/ReklamaPresentationPage'));
 const DillerLogin = lazy(() => import('./pages/DillerLogin'));
 const DillerDashboard = lazy(() => import('./pages/DillerDashboard'));
+const DillerQrcodeOrderPage = lazy(() =>
+  import('./pages/DillerQrcodeOrderPage').then((m) => ({ default: m.DillerQrcodeOrderPage })),
+);
 
 const withSuspense = (node: ReactNode) => (
   <Suspense fallback={<RouteChunkSkeleton />}>{node}</Suspense>
@@ -130,6 +133,10 @@ export const router = createBrowserRouter([
   {
     path: '/diller/dashboard',
     element: <AdminRoute>{withSuspense(<DillerDashboard />)}</AdminRoute>,
+  },
+  {
+    path: '/qrcode/:token',
+    element: <AppRoute>{withSuspense(<DillerQrcodeOrderPage />)}</AppRoute>,
   },
   {
     path: '/admin',

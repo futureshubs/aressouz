@@ -82,6 +82,10 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
       });
     }
     return list.sort((a, b) => {
+      const distA = getStoreDistanceKm(a, userLoc) ?? Infinity;
+      const distB = getStoreDistanceKm(b, userLoc) ?? Infinity;
+      if (distA !== distB) return distA - distB;
+
       const sa = getStoreStats(data, a.id);
       const sb = getStoreStats(data, b.id);
       const da = sa.openDebt;
@@ -89,9 +93,7 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
       if (da > 0 && db <= 0) return -1;
       if (da <= 0 && db > 0) return 1;
       if (da !== db) return da - db;
-      const distA = getStoreDistanceKm(a, userLoc) ?? Infinity;
-      const distB = getStoreDistanceKm(b, userLoc) ?? Infinity;
-      if (distA !== distB) return distA - distB;
+
       const ta = sa.lastSaleAt ? new Date(sa.lastSaleAt).getTime() : 0;
       const tb = sb.lastSaleAt ? new Date(sb.lastSaleAt).getTime() : 0;
       if (tb !== ta) return tb - ta;

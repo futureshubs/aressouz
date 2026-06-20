@@ -19,8 +19,31 @@ type DillerSession = {
   createdAt: string;
 };
 
+type ShopOrderItem = {
+  productId: string;
+  productName: string;
+  qty: number;
+  unitPrice: number;
+  lineTotal: number;
+};
+
+type ShopOrder = {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+  items: ShopOrderItem[];
+  total: number;
+  note: string;
+  status: "pending" | "accepted" | "rejected" | "done";
+  createdAt: string;
+};
+
 function dillerSessionKey(token: string): string {
   return `diller_session:${token}`;
+}
+
+function shopOrdersKey(orderToken: string): string {
+  return `diller_shop_orders:${orderToken}`;
 }
 
 function readDillerToken(c: { req: { header: (n: string) => string | undefined; query: (n: string) => string | undefined } }): string {
@@ -53,6 +76,20 @@ async function resolveDillerSession(c: {
     return null;
   }
   return raw;
+}
+
+async function readWorkspace(kv: Kv): Promise<Record<string, unknown> | null> {
+  const stored = (await kv.get(WORKSPACE_KEY)) as Record<string, unknown> | null;
+  if (!stored) return null;
+  const data = { ...stored };
+  delete data._updatedAt;
+  return data;
+}
+
+function getWarehouseQty(warehouse: unknown[], productId: string): number {
+  if (!Array.isArray(warehouse)) return 0;
+  const row = warehouse.find((w) => w && typeof w === "object" && (w as { productId?: string }).productId === productId);
+  return Math.max(0, Math.floor(Number((row as { qty?: number })?.qty) || 0));
 }
 
 export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
@@ -148,6 +185,184 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[diller/data PUT]", msg);
+      return c.json({ success: false, error: msg || "Xatolik" }, 500);
+    }
+  });
+
+  /** Public — QR buyurtma katalogi */
+  app.get("/make-server-27d0d16c/public/qrcode/:token", async (c) => {
+    try {
+      const token = String(c.req.param("token") ?? "").trim();
+      if (!token) return c.json({ success: false, error: "Token yo‘q" }, 400);
+
+      const workspace = await readWorkspace(kv);
+      const profile = (workspace?.profile ?? {}) as Record<string, unknown>;
+      const orderToken = String(profile.orderToken ?? "").trim();
+      if (!orderToken || orderToken !== token) {
+        return c.json({ success: false, error: "Buyurtma havolasi topilmadi" }, 404);
+      }
+
+      const products = Array.isArray(workspace?.products) ? workspace.products : [];
+      const warehouse = Array.isArray(workspace?.warehouse) ? workspace.warehouse : [];
+
+      const catalog = products.map((p) => {
+        const row = p as Record<string, unknown>;
+        const id = String(row.id ?? "");
+        const stock = getWarehouseQty(warehouse, id);
+        return {
+          id,
+          name: String(row.name ?? ""),
+          unitPrice: Math.round(Number(row.unitPrice) || 0),
+          unit: String(row.unit ?? "dona"),
+          stock,
+        };
+      }).filter((p) => p.id && p.name && p.stock > 0);
+
+      return c.json({
+        success: true,
+        companyName: String(profile.companyName ?? ""),
+        phone: String(profile.orderPhone ?? profile.phone ?? ""),
+        telegram: String(profile.telegram ?? ""),
+        instagram: String(profile.instagram ?? ""),
+        products: catalog,
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[public/qrcode GET]", msg);
+      return c.json({ success: false, error: msg || "Xatolik" }, 500);
+    }
+  });
+
+  /** Public — buyurtma yuborish */
+  app.post("/make-server-27d0d16c/public/qrcode/:token/orders", async (c) => {
+    try {
+      const token = String(c.req.param("token") ?? "").trim();
+      if (!token) return c.json({ success: false, error: "Token yo‘q" }, 400);
+
+      const workspace = await readWorkspace(kv);
+      const profile = (workspace?.profile ?? {}) as Record<string, unknown>;
+      const orderToken = String(profile.orderToken ?? "").trim();
+      if (!orderToken || orderToken !== token) {
+        return c.json({ success: false, error: "Buyurtma havolasi topilmadi" }, 404);
+      }
+
+      const body = await c.req.json().catch(() => ({}));
+      const customerName = String(body.customerName ?? "").trim();
+      const customerPhone = String(body.customerPhone ?? "").trim();
+      const note = String(body.note ?? "").trim();
+      const itemsRaw = Array.isArray(body.items) ? body.items : [];
+
+      if (!customerName) return c.json({ success: false, error: "Ism kiriting" }, 400);
+      if (customerPhone.replace(/\D/g, "").length < 9) {
+        return c.json({ success: false, error: "Telefon raqam noto‘g‘ri" }, 400);
+      }
+      if (itemsRaw.length === 0) return c.json({ success: false, error: "Mahsulot tanlang" }, 400);
+
+      const products = Array.isArray(workspace?.products) ? workspace.products : [];
+      const warehouse = Array.isArray(workspace?.warehouse) ? workspace.warehouse : [];
+
+      const items: ShopOrderItem[] = [];
+      for (const raw of itemsRaw) {
+        const productId = String(raw?.productId ?? "");
+        const qty = Math.max(1, Math.floor(Number(raw?.qty) || 1));
+        const product = products.find((p) => (p as { id?: string }).id === productId) as Record<string, unknown> | undefined;
+        if (!product) continue;
+        const stock = getWarehouseQty(warehouse, productId);
+        if (stock <= 0) continue;
+        const unitPrice = Math.round(Number(product.unitPrice) || 0);
+        items.push({
+          productId,
+          productName: String(product.name ?? ""),
+          qty: Math.min(qty, stock),
+          unitPrice,
+          lineTotal: unitPrice * Math.min(qty, stock),
+        });
+      }
+
+      if (items.length === 0) {
+        return c.json({ success: false, error: "Tanlangan mahsulotlar omborda yo‘q" }, 400);
+      }
+
+      const order: ShopOrder = {
+        id: `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
+        customerName,
+        customerPhone,
+        items,
+        total: items.reduce((s, it) => s + it.lineTotal, 0),
+        note,
+        status: "pending",
+        createdAt: new Date().toISOString(),
+      };
+
+      const key = shopOrdersKey(token);
+      const existing = (await kv.get(key)) as ShopOrder[] | null;
+      const list = Array.isArray(existing) ? existing : [];
+      list.unshift(order);
+      await kv.set(key, list.slice(0, 500));
+
+      return c.json({ success: true, order });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[public/qrcode POST]", msg);
+      return c.json({ success: false, error: msg || "Xatolik" }, 500);
+    }
+  });
+
+  /** Diller — buyurtmalar ro‘yxati */
+  app.get("/make-server-27d0d16c/diller/orders", async (c) => {
+    try {
+      const sess = await resolveDillerSession(c, kv);
+      if (!sess) return c.json({ success: false, error: "Avval tizimga kiring" }, 401);
+
+      const workspace = await readWorkspace(kv);
+      const profile = (workspace?.profile ?? {}) as Record<string, unknown>;
+      const orderToken = String(profile.orderToken ?? "").trim();
+      if (!orderToken) {
+        return c.json({ success: true, orders: [] });
+      }
+
+      const list = (await kv.get(shopOrdersKey(orderToken))) as ShopOrder[] | null;
+      return c.json({
+        success: true,
+        orders: Array.isArray(list) ? list : [],
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return c.json({ success: false, error: msg || "Xatolik" }, 500);
+    }
+  });
+
+  /** Diller — buyurtma holati */
+  app.patch("/make-server-27d0d16c/diller/orders/:orderId", async (c) => {
+    try {
+      const sess = await resolveDillerSession(c, kv);
+      if (!sess) return c.json({ success: false, error: "Avval tizimga kiring" }, 401);
+
+      const orderId = String(c.req.param("orderId") ?? "").trim();
+      const body = await c.req.json().catch(() => ({}));
+      const status = String(body.status ?? "").trim();
+      if (!["pending", "accepted", "rejected", "done"].includes(status)) {
+        return c.json({ success: false, error: "Holat noto‘g‘ri" }, 400);
+      }
+
+      const workspace = await readWorkspace(kv);
+      const profile = (workspace?.profile ?? {}) as Record<string, unknown>;
+      const orderToken = String(profile.orderToken ?? "").trim();
+      if (!orderToken) return c.json({ success: false, error: "Token yo‘q" }, 404);
+
+      const key = shopOrdersKey(orderToken);
+      const list = (await kv.get(key)) as ShopOrder[] | null;
+      if (!Array.isArray(list)) return c.json({ success: false, error: "Buyurtma topilmadi" }, 404);
+
+      const idx = list.findIndex((o) => o.id === orderId);
+      if (idx < 0) return c.json({ success: false, error: "Buyurtma topilmadi" }, 404);
+
+      list[idx] = { ...list[idx], status: status as ShopOrder["status"] };
+      await kv.set(key, list);
+
+      return c.json({ success: true, order: list[idx] });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
       return c.json({ success: false, error: msg || "Xatolik" }, 500);
     }
   });

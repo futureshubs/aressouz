@@ -18,9 +18,11 @@ import {
   HandCoins,
   Navigation,
   Landmark,
+  ClipboardList,
 } from 'lucide-react';
 import { useDillerUserLocation } from '../../hooks/useDillerUserLocation';
 import { DillerBalansSection } from './DillerBalansSection';
+import { DillerBuyurtmaSection } from './DillerBuyurtmaSection';
 import { DillerHarajatSection } from './DillerHarajatSection';
 import { computeExpenseSummary, filterExpensesByPeriod } from '../../utils/dillerExpenseAnalytics';
 import { useTheme } from '../../context/ThemeContext';
@@ -55,7 +57,7 @@ type Props = {
   onDataChange: (next: DillerData) => void;
 };
 
-type QarzSection = 'qarz' | 'statistika' | 'balans' | 'tarix' | 'xarajat';
+type QarzSection = 'qarz' | 'buyurtma' | 'statistika' | 'balans' | 'tarix' | 'xarajat';
 
 function Card({
   children,
@@ -207,21 +209,17 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
       );
     }
     return list.sort((a, b) => {
-      const storeDebtA = storeDebtById.get(a.storeId)?.openDebt ?? 0;
-      const storeDebtB = storeDebtById.get(b.storeId)?.openDebt ?? 0;
-      if (storeDebtA !== storeDebtB) return storeDebtA - storeDebtB;
-
       const distA = getStoreDistanceKm(storeById.get(a.storeId), userLoc) ?? Infinity;
       const distB = getStoreDistanceKm(storeById.get(b.storeId), userLoc) ?? Infinity;
       if (distA !== distB) return distA - distB;
 
-      const saleDebtA = a.debtAmount ?? 0;
-      const saleDebtB = b.debtAmount ?? 0;
-      if (saleDebtA !== saleDebtB) return saleDebtA - saleDebtB;
-
       const aOver = isSaleOverdue(a) ? 1 : 0;
       const bOver = isSaleOverdue(b) ? 1 : 0;
       if (bOver !== aOver) return bOver - aOver;
+
+      const saleDebtA = a.debtAmount ?? 0;
+      const saleDebtB = b.debtAmount ?? 0;
+      if (saleDebtA !== saleDebtB) return saleDebtA - saleDebtB;
 
       return new Date(a.createdAt).getTime() - new Date(b.createdAt).getTime();
     });
@@ -331,6 +329,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
 
   const sections: { id: QarzSection; label: string; icon: typeof Wallet }[] = [
     { id: 'qarz', label: 'Qarz', icon: Wallet },
+    { id: 'buyurtma', label: 'Buyurtma', icon: ClipboardList },
     { id: 'statistika', label: 'Statistika', icon: BarChart3 },
     { id: 'balans', label: 'Balans', icon: Landmark },
     { id: 'tarix', label: 'Tarix', icon: History },
@@ -1255,6 +1254,10 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
             </Card>
           ) : null}
         </>
+      ) : null}
+
+      {section === 'buyurtma' ? (
+        <DillerBuyurtmaSection data={data} onDataChange={onDataChange} isDark={isDark} />
       ) : null}
 
       {section === 'xarajat' ? (

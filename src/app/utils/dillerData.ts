@@ -1,3 +1,5 @@
+import { getPublicSiteOrigin } from '../config/site';
+
 export type DillerFirm = {
   id: string;
   /** Firma nomi */
@@ -102,6 +104,33 @@ export type DillerProfile = {
   phone: string;
   region: string;
   note: string;
+  /** Buyurtma QR havolasi tokeni */
+  orderToken?: string;
+  /** Buyurtma uchun aloqa */
+  orderPhone?: string;
+  telegram?: string;
+  instagram?: string;
+};
+
+export type DillerShopOrderItem = {
+  productId: string;
+  productName: string;
+  qty: number;
+  unitPrice: number;
+  lineTotal: number;
+};
+
+export type DillerShopOrderStatus = 'pending' | 'accepted' | 'rejected' | 'done';
+
+export type DillerShopOrder = {
+  id: string;
+  customerName: string;
+  customerPhone: string;
+  items: DillerShopOrderItem[];
+  total: number;
+  note: string;
+  status: DillerShopOrderStatus;
+  createdAt: string;
 };
 
 export type DillerData = {
@@ -113,6 +142,7 @@ export type DillerData = {
   sales: DillerSale[];
   expenses: DillerExpense[];
   balanceEntries: DillerBalanceEntry[];
+  shopOrders: DillerShopOrder[];
 };
 
 const DATA_KEY = 'aresso:diller:data:v3';
@@ -258,6 +288,34 @@ function normalizeBalanceEntry(e: Partial<DillerBalanceEntry> & { id: string }):
   };
 }
 
+function normalizeShopOrder(o: Partial<DillerShopOrder> & { id: string }): DillerShopOrder {
+  const items = Array.isArray(o.items)
+    ? o.items.map((it) => ({
+        productId: String(it.productId ?? ''),
+        productName: String(it.productName ?? ''),
+        qty: Math.max(1, Math.floor(Number(it.qty) || 1)),
+        unitPrice: Math.max(0, Math.round(Number(it.unitPrice) || 0)),
+        lineTotal: Math.max(0, Math.round(Number(it.lineTotal) || 0)),
+      }))
+    : [];
+  const total =
+    Math.max(0, Math.round(Number(o.total) || 0)) ||
+    items.reduce((s, it) => s + it.lineTotal, 0);
+  const status = o.status;
+  const validStatus: DillerShopOrderStatus =
+    status === 'accepted' || status === 'rejected' || status === 'done' ? status : 'pending';
+  return {
+    id: o.id,
+    customerName: String(o.customerName ?? '').trim(),
+    customerPhone: String(o.customerPhone ?? '').trim(),
+    items,
+    total,
+    note: String(o.note ?? '').trim(),
+    status: validStatus,
+    createdAt: o.createdAt ?? new Date().toISOString(),
+  };
+}
+
 function normalizeProduct(p: Partial<DillerProduct> & { id: string }): DillerProduct {
   const sell = Number(p.unitPrice) || 0;
   const buy = typeof p.buyPrice === 'number' ? p.buyPrice : Math.round(sell * 0.85);
@@ -362,6 +420,7 @@ function seedData(): DillerData {
       { productId: p2.id, qty: 85 },
     ],
     sales: [],
+    shopOrders: [],
   };
 }
 
@@ -400,6 +459,7 @@ export function createEmptyDillerData(): DillerData {
     sales: [],
     expenses: [],
     balanceEntries: [],
+    shopOrders: [],
   };
 }
 
@@ -442,6 +502,9 @@ export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData
     ),
     balanceEntries: (Array.isArray(raw.balanceEntries) ? raw.balanceEntries : []).map((e) =>
       normalizeBalanceEntry(e as DillerBalanceEntry),
+    ),
+    shopOrders: (Array.isArray(raw.shopOrders) ? raw.shopOrders : []).map((o) =>
+      normalizeShopOrder(o as DillerShopOrder),
     ),
   };
 }
@@ -976,4 +1039,62 @@ export function settleDebtFully(data: DillerData, saleId: string): { data: Dille
   const sale = data.sales.find((s) => s.id === saleId);
   if (!sale) return { data, error: 'Sotuv topilmadi' };
   return recordDebtPayment(data, saleId, sale.debtAmount ?? 0);
+}
+
+export function ensureOrderToken(data: DillerData): DillerData {
+  if (data.profile.orderToken?.trim()) return data;
+  return {
+    ...data,
+    profile: {
+      ...data.profile,
+      orderToken: `qr${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`,
+    },
+  };
+}
+
+export function updateDillerProfile(
+  data: DillerData,
+  patch: Partial<DillerProfile>,
+): DillerData {
+  return {
+    ...data,
+    profile: { ...data.profile, ...patch },
+  };
+}
+
+export function mergeShopOrders(data: DillerData, incoming: DillerShopOrder[]): DillerData {
+  const map = new Map<string, DillerShopOrder>();
+  for (const o of data.shopOrders ?? []) map.set(o.id, o);
+  for (const o of incoming) map.set(o.id, normalizeShopOrder(o));
+  const shopOrders = [...map.values()].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+  return { ...data, shopOrders };
+}
+
+export function updateShopOrderStatus(
+  data: DillerData,
+  orderId: string,
+  status: DillerShopOrderStatus,
+): DillerData {
+  return {
+    ...data,
+    shopOrders: (data.shopOrders ?? []).map((o) =>
+      o.id === orderId ? { ...o, status } : o,
+    ),
+  };
+}
+
+export function normalizePhoneKey(phone: string): string {
+  return phone.replace(/\D/g, '').slice(-9);
+}
+
+export function findStoreByPhone(data: DillerData, phone: string): DillerStore | undefined {
+  const key = normalizePhoneKey(phone);
+  if (key.length < 9) return undefined;
+  return data.stores.find((s) => normalizePhoneKey(s.phone) === key);
+}
+
+export function getQrcodeOrderUrl(token: string): string {
+  return `${getPublicSiteOrigin()}/qrcode/${encodeURIComponent(token)}`;
 }
