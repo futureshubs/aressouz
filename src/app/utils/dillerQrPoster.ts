@@ -13,8 +13,6 @@ export type QrPosterInput = {
 const W = 1181;
 const H = 827;
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
-const PAD = 36;
-const BORDER = 3;
 
 type ContactRow = {
   label: string;
@@ -29,72 +27,125 @@ export async function downloadDillerQrPoster(input: QrPosterInput): Promise<void
   const ctx = canvas.getContext('2d');
   if (!ctx) throw new Error('Canvas qo‘llab-quvvatlanmaydi');
 
-  // Fon
-  ctx.fillStyle = '#f8fafc';
+  const brand = input.companyName.trim() || 'Aresso';
+
+  // Fon gradient
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, '#ffffff');
+  bg.addColorStop(1, '#f1f5f9');
+  ctx.fillStyle = bg;
   ctx.fillRect(0, 0, W, H);
 
-  // Tashqi ramka — to‘rtburchak
-  strokeRect(ctx, PAD, PAD, W - PAD * 2, H - PAD * 2, '#059669', BORDER);
+  // Tashqi yumaloq ramka effekti
+  roundRect(ctx, 28, 28, W - 56, H - 56, 28);
   ctx.fillStyle = '#ffffff';
-  fillRect(ctx, PAD + BORDER, PAD + BORDER, W - PAD * 2 - BORDER * 2, H - PAD * 2 - BORDER * 2);
+  ctx.fill();
+  ctx.strokeStyle = '#cbd5e1';
+  ctx.lineWidth = 2;
+  ctx.stroke();
 
-  const innerX = PAD + 20;
-  const innerY = PAD + 20;
-  const innerW = W - (PAD + 20) * 2;
-  const innerH = H - (PAD + 20) * 2;
+  // Yuqori banner
+  roundRectTop(ctx, 28, 28, W - 56, 112, 28);
+  const banner = ctx.createLinearGradient(28, 28, W - 28, 140);
+  banner.addColorStop(0, '#047857');
+  banner.addColorStop(1, '#059669');
+  ctx.fillStyle = banner;
+  ctx.fill();
 
-  // Chap blok
-  const leftW = 488;
-  fillRect(ctx, innerX, innerY, leftW, innerH, '#ecfdf5');
-  strokeRect(ctx, innerX, innerY, leftW, innerH, '#6ee7b7', 1);
+  ctx.textAlign = 'left';
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `800 44px ${FONT}`;
+  ctx.fillText(brand, 56, 88);
 
-  const qrSize = 360;
-  const qrX = innerX + (leftW - qrSize) / 2;
-  const qrY = innerY + 44;
+  ctx.font = `500 22px ${FONT}`;
+  ctx.globalAlpha = 0.92;
+  ctx.fillText('Onlayn buyurtma', 56, 118);
+  ctx.globalAlpha = 1;
 
-  fillRect(ctx, qrX - 14, qrY - 14, qrSize + 28, qrSize + 28, '#ffffff');
-  strokeRect(ctx, qrX - 14, qrY - 14, qrSize + 28, qrSize + 28, '#10b981', 2);
-  drawQrCorners(ctx, qrX - 14, qrY - 14, qrSize + 28, qrSize + 28);
+  // QR blok — chap
+  const qrBoxX = 56;
+  const qrBoxY = 168;
+  const qrSize = 380;
 
+  ctx.shadowColor = 'rgba(15, 23, 42, 0.12)';
+  ctx.shadowBlur = 24;
+  ctx.shadowOffsetY = 8;
+  roundRect(ctx, qrBoxX, qrBoxY, qrSize + 48, qrSize + 48, 20);
+  ctx.fillStyle = '#ffffff';
+  ctx.fill();
+  ctx.shadowColor = 'transparent';
+  ctx.shadowBlur = 0;
+  ctx.shadowOffsetY = 0;
+
+  ctx.strokeStyle = '#10b981';
+  ctx.lineWidth = 3;
+  ctx.stroke();
+
+  const qrX = qrBoxX + 24;
+  const qrY = qrBoxY + 24;
   const qrDataUrl = await QRCodeLib.toDataURL(input.orderUrl, {
     width: qrSize,
-    margin: 0,
+    margin: 1,
     color: { dark: '#0f172a', light: '#ffffff' },
   });
   ctx.drawImage(await loadImage(qrDataUrl), qrX, qrY, qrSize, qrSize);
 
-  // Skaner paneli — to‘rtburchak
-  const barW = 320;
-  const barX = innerX + (leftW - barW) / 2;
-  const barY = qrY + qrSize + 32;
-  fillRect(ctx, barX, barY, barW, 46, '#059669');
+  // Skaner yorlig‘i
+  const tagW = qrSize + 48;
+  const tagY = qrBoxY + qrSize + 48 + 16;
+  roundRect(ctx, qrBoxX, tagY, tagW, 52, 14);
+  ctx.fillStyle = '#0f172a';
+  ctx.fill();
 
   ctx.save();
-  ctx.translate(barX + 28, barY + 23);
-  drawScanIcon(ctx, 0, 0, 16);
+  ctx.translate(qrBoxX + 36, tagY + 26);
+  drawScanIcon(ctx, 0, 0, 14);
   ctx.restore();
 
   ctx.fillStyle = '#ffffff';
-  ctx.font = `700 20px ${FONT}`;
+  ctx.font = `700 22px ${FONT}`;
   ctx.textAlign = 'center';
   ctx.textBaseline = 'middle';
-  ctx.fillText('SKANER QILING', barX + barW / 2 + 10, barY + 24);
+  ctx.fillText('QR SKANER', qrBoxX + tagW / 2 + 8, tagY + 27);
   ctx.textBaseline = 'alphabetic';
+  ctx.textAlign = 'left';
 
   // O‘ng blok
-  const rightX = innerX + leftW + 24;
-  const rightW = innerW - leftW - 24;
+  const rightX = qrBoxX + tagW + 40;
+  const rightW = W - 28 - 56 - rightX;
 
-  ctx.textAlign = 'left';
   ctx.fillStyle = '#0f172a';
-  ctx.font = `700 34px ${FONT}`;
-  ctx.fillText('Buyurtma bering', rightX, innerY + 52);
+  ctx.font = `800 36px ${FONT}`;
+  ctx.fillText('Buyurtma', rightX, 200);
+  const buyurtmaW = ctx.measureText('Buyurtma').width;
+  ctx.fillStyle = '#10b981';
+  ctx.fillText('bering', rightX + buyurtmaW + 10, 200);
 
   ctx.fillStyle = '#64748b';
-  ctx.font = `18px ${FONT}`;
-  ctx.fillText('Telefon kamerasini yoqing', rightX, innerY + 82);
+  ctx.font = `20px ${FONT}`;
+  ctx.fillText('Telefon kamerasini', rightX, 248);
+  ctx.fillText('QR kodga yo‘naltiring', rightX, 276);
 
-  fillRect(ctx, rightX, innerY + 94, 120, 3, '#10b981');
+  // Qadamlar
+  const steps = ['Skaner', 'Mahsulot tanlang', 'Buyurtma yuboring'];
+  let stepY = 310;
+  for (let i = 0; i < steps.length; i++) {
+    ctx.beginPath();
+    ctx.arc(rightX + 14, stepY + 2, 14, 0, Math.PI * 2);
+    ctx.fillStyle = '#10b981';
+    ctx.fill();
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `700 16px ${FONT}`;
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'middle';
+    ctx.fillText(String(i + 1), rightX + 14, stepY + 3);
+    ctx.textAlign = 'left';
+    ctx.textBaseline = 'alphabetic';
+    ctx.fillStyle = '#334155';
+    ctx.font = `600 19px ${FONT}`;
+    ctx.fillText(steps[i], rightX + 38, stepY + 8);
+    stepY += 44;
+  }
 
   const contacts: ContactRow[] = [];
   if (input.phone.trim()) {
@@ -115,21 +166,12 @@ export async function downloadDillerQrPoster(input: QrPosterInput): Promise<void
     });
   }
 
-  const rowH = 98;
-  let rowY = innerY + 118;
+  let rowY = stepY + 12;
+  const rowH = 72;
   for (const c of contacts) {
-    drawContactRow(ctx, rightX, rowY, rightW, rowH - 10, c);
+    drawContactChip(ctx, rightX, rowY, rightW, rowH - 8, c);
     rowY += rowH;
   }
-
-  // Footer
-  const footY = innerY + innerH - 42;
-  fillRect(ctx, W / 2 - 110, footY, 220, 32, '#ecfdf5');
-  strokeRect(ctx, W / 2 - 110, footY, 220, 32, '#6ee7b7', 1);
-  ctx.fillStyle = '#047857';
-  ctx.font = `700 18px ${FONT}`;
-  ctx.textAlign = 'center';
-  ctx.fillText('aressouz.uz', W / 2, footY + 22);
 
   const blob = await new Promise<Blob | null>((resolve) =>
     canvas.toBlob((b) => resolve(b), 'image/png', 1),
@@ -144,62 +186,49 @@ export async function downloadDillerQrPoster(input: QrPosterInput): Promise<void
   URL.revokeObjectURL(url);
 }
 
-function fillRect(
+function roundRect(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   w: number,
   h: number,
-  color?: string,
+  r: number,
 ) {
+  const rad = Math.min(r, w / 2, h / 2);
   ctx.beginPath();
-  ctx.rect(x, y, w, h);
-  if (color) {
-    ctx.fillStyle = color;
-    ctx.fill();
-  }
+  ctx.moveTo(x + rad, y);
+  ctx.lineTo(x + w - rad, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+  ctx.lineTo(x + w, y + h - rad);
+  ctx.quadraticCurveTo(x + w, y + h, x + w - rad, y + h);
+  ctx.lineTo(x + rad, y + h);
+  ctx.quadraticCurveTo(x, y + h, x, y + h - rad);
+  ctx.lineTo(x, y + rad);
+  ctx.quadraticCurveTo(x, y, x + rad, y);
+  ctx.closePath();
 }
 
-function strokeRect(
+function roundRectTop(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
   w: number,
   h: number,
-  color: string,
-  width: number,
+  r: number,
 ) {
+  const rad = Math.min(r, w / 2, h);
   ctx.beginPath();
-  ctx.rect(x, y, w, h);
-  ctx.strokeStyle = color;
-  ctx.lineWidth = width;
-  ctx.stroke();
+  ctx.moveTo(x + rad, y);
+  ctx.lineTo(x + w - rad, y);
+  ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
+  ctx.lineTo(x + w, y + h);
+  ctx.lineTo(x, y + h);
+  ctx.lineTo(x, y + rad);
+  ctx.quadraticCurveTo(x, y, x + rad, y);
+  ctx.closePath();
 }
 
-function drawQrCorners(ctx: CanvasRenderingContext2D, x: number, y: number, w: number, h: number) {
-  const len = 32;
-  const inset = 8;
-  ctx.strokeStyle = '#059669';
-  ctx.lineWidth = 4;
-  ctx.lineCap = 'square';
-
-  const corners: [number, number, number, number][] = [
-    [x + inset, y + inset + len, x + inset, y + inset, x + inset + len, y + inset],
-    [x + w - inset - len, y + inset, x + w - inset, y + inset, x + w - inset, y + inset + len],
-    [x + inset, y + h - inset - len, x + inset, y + h - inset, x + inset + len, y + h - inset],
-    [x + w - inset - len, y + h - inset, x + w - inset, y + h - inset, x + w - inset, y + h - inset - len],
-  ];
-
-  for (const [mx, my, cx, cy, ex, ey] of corners) {
-    ctx.beginPath();
-    ctx.moveTo(mx, my);
-    ctx.lineTo(cx, cy);
-    ctx.lineTo(ex, ey);
-    ctx.stroke();
-  }
-}
-
-function drawContactRow(
+function drawContactChip(
   ctx: CanvasRenderingContext2D,
   x: number,
   y: number,
@@ -208,23 +237,28 @@ function drawContactRow(
   contact: ContactRow,
 ) {
   const theme = {
-    phone: { bg: '#f0fdf4', line: '#10b981', icon: '#10b981' },
-    telegram: { bg: '#eff6ff', line: '#229ED9', icon: '#229ED9' },
-    instagram: { bg: '#fdf2f8', line: '#db2777', icon: '' },
+    phone: { bg: '#ecfdf5', accent: '#10b981', icon: '#10b981' },
+    telegram: { bg: '#eff6ff', accent: '#229ED9', icon: '#229ED9' },
+    instagram: { bg: '#fdf2f8', accent: '#db2777', icon: '' },
   }[contact.kind];
 
-  fillRect(ctx, x, y, w, h, theme.bg);
-  strokeRect(ctx, x, y, w, h, '#e2e8f0', 1);
-  fillRect(ctx, x, y, 5, h, theme.line);
+  roundRect(ctx, x, y, w, h, 14);
+  ctx.fillStyle = theme.bg;
+  ctx.fill();
+  ctx.strokeStyle = '#e2e8f0';
+  ctx.lineWidth = 1;
+  ctx.stroke();
 
-  const iconSize = 52;
-  const iconX = x + 22;
+  const iconSize = 44;
+  const iconX = x + 16;
   const iconY = y + (h - iconSize) / 2;
 
+  roundRect(ctx, iconX, iconY, iconSize, iconSize, 12);
   if (contact.kind === 'instagram') {
-    fillInstagramSquare(ctx, iconX, iconY, iconSize);
+    fillInstagramSquare(ctx, iconX, iconY, iconSize, 12);
   } else {
-    fillRect(ctx, iconX, iconY, iconSize, iconSize, theme.icon);
+    ctx.fillStyle = theme.icon;
+    ctx.fill();
   }
 
   ctx.save();
@@ -236,13 +270,13 @@ function drawContactRow(
 
   ctx.textAlign = 'left';
   ctx.fillStyle = '#64748b';
-  ctx.font = `600 16px ${FONT}`;
-  ctx.fillText(contact.label.toUpperCase(), x + 88, y + 32);
+  ctx.font = `600 14px ${FONT}`;
+  ctx.fillText(contact.label.toUpperCase(), x + 72, y + 26);
 
   ctx.fillStyle = '#0f172a';
-  ctx.font = `700 26px ${FONT}`;
-  const val = contact.value.length > 22 ? `${contact.value.slice(0, 21)}…` : contact.value;
-  ctx.fillText(val, x + 88, y + 64);
+  ctx.font = `700 24px ${FONT}`;
+  const val = contact.value.length > 20 ? `${contact.value.slice(0, 19)}…` : contact.value;
+  ctx.fillText(val, x + 72, y + 52);
 }
 
 function fillInstagramSquare(
@@ -250,10 +284,10 @@ function fillInstagramSquare(
   x: number,
   y: number,
   size: number,
+  radius: number,
 ) {
   ctx.save();
-  ctx.beginPath();
-  ctx.rect(x, y, size, size);
+  roundRect(ctx, x, y, size, size, radius);
   ctx.clip();
   const g = ctx.createLinearGradient(x, y, x + size, y + size);
   g.addColorStop(0, '#f58529');
@@ -269,49 +303,45 @@ function drawPhoneIcon(ctx: CanvasRenderingContext2D) {
   ctx.strokeStyle = '#ffffff';
   ctx.fillStyle = '#ffffff';
   ctx.lineWidth = 2;
-  ctx.lineJoin = 'miter';
-
   ctx.beginPath();
-  ctx.rect(-9, -14, 18, 28);
+  ctx.rect(-8, -12, 16, 24);
   ctx.stroke();
-
-  ctx.globalAlpha = 0.3;
-  ctx.fillRect(-6, -10, 12, 20);
+  ctx.globalAlpha = 0.35;
+  ctx.fillRect(-5, -9, 10, 18);
   ctx.globalAlpha = 1;
-
-  ctx.fillRect(-3, 10, 6, 2);
+  ctx.fillRect(-2.5, 8, 5, 2);
 }
 
 function drawTelegramIcon(ctx: CanvasRenderingContext2D) {
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.moveTo(-12, 4);
-  ctx.lineTo(12, -4);
-  ctx.lineTo(3, 14);
-  ctx.lineTo(0, 6);
-  ctx.lineTo(-5, 8);
+  ctx.moveTo(-10, 3);
+  ctx.lineTo(10, -3);
+  ctx.lineTo(2, 12);
+  ctx.lineTo(0, 5);
+  ctx.lineTo(-4, 7);
   ctx.closePath();
   ctx.fill();
 }
 
 function drawInstagramIcon(ctx: CanvasRenderingContext2D) {
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2.2;
+  ctx.lineWidth = 2;
   ctx.beginPath();
-  ctx.rect(-10, -10, 20, 20);
+  ctx.rect(-8, -8, 16, 16);
   ctx.stroke();
   ctx.beginPath();
-  ctx.arc(0, 0, 5, 0, Math.PI * 2);
+  ctx.arc(0, 0, 4, 0, Math.PI * 2);
   ctx.stroke();
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(5, -7, 3, 3);
+  ctx.fillRect(4, -6, 2.5, 2.5);
 }
 
 function drawScanIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number) {
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2.2;
+  ctx.lineWidth = 2;
   ctx.lineCap = 'square';
-  const h = s * 0.75;
+  const h = s * 0.85;
   const corners = [
     [-h, -h, -h / 3, -h, -h, -h / 3],
     [h / 3, -h, h, -h, h, -h / 3],

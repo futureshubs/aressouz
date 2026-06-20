@@ -185,10 +185,13 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
       return;
     }
 
-    const ok = await patchServerStatus(order.id, status);
-    if (!ok) return;
-
     onDataChange(nextData);
+    void pushDillerLocalNow();
+
+    const ok = await patchServerStatus(order.id, status);
+    if (!ok) {
+      toast.warning('Mahalliy saqlandi — server holati keyinroq yangilanadi');
+    }
     if (status === 'accepted') {
       toast.success('Qabul qilindi — ombordan ayirildi');
     } else {
@@ -202,12 +205,15 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
 
   const onSaleComplete = async (nextData: DillerData) => {
     const orderId = saleOrderId;
-    if (!orderId) return;
-    const ok = await patchServerStatus(orderId, 'done');
-    if (!ok) return;
     onDataChange(nextData);
     setSaleOrderId(null);
     setDetailOrderId(null);
+    void pushDillerLocalNow();
+    if (!orderId) return;
+    const ok = await patchServerStatus(orderId, 'done');
+    if (!ok) {
+      toast.warning('Sotuv saqlandi — server buyurtma holati keyinroq yangilanadi');
+    }
   };
 
   const downloadPoster = async () => {

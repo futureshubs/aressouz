@@ -71,6 +71,11 @@ export type DillerBalanceEntry = {
   createdAt: string;
 };
 
+export type DillerDebtPayment = {
+  amount: number;
+  at: string;
+};
+
 export type DillerSale = {
   id: string;
   storeId: string;
@@ -89,6 +94,10 @@ export type DillerSale = {
   paidAmount: number;
   /** Qarz qoldig‘i */
   debtAmount: number;
+  /** Sotuv paytida ochilgan qarz (keyin o‘zgarmaydi) */
+  initialDebtAmount?: number;
+  /** Keyinchalik olingan qarz to‘lovlari */
+  debtPayments?: DillerDebtPayment[];
   /** Qarz qaytarish sanasi (ISO date yoki bo‘sh) */
   debtDueDate: string;
   note: string;
@@ -199,6 +208,18 @@ function normalizeUnit(unit: unknown): DillerProductUnit | string {
   return 'dona';
 }
 
+function normalizeDebtPayments(raw: unknown): DillerDebtPayment[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((row) => {
+      const amount = Math.max(0, Math.round(Number((row as DillerDebtPayment)?.amount) || 0));
+      const at = String((row as DillerDebtPayment)?.at ?? '').trim();
+      if (amount <= 0 || !at) return null;
+      return { amount, at };
+    })
+    .filter((row): row is DillerDebtPayment => row != null);
+}
+
 function normalizeSale(s: Partial<DillerSale> & { id: string }): DillerSale {
   const qty = Math.max(1, Math.floor(Number(s.qty) || 1));
   const listUnitPrice = Number(s.listUnitPrice) || Number(s.unitPrice) || 0;
@@ -212,6 +233,17 @@ function normalizeSale(s: Partial<DillerSale> & { id: string }): DillerSale {
   const paymentType: DillerPaymentType = s.paymentType === 'qarz' ? 'qarz' : 'naqd';
   const paidAmount = Math.max(0, Number(s.paidAmount) ?? (paymentType === 'naqd' ? total : 0));
   const debtAmount = Math.max(0, Number(s.debtAmount) ?? Math.max(0, total - paidAmount));
+  const debtPayments = normalizeDebtPayments(s.debtPayments);
+  const paidLater = debtPayments.reduce((sum, row) => sum + row.amount, 0);
+  const initialDebtAmount =
+    paymentType === 'qarz'
+      ? Math.max(
+          0,
+          Number(s.initialDebtAmount) ||
+            Math.max(0, (debtAmount ?? 0) + paidLater) ||
+            Math.max(0, total - paidAmount),
+        )
+      : 0;
   return {
     id: s.id,
     storeId: String(s.storeId ?? ''),
@@ -226,6 +258,8 @@ function normalizeSale(s: Partial<DillerSale> & { id: string }): DillerSale {
     paymentType,
     paidAmount: paymentType === 'naqd' ? total : paidAmount,
     debtAmount: paymentType === 'naqd' ? 0 : debtAmount,
+    initialDebtAmount: paymentType === 'qarz' ? initialDebtAmount : undefined,
+    debtPayments: debtPayments.length > 0 ? debtPayments : undefined,
     debtDueDate: String(s.debtDueDate ?? '').trim(),
     note: String(s.note ?? '').trim(),
     createdAt: s.createdAt ?? new Date().toISOString(),
@@ -1063,6 +1097,8 @@ export function createSale(data: DillerData, input: CreateSaleInput): { data: Di
     paymentType,
     paidAmount,
     debtAmount,
+    initialDebtAmount: paymentType === 'qarz' ? debtAmount : undefined,
+    debtPayments: [],
     debtDueDate,
     note: input.note?.trim() || '',
     createdAt: new Date().toISOString(),
@@ -1102,10 +1138,13 @@ export function recordDebtPayment(
   if (pay <= 0) return { data, error: 'To‘lov summasi kiriting' };
 
   const nextDebt = debt - pay;
+  const debtPayments = [...(sale.debtPayments ?? []), { amount: pay, at: new Date().toISOString() }];
   const next = updateSaleInData(data, saleId, {
     paidAmount: (sale.paidAmount ?? 0) + pay,
     debtAmount: nextDebt,
     debtDueDate: nextDebt <= 0 ? '' : sale.debtDueDate,
+    initialDebtAmount: sale.initialDebtAmount ?? debt,
+    debtPayments,
   });
   return { data: next };
 }
@@ -1176,6 +1215,73 @@ export function mergeShopOrders(data: DillerData, incoming: DillerShopOrder[]): 
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
   return { ...data, shopOrders };
+}
+
+/** Mahalliy va server ma’lumotini birlashtirish — sotuvlar yo‘qolmasin */
+export function mergeDillerData(local: DillerData, remote: DillerData): DillerData {
+  const saleMap = new Map<string, DillerSale>();
+  for (const s of remote.sales) saleMap.set(s.id, normalizeSale(s));
+  for (const s of local.sales) saleMap.set(s.id, normalizeSale(s));
+
+  const sales = [...saleMap.values()].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  const remoteSaleIds = new Set(remote.sales.map((s) => s.id));
+  const localHasExtraSales = local.sales.some((s) => !remoteSaleIds.has(s.id));
+
+  const expenseMap = new Map<string, DillerExpense>();
+  for (const e of remote.expenses) expenseMap.set(e.id, normalizeExpense(e));
+  for (const e of local.expenses) expenseMap.set(e.id, normalizeExpense(e));
+  const expenses = [...expenseMap.values()].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  const balanceMap = new Map<string, DillerBalanceEntry>();
+  for (const e of remote.balanceEntries) balanceMap.set(e.id, normalizeBalanceEntry(e));
+  for (const e of local.balanceEntries) balanceMap.set(e.id, normalizeBalanceEntry(e));
+  const balanceEntries = [...balanceMap.values()].sort(
+    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
+  );
+
+  const shopOrders = mergeShopOrders(
+    { ...remote, shopOrders: remote.shopOrders ?? [] },
+    local.shopOrders ?? [],
+  ).shopOrders;
+
+  const productMap = new Map<string, DillerProduct>();
+  for (const p of remote.products) productMap.set(p.id, normalizeProduct(p));
+  for (const p of local.products) productMap.set(p.id, normalizeProduct(p));
+
+  const storeMap = new Map<string, DillerStore>();
+  for (const s of remote.stores) storeMap.set(s.id, normalizeStore(s));
+  for (const s of local.stores) storeMap.set(s.id, normalizeStore(s));
+
+  const whMap = new Map<string, DillerWarehouseRow>();
+  for (const w of remote.warehouse) whMap.set(w.productId, w);
+  if (localHasExtraSales) {
+    for (const w of local.warehouse) whMap.set(w.productId, w);
+  } else {
+    for (const w of local.warehouse) {
+      if (!whMap.has(w.productId)) whMap.set(w.productId, w);
+    }
+  }
+
+  return normalizeDillerData({
+    profile: {
+      ...remote.profile,
+      ...local.profile,
+      orderToken: local.profile.orderToken?.trim() || remote.profile.orderToken,
+    },
+    firms: local.firms.length >= remote.firms.length ? local.firms : remote.firms,
+    products: [...productMap.values()],
+    stores: reconcileStoreNames([...storeMap.values()]),
+    warehouse: [...whMap.values()],
+    sales,
+    expenses,
+    balanceEntries,
+    shopOrders,
+  });
 }
 
 function patchShopOrder(
@@ -1288,8 +1394,16 @@ export function confirmShopOrderSale(
 
   const storeId =
     order.storeId ??
-    findStoreByPhone(data, order.customerPhone)?.id ??
-    '';
+    (() => {
+      const matches = findStoresByPhone(data, order.customerPhone);
+      if (matches.length === 0) return '';
+      if (matches.length === 1) return matches[0].id;
+      if (order.storeName) {
+        const byName = matches.find((s) => s.name === order.storeName);
+        if (byName) return byName.id;
+      }
+      return matches[0].id;
+    })();
   if (!storeId) {
     return { data, error: 'Do‘kon topilmadi — avval do‘konlar ro‘yxatiga qo‘shing' };
   }
@@ -1395,9 +1509,13 @@ export function normalizePhoneKey(phone: string): string {
 }
 
 export function findStoreByPhone(data: DillerData, phone: string): DillerStore | undefined {
+  return findStoresByPhone(data, phone)[0];
+}
+
+export function findStoresByPhone(data: DillerData, phone: string): DillerStore[] {
   const key = normalizePhoneKey(phone);
-  if (key.length < 9) return undefined;
-  return data.stores.find((s) => normalizePhoneKey(s.phone) === key);
+  if (key.length < 9) return [];
+  return data.stores.filter((s) => normalizePhoneKey(s.phone) === key);
 }
 
 export function getQrcodeOrderUrl(token: string): string {

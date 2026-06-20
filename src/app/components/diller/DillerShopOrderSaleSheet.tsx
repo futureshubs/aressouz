@@ -6,7 +6,7 @@ import type { DillerData, DillerPaymentType, DillerShopOrder } from '../../utils
 import {
   calcSaleTotals,
   confirmShopOrderSale,
-  findStoreByPhone,
+  findStoresByPhone,
   formatMoney,
 } from '../../utils/dillerData';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
@@ -43,7 +43,11 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
   const store = useMemo(() => {
     if (!order) return null;
     if (order.storeId) return data.stores.find((s) => s.id === order.storeId) ?? null;
-    return findStoreByPhone(data, order.customerPhone) ?? null;
+    const matches = findStoresByPhone(data, order.customerPhone);
+    if (order.storeName) {
+      return matches.find((s) => s.name === order.storeName) ?? matches[0] ?? null;
+    }
+    return matches[0] ?? null;
   }, [order, data]);
 
   const subtotal = useMemo(

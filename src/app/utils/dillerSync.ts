@@ -2,6 +2,7 @@ import type { DillerData } from './dillerData';
 import {
   hasDillerDataContent,
   loadDillerData,
+  mergeDillerData,
   normalizeDillerData,
   saveDillerData,
 } from './dillerData';
@@ -136,13 +137,14 @@ export async function runDillerSync(opts?: {
 
   if (serverHas && serverData) {
     const localToken = local.profile.orderToken?.trim();
+    const mergedBase = mergeDillerData(local, serverData);
     const merged =
       localToken && !serverData.profile.orderToken?.trim()
         ? {
-            ...serverData,
-            profile: { ...serverData.profile, orderToken: localToken },
+            ...mergedBase,
+            profile: { ...mergedBase.profile, orderToken: localToken },
           }
-        : serverData;
+        : mergedBase;
     saveDillerData(merged);
     markDillerSynced(remote.updatedAt || new Date().toISOString());
     if (merged !== serverData && token) {
