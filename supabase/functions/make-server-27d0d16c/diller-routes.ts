@@ -86,6 +86,64 @@ async function readWorkspace(kv: Kv): Promise<Record<string, unknown> | null> {
   return data;
 }
 
+function qrcodeTokenKey(token: string): string {
+  return `diller_qrcode_token:${token}`;
+}
+
+async function registerQrcodeToken(kv: Kv, token: string): Promise<void> {
+  const t = token.trim();
+  if (!t) return;
+  await kv.set(qrcodeTokenKey(t), WORKSPACE_KEY);
+}
+
+async function resolveQrcodeWorkspace(
+  kv: Kv,
+  urlToken: string,
+): Promise<{ workspace: Record<string, unknown> | null; ok: boolean }> {
+  const token = urlToken.trim();
+  if (!token) return { workspace: null, ok: false };
+
+  const workspace = await readWorkspace(kv);
+  if (!workspace) return { workspace: null, ok: false };
+
+  const profile = { ...((workspace.profile ?? {}) as Record<string, unknown>) };
+  const profileToken = String(profile.orderToken ?? "").trim();
+
+  if (profileToken === token) {
+    return { workspace, ok: true };
+  }
+
+  const registered = await kv.get(qrcodeTokenKey(token));
+  if (registered === WORKSPACE_KEY) {
+    profile.orderToken = token;
+    const healed = { ...workspace, profile };
+    await kv.set(WORKSPACE_KEY, { ...healed, _updatedAt: new Date().toISOString() });
+    return { workspace: healed, ok: true };
+  }
+
+  return { workspace, ok: false };
+}
+
+function ensureProfileOrderToken(
+  incoming: Record<string, unknown>,
+  existing: Record<string, unknown> | null,
+): Record<string, unknown> {
+  const profile = { ...((incoming.profile ?? {}) as Record<string, unknown>) };
+  const incomingToken = String(profile.orderToken ?? "").trim();
+  const existingProfile = (existing?.profile ?? {}) as Record<string, unknown>;
+  const existingToken = String(existingProfile.orderToken ?? "").trim();
+
+  if (incomingToken) {
+    profile.orderToken = incomingToken;
+  } else if (existingToken) {
+    profile.orderToken = existingToken;
+  } else {
+    profile.orderToken = `qr${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  return profile;
+}
+
 function getWarehouseQty(warehouse: unknown[], productId: string): number {
   if (!Array.isArray(warehouse)) return 0;
   const row = warehouse.find((w) => w && typeof w === "object" && (w as { productId?: string }).productId === productId);
@@ -179,9 +237,16 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
       if (!data || typeof data !== "object") {
         return c.json({ success: false, error: "data majburiy" }, 400);
       }
+      const existing = await readWorkspace(kv);
+      const payload = { ...(data as Record<string, unknown>) };
+      payload.profile = ensureProfileOrderToken(payload, existing);
       const updatedAt = new Date().toISOString();
-      await kv.set(WORKSPACE_KEY, { ...data, _updatedAt: updatedAt });
-      return c.json({ success: true, updatedAt });
+      await kv.set(WORKSPACE_KEY, { ...payload, _updatedAt: updatedAt });
+      const orderToken = String((payload.profile as Record<string, unknown>).orderToken ?? "").trim();
+      if (orderToken) {
+        await registerQrcodeToken(kv, orderToken);
+      }
+      return c.json({ success: true, updatedAt, orderToken: orderToken || null });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
       console.error("[diller/data PUT]", msg);
@@ -195,14 +260,14 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
       const token = String(c.req.param("token") ?? "").trim();
       if (!token) return c.json({ success: false, error: "Token yo‘q" }, 400);
 
-      const workspace = await readWorkspace(kv);
-      const profile = (workspace?.profile ?? {}) as Record<string, unknown>;
-      const orderToken = String(profile.orderToken ?? "").trim();
-      if (!orderToken || orderToken !== token) {
+      const resolved = await resolveQrcodeWorkspace(kv, token);
+      if (!resolved.ok || !resolved.workspace) {
         return c.json({ success: false, error: "Buyurtma havolasi topilmadi" }, 404);
       }
+      const workspace = resolved.workspace;
+      const profile = (workspace.profile ?? {}) as Record<string, unknown>;
 
-      const products = Array.isArray(workspace?.products) ? workspace.products : [];
+      const products = Array.isArray(workspace.products) ? workspace.products : [];
       const warehouse = Array.isArray(workspace?.warehouse) ? workspace.warehouse : [];
 
       const catalog = products.map((p) => {
@@ -239,12 +304,12 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
       const token = String(c.req.param("token") ?? "").trim();
       if (!token) return c.json({ success: false, error: "Token yo‘q" }, 400);
 
-      const workspace = await readWorkspace(kv);
-      const profile = (workspace?.profile ?? {}) as Record<string, unknown>;
-      const orderToken = String(profile.orderToken ?? "").trim();
-      if (!orderToken || orderToken !== token) {
+      const resolved = await resolveQrcodeWorkspace(kv, token);
+      if (!resolved.ok || !resolved.workspace) {
         return c.json({ success: false, error: "Buyurtma havolasi topilmadi" }, 404);
       }
+      const workspace = resolved.workspace;
+      const profile = (workspace.profile ?? {}) as Record<string, unknown>;
 
       const body = await c.req.json().catch(() => ({}));
       const customerName = String(body.customerName ?? "").trim();
@@ -258,8 +323,8 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
       }
       if (itemsRaw.length === 0) return c.json({ success: false, error: "Mahsulot tanlang" }, 400);
 
-      const products = Array.isArray(workspace?.products) ? workspace.products : [];
-      const warehouse = Array.isArray(workspace?.warehouse) ? workspace.warehouse : [];
+      const products = Array.isArray(workspace.products) ? workspace.products : [];
+      const warehouse = Array.isArray(workspace.warehouse) ? workspace.warehouse : [];
 
       const items: ShopOrderItem[] = [];
       for (const raw of itemsRaw) {

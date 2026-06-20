@@ -167,6 +167,12 @@ export async function dillerApiFetchQrcodeCatalog(
       },
     );
     const body = await res.json().catch(() => ({}));
+    if (res.status === 404 && !body?.success && !body?.error) {
+      return {
+        ok: false,
+        error: 'Server yangilanmagan — diller API deploy qiling (public/qrcode)',
+      };
+    }
     if (!res.ok || !body.success) {
       return { ok: false, error: String(body.error || 'Katalog topilmadi') };
     }

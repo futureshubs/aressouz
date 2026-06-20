@@ -31,6 +31,7 @@ import {
 } from '../../utils/dillerApi';
 import { readDillerSession } from '../../utils/dillerSession';
 import { downloadDillerQrPoster } from '../../utils/dillerQrPoster';
+import { pushDillerLocalNow } from '../../utils/dillerSync';
 import { dillerListClass } from './dillerMobileLayout';
 
 type Props = {
@@ -93,6 +94,7 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
   useEffect(() => {
     if (dataWithToken.profile.orderToken && dataWithToken.profile.orderToken !== data.profile.orderToken) {
       onDataChange(dataWithToken);
+      void pushDillerLocalNow();
     }
   }, [data.profile.orderToken, dataWithToken, onDataChange]);
 
@@ -154,6 +156,11 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
     if (!orderToken) return;
     setDownloading(true);
     try {
+      const sync = await pushDillerLocalNow();
+      if (sync.status !== 'synced') {
+        toast.error('QR yuborish uchun avval internet va bulutga ulanish kerak');
+        return;
+      }
       await downloadDillerQrPoster({
         orderUrl,
         companyName: data.profile.companyName || 'Buyurtma',

@@ -135,11 +135,22 @@ export async function runDillerSync(opts?: {
   }
 
   if (serverHas && serverData) {
-    saveDillerData(serverData);
+    const localToken = local.profile.orderToken?.trim();
+    const merged =
+      localToken && !serverData.profile.orderToken?.trim()
+        ? {
+            ...serverData,
+            profile: { ...serverData.profile, orderToken: localToken },
+          }
+        : serverData;
+    saveDillerData(merged);
     markDillerSynced(remote.updatedAt || new Date().toISOString());
+    if (merged !== serverData && token) {
+      void dillerApiPushData(token, merged);
+    }
     return {
       status: 'synced',
-      data: serverData,
+      data: merged,
       upgradedToken: upgraded,
       message: silent ? undefined : 'Serverdan yangilandi',
     };
