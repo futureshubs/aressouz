@@ -11,6 +11,7 @@ import {
   updateProduct,
 } from '../../utils/dillerData';
 import { DillerSkuScanner } from './DillerSkuScanner';
+import { DillerQrcodeImageField } from './DillerQrcodeImageField';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 
 type Props = {
@@ -43,6 +44,7 @@ export function DillerProductEditSheet({ open, product, data, onClose, onSave }:
   const [buyPrice, setBuyPrice] = useState('');
   const [unit, setUnit] = useState<DillerProductUnit>('dona');
   const [stock, setStock] = useState('');
+  const [qrcodeImageUrl, setQrcodeImageUrl] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
 
   useEffect(() => {
@@ -54,6 +56,7 @@ export function DillerProductEditSheet({ open, product, data, onClose, onSave }:
     setBuyPrice(String(product.buyPrice ?? 0));
     setUnit((product.unit as DillerProductUnit) || 'dona');
     setStock(String(getWarehouseQty(data, product.id)));
+    setQrcodeImageUrl(product.qrcodeImageUrl ?? '');
   }, [open, product, data]);
 
   if (!open || !product) return null;
@@ -107,6 +110,7 @@ export function DillerProductEditSheet({ open, product, data, onClose, onSave }:
         unitPrice: sell,
         buyPrice: buy,
         unit,
+        qrcodeImageUrl: qrcodeImageUrl.trim() || undefined,
       },
       stockNum,
     );
@@ -261,6 +265,13 @@ export function DillerProductEditSheet({ open, product, data, onClose, onSave }:
                   className={inputCls(isDark)}
                 />
               </div>
+
+              <DillerQrcodeImageField
+                imageUrl={qrcodeImageUrl}
+                onChange={setQrcodeImageUrl}
+                isDark={isDark}
+                accentColor={accentColor.color}
+              />
             </>
           )}
         </div>

@@ -26,6 +26,8 @@ export type DillerProduct = {
   /** Firmadan olish narxi */
   buyPrice: number;
   unit: DillerProductUnit | string;
+  /** Faqat /qrcode buyurtma sahifasida ko‘rinadi */
+  qrcodeImageUrl?: string;
   createdAt: string;
 };
 
@@ -91,6 +93,8 @@ export type DillerSale = {
   debtDueDate: string;
   note: string;
   createdAt: string;
+  /** QR buyurtmadan kelgan sotuv */
+  shopOrderId?: string;
 };
 
 export type DillerWarehouseRow = {
@@ -112,12 +116,34 @@ export type DillerProfile = {
   instagram?: string;
 };
 
+/** Mijozga ko‘rinadigan brend nomi — «Aresso Diller MChJ» emas, faqat Aresso */
+export function getDillerBrandLabel(companyName?: string | null): string {
+  const raw = (companyName ?? '').trim();
+  if (!raw) return 'Aresso';
+  if (/aresso/i.test(raw) && (/\bdiller\b/i.test(raw) || /\bmchj\b/i.test(raw) || /\bmchk\b/i.test(raw))) {
+    return 'Aresso';
+  }
+  const cleaned = raw
+    .replace(/\bdiller\s+mchj\b/gi, '')
+    .replace(/\bmchj\b/gi, '')
+    .replace(/\bdiller\b/gi, '')
+    .replace(/\s+/g, ' ')
+    .trim();
+  if (!cleaned || /^aresso$/i.test(cleaned)) return 'Aresso';
+  return cleaned;
+}
+
+function normalizeProfileCompanyName(companyName: unknown): string {
+  return getDillerBrandLabel(String(companyName ?? ''));
+}
+
 export type DillerShopOrderItem = {
   productId: string;
   productName: string;
   qty: number;
   unitPrice: number;
   lineTotal: number;
+  unit?: string;
 };
 
 export type DillerShopOrderStatus = 'pending' | 'accepted' | 'rejected' | 'done';
@@ -131,6 +157,14 @@ export type DillerShopOrder = {
   note: string;
   status: DillerShopOrderStatus;
   createdAt: string;
+  storeId?: string;
+  storeName?: string;
+  customerAddress?: string;
+  /** Qabul qilinganda ombordan ayirilgan */
+  warehouseReserved?: boolean;
+  /** Sotuv tasdiqlanganda yaratilgan sotuvlar */
+  saleIds?: string[];
+  completedAt?: string;
 };
 
 export type DillerData = {
@@ -195,6 +229,7 @@ function normalizeSale(s: Partial<DillerSale> & { id: string }): DillerSale {
     debtDueDate: String(s.debtDueDate ?? '').trim(),
     note: String(s.note ?? '').trim(),
     createdAt: s.createdAt ?? new Date().toISOString(),
+    shopOrderId: s.shopOrderId ? String(s.shopOrderId) : undefined,
   };
 }
 
@@ -296,6 +331,7 @@ function normalizeShopOrder(o: Partial<DillerShopOrder> & { id: string }): Dille
         qty: Math.max(1, Math.floor(Number(it.qty) || 1)),
         unitPrice: Math.max(0, Math.round(Number(it.unitPrice) || 0)),
         lineTotal: Math.max(0, Math.round(Number(it.lineTotal) || 0)),
+        unit: String(it.unit ?? 'dona'),
       }))
     : [];
   const total =
@@ -313,6 +349,12 @@ function normalizeShopOrder(o: Partial<DillerShopOrder> & { id: string }): Dille
     note: String(o.note ?? '').trim(),
     status: validStatus,
     createdAt: o.createdAt ?? new Date().toISOString(),
+    storeId: o.storeId ? String(o.storeId) : undefined,
+    storeName: o.storeName ? String(o.storeName).trim() : undefined,
+    customerAddress: o.customerAddress ? String(o.customerAddress).trim() : undefined,
+    warehouseReserved: Boolean(o.warehouseReserved),
+    saleIds: Array.isArray(o.saleIds) ? o.saleIds.map(String) : undefined,
+    completedAt: o.completedAt ? String(o.completedAt) : undefined,
   };
 }
 
@@ -328,6 +370,7 @@ function normalizeProduct(p: Partial<DillerProduct> & { id: string }): DillerPro
     unitPrice: sell,
     buyPrice: buy,
     unit: normalizeUnit(p.unit),
+    qrcodeImageUrl: p.qrcodeImageUrl ? String(p.qrcodeImageUrl).trim() : undefined,
     createdAt: p.createdAt ?? new Date().toISOString(),
   };
 }
@@ -406,7 +449,7 @@ function seedData(): DillerData {
   });
   return {
     profile: {
-      companyName: 'Aresso Diller MChJ',
+      companyName: 'Aresso',
       directorName: 'Admin',
       phone: '+998900000000',
       region: 'Toshkent shahri',
@@ -487,7 +530,13 @@ export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData
   }
 
   return {
-    profile: { ...base.profile, ...(raw.profile ?? {}) },
+    profile: {
+      ...base.profile,
+      ...(raw.profile ?? {}),
+      companyName: normalizeProfileCompanyName(
+        (raw.profile as DillerProfile | undefined)?.companyName ?? base.profile.companyName,
+      ),
+    },
     firms,
     products,
     stores: reconcileStoreNames(
@@ -650,6 +699,7 @@ export function updateProduct(
     unitPrice?: number;
     buyPrice?: number;
     unit?: DillerProductUnit | string;
+    qrcodeImageUrl?: string;
   },
   stock?: number,
 ): { data: DillerData; error?: string } {
@@ -680,6 +730,10 @@ export function updateProduct(
     unitPrice: input.unitPrice ?? existing.unitPrice,
     buyPrice: input.buyPrice ?? existing.buyPrice,
     unit: input.unit ?? existing.unit,
+    qrcodeImageUrl:
+      input.qrcodeImageUrl !== undefined
+        ? input.qrcodeImageUrl.trim() || undefined
+        : existing.qrcodeImageUrl,
     id: productId,
     createdAt: existing.createdAt,
   });
@@ -918,6 +972,13 @@ export type CreateSaleInput = {
   /** Qarzda oldindan olingan summa */
   paidAmount?: number;
   debtDueDate?: string;
+  /** Buyurtma narxi (mahsulot ro‘yxat narxidan farq qilishi mumkin) */
+  listUnitPriceOverride?: number;
+  /** Qator jami (chegirmasiz) */
+  fixedLineTotal?: number;
+  /** Ombor allaqachon buyurtma qabulida kamaytirilgan */
+  skipWarehouseDeduction?: boolean;
+  shopOrderId?: string;
 };
 
 export function calcSaleTotals(
@@ -951,12 +1012,23 @@ export function createSale(data: DillerData, input: CreateSaleInput): { data: Di
   const store = data.stores.find((s) => s.id === input.storeId);
   if (!store) return { data, error: 'Do‘kon topilmadi' };
   const stock = getWarehouseQty(data, product.id);
-  if (stock < qty) return { data, error: `Omborda yetarli emas (${stock} ${product.unit})` };
+  if (!input.skipWarehouseDeduction && stock < qty) {
+    return { data, error: `Omborda yetarli emas (${stock} ${product.unit})` };
+  }
 
-  const totals = calcSaleTotals(product.unitPrice, qty, {
-    discountPercent: input.discountPercent,
-    discountAmount: input.discountAmount,
-  });
+  const listPrice = input.listUnitPriceOverride ?? product.unitPrice;
+  const totals = input.fixedLineTotal != null
+    ? {
+        subtotal: input.fixedLineTotal,
+        discountAmount: 0,
+        discountPercent: 0,
+        total: input.fixedLineTotal,
+        unitPrice: qty > 0 ? Math.round(input.fixedLineTotal / qty) : listPrice,
+      }
+    : calcSaleTotals(listPrice, qty, {
+        discountPercent: input.discountPercent,
+        discountAmount: input.discountAmount,
+      });
 
   const paymentType: DillerPaymentType = input.paymentType === 'qarz' ? 'qarz' : 'naqd';
   let paidAmount = Math.max(0, Math.round(Number(input.paidAmount) || 0));
@@ -982,7 +1054,7 @@ export function createSale(data: DillerData, input: CreateSaleInput): { data: Di
     storeId: store.id,
     productId: product.id,
     qty,
-    listUnitPrice: product.unitPrice,
+    listUnitPrice: listPrice,
     unitPrice: totals.unitPrice,
     discountPercent: totals.discountPercent,
     discountAmount: totals.discountAmount,
@@ -994,10 +1066,13 @@ export function createSale(data: DillerData, input: CreateSaleInput): { data: Di
     debtDueDate,
     note: input.note?.trim() || '',
     createdAt: new Date().toISOString(),
+    shopOrderId: input.shopOrderId,
   });
 
   let next = { ...data, sales: [sale, ...data.sales] };
-  next = setWarehouseQty(next, product.id, stock - qty);
+  if (!input.skipWarehouseDeduction) {
+    next = setWarehouseQty(next, product.id, stock - qty);
+  }
   return { data: next };
 }
 
@@ -1056,20 +1131,250 @@ export function updateDillerProfile(
   data: DillerData,
   patch: Partial<DillerProfile>,
 ): DillerData {
+  const nextPatch = { ...patch };
+  if ('companyName' in nextPatch) {
+    nextPatch.companyName = normalizeProfileCompanyName(nextPatch.companyName);
+  }
   return {
     ...data,
-    profile: { ...data.profile, ...patch },
+    profile: { ...data.profile, ...nextPatch },
   };
 }
 
 export function mergeShopOrders(data: DillerData, incoming: DillerShopOrder[]): DillerData {
+  const rank: Record<DillerShopOrderStatus, number> = {
+    pending: 1,
+    rejected: 2,
+    accepted: 3,
+    done: 4,
+  };
   const map = new Map<string, DillerShopOrder>();
   for (const o of data.shopOrders ?? []) map.set(o.id, o);
-  for (const o of incoming) map.set(o.id, normalizeShopOrder(o));
+  for (const o of incoming) {
+    const existing = map.get(o.id);
+    const normalized = normalizeShopOrder(o);
+    if (!existing) {
+      map.set(o.id, normalized);
+      continue;
+    }
+    const status =
+      rank[normalized.status] > rank[existing.status] ? normalized.status : existing.status;
+    map.set(
+      o.id,
+      normalizeShopOrder({
+        ...normalized,
+        ...existing,
+        status,
+        warehouseReserved: existing.warehouseReserved || normalized.warehouseReserved,
+        saleIds: existing.saleIds?.length ? existing.saleIds : normalized.saleIds,
+        completedAt: existing.completedAt ?? normalized.completedAt,
+        items: existing.items.length ? existing.items : normalized.items,
+      }),
+    );
+  }
   const shopOrders = [...map.values()].sort(
     (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
   );
   return { ...data, shopOrders };
+}
+
+function patchShopOrder(
+  data: DillerData,
+  orderId: string,
+  patch: Partial<DillerShopOrder>,
+): { data: DillerData; order?: DillerShopOrder; error?: string } {
+  const idx = (data.shopOrders ?? []).findIndex((o) => o.id === orderId);
+  if (idx < 0) return { data, error: 'Buyurtma topilmadi' };
+  const order = normalizeShopOrder({ ...data.shopOrders[idx], ...patch, id: orderId });
+  const shopOrders = [...data.shopOrders];
+  shopOrders[idx] = order;
+  return { data: { ...data, shopOrders }, order };
+}
+
+function deductShopOrderWarehouse(
+  data: DillerData,
+  order: DillerShopOrder,
+): { data: DillerData; error?: string } {
+  let next = data;
+  for (const it of order.items) {
+    const stock = getWarehouseQty(next, it.productId);
+    if (stock < it.qty) {
+      const name = it.productName || it.productId;
+      return { data, error: `Omborda yetarli emas: ${name} (${stock} / ${it.qty})` };
+    }
+  }
+  for (const it of order.items) {
+    const stock = getWarehouseQty(next, it.productId);
+    next = setWarehouseQty(next, it.productId, stock - it.qty);
+  }
+  return { data: next };
+}
+
+function restoreShopOrderWarehouse(
+  data: DillerData,
+  order: DillerShopOrder,
+): DillerData {
+  let next = data;
+  for (const it of order.items) {
+    const stock = getWarehouseQty(next, it.productId);
+    next = setWarehouseQty(next, it.productId, stock + it.qty);
+  }
+  return next;
+}
+
+export function acceptShopOrder(data: DillerData, orderId: string): { data: DillerData; error?: string } {
+  const order = (data.shopOrders ?? []).find((o) => o.id === orderId);
+  if (!order) return { data, error: 'Buyurtma topilmadi' };
+  if (order.status === 'done') return { data, error: 'Buyurtma allaqachon bajarilgan' };
+  if (order.status === 'rejected') return { data, error: 'Rad etilgan buyurtmani qabul qilib bo‘lmaydi' };
+  if (order.status === 'accepted' && order.warehouseReserved) return { data };
+
+  let next = data;
+  if (!order.warehouseReserved) {
+    const wh = deductShopOrderWarehouse(next, order);
+    if (wh.error) return wh;
+    next = wh.data;
+  }
+
+  const patched = patchShopOrder(next, orderId, {
+    status: 'accepted',
+    warehouseReserved: true,
+  });
+  if (patched.error || !patched.order) return { data, error: patched.error };
+  return { data: patched.data };
+}
+
+export function rejectShopOrder(data: DillerData, orderId: string): { data: DillerData; error?: string } {
+  const order = (data.shopOrders ?? []).find((o) => o.id === orderId);
+  if (!order) return { data, error: 'Buyurtma topilmadi' };
+  if (order.status === 'done') return { data, error: 'Bajarilgan buyurtmani rad qilib bo‘lmaydi' };
+  if (order.status === 'rejected') return { data };
+
+  let next = data;
+  if (order.warehouseReserved) {
+    next = restoreShopOrderWarehouse(next, order);
+  }
+
+  const patched = patchShopOrder(next, orderId, {
+    status: 'rejected',
+    warehouseReserved: false,
+  });
+  if (patched.error || !patched.order) return { data, error: patched.error };
+  return { data: patched.data };
+}
+
+export type ConfirmShopOrderSaleInput = {
+  paymentType: DillerPaymentType;
+  paidAmount?: number;
+  debtDueDate?: string;
+  note?: string;
+  /** 0–100 foiz chegirma (butun buyurtmaga) */
+  discountPercent?: number;
+  /** So‘mda chegirma (foizdan ustun) */
+  discountAmount?: number;
+};
+
+export function confirmShopOrderSale(
+  data: DillerData,
+  orderId: string,
+  input: ConfirmShopOrderSaleInput,
+): { data: DillerData; error?: string } {
+  const order = (data.shopOrders ?? []).find((o) => o.id === orderId);
+  if (!order) return { data, error: 'Buyurtma topilmadi' };
+  if (order.status !== 'accepted') {
+    return { data, error: 'Avval buyurtmani qabul qiling' };
+  }
+  if (order.saleIds?.length) return { data, error: 'Sotuv allaqachon tasdiqlangan' };
+
+  const storeId =
+    order.storeId ??
+    findStoreByPhone(data, order.customerPhone)?.id ??
+    '';
+  if (!storeId) {
+    return { data, error: 'Do‘kon topilmadi — avval do‘konlar ro‘yxatiga qo‘shing' };
+  }
+
+  const paymentType: DillerPaymentType = input.paymentType === 'qarz' ? 'qarz' : 'naqd';
+  const subtotal = order.items.reduce(
+    (s, it) => s + (it.lineTotal || it.unitPrice * it.qty),
+    0,
+  );
+  let discountAmount = Math.max(0, Math.round(Number(input.discountAmount) || 0));
+  const discountPct = Math.min(100, Math.max(0, Number(input.discountPercent) || 0));
+  if (discountPct > 0 && discountAmount <= 0) {
+    discountAmount = Math.round((subtotal * discountPct) / 100);
+  }
+  discountAmount = Math.min(subtotal, discountAmount);
+  const orderTotal = Math.max(0, subtotal - discountAmount);
+  let paidTotal = Math.max(0, Math.round(Number(input.paidAmount) || 0));
+  const debtDueDate = String(input.debtDueDate ?? '').trim();
+  const noteBase = input.note?.trim() || order.note?.trim() || '';
+  const orderNote = noteBase
+    ? `${noteBase} · QR #${order.id.replace(/^ord_/, '').slice(0, 8)}`
+    : `QR buyurtma #${order.id.replace(/^ord_/, '').slice(0, 8)}`;
+
+  if (paymentType === 'naqd') {
+    paidTotal = orderTotal;
+  } else if (paidTotal > orderTotal) {
+    return { data, error: 'Oldindan to‘lov jami summadan oshmasligi kerak' };
+  } else if (orderTotal - paidTotal > 0 && !debtDueDate) {
+    return { data, error: 'Qarz uchun qaytarish sanasini kiriting' };
+  }
+
+  let next = data;
+  const saleIds: string[] = [];
+  let remainingPaid = paidTotal;
+  let remainingDiscount = discountAmount;
+
+  for (let i = 0; i < order.items.length; i++) {
+    const it = order.items[i];
+    const lineSubtotal = it.lineTotal || it.unitPrice * it.qty;
+    let lineDiscount = 0;
+    if (discountAmount > 0 && subtotal > 0) {
+      if (i === order.items.length - 1) {
+        lineDiscount = remainingDiscount;
+      } else {
+        lineDiscount = Math.round((discountAmount * lineSubtotal) / subtotal);
+        remainingDiscount -= lineDiscount;
+      }
+    }
+    const lineTotal = Math.max(0, lineSubtotal - lineDiscount);
+    let linePaid = 0;
+    if (paymentType === 'naqd') {
+      linePaid = lineTotal;
+    } else if (i === order.items.length - 1) {
+      linePaid = remainingPaid;
+    } else {
+      linePaid = orderTotal > 0 ? Math.round((paidTotal * lineTotal) / orderTotal) : 0;
+      remainingPaid -= linePaid;
+    }
+
+    const result = createSale(next, {
+      storeId,
+      productId: it.productId,
+      qty: it.qty,
+      listUnitPriceOverride: it.unitPrice,
+      discountAmount: lineDiscount,
+      paymentType,
+      paidAmount: linePaid,
+      debtDueDate: paymentType === 'qarz' ? debtDueDate : undefined,
+      note: orderNote,
+      skipWarehouseDeduction: true,
+      shopOrderId: order.id,
+    });
+    if (result.error) return result;
+    next = result.data;
+    const created = next.sales[0];
+    if (created) saleIds.push(created.id);
+  }
+
+  const patched = patchShopOrder(next, orderId, {
+    status: 'done',
+    saleIds,
+    completedAt: new Date().toISOString(),
+  });
+  if (patched.error || !patched.order) return { data, error: patched.error };
+  return { data: patched.data };
 }
 
 export function updateShopOrderStatus(

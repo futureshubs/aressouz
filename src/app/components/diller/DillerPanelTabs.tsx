@@ -2,6 +2,7 @@ import { useEffect, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
 import { Pencil, Plus, Save, ScanLine, ShoppingCart, Trash2 } from 'lucide-react';
 import { DillerProductEditSheet } from './DillerProductEditSheet';
+import { DillerQrcodeImageField } from './DillerQrcodeImageField';
 import { DillerOmborTab } from './DillerOmborTab';
 import { DillerDokonlarTab } from './DillerDokonlarTab';
 import { DillerProfilTab } from './DillerFirmTab';
@@ -130,6 +131,7 @@ export function DillerMahsulotTab({ data, onDataChange }: Omit<Props, 'tab'>) {
   const [buyPrice, setBuyPrice] = useState('');
   const [unit, setUnit] = useState<DillerProductUnit>('dona');
   const [stock, setStock] = useState('');
+  const [qrcodeImageUrl, setQrcodeImageUrl] = useState('');
   const [scannerOpen, setScannerOpen] = useState(false);
   const [editProduct, setEditProduct] = useState<DillerProduct | null>(null);
 
@@ -163,6 +165,7 @@ export function DillerMahsulotTab({ data, onDataChange }: Omit<Props, 'tab'>) {
     setBuyPrice('');
     setStock('');
     setUnit('dona');
+    setQrcodeImageUrl('');
   };
 
   const add = () => {
@@ -196,6 +199,7 @@ export function DillerMahsulotTab({ data, onDataChange }: Omit<Props, 'tab'>) {
         unitPrice: sell,
         buyPrice: buy,
         unit,
+        qrcodeImageUrl: qrcodeImageUrl.trim() || undefined,
       },
       stockNum,
     );
@@ -347,6 +351,13 @@ export function DillerMahsulotTab({ data, onDataChange }: Omit<Props, 'tab'>) {
                 className={inputCls(isDark)}
               />
             </div>
+
+            <DillerQrcodeImageField
+              imageUrl={qrcodeImageUrl}
+              onChange={setQrcodeImageUrl}
+              isDark={isDark}
+              accentColor={accentColor.color}
+            />
 
             <button
               type="button"

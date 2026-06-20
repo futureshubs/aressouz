@@ -4,6 +4,7 @@ import {
   publicAnonKey,
 } from '../../../utils/supabase/info';
 import type { DillerData, DillerShopOrder, DillerShopOrderStatus } from './dillerData';
+import { getDillerBrandLabel } from './dillerData';
 
 export function getDillerApiBase(): string {
   if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
@@ -146,6 +147,7 @@ export type QrcodeCatalogProduct = {
   unitPrice: number;
   unit: string;
   stock: number;
+  imageUrl?: string;
 };
 
 export type QrcodeCatalog = {
@@ -155,6 +157,55 @@ export type QrcodeCatalog = {
   instagram: string;
   products: QrcodeCatalogProduct[];
 };
+
+export type QrcodeMatchedStore = {
+  id: string;
+  name: string;
+  address: string;
+  contactName: string;
+  phone: string;
+};
+
+export async function dillerApiLookupQrcodeStore(
+  orderToken: string,
+  phone: string,
+): Promise<{ ok: true; stores: QrcodeMatchedStore[] } | { ok: false; error: string }> {
+  try {
+    const q = encodeURIComponent(phone.trim());
+    const res = await fetch(
+      `${getDillerApiBase()}/public/qrcode/${encodeURIComponent(orderToken)}/store?phone=${q}`,
+      {
+        headers: { Authorization: `Bearer ${publicAnonKey}`, apikey: publicAnonKey },
+      },
+    );
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.success) {
+      return { ok: false, error: String(body.error || 'Do‘kon qidirilmadi') };
+    }
+    const stores: QrcodeMatchedStore[] = Array.isArray(body.stores)
+      ? body.stores.map((s: QrcodeMatchedStore) => ({
+          id: String(s.id ?? ''),
+          name: String(s.name ?? ''),
+          address: String(s.address ?? ''),
+          contactName: String(s.contactName ?? ''),
+          phone: String(s.phone ?? ''),
+        }))
+      : body.store
+        ? [
+            {
+              id: String(body.store.id ?? ''),
+              name: String(body.store.name ?? ''),
+              address: String(body.store.address ?? ''),
+              contactName: String(body.store.contactName ?? ''),
+              phone: String(body.store.phone ?? ''),
+            },
+          ]
+        : [];
+    return { ok: true, stores };
+  } catch {
+    return { ok: false, error: 'Serverga ulanishda xatolik' };
+  }
+}
 
 export async function dillerApiFetchQrcodeCatalog(
   orderToken: string,
@@ -179,11 +230,20 @@ export async function dillerApiFetchQrcodeCatalog(
     return {
       ok: true,
       catalog: {
-        companyName: String(body.companyName ?? ''),
+        companyName: getDillerBrandLabel(String(body.companyName ?? '')),
         phone: String(body.phone ?? ''),
         telegram: String(body.telegram ?? ''),
         instagram: String(body.instagram ?? ''),
-        products: Array.isArray(body.products) ? body.products : [],
+        products: Array.isArray(body.products)
+          ? body.products.map((p: QrcodeCatalogProduct) => ({
+              id: String(p.id ?? ''),
+              name: String(p.name ?? ''),
+              unitPrice: Math.round(Number(p.unitPrice) || 0),
+              unit: String(p.unit ?? 'dona'),
+              stock: Math.max(0, Math.floor(Number(p.stock) || 0)),
+              imageUrl: p.imageUrl ? String(p.imageUrl).trim() : undefined,
+            }))
+          : [],
       },
     };
   } catch {
@@ -197,6 +257,7 @@ export async function dillerApiSubmitQrcodeOrder(
     customerName: string;
     customerPhone: string;
     note?: string;
+    storeId?: string;
     items: { productId: string; qty: number }[];
   },
 ): Promise<{ ok: true; orderId: string } | { ok: false; error: string }> {

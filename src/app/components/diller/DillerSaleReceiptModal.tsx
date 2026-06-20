@@ -2,7 +2,7 @@ import { useRef } from 'react';
 import { Printer, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerSale } from '../../utils/dillerData';
-import { DILLER_PRODUCT_UNITS, formatMoney } from '../../utils/dillerData';
+import { DILLER_PRODUCT_UNITS, formatMoney, getDillerBrandLabel } from '../../utils/dillerData';
 import { dillerSheetScrollClass } from './dillerMobileLayout';
 
 type Props = {
@@ -103,8 +103,8 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data }: Props) {
         <div className={`${dillerSheetScrollClass} p-4 pb-6`}>
           <div ref={printRef}>
             <div className="text-center mb-4 pb-4 border-b border-dashed" style={{ borderColor: border }}>
-              <div className="text-xs font-bold tracking-widest opacity-60">ARESSO DILLER</div>
-              <h3 className="font-bold text-base mt-1">{profile.companyName || 'Diller tarqatish'}</h3>
+              <div className="text-xs font-bold tracking-widest opacity-60">ARESSO</div>
+              <h3 className="font-bold text-base mt-1">{getDillerBrandLabel(profile.companyName)}</h3>
               {profile.phone ? <div className="text-xs opacity-60 mt-0.5">{profile.phone}</div> : null}
               <div className="mt-3 inline-block px-3 py-1 rounded-lg text-xs font-mono font-bold bg-emerald-500/15 text-emerald-500">
                 {chekNumber(sale.id)}
@@ -211,7 +211,7 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data }: Props) {
             ) : null}
 
             <p className="text-center text-[10px] opacity-40 pt-2 border-t border-dashed" style={{ borderColor: border }}>
-              Rahmat! · Aresso diller paneli
+              Rahmat! · Aresso
             </p>
           </div>
         </div>

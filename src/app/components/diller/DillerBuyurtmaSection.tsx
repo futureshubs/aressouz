@@ -4,14 +4,11 @@ import {
   ClipboardList,
   Download,
   Loader2,
-  MapPin,
   Phone,
   QrCode,
   RefreshCw,
-  Store,
-  CheckCircle2,
-  XCircle,
   Package,
+  ChevronRight,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerShopOrder, DillerShopOrderStatus } from '../../utils/dillerData';
@@ -21,8 +18,10 @@ import {
   formatMoney,
   getQrcodeOrderUrl,
   mergeShopOrders,
+  getDillerBrandLabel,
   updateDillerProfile,
-  updateShopOrderStatus,
+  acceptShopOrder,
+  rejectShopOrder,
 } from '../../utils/dillerData';
 import {
   dillerApiFetchShopOrders,
@@ -33,6 +32,8 @@ import { readDillerSession } from '../../utils/dillerSession';
 import { downloadDillerQrPoster } from '../../utils/dillerQrPoster';
 import { pushDillerLocalNow } from '../../utils/dillerSync';
 import { dillerListClass } from './dillerMobileLayout';
+import { DillerShopOrderDetailSheet } from './DillerShopOrderDetailSheet';
+import { DillerShopOrderSaleSheet } from './DillerShopOrderSaleSheet';
 
 type Props = {
   data: DillerData;
@@ -87,6 +88,8 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
   const { accentColor } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
   const [downloading, setDownloading] = useState(false);
+  const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
+  const [saleOrderId, setSaleOrderId] = useState<string | null>(null);
 
   const dataWithToken = useMemo(() => ensureOrderToken(data), [data]);
   const orderToken = dataWithToken.profile.orderToken ?? '';
@@ -139,17 +142,72 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
 
   const pendingCount = (data.shopOrders ?? []).filter((o) => o.status === 'pending').length;
 
-  const setStatus = async (order: DillerShopOrder, status: DillerShopOrderStatus) => {
+  const detailOrder = useMemo(
+    () => (data.shopOrders ?? []).find((o) => o.id === detailOrderId) ?? null,
+    [data.shopOrders, detailOrderId],
+  );
+
+  const saleOrder = useMemo(
+    () => (data.shopOrders ?? []).find((o) => o.id === saleOrderId) ?? null,
+    [data.shopOrders, saleOrderId],
+  );
+
+  const patchServerStatus = async (orderId: string, status: DillerShopOrderStatus) => {
     const sess = readDillerSession();
-    if (sess?.token && !isOfflineDillerToken(sess.token)) {
-      const res = await dillerApiPatchShopOrderStatus(sess.token, order.id, status);
-      if (!res.ok) {
-        toast.error(res.error);
+    if (!sess?.token || isOfflineDillerToken(sess.token)) return true;
+    const res = await dillerApiPatchShopOrderStatus(sess.token, orderId, status);
+    if (!res.ok) {
+      toast.error(res.error);
+      return false;
+    }
+    return true;
+  };
+
+  const setStatus = async (order: DillerShopOrder, status: DillerShopOrderStatus) => {
+    if (status === 'done') return;
+
+    let nextData = data;
+    if (status === 'accepted') {
+      const result = acceptShopOrder(data, order.id);
+      if (result.error) {
+        toast.error(result.error);
         return;
       }
+      nextData = result.data;
+    } else if (status === 'rejected') {
+      const result = rejectShopOrder(data, order.id);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      nextData = result.data;
+    } else {
+      return;
     }
-    onDataChange(updateShopOrderStatus(data, order.id, status));
-    toast.success(statusLabel[status]);
+
+    const ok = await patchServerStatus(order.id, status);
+    if (!ok) return;
+
+    onDataChange(nextData);
+    if (status === 'accepted') {
+      toast.success('Qabul qilindi — ombordan ayirildi');
+    } else {
+      toast.success(statusLabel[status]);
+    }
+  };
+
+  const openSaleConfirm = (order: DillerShopOrder) => {
+    setSaleOrderId(order.id);
+  };
+
+  const onSaleComplete = async (nextData: DillerData) => {
+    const orderId = saleOrderId;
+    if (!orderId) return;
+    const ok = await patchServerStatus(orderId, 'done');
+    if (!ok) return;
+    onDataChange(nextData);
+    setSaleOrderId(null);
+    setDetailOrderId(null);
   };
 
   const downloadPoster = async () => {
@@ -163,7 +221,7 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
       }
       await downloadDillerQrPoster({
         orderUrl,
-        companyName: data.profile.companyName || 'Buyurtma',
+        companyName: getDillerBrandLabel(data.profile.companyName),
         phone: phone.trim() || data.profile.phone,
         telegram: telegram.trim(),
         instagram: instagram.trim(),
@@ -179,6 +237,23 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
 
   return (
     <>
+      <DillerShopOrderSaleSheet
+        open={!!saleOrder}
+        order={saleOrder}
+        data={data}
+        onClose={() => setSaleOrderId(null)}
+        onComplete={(next) => void onSaleComplete(next)}
+      />
+
+      <DillerShopOrderDetailSheet
+        open={!!detailOrder}
+        order={detailOrder}
+        data={data}
+        onClose={() => setDetailOrderId(null)}
+        onSetStatus={(order, status) => void setStatus(order, status)}
+        onCompleteOrder={openSaleConfirm}
+      />
+
       <Card isDark={isDark}>
         <div className="flex items-center gap-2 mb-3">
           <ClipboardList className="w-5 h-5 text-emerald-400" />
@@ -277,109 +352,52 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
           <ul className={dillerListClass}>
             {(data.shopOrders ?? []).map((order) => {
               const store = findStoreByPhone(data, order.customerPhone);
+              const totalItems = order.items.reduce((s, it) => s + it.qty, 0);
+              const previewName = store?.name ?? order.storeName ?? order.customerName;
               return (
-                <li
-                  key={order.id}
-                  className="p-3 rounded-xl border"
-                  style={{
-                    background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
-                    borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-2 mb-2">
-                    <div className="min-w-0">
-                      <div className="font-bold text-sm truncate">{order.customerName}</div>
-                      <div className="text-xs opacity-60 flex items-center gap-1 mt-0.5">
-                        <Phone className="w-3 h-3" />
-                        {order.customerPhone}
-                      </div>
-                    </div>
-                    <span
-                      className="shrink-0 text-[10px] font-bold px-2 py-1 rounded-full"
-                      style={{
-                        background: `${statusColor[order.status]}22`,
-                        color: statusColor[order.status],
-                      }}
-                    >
-                      {statusLabel[order.status]}
-                    </span>
-                  </div>
-
-                  {store ? (
-                    <div
-                      className="rounded-xl px-3 py-2 mb-2 text-xs"
-                      style={{
-                        background: isDark ? 'rgba(16,185,129,0.1)' : '#ecfdf5',
-                        border: isDark ? '1px solid rgba(16,185,129,0.2)' : '1px solid rgba(16,185,129,0.15)',
-                      }}
-                    >
-                      <div className="flex items-center gap-1.5 font-bold text-emerald-500 mb-1">
-                        <Store className="w-3.5 h-3.5" />
-                        {store.name}
-                      </div>
-                      {store.address ? (
-                        <div className="opacity-60 flex items-start gap-1 truncate">
-                          <MapPin className="w-3 h-3 shrink-0 mt-0.5" />
-                          {store.address}
+                <li key={order.id}>
+                  <button
+                    type="button"
+                    onClick={() => setDetailOrderId(order.id)}
+                    className="w-full text-left p-3.5 rounded-xl border active:scale-[0.99] transition-transform"
+                    style={{
+                      background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
+                      borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
+                    }}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0 flex-1">
+                        <div className="font-bold text-sm truncate">{previewName}</div>
+                        <div className="text-xs opacity-60 flex items-center gap-1 mt-0.5">
+                          <Phone className="w-3 h-3 shrink-0" />
+                          <span className="truncate">{order.customerPhone}</span>
                         </div>
-                      ) : null}
-                      {store.contactName ? (
-                        <div className="opacity-55 mt-0.5">{store.contactName}</div>
-                      ) : null}
-                    </div>
-                  ) : (
-                    <p className="text-[10px] opacity-45 mb-2">Do‘konlar ro‘yxatida topilmadi</p>
-                  )}
-
-                  <ul className="text-xs space-y-1 mb-2 opacity-80">
-                    {order.items.map((it) => (
-                      <li key={`${order.id}-${it.productId}`} className="flex justify-between gap-2">
-                        <span className="truncate">
-                          {it.productName} × {it.qty}
+                      </div>
+                      <div className="flex flex-col items-end gap-1 shrink-0">
+                        <span
+                          className="text-[10px] font-bold px-2 py-1 rounded-full"
+                          style={{
+                            background: `${statusColor[order.status]}22`,
+                            color: statusColor[order.status],
+                          }}
+                        >
+                          {statusLabel[order.status]}
                         </span>
-                        <span className="shrink-0 font-semibold">{formatMoney(it.lineTotal)}</span>
-                      </li>
-                    ))}
-                  </ul>
-
-                  <div className="flex justify-between items-center text-sm font-black text-emerald-500 mb-2">
-                    <span>Jami</span>
-                    <span>{formatMoney(order.total)}</span>
-                  </div>
-
-                  {order.status === 'pending' ? (
-                    <div className="flex gap-2">
-                      <button
-                        type="button"
-                        onClick={() => void setStatus(order, 'accepted')}
-                        className="flex-1 py-2 rounded-xl text-xs font-bold bg-emerald-500/20 text-emerald-400 flex items-center justify-center gap-1"
-                      >
-                        <CheckCircle2 className="w-3.5 h-3.5" />
-                        Qabul
-                      </button>
-                      <button
-                        type="button"
-                        onClick={() => void setStatus(order, 'rejected')}
-                        className="flex-1 py-2 rounded-xl text-xs font-bold bg-red-500/15 text-red-400 flex items-center justify-center gap-1"
-                      >
-                        <XCircle className="w-3.5 h-3.5" />
-                        Rad
-                      </button>
+                        <ChevronRight className="w-4 h-4 opacity-30" />
+                      </div>
                     </div>
-                  ) : order.status === 'accepted' ? (
-                    <button
-                      type="button"
-                      onClick={() => void setStatus(order, 'done')}
-                      className="w-full py-2 rounded-xl text-xs font-bold text-slate-900"
-                      style={{ background: accentColor.gradient }}
-                    >
-                      Bajarildi deb belgilash
-                    </button>
-                  ) : null}
 
-                  <div className="text-[10px] opacity-40 mt-2">
-                    {new Date(order.createdAt).toLocaleString('uz-UZ')}
-                  </div>
+                    <div className="flex items-center justify-between gap-2 text-xs">
+                      <span className="opacity-55">
+                        {totalItems} ta · {order.items.length} tur
+                      </span>
+                      <span className="font-black text-emerald-500">{formatMoney(order.total)}</span>
+                    </div>
+
+                    <div className="text-[10px] opacity-40 mt-2">
+                      {new Date(order.createdAt).toLocaleString('uz-UZ')} · Batafsil
+                    </div>
+                  </button>
                 </li>
               );
             })}

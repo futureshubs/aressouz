@@ -17,6 +17,10 @@ const TELEGRAM_PREPARER_CHANNEL =
   Deno.env.get('TELEGRAM_PREPARER_CHANNEL') ||
   Deno.env.get('TELEGRAM_PREPAPER_CHANNEL'); // e.g. "@Aressotayyorlovchi"
 
+/** Diller QR buyurtma — alohida bot va chat */
+const DILLER_TELEGRAM_BOT_TOKEN = Deno.env.get('DILLER_TELEGRAM_BOT_TOKEN');
+const DILLER_TELEGRAM_CHAT_ID = Deno.env.get('DILLER_TELEGRAM_CHAT_ID');
+
 type NotificationType = 'shop' | 'restaurant';
 
 /** HTML parse_mode uchun — < > & bo‘lsa Telegram 400 qaytaradi (test oddiy matn bilan o‘tadi). */
@@ -860,5 +864,121 @@ Yangi buyurtmalar kelganda sizga shunga o'xshash xabar yuboriladi.
       success: false,
       message: error.message || 'Xatolik yuz berdi',
     };
+  }
+}
+
+export type DillerQrcodeOrderTelegramPayload = {
+  companyName: string;
+  orderId: string;
+  customerName: string;
+  customerPhone: string;
+  customerAddress?: string;
+  storeName?: string;
+  items: {
+    productName: string;
+    qty: number;
+    unitPrice: number;
+    lineTotal: number;
+    unit?: string;
+  }[];
+  total: number;
+  note?: string;
+  createdAt: string;
+};
+
+function formatUzs(n: number): string {
+  return `${Math.round(n).toLocaleString('uz-UZ')} so'm`;
+}
+
+/** Yangi diller QR buyurtmasi — Telegram xabari */
+export async function sendDillerQrcodeOrderNotification(
+  payload: DillerQrcodeOrderTelegramPayload,
+): Promise<boolean> {
+  const botToken = DILLER_TELEGRAM_BOT_TOKEN;
+  const chatId = normalizeTelegramTarget(DILLER_TELEGRAM_CHAT_ID || '');
+
+  if (!botToken) {
+    console.error('❌ DILLER_TELEGRAM_BOT_TOKEN sozlanmagan');
+    return false;
+  }
+  if (!chatId || !isValidTelegramTarget(chatId)) {
+    console.error('❌ DILLER_TELEGRAM_CHAT_ID noto‘g‘ri yoki bo‘sh', chatId);
+    return false;
+  }
+
+  try {
+    const itemsList = payload.items
+      .map((it, i) => {
+        const name = escapeTelegramHtml(String(it.productName || ''));
+        const unit = escapeTelegramHtml(String(it.unit || 'dona'));
+        return `${i + 1}. ${name}\n   ${it.qty} ${unit} × ${formatUzs(it.unitPrice)} = ${formatUzs(it.lineTotal)}`;
+      })
+      .join('\n\n');
+
+    const orderNo = escapeTelegramHtml(payload.orderId.replace(/^ord_/, '').slice(0, 12).toUpperCase());
+    const company = escapeTelegramHtml(payload.companyName || 'Aresso');
+    const custName = escapeTelegramHtml(payload.customerName || '');
+    const custPhone = escapeTelegramHtml(payload.customerPhone || '');
+    const storeName = payload.storeName ? escapeTelegramHtml(payload.storeName) : '';
+    const address = payload.customerAddress ? escapeTelegramHtml(payload.customerAddress) : '';
+    const note = payload.note?.trim() ? escapeTelegramHtml(payload.note.trim()) : '';
+    const when = escapeTelegramHtml(
+      new Date(payload.createdAt).toLocaleString('uz-UZ', {
+        day: '2-digit',
+        month: 'long',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+      }),
+    );
+
+    const message = `
+🛒 <b>YANGI QR BUYURTMA</b>
+
+🏢 <b>${company}</b>
+🔢 <b>№</b> ${orderNo}
+📅 ${when}
+
+━━━━━━━━━━━━━━━━━━
+
+👤 <b>Mijoz:</b> ${custName}
+📞 <b>Telefon:</b> ${custPhone}${storeName ? `\n🏪 <b>Do'kon:</b> ${storeName}` : ''}${address ? `\n📍 <b>Manzil:</b> ${address}` : ''}
+
+━━━━━━━━━━━━━━━━━━
+
+📦 <b>Mahsulotlar:</b>
+
+${itemsList}
+
+━━━━━━━━━━━━━━━━━━
+
+💰 <b>Jami:</b> ${formatUzs(payload.total)}${note ? `\n📝 <b>Izoh:</b> ${note}` : ''}
+
+━━━━━━━━━━━━━━━━━━
+
+⚡ Diller panel → <b>Buyurtma</b> bo'limidan qabul qiling.
+`.trim();
+
+    const response = await fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        chat_id: chatId,
+        text: message,
+        parse_mode: 'HTML',
+      }),
+    });
+
+    if (!response.ok) {
+      const error = await response.json().catch(() => ({}));
+      console.error('Diller Telegram API error:', error);
+      return false;
+    }
+
+    console.log(`✅ Diller QR buyurtma Telegramga yuborildi (${orderNo})`);
+    return true;
+  } catch (error) {
+    console.error('Diller QR Telegram xato:', error);
+    return false;
   }
 }

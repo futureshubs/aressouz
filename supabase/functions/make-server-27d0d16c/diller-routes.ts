@@ -1,4 +1,5 @@
 import type { Hono } from "npm:hono";
+import { sendDillerQrcodeOrderNotification } from "./telegram.tsx";
 
 const DILLER_LOGIN = (Deno.env.get("DILLER_PANEL_LOGIN") || "Admin").trim();
 const DILLER_PASSWORD = String(Deno.env.get("DILLER_PANEL_PASSWORD") || "Admin123");
@@ -25,6 +26,7 @@ type ShopOrderItem = {
   qty: number;
   unitPrice: number;
   lineTotal: number;
+  unit: string;
 };
 
 type ShopOrder = {
@@ -36,6 +38,9 @@ type ShopOrder = {
   note: string;
   status: "pending" | "accepted" | "rejected" | "done";
   createdAt: string;
+  storeId?: string;
+  storeName?: string;
+  customerAddress?: string;
 };
 
 function dillerSessionKey(token: string): string {
@@ -124,6 +129,20 @@ async function resolveQrcodeWorkspace(
   return { workspace, ok: false };
 }
 
+function getDillerBrandLabel(companyName: string): string {
+  const raw = companyName.trim();
+  if (!raw) return "Aresso";
+  if (/aresso/i.test(raw) && (/\bdiller\b/i.test(raw) || /\bmchj\b/i.test(raw))) return "Aresso";
+  const cleaned = raw
+    .replace(/\bdiller\s+mchj\b/gi, "")
+    .replace(/\bmchj\b/gi, "")
+    .replace(/\bdiller\b/gi, "")
+    .replace(/\s+/g, " ")
+    .trim();
+  if (!cleaned || /^aresso$/i.test(cleaned)) return "Aresso";
+  return cleaned;
+}
+
 function ensureProfileOrderToken(
   incoming: Record<string, unknown>,
   existing: Record<string, unknown> | null,
@@ -141,6 +160,8 @@ function ensureProfileOrderToken(
     profile.orderToken = `qr${Date.now().toString(36)}${Math.random().toString(36).slice(2, 8)}`;
   }
 
+  profile.companyName = getDillerBrandLabel(String(profile.companyName ?? ""));
+
   return profile;
 }
 
@@ -148,6 +169,30 @@ function getWarehouseQty(warehouse: unknown[], productId: string): number {
   if (!Array.isArray(warehouse)) return 0;
   const row = warehouse.find((w) => w && typeof w === "object" && (w as { productId?: string }).productId === productId);
   return Math.max(0, Math.floor(Number((row as { qty?: number })?.qty) || 0));
+}
+
+function normalizePhoneKey(phone: string): string {
+  return phone.replace(/\D/g, "").slice(-9);
+}
+
+function findStoresByPhone(stores: unknown[], phone: string): Record<string, unknown>[] {
+  const key = normalizePhoneKey(phone);
+  if (key.length < 9) return [];
+  if (!Array.isArray(stores)) return [];
+  return stores.filter((s) => {
+    const row = s as Record<string, unknown>;
+    return normalizePhoneKey(String(row.phone ?? "")) === key;
+  }) as Record<string, unknown>[];
+}
+
+function mapStoreRow(row: Record<string, unknown>) {
+  return {
+    id: String(row.id ?? ""),
+    name: String(row.name ?? ""),
+    address: String(row.address ?? ""),
+    contactName: String(row.contactName ?? ""),
+    phone: String(row.phone ?? ""),
+  };
 }
 
 export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
@@ -254,6 +299,37 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
     }
   });
 
+  /** Public — telefon bo‘yicha do‘kon qidirish */
+  app.get("/make-server-27d0d16c/public/qrcode/:token/store", async (c) => {
+    try {
+      const token = String(c.req.param("token") ?? "").trim();
+      const phone = String(c.req.query("phone") ?? "").trim();
+      if (!token) return c.json({ success: false, error: "Token yo‘q" }, 400);
+      if (phone.replace(/\D/g, "").length < 9) {
+        return c.json({ success: true, store: null, stores: [] });
+      }
+
+      const resolved = await resolveQrcodeWorkspace(kv, token);
+      if (!resolved.ok || !resolved.workspace) {
+        return c.json({ success: false, error: "Buyurtma havolasi topilmadi" }, 404);
+      }
+
+      const stores = Array.isArray(resolved.workspace.stores) ? resolved.workspace.stores : [];
+      const rows = findStoresByPhone(stores, phone);
+      if (rows.length === 0) return c.json({ success: true, store: null, stores: [] });
+
+      const mapped = rows.map(mapStoreRow);
+      return c.json({
+        success: true,
+        store: mapped[0],
+        stores: mapped,
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      return c.json({ success: false, error: msg || "Xatolik" }, 500);
+    }
+  });
+
   /** Public — QR buyurtma katalogi */
   app.get("/make-server-27d0d16c/public/qrcode/:token", async (c) => {
     try {
@@ -280,12 +356,13 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
           unitPrice: Math.round(Number(row.unitPrice) || 0),
           unit: String(row.unit ?? "dona"),
           stock,
+          imageUrl: row.qrcodeImageUrl ? String(row.qrcodeImageUrl).trim() : undefined,
         };
       }).filter((p) => p.id && p.name && p.stock > 0);
 
       return c.json({
         success: true,
-        companyName: String(profile.companyName ?? ""),
+        companyName: getDillerBrandLabel(String(profile.companyName ?? "")),
         phone: String(profile.orderPhone ?? profile.phone ?? ""),
         telegram: String(profile.telegram ?? ""),
         instagram: String(profile.instagram ?? ""),
@@ -315,6 +392,7 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
       const customerName = String(body.customerName ?? "").trim();
       const customerPhone = String(body.customerPhone ?? "").trim();
       const note = String(body.note ?? "").trim();
+      const storeId = String(body.storeId ?? "").trim();
       const itemsRaw = Array.isArray(body.items) ? body.items : [];
 
       if (!customerName) return c.json({ success: false, error: "Ism kiriting" }, 400);
@@ -325,6 +403,7 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
 
       const products = Array.isArray(workspace.products) ? workspace.products : [];
       const warehouse = Array.isArray(workspace.warehouse) ? workspace.warehouse : [];
+      const stores = Array.isArray(workspace.stores) ? workspace.stores : [];
 
       const items: ShopOrderItem[] = [];
       for (const raw of itemsRaw) {
@@ -335,12 +414,14 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
         const stock = getWarehouseQty(warehouse, productId);
         if (stock <= 0) continue;
         const unitPrice = Math.round(Number(product.unitPrice) || 0);
+        const finalQty = Math.min(qty, stock);
         items.push({
           productId,
           productName: String(product.name ?? ""),
-          qty: Math.min(qty, stock),
+          qty: finalQty,
           unitPrice,
-          lineTotal: unitPrice * Math.min(qty, stock),
+          lineTotal: unitPrice * finalQty,
+          unit: String(product.unit ?? "dona"),
         });
       }
 
@@ -348,15 +429,33 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
         return c.json({ success: false, error: "Tanlangan mahsulotlar omborda yo‘q" }, 400);
       }
 
+      let finalName = customerName;
+      let storeName: string | undefined;
+      let customerAddress: string | undefined;
+      let linkedStoreId: string | undefined;
+
+      if (storeId) {
+        const store = stores.find((s) => (s as { id?: string }).id === storeId) as Record<string, unknown> | undefined;
+        if (store) {
+          linkedStoreId = storeId;
+          storeName = String(store.name ?? "").trim();
+          customerAddress = String(store.address ?? "").trim();
+          if (storeName) finalName = storeName;
+        }
+      }
+
       const order: ShopOrder = {
         id: `ord_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`,
-        customerName,
+        customerName: finalName,
         customerPhone,
         items,
         total: items.reduce((s, it) => s + it.lineTotal, 0),
         note,
         status: "pending",
         createdAt: new Date().toISOString(),
+        storeId: linkedStoreId,
+        storeName,
+        customerAddress,
       };
 
       const key = shopOrdersKey(token);
@@ -364,6 +463,21 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
       const list = Array.isArray(existing) ? existing : [];
       list.unshift(order);
       await kv.set(key, list.slice(0, 500));
+
+      void sendDillerQrcodeOrderNotification({
+        companyName: getDillerBrandLabel(String(profile.companyName ?? "")),
+        orderId: order.id,
+        customerName: order.customerName,
+        customerPhone: order.customerPhone,
+        customerAddress: order.customerAddress,
+        storeName: order.storeName,
+        items: order.items,
+        total: order.total,
+        note: order.note,
+        createdAt: order.createdAt,
+      }).catch((err) => {
+        console.error("[diller/qrcode telegram]", err);
+      });
 
       return c.json({ success: true, order });
     } catch (e: unknown) {
