@@ -201,6 +201,8 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
 
     onDataChange(nextData);
 
+    void pushDillerLocalNow();
+
     const ok = await patchServerStatus(order.id, status);
     if (!ok) {
       toast.warning('Mahalliy saqlandi — server holati keyinroq yangilanadi');
@@ -221,10 +223,16 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
     onDataChange(nextData);
     setSaleOrderId(null);
     setDetailOrderId(null);
+
+    const push = await pushDillerLocalNow();
+    if (push.status !== 'synced') {
+      toast.warning('Sotuv saqlandi — statistika mahalliy, bulut keyinroq yangilanadi');
+    }
+
     if (!orderId) return;
     const ok = await patchServerStatus(orderId, 'done');
     if (!ok) {
-      toast.warning('Sotuv saqlandi — server buyurtma holati keyinroq yangilanadi');
+      toast.warning('Server buyurtma holati keyinroq yangilanadi');
     }
   };
 

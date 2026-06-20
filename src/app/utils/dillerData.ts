@@ -1210,6 +1210,8 @@ export function mergeShopOrders(data: DillerData, incoming: DillerShopOrder[]): 
         warehouseReserved: existing.warehouseReserved || normalized.warehouseReserved,
         saleIds: existing.saleIds?.length ? existing.saleIds : normalized.saleIds,
         completedAt: existing.completedAt ?? normalized.completedAt,
+        storeId: existing.storeId ?? normalized.storeId,
+        storeName: existing.storeName ?? normalized.storeName,
         items: existing.items.length ? existing.items : normalized.items,
       }),
     );
@@ -1384,6 +1386,67 @@ export type ConfirmShopOrderSaleInput = {
   discountAmount?: number;
 };
 
+/** Buyurtma qatoridagi mahsulot katalogda bo‘lmasa — QR id bilan qo‘shiladi */
+function ensureProductFromOrderItem(data: DillerData, item: DillerShopOrderItem): DillerData {
+  if (data.products.some((p) => p.id === item.productId)) return data;
+  const product = normalizeProduct({
+    id: item.productId,
+    name: item.productName?.trim() || 'Mahsulot',
+    firmName: '',
+    sku: '—',
+    unitPrice: item.unitPrice,
+    buyPrice: 0,
+    unit: item.unit ?? 'dona',
+    createdAt: new Date().toISOString(),
+  });
+  return { ...data, products: [...data.products, product] };
+}
+
+/** Do‘kon topilmasa — buyurtmadan avtomatik yaratiladi */
+function ensureStoreForShopOrder(
+  data: DillerData,
+  order: DillerShopOrder,
+): { data: DillerData; storeId: string; error?: string } {
+  if (order.storeId) {
+    const byId = data.stores.find((s) => s.id === order.storeId);
+    if (byId) return { data, storeId: byId.id };
+    const name = order.storeName?.trim() || order.customerName?.trim() || 'Do‘kon';
+    const store = normalizeStore({
+      id: order.storeId,
+      name,
+      address: order.customerAddress?.trim() ?? '',
+      phone: order.customerPhone.trim(),
+      contactName: order.customerName?.trim() || name,
+      createdAt: new Date().toISOString(),
+    });
+    return { data: { ...data, stores: [store, ...data.stores] }, storeId: store.id };
+  }
+
+  const matches = findStoresByPhone(data, order.customerPhone);
+  if (matches.length === 1) return { data, storeId: matches[0].id };
+  if (matches.length > 1) {
+    if (order.storeName) {
+      const byName = matches.find((s) => s.name === order.storeName);
+      if (byName) return { data, storeId: byName.id };
+    }
+    return { data, storeId: matches[0].id };
+  }
+
+  const name = order.storeName?.trim() || order.customerName?.trim() || 'Do‘kon';
+  if (!order.customerPhone.trim()) {
+    return { data, error: 'Do‘kon topilmadi — telefon raqam yo‘q' };
+  }
+  const store = normalizeStore({
+    id: uid('store'),
+    name,
+    address: order.customerAddress?.trim() ?? '',
+    phone: order.customerPhone.trim(),
+    contactName: order.customerName?.trim() || name,
+    createdAt: new Date().toISOString(),
+  });
+  return { data: { ...data, stores: [store, ...data.stores] }, storeId: store.id };
+}
+
 export function confirmShopOrderSale(
   data: DillerData,
   orderId: string,
@@ -1396,21 +1459,15 @@ export function confirmShopOrderSale(
   }
   if (order.saleIds?.length) return { data, error: 'Sotuv allaqachon tasdiqlangan' };
 
-  const storeId =
-    order.storeId ??
-    (() => {
-      const matches = findStoresByPhone(data, order.customerPhone);
-      if (matches.length === 0) return '';
-      if (matches.length === 1) return matches[0].id;
-      if (order.storeName) {
-        const byName = matches.find((s) => s.name === order.storeName);
-        if (byName) return byName.id;
-      }
-      return matches[0].id;
-    })();
-  if (!storeId) {
-    return { data, error: 'Do‘kon topilmadi — avval do‘konlar ro‘yxatiga qo‘shing' };
+  let next = data;
+  for (const it of order.items) {
+    next = ensureProductFromOrderItem(next, it);
   }
+
+  const storeResolved = ensureStoreForShopOrder(next, order);
+  if (storeResolved.error) return { data, error: storeResolved.error };
+  next = storeResolved.data;
+  const storeId = storeResolved.storeId;
 
   const paymentType: DillerPaymentType = input.paymentType === 'qarz' ? 'qarz' : 'naqd';
   const subtotal = order.items.reduce(
@@ -1434,12 +1491,11 @@ export function confirmShopOrderSale(
   if (paymentType === 'naqd') {
     paidTotal = orderTotal;
   } else if (paidTotal > orderTotal) {
-    return { data, error: 'Oldindan to‘lov jami summadan oshmasligi kerak' };
+    return { data: next, error: 'Oldindan to‘lov jami summadan oshmasligi kerak' };
   } else if (orderTotal - paidTotal > 0 && !debtDueDate) {
-    return { data, error: 'Qarz uchun qaytarish sanasini kiriting' };
+    return { data: next, error: 'Qarz uchun qaytarish sanasini kiriting' };
   }
 
-  let next = data;
   const saleIds: string[] = [];
   let remainingPaid = paidTotal;
   let remainingDiscount = discountAmount;
@@ -1480,7 +1536,7 @@ export function confirmShopOrderSale(
       skipWarehouseDeduction: true,
       shopOrderId: order.id,
     });
-    if (result.error) return result;
+    if (result.error) return { data: next, error: result.error };
     next = result.data;
     const created = next.sales[0];
     if (created) saleIds.push(created.id);

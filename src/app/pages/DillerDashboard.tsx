@@ -10,6 +10,7 @@ import { clearDillerSession, readDillerSession } from '../utils/dillerSession';
 import {
   createEmptyDillerData,
   loadDillerData,
+  mergeDillerData,
   saveDillerData,
   type DillerData,
 } from '../utils/dillerData';
@@ -45,13 +46,16 @@ export default function DillerDashboard() {
 
   const applySync = useCallback((silent: boolean) => {
     return runDillerSync({ silent }).then((outcome) => {
-      setData(outcome.data);
+      const pending = pendingDataRef.current;
+      const merged = mergeDillerData(pending ?? loadDillerData(), outcome.data);
+      saveDillerData(merged);
+      setData(merged);
       setSyncState(outcome.status);
       setSession(readDillerSession());
       if (outcome.message && !silent) {
         toast.success(outcome.message);
       }
-      return outcome;
+      return { ...outcome, data: merged };
     });
   }, []);
 
@@ -117,7 +121,9 @@ export default function DillerDashboard() {
       saveTimerRef.current = setTimeout(() => {
         pendingDataRef.current = null;
         void pushDillerLocalNow().then((outcome) => {
-          setData(outcome.data);
+          const merged = mergeDillerData(loadDillerData(), outcome.data);
+          saveDillerData(merged);
+          setData(merged);
           setSyncState(outcome.status);
         });
       }, SAVE_DEBOUNCE_MS);

@@ -53,11 +53,14 @@ export function touchLocalModified(): void {
 }
 
 export function markDillerSynced(serverUpdatedAt: string): void {
-  const now = serverUpdatedAt || new Date().toISOString();
+  const meta = readDillerSyncMeta();
+  const serverTs = parseTime(serverUpdatedAt);
+  const localTs = parseTime(meta.localModifiedAt);
+  const stillPending = localTs > serverTs + 500;
   writeDillerSyncMeta({
-    localModifiedAt: now,
-    lastSyncedAt: now,
-    pendingPush: false,
+    localModifiedAt: stillPending ? meta.localModifiedAt : serverUpdatedAt || meta.localModifiedAt,
+    lastSyncedAt: serverUpdatedAt || new Date().toISOString(),
+    pendingPush: stillPending,
   });
 }
 

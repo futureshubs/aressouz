@@ -78,10 +78,9 @@ async function pullRemoteShopOrders(token: string, data: DillerData): Promise<Di
   if (isOfflineDillerToken(token)) return data;
   const res = await dillerApiFetchShopOrders(token);
   if (!res.ok) return data;
-  const merged = mergeShopOrders(data, res.orders);
-  if (merged.shopOrders !== data.shopOrders) {
-    saveDillerData(merged);
-  }
+  const fresh = loadDillerData();
+  const merged = mergeDillerData(fresh, mergeShopOrders(fresh, res.orders));
+  saveDillerData(merged);
   return merged;
 }
 
@@ -136,13 +135,14 @@ async function syncInner(opts?: {
     (localHas && serverHas && localTs >= serverTs);
 
   if (shouldPush && (localHas || meta.pendingPush)) {
-    const push = await dillerApiPushData(token, local);
+    const toPush = loadDillerData();
+    const push = await dillerApiPushData(token, toPush);
     if (push.ok) {
       markDillerSynced(push.updatedAt);
-      const withOrders = await pullRemoteShopOrders(token, local);
+      const withOrders = await pullRemoteShopOrders(token, toPush);
       return {
         status: 'synced',
-        data: withOrders,
+        data: mergeDillerData(loadDillerData(), withOrders),
         upgradedToken: upgraded,
         message: silent
           ? undefined
@@ -151,10 +151,10 @@ async function syncInner(opts?: {
             : 'Bulutga saqlandi',
       };
     }
-    const withOrders = await pullRemoteShopOrders(token, local);
+    const withOrders = await pullRemoteShopOrders(token, loadDillerData());
     return {
       status: 'offline',
-      data: withOrders,
+      data: mergeDillerData(loadDillerData(), withOrders),
       message: push.error,
     };
   }
@@ -216,14 +216,23 @@ async function pushInner(): Promise<DillerSyncOutcome> {
     return { status: 'offline', data: local };
   }
 
-  const push = await dillerApiPushData(token, local);
+  const toPush = loadDillerData();
+  const push = await dillerApiPushData(token, toPush);
   if (push.ok) {
     markDillerSynced(push.updatedAt);
-    const withOrders = await pullRemoteShopOrders(token, local);
-    return { status: 'synced', data: withOrders, upgradedToken: upgraded };
+    const withOrders = await pullRemoteShopOrders(token, toPush);
+    return {
+      status: 'synced',
+      data: mergeDillerData(loadDillerData(), withOrders),
+      upgradedToken: upgraded,
+    };
   }
-  const withOrders = await pullRemoteShopOrders(token, local);
-  return { status: 'offline', data: withOrders, message: push.error };
+  const withOrders = await pullRemoteShopOrders(token, loadDillerData());
+  return {
+    status: 'offline',
+    data: mergeDillerData(loadDillerData(), withOrders),
+    message: push.error,
+  };
 }
 
 export async function pushDillerLocalNow(): Promise<DillerSyncOutcome> {
