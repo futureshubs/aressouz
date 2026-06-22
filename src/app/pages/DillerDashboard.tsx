@@ -11,11 +11,12 @@ import {
   createEmptyDillerData,
   loadDillerData,
   mergeDillerData,
+  mergeShopOrders,
   saveDillerData,
   type DillerData,
 } from '../utils/dillerData';
 import { clearDillerCloudCreds } from '../utils/dillerSyncMeta';
-import { pushDillerLocalNow, runDillerSync, flushDillerToCloud, type DillerSyncStatus } from '../utils/dillerSync';
+import { runDillerSync, flushDillerToCloud, type DillerSyncStatus } from '../utils/dillerSync';
 import { readDillerSyncMeta, touchLocalModified } from '../utils/dillerSyncMeta';
 import {
   dillerMainScrollClass,
@@ -24,9 +25,8 @@ import {
 } from '../components/diller/dillerMobileLayout';
 
 const NAV_BOTTOM = DILLER_NAV_BOTTOM_PADDING;
-const SAVE_DEBOUNCE_MS = 600;
-const AUTO_SYNC_INTERVAL_MS = 25_000;
-const ORDER_POLL_INTERVAL_MS = 20_000;
+/** Bulutga avtomatik yuborish — har 2 daqiqa (faqat /diller) */
+const CLOUD_AUTO_SYNC_MS = 2 * 60 * 1000;
 
 export default function DillerDashboard() {
   const navigate = useNavigate();
@@ -38,24 +38,34 @@ export default function DillerDashboard() {
   const [data, setData] = useState<DillerData>(() => loadDillerData() || createEmptyDillerData());
   const [booting, setBooting] = useState(true);
   const [syncState, setSyncState] = useState<DillerSyncStatus>('loading');
-  const saveTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const pendingDataRef = useRef<DillerData | null>(null);
   const mainScrollRef = useRef<HTMLElement | null>(null);
-  const syncStateRef = useRef(syncState);
-  syncStateRef.current = syncState;
 
   const applySync = useCallback((silent: boolean) => {
+    setSyncState((s) => (s === 'loading' ? s : 'saving'));
     return runDillerSync({ silent }).then((outcome) => {
       const pending = pendingDataRef.current;
-      const merged = mergeDillerData(pending ?? loadDillerData(), outcome.data);
-      saveDillerData(merged);
-      setData(merged);
+      const disk = loadDillerData();
+      const base = pending ?? disk;
+      const merged = mergeDillerData(base, outcome.data);
+
+      if (pending) {
+        const ordersUpdated = mergeShopOrders(pending, outcome.data.shopOrders ?? []);
+        pendingDataRef.current = ordersUpdated;
+        saveDillerData(mergeDillerData(ordersUpdated, outcome.data));
+        setData(ordersUpdated);
+      } else {
+        pendingDataRef.current = null;
+        saveDillerData(merged);
+        setData(merged);
+      }
+
       setSyncState(outcome.status);
       setSession(readDillerSession());
       if (outcome.message && !silent) {
         toast.success(outcome.message);
       }
-      return { ...outcome, data: merged };
+      return { ...outcome, data: pending ? pendingDataRef.current! : merged };
     });
   }, []);
 
@@ -73,32 +83,17 @@ export default function DillerDashboard() {
 
   useEffect(() => {
     const onOnline = () => {
-      void applySync(false);
-    };
-    const onVisible = () => {
-      if (document.visibilityState === 'visible') {
-        void applySync(true);
-      }
+      void applySync(true);
     };
     window.addEventListener('online', onOnline);
-    document.addEventListener('visibilitychange', onVisible);
 
     const interval = window.setInterval(() => {
-      const meta = readDillerSyncMeta();
-      if (meta.pendingPush || syncStateRef.current === 'offline') {
-        void applySync(true);
-      }
-    }, AUTO_SYNC_INTERVAL_MS);
-
-    const orderPoll = window.setInterval(() => {
       void applySync(true);
-    }, ORDER_POLL_INTERVAL_MS);
+    }, CLOUD_AUTO_SYNC_MS);
 
     return () => {
       window.removeEventListener('online', onOnline);
-      document.removeEventListener('visibilitychange', onVisible);
       window.clearInterval(interval);
-      window.clearInterval(orderPoll);
     };
   }, [applySync]);
 
@@ -109,39 +104,15 @@ export default function DillerDashboard() {
     });
   }, []);
 
-  const persist = useCallback(
-    (next: DillerData) => {
-      pendingDataRef.current = next;
-      setData(next);
-      saveDillerData(next);
-      touchLocalModified();
-      setSyncState((s) => (s === 'loading' ? s : 'saving'));
-
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = setTimeout(() => {
-        pendingDataRef.current = null;
-        void pushDillerLocalNow().then((outcome) => {
-          const merged = mergeDillerData(loadDillerData(), outcome.data);
-          saveDillerData(merged);
-          setData(merged);
-          setSyncState(outcome.status);
-        });
-      }, SAVE_DEBOUNCE_MS);
-    },
-    [],
-  );
-
-  useEffect(() => {
-    return () => {
-      if (saveTimerRef.current) clearTimeout(saveTimerRef.current);
-    };
+  const persist = useCallback((next: DillerData) => {
+    pendingDataRef.current = next;
+    setData(next);
+    saveDillerData(next);
+    touchLocalModified();
+    setSyncState((s) => (s === 'loading' || s === 'saving' ? s : 'offline'));
   }, []);
 
   const logout = async () => {
-    if (saveTimerRef.current) {
-      clearTimeout(saveTimerRef.current);
-      saveTimerRef.current = null;
-    }
     if (pendingDataRef.current) {
       saveDillerData(pendingDataRef.current);
       touchLocalModified();
@@ -174,11 +145,11 @@ export default function DillerDashboard() {
       case 'loading':
         return 'Yuklanmoqda…';
       case 'saving':
-        return 'Saqlanmoqda…';
+        return 'Bulutga yuborilmoqda…';
       case 'synced':
         return 'Bulutda saqlangan';
       case 'offline':
-        return meta.pendingPush ? 'Oflayn · navbatda' : 'Oflayn · mahalliy';
+        return meta.pendingPush ? 'Mahalliy saqlangan' : 'Oflayn · mahalliy';
       default:
         return '';
     }
@@ -308,7 +279,7 @@ export default function DillerDashboard() {
           className="mx-4 mt-2 px-3 py-2 rounded-xl text-[10px] text-center max-w-lg w-full self-center"
           style={{ background: isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.15)' }}
         >
-          Internet qaytganida avtomatik Supabase ga yuboriladi
+          Internet qaytganida yoki har 2 daqiqada bulutga yuboriladi
         </div>
       ) : null}
 

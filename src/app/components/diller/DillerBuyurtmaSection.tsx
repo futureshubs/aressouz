@@ -201,8 +201,6 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
 
     onDataChange(nextData);
 
-    void pushDillerLocalNow();
-
     const ok = await patchServerStatus(order.id, status);
     if (!ok) {
       toast.warning('Mahalliy saqlandi — server holati keyinroq yangilanadi');
