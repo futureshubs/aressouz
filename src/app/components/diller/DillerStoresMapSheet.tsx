@@ -12,6 +12,7 @@ import {
   MapPin,
   Navigation,
   RotateCcw,
+  Play,
   SkipForward,
   Store,
   X,
@@ -160,11 +161,11 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
   const initialFitRef = useRef(false);
   const userFitOnceRef = useRef(false);
   const followMeRef = useRef(false);
-  const autoNavStartedRef = useRef(false);
 
   const [userLoc, setUserLoc] = useState<UserLocation | null>(null);
   const [locStatus, setLocStatus] = useState<'idle' | 'loading' | 'ok' | 'denied'>('idle');
   const [followMe, setFollowMe] = useState(true);
+  const [navStarted, setNavStarted] = useState(false);
   const [navTarget, setNavTarget] = useState<DillerStore | null>(null);
   const [route, setRoute] = useState<OsrmRouteResult | null>(null);
   const [routeLoading, setRouteLoading] = useState(false);
@@ -175,9 +176,9 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
   );
 
   const tourOrder = useMemo(() => {
-    if (!userLoc) return mappedStores;
+    if (!navStarted || !userLoc) return mappedStores;
     return orderStoresNearestFirst(userLoc, mappedStores);
-  }, [mappedStores, userLoc]);
+  }, [mappedStores, userLoc, navStarted]);
 
   const tourIndex = navTarget ? tourOrder.findIndex((s) => s.id === navTarget.id) : -1;
   const nextTourStore =
@@ -236,18 +237,41 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
     setFollowMe(true);
   }, []);
 
+  const handleStartTour = useCallback(() => {
+    if (mappedStores.length === 0) return;
+    if (!userLoc) {
+      toast.error('Joylashuv aniqlanmadi — GPS yoqing');
+      return;
+    }
+    setNavStarted(true);
+    const nearest = orderStoresNearestFirst(userLoc, mappedStores)[0];
+    if (nearest) startNavigation(nearest);
+  }, [mappedStores, userLoc, startNavigation]);
+
+  const stopNavigation = useCallback(() => {
+    setNavStarted(false);
+    setNavTarget(null);
+    setRoute(null);
+    followMeRef.current = false;
+    setFollowMe(false);
+    routeFetchRef.current?.abort();
+    routeFetchRef.current = null;
+    const map = mapRef.current;
+    if (map) fitAllPoints(map, userLoc);
+  }, [fitAllPoints, userLoc]);
+
   useEffect(() => {
     if (!open) {
       setUserLoc(null);
       setLocStatus('idle');
       setFollowMe(true);
       followMeRef.current = true;
+      setNavStarted(false);
       setNavTarget(null);
       setRoute(null);
       setRouteLoading(false);
       initialFitRef.current = false;
       userFitOnceRef.current = false;
-      autoNavStartedRef.current = false;
       routeFetchRef.current?.abort();
       routeFetchRef.current = null;
       return;
@@ -284,14 +308,7 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
   }, [open]);
 
   useEffect(() => {
-    if (!open || !userLoc || autoNavStartedRef.current || mappedStores.length === 0) return;
-    autoNavStartedRef.current = true;
-    const nearest = orderStoresNearestFirst(userLoc, mappedStores)[0];
-    if (nearest) startNavigation(nearest);
-  }, [open, userLoc, mappedStores, startNavigation]);
-
-  useEffect(() => {
-    if (!open || !navTarget || !userLoc) {
+    if (!open || !navStarted || !navTarget || !userLoc) {
       setRoute(null);
       return;
     }
@@ -310,7 +327,7 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
       });
 
     return () => ac.abort();
-  }, [open, navTarget?.id, userLoc?.lat, userLoc?.lng]);
+  }, [open, navStarted, navTarget?.id, userLoc?.lat, userLoc?.lng]);
 
   useEffect(() => {
     if (!open || !containerRef.current) return;
@@ -370,7 +387,7 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
     routePolylineRef.current?.remove();
     routePolylineRef.current = null;
 
-    if (route?.line && route.line.length >= 2) {
+    if (route?.line && route.line.length >= 2 && navStarted) {
       routePolylineRef.current = L.polyline(route.line, {
         color: '#4285F4',
         weight: 7,
@@ -401,9 +418,9 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
       const lng = store.lng!;
       const stats = getStoreStats(data, store.id);
       const hasDebt = stats.openDebt > 0;
-      const tourNum = tourOrder.findIndex((s) => s.id === store.id);
+      const tourNum = navStarted ? tourOrder.findIndex((s) => s.id === store.id) : -1;
       const orderLabel = tourNum >= 0 ? String(tourNum + 1) : undefined;
-      const isTarget = navTarget?.id === store.id;
+      const isTarget = navStarted && navTarget?.id === store.id;
 
       const distLine =
         userLoc != null
@@ -421,12 +438,12 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
 
       const lines = [
         `<strong style="font-size:14px">${escapeHtml(store.name)}</strong>`,
-        tourNum >= 0
+        navStarted && tourNum >= 0
           ? `<div style="font-size:11px;color:#4285F4;margin-top:2px">Marshrut: ${tourNum + 1}-do‘kon</div>`
           : '',
         store.address
           ? `<div style="font-size:12px;color:#666;margin-top:4px">${escapeHtml(store.address)}</div>`
-          : '',
+          : '<div style="font-size:12px;color:#999;margin-top:4px">Manzil kiritilmagan</div>',
         distLine,
         `<div style="font-size:12px;margin-top:6px">${escapeHtml(store.phone)} · ${escapeHtml(store.contactName)}</div>`,
         stats.saleCount > 0
@@ -435,7 +452,9 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
         hasDebt
           ? `<div style="font-size:11px;margin-top:2px;color:#f59e0b">Qarz: ${formatMoney(stats.openDebt)}</div>`
           : '',
-        `<div style="font-size:11px;margin-top:8px;color:#3b82f6;font-weight:600">Yo‘nalish →</div>`,
+        navStarted
+          ? `<div style="font-size:11px;margin-top:8px;color:#3b82f6;font-weight:600">Yo‘nalish →</div>`
+          : `<div style="font-size:11px;margin-top:8px;color:#64748b">Boshlash tugmasini bosing</div>`,
       ]
         .filter(Boolean)
         .join('');
@@ -445,13 +464,19 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
         className: 'diller-store-popup',
       });
 
-      marker.on('click', () => startNavigation(store));
+      marker.on('click', () => {
+        if (navStarted) {
+          startNavigation(store);
+        } else {
+          marker.openPopup();
+        }
+      });
       marker.addTo(map);
       storeMarkersRef.current.push(marker);
     }
 
     requestAnimationFrame(() => map.invalidateSize());
-  }, [open, mappedStores, data, accentColor.color, userLoc, navTarget, tourOrder, startNavigation]);
+  }, [open, mappedStores, data, accentColor.color, userLoc, navTarget, navStarted, tourOrder, startNavigation]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -489,15 +514,15 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
       accuracyCircleRef.current.setRadius(userLoc.accuracy);
     }
 
-    if (followMeRef.current && navTarget) {
+    if (followMeRef.current && navStarted && navTarget) {
       map.panTo(latLng, { animate: true, duration: 0.35 });
     }
 
-    if (userLoc && mappedStores.length > 0 && !userFitOnceRef.current && !navTarget) {
+    if (userLoc && mappedStores.length > 0 && !userFitOnceRef.current && !navStarted) {
       fitAllPoints(map, userLoc);
       userFitOnceRef.current = true;
     }
-  }, [open, userLoc, mappedStores.length, fitAllPoints, navTarget]);
+  }, [open, userLoc, mappedStores.length, fitAllPoints, navStarted, navTarget]);
 
   const centerOnMe = () => {
     const map = mapRef.current;
@@ -570,7 +595,7 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
           <h2 className="font-bold text-base">Navigatsiya</h2>
           <p className="text-[10px] opacity-50 truncate">
             {mappedStores.length} do‘kon
-            {tourOrder.length > 1 ? ` · ${tourOrder.length} nuqtali marshrut` : ''}
+            {navStarted && tourOrder.length > 1 ? ` · ${tourOrder.length} nuqtali marshrut` : !navStarted ? ' · belgi ustiga bosing' : ''}
             {missingCoordsCount > 0 ? ` · ${missingCoordsCount} GPS yo‘q` : ''}
           </p>
         </div>
@@ -632,7 +657,7 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
         ) : null}
       </div>
 
-      {navTarget ? (
+      {navStarted && navTarget ? (
         <div
           className="shrink-0 border-t shadow-[0_-8px_32px_rgba(0,0,0,0.18)]"
           style={{
@@ -725,6 +750,14 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
           <div className="px-4 pb-3 flex gap-2">
             <button
               type="button"
+              onClick={stopNavigation}
+              className="py-2.5 px-3 rounded-xl text-xs font-bold border"
+              style={{ borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }}
+            >
+              To‘xtat
+            </button>
+            <button
+              type="button"
               onClick={goNextStore}
               disabled={!nextTourStore}
               className="flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-40"
@@ -761,12 +794,31 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
         </div>
       ) : (
         <div
-          className="shrink-0 px-4 py-3 border-t text-center text-xs opacity-60"
+          className="shrink-0 px-4 py-3 border-t"
           style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
         >
-          {locStatus === 'loading'
-            ? 'Joylashuv aniqlanmoqda…'
-            : 'Do‘kon markerini bosing — yo‘nalish ochiladi'}
+          <p className="text-xs opacity-60 text-center mb-3">
+            {locStatus === 'loading'
+              ? 'Joylashuv aniqlanmoqda…'
+              : 'Belgi ustiga bosing — manzil va ma’lumot ko‘rinadi'}
+          </p>
+          <button
+            type="button"
+            onClick={handleStartTour}
+            disabled={locStatus !== 'ok' || mappedStores.length === 0}
+            className="w-full py-3.5 rounded-xl font-bold text-slate-900 flex items-center justify-center gap-2 disabled:opacity-45 active:scale-[0.98]"
+            style={{ background: accentColor.gradient }}
+          >
+            {locStatus === 'loading' ? (
+              <Loader2 className="w-5 h-5 animate-spin" />
+            ) : (
+              <Play className="w-5 h-5 fill-current" />
+            )}
+            Boshlash
+          </button>
+          <p className="text-[10px] opacity-45 text-center mt-2">
+            Eng yaqin do‘kon avtomatik tanlanadi
+          </p>
         </div>
       )}
     </div>

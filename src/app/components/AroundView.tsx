@@ -1,10 +1,11 @@
 import { useState, useEffect, memo, useRef, useCallback, useMemo } from 'react';
-import { MapPin, Map as MapIcon, Grid3x3, Plus, Loader2 } from 'lucide-react';
+import { MapPin, Map as MapIcon, Grid3x3, Plus, Loader2, Route } from 'lucide-react';
 import { placeCategories, Place, PlaceCategory, PLACE_CATEGORY_GROUPS } from '../data/places';
 import { PlaceCard } from './PlaceCard';
 import { CategoryCard } from './CategoryCard';
 import { PlaceDetailModal } from './PlaceDetailModal';
 import { FullMapView } from './FullMapView';
+import { RoadMapView } from './RoadMapView';
 import { AddPlaceModal } from './AddPlaceModal';
 import { Platform } from '../utils/platform';
 import { useTheme } from '../context/ThemeContext';
@@ -26,10 +27,11 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
   const { theme, accentColor } = useTheme();
   const { selectedRegion: headerRegion, selectedDistrict: headerDistrict } = useLocation();
   const { effectiveQuery: headerSearch } = useHeaderSearchOptional();
-  const [activeTab, setActiveTab] = useState<'around' | 'map' | 'catalog'>('around');
+  const [activeTab, setActiveTab] = useState<'around' | 'map' | 'catalog' | 'road'>('around');
   const [selectedPlace, setSelectedPlace] = useState<Place | null>(null);
   const [selectedCategoryId, setSelectedCategoryId] = useState<string | null>(null);
   const [showFullMap, setShowFullMap] = useState(false);
+  const [showRoadMap, setShowRoadMap] = useState(false);
   const [showAddModal, setShowAddModal] = useState(false);
   const [places, setPlaces] = useState<Place[]>([]);
   const [loading, setLoading] = useState(true);
@@ -215,7 +217,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
           {/* Tabs */}
           <div className="px-3 sm:px-4 md:px-6 lg:px-8 py-3 sm:py-4">
             <div 
-              className="grid grid-cols-3 gap-1.5 sm:gap-2 p-1 rounded-xl sm:rounded-2xl"
+              className="grid grid-cols-4 gap-1 sm:gap-1.5 p-1 rounded-xl sm:rounded-2xl"
               style={{
                 background: isDark 
                   ? (isIOS ? 'linear-gradient(145deg, rgba(30, 30, 30, 0.6), rgba(20, 20, 20, 0.8))' : 'linear-gradient(135deg, #1a1a1a, #141414)')
@@ -231,7 +233,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
             >
               <button
                 onClick={() => setActiveTab('around')}
-                className="flex flex-col items-center gap-0.5 sm:gap-1 px-2 sm:px-3 py-2 sm:py-3 rounded-lg sm:rounded-xl font-semibold text-[10px] sm:text-xs transition-all"
+                className="flex flex-col items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-[9px] sm:text-[10px] transition-all"
                 style={{
                   backgroundImage: activeTab === 'around' ? accentColor.gradient : 'none',
                   color: activeTab === 'around' ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'),
@@ -247,7 +249,7 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
                   setActiveTab('map');
                   setShowFullMap(true);
                 }}
-                className="flex flex-col items-center gap-0.5 sm:gap-1 px-2 sm:px-3 py-2 sm:py-3 rounded-lg sm:rounded-xl font-semibold text-[10px] sm:text-xs transition-all"
+                className="flex flex-col items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-[9px] sm:text-[10px] transition-all"
                 style={{
                   backgroundImage: activeTab === 'map' ? accentColor.gradient : 'none',
                   color: activeTab === 'map' ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'),
@@ -259,8 +261,24 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
               </button>
 
               <button
+                onClick={() => {
+                  setActiveTab('road');
+                  setShowRoadMap(true);
+                }}
+                className="flex flex-col items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-[9px] sm:text-[10px] transition-all"
+                style={{
+                  backgroundImage: activeTab === 'road' ? accentColor.gradient : 'none',
+                  color: activeTab === 'road' ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'),
+                  boxShadow: activeTab === 'road' ? `0 4px 12px ${accentColor.color}66` : 'none',
+                }}
+              >
+                <Route className="size-3.5 sm:size-4" strokeWidth={2.5} />
+                Yo‘l
+              </button>
+
+              <button
                 onClick={() => setActiveTab('catalog')}
-                className="flex flex-col items-center gap-0.5 sm:gap-1 px-2 sm:px-3 py-2 sm:py-3 rounded-lg sm:rounded-xl font-semibold text-[10px] sm:text-xs transition-all"
+                className="flex flex-col items-center gap-0.5 sm:gap-1 px-1.5 sm:px-2 py-2 sm:py-2.5 rounded-lg sm:rounded-xl font-semibold text-[9px] sm:text-[10px] transition-all"
                 style={{
                   backgroundImage: activeTab === 'catalog' ? accentColor.gradient : 'none',
                   color: activeTab === 'catalog' ? '#ffffff' : (isDark ? 'rgba(255, 255, 255, 0.6)' : 'rgba(0, 0, 0, 0.6)'),
@@ -508,6 +526,16 @@ export const AroundView = memo(function AroundView({ platform }: AroundViewProps
           }}
           onStationClick={() => {}}
           platform={platform}
+        />
+      )}
+
+      {showRoadMap && (
+        <RoadMapView
+          platform={platform}
+          onClose={() => {
+            setShowRoadMap(false);
+            setActiveTab('around');
+          }}
         />
       )}
     </>

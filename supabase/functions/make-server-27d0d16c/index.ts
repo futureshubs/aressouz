@@ -7795,6 +7795,170 @@ app.get("/make-server-27d0d16c/branch-places", async (c) => {
   }
 });
 
+// ==================== ROAD ALERTS (Yo'l xaritasi) ====================
+
+const ROAD_ALERT_TYPES = new Set(["gai", "hidden_gai", "accident", "radar"]);
+const ROAD_ALERT_TTL_MS = 3 * 60 * 60 * 1000;
+const ROAD_ALERT_MAX_PER_DEVICE_HOUR = 8;
+const ROAD_ALERT_MERGE_RADIUS_KM = 0.25;
+
+function roadAlertDistanceKm(lat1: number, lng1: number, lat2: number, lng2: number): number {
+  const R = 6371;
+  const φ1 = (lat1 * Math.PI) / 180;
+  const φ2 = (lat2 * Math.PI) / 180;
+  const Δφ = ((lat2 - lat1) * Math.PI) / 180;
+  const Δλ = ((lng2 - lng1) * Math.PI) / 180;
+  const a =
+    Math.sin(Δφ / 2) ** 2 + Math.cos(φ1) * Math.cos(φ2) * Math.sin(Δλ / 2) ** 2;
+  return 2 * R * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+}
+
+function sanitizeRoadAlert(raw: any) {
+  if (!raw || typeof raw !== "object") return null;
+  const lat = Number(raw.lat);
+  const lng = Number(raw.lng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  if (!ROAD_ALERT_TYPES.has(String(raw.type))) return null;
+  const expiresAt = String(raw.expiresAt || "");
+  if (expiresAt && Date.parse(expiresAt) < Date.now()) return null;
+  return {
+    id: String(raw.id),
+    type: String(raw.type),
+    lat,
+    lng,
+    note: raw.note ? String(raw.note).slice(0, 120) : undefined,
+    createdAt: String(raw.createdAt || new Date().toISOString()),
+    expiresAt: expiresAt || new Date(Date.now() + ROAD_ALERT_TTL_MS).toISOString(),
+    reports: Math.max(1, Number(raw.reports) || 1),
+  };
+}
+
+app.get("/make-server-27d0d16c/road-alerts", async (c) => {
+  try {
+    const lat = Number(c.req.query("lat"));
+    const lng = Number(c.req.query("lng"));
+    const radiusKm = Math.min(120, Math.max(5, Number(c.req.query("radiusKm")) || 60));
+
+    const all = await kv.getByPrefix("road-alert:");
+    const now = Date.now();
+    const alerts = [];
+
+    for (const item of all) {
+      const alert = sanitizeRoadAlert(item);
+      if (!alert) continue;
+      if (Date.parse(alert.expiresAt) < now) {
+        await kv.del(`road-alert:${alert.id}`);
+        continue;
+      }
+      if (Number.isFinite(lat) && Number.isFinite(lng)) {
+        const d = roadAlertDistanceKm(lat, lng, alert.lat, alert.lng);
+        if (d > radiusKm) continue;
+        alerts.push({ ...alert, distanceKm: parseFloat(d.toFixed(2)) });
+      } else {
+        alerts.push(alert);
+      }
+    }
+
+    alerts.sort((a: any, b: any) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
+    return c.json({ alerts });
+  } catch (error: any) {
+    console.log("Get road alerts error:", error);
+    return c.json({ error: "Yo'l belgilarini olishda xatolik" }, 500);
+  }
+});
+
+app.post("/make-server-27d0d16c/road-alerts", async (c) => {
+  try {
+    const data = await c.req.json();
+    const type = String(data.type || "").trim();
+    const lat = Number(data.lat);
+    const lng = Number(data.lng);
+    const note = data.note ? String(data.note).trim().slice(0, 120) : "";
+    const deviceId = data.deviceId ? String(data.deviceId).slice(0, 64) : "anon";
+
+    if (!ROAD_ALERT_TYPES.has(type)) {
+      return c.json({ error: "Noto'g'ri belgi turi" }, 400);
+    }
+    if (!Number.isFinite(lat) || !Number.isFinite(lng)) {
+      return c.json({ error: "Koordinata noto'g'ri" }, 400);
+    }
+    if (lat < -90 || lat > 90 || lng < -180 || lng > 180) {
+      return c.json({ error: "Koordinata chegaradan tashqari" }, 400);
+    }
+
+    const hourAgo = Date.now() - 60 * 60 * 1000;
+    const recent = await kv.getByPrefix("road-alert:");
+    let deviceCount = 0;
+    for (const item of recent) {
+      const a = sanitizeRoadAlert(item);
+      if (!a) continue;
+      if (String(item.deviceId || "anon") === deviceId && Date.parse(a.createdAt) >= hourAgo) {
+        deviceCount++;
+      }
+    }
+    if (deviceCount >= ROAD_ALERT_MAX_PER_DEVICE_HOUR) {
+      return c.json({ error: "Juda ko'p belgi qo'shildi — biroz kuting" }, 429);
+    }
+
+    for (const item of recent) {
+      const existing = sanitizeRoadAlert(item);
+      if (!existing || existing.type !== type) continue;
+      const d = roadAlertDistanceKm(lat, lng, existing.lat, existing.lng);
+      if (d <= ROAD_ALERT_MERGE_RADIUS_KM && Date.parse(existing.createdAt) >= hourAgo) {
+        const merged = {
+          ...item,
+          reports: Math.min(99, (Number(item.reports) || 1) + 1),
+          updatedAt: new Date().toISOString(),
+          expiresAt: new Date(Date.now() + ROAD_ALERT_TTL_MS).toISOString(),
+        };
+        await kv.set(`road-alert:${existing.id}`, merged);
+        return c.json({ success: true, alert: sanitizeRoadAlert(merged), merged: true });
+      }
+    }
+
+    const id = `ra-${Date.now()}-${Math.random().toString(36).substring(2, 9)}`;
+    const alert = {
+      id,
+      type,
+      lat,
+      lng,
+      note: note || undefined,
+      deviceId,
+      createdAt: new Date().toISOString(),
+      expiresAt: new Date(Date.now() + ROAD_ALERT_TTL_MS).toISOString(),
+      reports: 1,
+    };
+
+    await kv.set(`road-alert:${id}`, alert);
+    return c.json({ success: true, alert: sanitizeRoadAlert(alert) });
+  } catch (error: any) {
+    console.log("Create road alert error:", error);
+    return c.json({ error: "Belgi qo'shishda xatolik" }, 500);
+  }
+});
+
+app.post("/make-server-27d0d16c/road-alerts/:id/confirm", async (c) => {
+  try {
+    const id = c.req.param("id");
+    const existing = await kv.get(`road-alert:${id}`);
+    const alert = sanitizeRoadAlert(existing);
+    if (!alert) {
+      return c.json({ error: "Belgi topilmadi yoki muddati tugagan" }, 404);
+    }
+    const merged = {
+      ...existing,
+      reports: Math.min(99, (Number(existing.reports) || 1) + 1),
+      expiresAt: new Date(Date.now() + ROAD_ALERT_TTL_MS).toISOString(),
+      updatedAt: new Date().toISOString(),
+    };
+    await kv.set(`road-alert:${id}`, merged);
+    return c.json({ success: true, alert: sanitizeRoadAlert(merged) });
+  } catch (error: any) {
+    console.log("Confirm road alert error:", error);
+    return c.json({ error: "Tasdiqlashda xatolik" }, 500);
+  }
+});
+
 // Create place for branch
 app.post("/make-server-27d0d16c/branch-places", async (c) => {
   try {
