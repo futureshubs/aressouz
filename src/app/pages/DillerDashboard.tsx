@@ -9,6 +9,7 @@ import { DillerPanelContent } from '../components/diller/DillerPanelTabs';
 import { clearDillerSession, readDillerSession } from '../utils/dillerSession';
 import {
   createEmptyDillerData,
+  hasDillerDataContent,
   loadDillerData,
   mergeDillerData,
   mergeShopOrders,
@@ -41,9 +42,9 @@ export default function DillerDashboard() {
   const pendingDataRef = useRef<DillerData | null>(null);
   const mainScrollRef = useRef<HTMLElement | null>(null);
 
-  const applySync = useCallback((silent: boolean) => {
+  const applySync = useCallback((opts?: { silent?: boolean; forcePull?: boolean }) => {
     setSyncState((s) => (s === 'loading' ? s : 'saving'));
-    return runDillerSync({ silent }).then((outcome) => {
+    return runDillerSync({ silent: opts?.silent, forcePull: opts?.forcePull }).then((outcome) => {
       const pending = pendingDataRef.current;
       const disk = loadDillerData();
       const base = pending ?? disk;
@@ -62,8 +63,12 @@ export default function DillerDashboard() {
 
       setSyncState(outcome.status);
       setSession(readDillerSession());
-      if (outcome.message && !silent) {
-        toast.success(outcome.message);
+      if (outcome.message && !opts?.silent) {
+        if (outcome.status === 'offline') {
+          toast.warning(outcome.message);
+        } else {
+          toast.success(outcome.message);
+        }
       }
       return { ...outcome, data: pending ? pendingDataRef.current! : merged };
     });
@@ -78,17 +83,17 @@ export default function DillerDashboard() {
     setData(loadDillerData());
     setBooting(false);
 
-    void applySync(false);
+    void applySync({ silent: false, forcePull: true });
   }, [navigate, applySync]);
 
   useEffect(() => {
     const onOnline = () => {
-      void applySync(true);
+      void applySync({ silent: true });
     };
     window.addEventListener('online', onOnline);
 
     const interval = window.setInterval(() => {
-      void applySync(true);
+      void applySync({ silent: true });
     }, CLOUD_AUTO_SYNC_MS);
 
     return () => {
@@ -108,7 +113,9 @@ export default function DillerDashboard() {
     pendingDataRef.current = next;
     setData(next);
     saveDillerData(next);
-    touchLocalModified();
+    if (hasDillerDataContent(next)) {
+      touchLocalModified();
+    }
     setSyncState((s) => (s === 'loading' || s === 'saving' ? s : 'offline'));
   }, []);
 
@@ -126,7 +133,7 @@ export default function DillerDashboard() {
 
   const reload = () => {
     setSyncState('loading');
-    void applySync(false);
+    void applySync({ silent: false, forcePull: true });
   };
 
   const openDebtCount = useMemo(
@@ -138,6 +145,8 @@ export default function DillerDashboard() {
     () => (data.shopOrders ?? []).filter((o) => o.status === 'pending').length,
     [data.shopOrders],
   );
+
+  const dataIsEmpty = useMemo(() => !hasDillerDataContent(data), [data]);
 
   const syncLabel = useMemo(() => {
     const meta = readDillerSyncMeta();
@@ -280,6 +289,18 @@ export default function DillerDashboard() {
           style={{ background: isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.15)' }}
         >
           Internet qaytganida yoki har 2 daqiqada bulutga yuboriladi
+        </div>
+      ) : null}
+
+      {dataIsEmpty && syncState !== 'loading' ? (
+        <div
+          className="mx-4 mt-2 px-3 py-2.5 rounded-xl text-[11px] text-center max-w-lg w-full self-center"
+          style={{ background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.1)' }}
+        >
+          Ma’lumot topilmadi. Yuqoridagi{' '}
+          <span className="font-semibold">Yangilash</span> tugmasini bosing yoki qayta kiring (
+          /diller).
+          {syncState === 'offline' ? ' Serverga ulanish yo‘q.' : null}
         </div>
       ) : null}
 

@@ -1273,13 +1273,17 @@ export function mergeDillerData(local: DillerData, remote: DillerData): DillerDa
     }
   }
 
+  const firmMap = new Map<string, DillerFirm>();
+  for (const f of remote.firms) firmMap.set(f.id, f);
+  for (const f of local.firms) firmMap.set(f.id, f);
+
   return normalizeDillerData({
     profile: {
       ...remote.profile,
       ...local.profile,
       orderToken: local.profile.orderToken?.trim() || remote.profile.orderToken,
     },
-    firms: local.firms.length >= remote.firms.length ? local.firms : remote.firms,
+    firms: [...firmMap.values()],
     products: [...productMap.values()],
     stores: reconcileStoreNames([...storeMap.values()]),
     warehouse: [...whMap.values()],

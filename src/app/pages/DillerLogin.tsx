@@ -4,9 +4,9 @@ import { toast } from 'sonner';
 import { Lock, User, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import PanelLoginShell from '../components/brand/PanelLoginShell';
-import { createOfflineDillerToken, dillerApiLogin, dillerApiPing } from '../utils/dillerApi';
+import { createOfflineDillerToken, dillerApiLogin } from '../utils/dillerApi';
 import { runDillerSync } from '../utils/dillerSync';
-import { saveDillerCloudCreds, touchLocalModified } from '../utils/dillerSyncMeta';
+import { saveDillerCloudCreds } from '../utils/dillerSyncMeta';
 import {
   readDillerSession,
   saveDillerSession,
@@ -46,8 +46,7 @@ export default function DillerLogin() {
       saveDillerCloudCreds({ login: login.trim(), password });
 
       setLoading(true);
-      const online = await dillerApiPing();
-      const result = online ? await dillerApiLogin(login.trim(), password) : { ok: false as const, error: 'NETWORK_ERROR' };
+      const result = await dillerApiLogin(login.trim(), password);
       setLoading(false);
 
       if (result.ok) {
@@ -57,11 +56,14 @@ export default function DillerLogin() {
           displayName: result.displayName,
           loggedInAt: new Date().toISOString(),
         });
-        const sync = await runDillerSync({ silent: true, preferLocal: false });
+        const sync = await runDillerSync({ silent: true, preferLocal: false, forcePull: true });
         if (sync.status === 'synced') {
           toast.success('Xush kelibsiz — bulut bilan ulandi');
         } else {
-          toast.success('Xush kelibsiz — ma’lumot mahalliy saqlandi, internetda bulutga chiqadi');
+          toast.warning(
+            sync.message ||
+              'Bulutdan yuklanmadi — mahalliy nusxa ishlatilmoqda. Yangilash tugmasini bosing.',
+          );
         }
         navigate('/diller/dashboard', { replace: true });
         return;
@@ -73,7 +75,6 @@ export default function DillerLogin() {
         displayName: login.trim(),
         loggedInAt: new Date().toISOString(),
       });
-      touchLocalModified();
       toast.success('Oflayn rejim — internet qaytganida avtomatik bulutga saqlanadi');
       navigate('/diller/dashboard', { replace: true });
     },

@@ -1,16 +1,13 @@
 import {
-  API_BASE_URL,
-  DEV_API_BASE_URL,
   publicAnonKey,
 } from '../../../utils/supabase/info';
+import { edgeFunctionBaseUrl } from './edgeFunctionBaseUrl';
 import type { DillerData, DillerShopOrder, DillerShopOrderStatus } from './dillerData';
 import { getDillerBrandLabel } from './dillerData';
 
+/** Vercel prod: same-origin `/functions/v1/...` (kassa bilan bir xil). */
 export function getDillerApiBase(): string {
-  if (typeof window !== 'undefined' && window.location.hostname === 'localhost') {
-    return DEV_API_BASE_URL;
-  }
-  return API_BASE_URL;
+  return edgeFunctionBaseUrl();
 }
 
 function authHeaders(token: string): HeadersInit {

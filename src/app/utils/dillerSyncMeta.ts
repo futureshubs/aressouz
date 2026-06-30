@@ -35,7 +35,7 @@ export function readDillerSyncMeta(): DillerSyncMeta {
   }
 }
 
-export function writeDillerSyncMeta(meta: DillerSyncMeta): void {
+export export function writeDillerSyncMeta(meta: DillerSyncMeta): void {
   try {
     localStorage.setItem(META_KEY, JSON.stringify(meta));
   } catch {
@@ -66,6 +66,7 @@ export function markDillerSynced(serverUpdatedAt: string): void {
 
 export function saveDillerCloudCreds(creds: DillerCloudCreds): void {
   try {
+    localStorage.setItem(CREDS_KEY, JSON.stringify(creds));
     sessionStorage.setItem(CREDS_KEY, JSON.stringify(creds));
   } catch {
     /* ignore */
@@ -74,7 +75,8 @@ export function saveDillerCloudCreds(creds: DillerCloudCreds): void {
 
 export function readDillerCloudCreds(): DillerCloudCreds | null {
   try {
-    const raw = sessionStorage.getItem(CREDS_KEY);
+    const raw =
+      localStorage.getItem(CREDS_KEY) || sessionStorage.getItem(CREDS_KEY);
     if (!raw) return null;
     const p = JSON.parse(raw) as DillerCloudCreds;
     if (!p?.login || !p?.password) return null;
@@ -86,6 +88,7 @@ export function readDillerCloudCreds(): DillerCloudCreds | null {
 
 export function clearDillerCloudCreds(): void {
   try {
+    localStorage.removeItem(CREDS_KEY);
     sessionStorage.removeItem(CREDS_KEY);
   } catch {
     /* ignore */

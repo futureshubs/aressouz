@@ -1,9 +1,12 @@
-/** Kuryer paneli GPS — brauzer Google «network location» 403 spamini kamaytirish uchun kesh + interval. */
+/** Kuryer paneli GPS — kesh + interval orqali brauzer geolocation chaqiruvlarini kamaytirish. */
 
-export type CourierGeoPosition = {
-  latitude: number;
-  longitude: number;
-};
+import {
+  readBrowserGeo,
+  readBrowserGeoPreferAccurate,
+  type BrowserGeoPosition,
+} from './browserGeolocation';
+
+export type CourierGeoPosition = BrowserGeoPosition;
 
 let geoReadInFlight = false;
 let lastSuccessfulReadAt = 0;
@@ -14,64 +17,39 @@ const canUseGeo = () =>
 
 /**
  * Fon yangilash (dashboard/xarita interval).
- * `enableHighAccuracy: false` + katta `maximumAge` — tarmoq provayderga kamroq murojaat.
  */
 export function readCourierGeoCached(
   maximumAgeMs = 180_000,
 ): Promise<CourierGeoPosition | null> {
-  if (!canUseGeo()) return Promise.resolve(null);
+  if (!canUseGeo()) return Promise.resolve(lastCached);
   if (geoReadInFlight) {
     return Promise.resolve(lastCached);
   }
 
   geoReadInFlight = true;
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        geoReadInFlight = false;
-        lastSuccessfulReadAt = Date.now();
-        lastCached = {
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-        };
-        resolve(lastCached);
-      },
-      () => {
-        geoReadInFlight = false;
-        resolve(lastCached);
-      },
-      {
-        enableHighAccuracy: false,
-        timeout: 12_000,
-        maximumAge: maximumAgeMs,
-      },
-    );
+  return readBrowserGeo({ maximumAgeMs, timeoutMs: 12_000 }).then((pos) => {
+    geoReadInFlight = false;
+    if (pos) {
+      lastSuccessfulReadAt = Date.now();
+      lastCached = pos;
+    }
+    return pos ?? lastCached;
   });
 }
 
-/** «Yetib keldim» va xaritada «meni top» — aniqroq GPS. */
+/** «Yetib keldim» va xaritada «meni top». */
 export function readCourierGeoAccurate(): Promise<CourierGeoPosition | null> {
-  if (!canUseGeo()) return Promise.resolve(null);
+  if (!canUseGeo()) return Promise.resolve(lastCached);
 
-  return new Promise((resolve) => {
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const p = {
-          latitude: pos.coords.latitude,
-          longitude: pos.coords.longitude,
-        };
-        lastCached = p;
+  return readBrowserGeoPreferAccurate({ timeoutMs: 15_000, maximumAgeMs: 60_000 }).then(
+    (pos) => {
+      if (pos) {
+        lastCached = pos;
         lastSuccessfulReadAt = Date.now();
-        resolve(p);
-      },
-      () => resolve(lastCached),
-      {
-        enableHighAccuracy: true,
-        timeout: 15_000,
-        maximumAge: 30_000,
-      },
-    );
-  });
+      }
+      return pos ?? lastCached;
+    },
+  );
 }
 
 /** Interval orqali chaqiruvlar orasida minimal tanaffus (ms). */

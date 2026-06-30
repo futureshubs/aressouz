@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useEffect, ReactNode } from 'react';
+import { readBrowserGeo } from '../utils/browserGeolocation';
 import { resolveRegionDistrictFromCoords } from '../utils/geolocationDetect';
 
 interface LocationContextType {
@@ -51,41 +52,36 @@ export function LocationProvider({ children }: { children: ReactNode }) {
     }
 
     // GPS + reverse geocode: viloyat va tuman (mahsulotlar uchun ikkalasi ham kerak)
-    if ('geolocation' in navigator) {
-      navigator.geolocation.getCurrentPosition(
-        async (position) => {
-          const { latitude, longitude } = position.coords;
-          try {
-            const { regionId, districtId } = await resolveRegionDistrictFromCoords(
-              latitude,
-              longitude,
-            );
-            setSelectedRegion(regionId);
-            setSelectedDistrict(districtId);
-            setIsLocationSet(true);
-            setLocationChecked(true);
-            localStorage.setItem('selectedRegion', regionId);
-            localStorage.setItem('selectedDistrict', districtId);
-          } catch {
-            setLocationChecked(true);
-            setShowLocationPrompt(true);
-          }
-        },
-        () => {
-          setLocationChecked(true);
-          setShowLocationPrompt(true);
-        },
-        {
-          timeout: 20000,
-          maximumAge: 0,
-          enableHighAccuracy: true,
-        },
-      );
-    } else {
-      // Geolocation not supported
+    if (!('geolocation' in navigator)) {
       setLocationChecked(true);
       setShowLocationPrompt(true);
+      return;
     }
+
+    void readBrowserGeo({ timeoutMs: 20_000, maximumAgeMs: 300_000 }).then(async (position) => {
+      if (!position) {
+        setLocationChecked(true);
+        setShowLocationPrompt(true);
+        return;
+      }
+
+      const { latitude, longitude } = position;
+      try {
+        const { regionId, districtId } = await resolveRegionDistrictFromCoords(
+          latitude,
+          longitude,
+        );
+        setSelectedRegion(regionId);
+        setSelectedDistrict(districtId);
+        setIsLocationSet(true);
+        setLocationChecked(true);
+        localStorage.setItem('selectedRegion', regionId);
+        localStorage.setItem('selectedDistrict', districtId);
+      } catch {
+        setLocationChecked(true);
+        setShowLocationPrompt(true);
+      }
+    });
   }, []);
 
   const setLocation = (region: string, district: string) => {

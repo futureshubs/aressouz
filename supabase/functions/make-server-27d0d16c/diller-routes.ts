@@ -91,6 +91,21 @@ async function readWorkspace(kv: Kv): Promise<Record<string, unknown> | null> {
   return data;
 }
 
+function workspaceHasContent(raw: Record<string, unknown> | null): boolean {
+  if (!raw) return false;
+  const arrays = ["firms", "products", "stores", "sales", "expenses", "balanceEntries", "shopOrders"] as const;
+  for (const key of arrays) {
+    if (Array.isArray(raw[key]) && (raw[key] as unknown[]).length > 0) return true;
+  }
+  const wh = raw.warehouse;
+  if (Array.isArray(wh) && wh.some((w) => Number((w as { qty?: number })?.qty || 0) > 0)) {
+    return true;
+  }
+  const profile = raw.profile as Record<string, unknown> | undefined;
+  if (profile && String(profile.orderToken ?? "").trim()) return true;
+  return false;
+}
+
 function qrcodeTokenKey(token: string): string {
   return `diller_qrcode_token:${token}`;
 }
@@ -284,6 +299,12 @@ export function registerDillerRoutes(app: Hono, deps: { kv: Kv }) {
       }
       const existing = await readWorkspace(kv);
       const payload = { ...(data as Record<string, unknown>) };
+      if (workspaceHasContent(existing) && !workspaceHasContent(payload)) {
+        return c.json({
+          success: false,
+          error: "Bo‘sh ma’lumot mavjud bulut ustiga yozilmaydi",
+        }, 409);
+      }
       payload.profile = ensureProfileOrderToken(payload, existing);
       const updatedAt = new Date().toISOString();
       await kv.set(WORKSPACE_KEY, { ...payload, _updatedAt: updatedAt });
