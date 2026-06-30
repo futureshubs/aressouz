@@ -19,7 +19,7 @@ function authHeaders(token: string): HeadersInit {
 }
 
 export type DillerLoginResult =
-  | { ok: true; token: string; login: string; displayName: string }
+  | { ok: true; token: string; dealerId: string; login: string; displayName: string }
   | { ok: false; error: string };
 
 export function createOfflineDillerToken(): string {
@@ -60,6 +60,7 @@ export async function dillerApiLogin(login: string, password: string): Promise<D
       return {
         ok: true,
         token: String(data.token),
+        dealerId: String(data.dealerId || ''),
         login: String(data.login || login),
         displayName: String(data.displayName || login),
       };
@@ -276,6 +277,69 @@ export async function dillerApiSubmitQrcodeOrder(
       return { ok: false, error: String(body.error || 'Buyurtma yuborilmadi') };
     }
     return { ok: true, orderId: String(body.order?.id ?? '') };
+  } catch {
+    return { ok: false, error: 'Serverga ulanishda xatolik' };
+  }
+}
+
+export async function dillerApiReconstructFromOrders(
+  token: string,
+): Promise<
+  | { ok: true; stats: { sales: number; products: number; stores: number; shopOrders: number } }
+  | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch(`${getDillerApiBase()}/diller/reconstruct-from-orders`, {
+      method: 'POST',
+      headers: authHeaders(token),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.success) {
+      return { ok: false, error: String(body.error || 'Tiklashda xatolik') };
+    }
+    const stats = body.stats || {};
+    return {
+      ok: true,
+      stats: {
+        sales: Number(stats.sales || 0),
+        products: Number(stats.products || 0),
+        stores: Number(stats.stores || 0),
+        shopOrders: Number(stats.shopOrders || 0),
+      },
+    };
+  } catch {
+    return { ok: false, error: 'Serverga ulanishda xatolik' };
+  }
+}
+
+export async function dillerApiRestoreBestWorkspace(
+  token: string,
+): Promise<
+  | {
+      ok: true;
+      restored: boolean;
+      sourceKey: string | null;
+      stats: { sales: number; products: number; stores: number; firms: number };
+      candidates: Array<{ key: string; score: number; sales: number; products: number; stores: number; firms: number }>;
+    }
+  | { ok: false; error: string }
+> {
+  try {
+    const res = await fetch(`${getDillerApiBase()}/diller/restore-best`, {
+      method: 'POST',
+      headers: authHeaders(token),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.success) {
+      return { ok: false, error: String(body.error || 'Tiklashda xatolik') };
+    }
+    return {
+      ok: true,
+      restored: Boolean(body.restored),
+      sourceKey: body.sourceKey ? String(body.sourceKey) : null,
+      stats: body.stats || { sales: 0, products: 0, stores: 0, firms: 0 },
+      candidates: Array.isArray(body.candidates) ? body.candidates : [],
+    };
   } catch {
     return { ok: false, error: 'Serverga ulanishda xatolik' };
   }

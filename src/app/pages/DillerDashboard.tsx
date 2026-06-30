@@ -42,9 +42,13 @@ export default function DillerDashboard() {
   const pendingDataRef = useRef<DillerData | null>(null);
   const mainScrollRef = useRef<HTMLElement | null>(null);
 
-  const applySync = useCallback((opts?: { silent?: boolean; forcePull?: boolean }) => {
+  const applySync = useCallback((opts?: { silent?: boolean; forcePull?: boolean; preferLocal?: boolean }) => {
     setSyncState((s) => (s === 'loading' ? s : 'saving'));
-    return runDillerSync({ silent: opts?.silent, forcePull: opts?.forcePull }).then((outcome) => {
+    return runDillerSync({
+      silent: opts?.silent,
+      forcePull: opts?.forcePull,
+      preferLocal: opts?.preferLocal,
+    }).then((outcome) => {
       const pending = pendingDataRef.current;
       const disk = loadDillerData();
       const base = pending ?? disk;
@@ -80,10 +84,13 @@ export default function DillerDashboard() {
       return;
     }
     setSession(readDillerSession());
-    setData(loadDillerData());
+    setData(loadDillerData() || createEmptyDillerData());
     setBooting(false);
 
-    void applySync({ silent: false, forcePull: true });
+    void applySync({
+      silent: false,
+      forcePull: true,
+    });
   }, [navigate, applySync]);
 
   useEffect(() => {

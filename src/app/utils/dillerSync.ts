@@ -13,6 +13,8 @@ import {
   dillerApiLogin,
   dillerApiPing,
   dillerApiPushData,
+  dillerApiReconstructFromOrders,
+  dillerApiRestoreBestWorkspace,
   dillerApiValidateSession,
   isOfflineDillerToken,
 } from './dillerApi';
@@ -51,6 +53,7 @@ async function loginWithStoredCreds(): Promise<string | null> {
   if (!loginResult.ok) return null;
   const next: DillerSession = {
     token: loginResult.token,
+    dealerId: loginResult.dealerId,
     login: loginResult.login,
     displayName: loginResult.displayName,
     loggedInAt: new Date().toISOString(),
@@ -151,6 +154,32 @@ async function syncInner(opts?: {
   const serverData = remote.data ? normalizeDillerData(remote.data) : null;
   const serverHas = Boolean(serverData && hasDillerDataContent(serverData));
   const localHas = hasDillerDataContent(local);
+
+  if (
+    token &&
+    !isOfflineDillerToken(token) &&
+    serverData &&
+    !hasDillerDataContent(
+      normalizeDillerData({
+        ...serverData,
+        sales: serverData.sales?.length ? serverData.sales : [],
+        products: serverData.products?.length ? serverData.products : [],
+        stores: serverData.stores?.length ? serverData.stores : [],
+      }),
+    ) &&
+    (serverData.shopOrders?.length ?? 0) > 0
+  ) {
+    const rec = await dillerApiReconstructFromOrders(token);
+    if (rec.ok && (rec.stats.sales > 0 || rec.stats.products > 0 || rec.stats.stores > 0)) {
+      const again = await dillerApiFetchData(token);
+      if (again.ok && again.data) {
+        Object.assign(remote, again);
+      }
+    }
+  }
+
+  const serverDataFinal = remote.data ? normalizeDillerData(remote.data) : null;
+  const serverHasFinal = Boolean(serverDataFinal && hasDillerDataContent(serverDataFinal));
   const serverTs = parseTime(remote.updatedAt);
   const localTs = parseTime(meta.localModifiedAt);
 
@@ -173,18 +202,18 @@ async function syncInner(opts?: {
     };
   };
 
-  // Serverda bor, mahalliy bo‘sh — faqat yuklash (hech qachon bo‘sh push qilmaslik)
-  if (serverHas && (!localHas || forcePull)) {
-    return finishPull(serverData!, 'Bulutdan yuklandi');
+  // Serverda bor, mahalliy bo‘sh — faqat yuklash
+  if (serverHasFinal && !localHas) {
+    return finishPull(serverDataFinal!, 'Bulutdan yuklandi');
   }
 
-  // Ikkalasida ham bor — birlashtirish, keyin kerak bo‘lsa push
-  if (serverHas && localHas && serverData) {
-    const merged = mergeDillerData(local, serverData);
+  // Ikkalasida ham bor — har doim birlashtirish
+  if (serverHasFinal && localHas && serverDataFinal) {
+    const merged = mergeDillerData(local, serverDataFinal);
     const withOrders = await pullRemoteShopOrders(token, merged);
     const shouldPush =
       hasDillerDataContent(withOrders) &&
-      (meta.pendingPush || preferLocal || localTs > serverTs + 500);
+      (meta.pendingPush || preferLocal || forcePull || localTs > serverTs + 500);
 
     if (shouldPush) {
       const push = await pushIfAllowed(token, withOrders);
@@ -210,7 +239,7 @@ async function syncInner(opts?: {
   }
 
   // Mahalliyda bor, serverda yo‘q — yuklash
-  if (localHas && !serverHas) {
+  if (localHas && !serverHasFinal) {
     const withOrders = await pullRemoteShopOrders(token, local);
     const push = await pushIfAllowed(token, withOrders);
     if (push.ok) {

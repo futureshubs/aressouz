@@ -1,4 +1,5 @@
-const META_KEY = 'aresso:diller:meta:v1';
+import { readDillerSession } from './dillerSession';
+
 const CREDS_KEY = 'aresso:diller:cloudCreds:v1';
 
 export type DillerSyncMeta = {
@@ -12,6 +13,11 @@ export type DillerCloudCreds = {
   password: string;
 };
 
+function metaKey(): string {
+  const dealerId = readDillerSession()?.dealerId;
+  return dealerId ? `aresso:diller:meta:v2:${dealerId}` : 'aresso:diller:meta:v2:anon';
+}
+
 function defaultMeta(): DillerSyncMeta {
   return {
     localModifiedAt: new Date(0).toISOString(),
@@ -22,7 +28,7 @@ function defaultMeta(): DillerSyncMeta {
 
 export function readDillerSyncMeta(): DillerSyncMeta {
   try {
-    const raw = localStorage.getItem(META_KEY);
+    const raw = localStorage.getItem(metaKey());
     if (!raw) return defaultMeta();
     const p = JSON.parse(raw) as Partial<DillerSyncMeta>;
     return {
@@ -35,9 +41,9 @@ export function readDillerSyncMeta(): DillerSyncMeta {
   }
 }
 
-export export function writeDillerSyncMeta(meta: DillerSyncMeta): void {
+export function writeDillerSyncMeta(meta: DillerSyncMeta): void {
   try {
-    localStorage.setItem(META_KEY, JSON.stringify(meta));
+    localStorage.setItem(metaKey(), JSON.stringify(meta));
   } catch {
     /* ignore */
   }

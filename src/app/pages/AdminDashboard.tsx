@@ -19,6 +19,7 @@ import {
   LineChart,
   Shield,
   Loader2,
+  Truck,
 } from 'lucide-react';
 import BranchesView from '../components/admin/BranchesView';
 import UsersView from '../components/admin/UsersView';
@@ -27,6 +28,7 @@ import OrdersManagement from '../components/admin/OrdersManagement';
 import AdminBranchStatistics from '../components/admin/AdminBranchStatistics';
 import AdminBranchAnalytics from '../components/admin/AdminBranchAnalytics';
 import AdminSecurityView from '../components/admin/AdminSecurityView';
+import AdminDillersView from '../components/admin/AdminDillersView';
 import AressoPanelBrand from '../components/brand/AressoPanelBrand';
 import { projectId } from '../../../utils/supabase/info';
 import { buildAdminHeaders } from '../utils/requestAuth';
@@ -190,6 +192,7 @@ export default function AdminDashboard() {
     { id: 'users', label: 'Foydalanuvchilar', icon: Users },
     { id: 'payments', label: 'To\'lovlar', icon: CreditCard },
     { id: 'orders', label: 'Buyurtmalar', icon: Package },
+    { id: 'dillers', label: 'Dillerlar', icon: Truck },
     { id: 'security', label: 'Xavfsizlik', icon: Shield },
   ];
 
@@ -600,6 +603,7 @@ export default function AdminDashboard() {
           {activeTab === 'payments' && (
             <PaymentsView onStatsUpdate={() => void loadStats({ soft: true })} />
           )}
+          {activeTab === 'dillers' && <AdminDillersView />}
           {activeTab === 'security' && <AdminSecurityView />}
         </div>
       </main>

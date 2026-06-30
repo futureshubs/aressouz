@@ -4,14 +4,11 @@ import { toast } from 'sonner';
 import { Lock, User, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import PanelLoginShell from '../components/brand/PanelLoginShell';
-import { createOfflineDillerToken, dillerApiLogin } from '../utils/dillerApi';
+import { dillerApiLogin } from '../utils/dillerApi';
 import { runDillerSync } from '../utils/dillerSync';
+import { clearLegacyDillerLocalData, createEmptyDillerData, saveDillerData } from '../utils/dillerData';
 import { saveDillerCloudCreds } from '../utils/dillerSyncMeta';
-import {
-  readDillerSession,
-  saveDillerSession,
-  validateDillerCredentials,
-} from '../utils/dillerSession';
+import { readDillerSession, saveDillerSession } from '../utils/dillerSession';
 
 export default function DillerLogin() {
   const navigate = useNavigate();
@@ -28,6 +25,7 @@ export default function DillerLogin() {
       navigate('/diller/dashboard', { replace: true });
       return;
     }
+    clearLegacyDillerLocalData();
     setReady(true);
   }, [navigate]);
 
@@ -38,44 +36,41 @@ export default function DillerLogin() {
         toast.error('Login va parol kiriting');
         return;
       }
-      if (!validateDillerCredentials(login.trim(), password)) {
-        toast.error('Login yoki parol noto‘g‘ri');
-        return;
-      }
-
-      saveDillerCloudCreds({ login: login.trim(), password });
 
       setLoading(true);
       const result = await dillerApiLogin(login.trim(), password);
       setLoading(false);
 
-      if (result.ok) {
-        saveDillerSession({
-          token: result.token,
-          login: result.login,
-          displayName: result.displayName,
-          loggedInAt: new Date().toISOString(),
-        });
-        const sync = await runDillerSync({ silent: true, preferLocal: false, forcePull: true });
-        if (sync.status === 'synced') {
-          toast.success('Xush kelibsiz — bulut bilan ulandi');
-        } else {
-          toast.warning(
-            sync.message ||
-              'Bulutdan yuklanmadi — mahalliy nusxa ishlatilmoqda. Yangilash tugmasini bosing.',
-          );
-        }
-        navigate('/diller/dashboard', { replace: true });
+      if (!result.ok) {
+        toast.error(
+          result.error === 'NETWORK_ERROR'
+            ? 'Internet yo‘q — keyinroq urinib ko‘ring'
+            : result.error || 'Login yoki parol noto‘g‘ri',
+        );
         return;
       }
 
+      if (!result.dealerId) {
+        toast.error('Server javobi noto‘g‘ri — admin bilan bog‘laning');
+        return;
+      }
+
+      saveDillerCloudCreds({ login: login.trim(), password });
       saveDillerSession({
-        token: createOfflineDillerToken(),
-        login: login.trim(),
-        displayName: login.trim(),
+        token: result.token,
+        dealerId: result.dealerId,
+        login: result.login,
+        displayName: result.displayName,
         loggedInAt: new Date().toISOString(),
       });
-      toast.success('Oflayn rejim — internet qaytganida avtomatik bulutga saqlanadi');
+      saveDillerData(createEmptyDillerData());
+
+      const sync = await runDillerSync({ silent: true, forcePull: true });
+      if (sync.status === 'synced') {
+        toast.success('Xush kelibsiz — bulut bilan ulandi');
+      } else {
+        toast.warning(sync.message || 'Bulutdan yuklanmadi — Yangilash tugmasini bosing');
+      }
       navigate('/diller/dashboard', { replace: true });
     },
     [login, password, navigate],
@@ -92,7 +87,7 @@ export default function DillerLogin() {
   return (
     <PanelLoginShell
       variant="seller"
-      subtitle="Diller panel — firmadan do‘konlarga tarqatish"
+      subtitle="Diller panel — admin tomonidan berilgan login bilan kiring"
       backTo="/"
       isDark={isDark}
       accentColor={accentColor.color}
@@ -108,7 +103,7 @@ export default function DillerLogin() {
               autoComplete="username"
               value={login}
               onChange={(e) => setLogin(e.target.value)}
-              placeholder="Login"
+              placeholder="Admin bergan login"
               className="w-full pl-10 pr-4 py-3 rounded-xl border outline-none"
               style={{
                 background: isDark ? 'rgba(255,255,255,0.05)' : '#fff',

@@ -188,12 +188,41 @@ export type DillerData = {
   shopOrders: DillerShopOrder[];
 };
 
-const DATA_KEY = 'aresso:diller:data:v3';
-const LEGACY_KEYS = [
-  'aresso:diller:data:v4',
-  'aresso:diller:data:v2',
-  'aresso:diller:data:v1',
-];
+const DATA_KEY_PREFIX = 'aresso:diller:data:v5:';
+
+export function getDillerDataStorageKey(dealerId?: string): string {
+  if (dealerId) return `${DATA_KEY_PREFIX}${dealerId}`;
+  try {
+    const raw = localStorage.getItem('dillerSession');
+    if (raw) {
+      const sess = JSON.parse(raw) as { dealerId?: string };
+      if (sess?.dealerId) return `${DATA_KEY_PREFIX}${sess.dealerId}`;
+    }
+  } catch {
+    /* ignore */
+  }
+  return `${DATA_KEY_PREFIX}anon`;
+}
+
+/** Eski umumiy kalitlarni tozalash */
+export function clearLegacyDillerLocalData(): void {
+  if (typeof localStorage === 'undefined') return;
+  const legacy = [
+    'aresso:diller:data:v1',
+    'aresso:diller:data:v2',
+    'aresso:diller:data:v3',
+    'aresso:diller:data:v4',
+    'aresso:diller:meta:v1',
+    'dillerData',
+  ];
+  for (const k of legacy) {
+    try {
+      localStorage.removeItem(k);
+    } catch {
+      /* ignore */
+    }
+  }
+}
 
 export const DILLER_PRODUCT_UNITS: { value: DillerProductUnit; label: string }[] = [
   { value: 'dona', label: 'Dona' },
@@ -595,53 +624,50 @@ export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData
   };
 }
 
-/** Brauzer keshi — oflayn/zaxira */
+/** Barcha mahalliy kalitlardan (v1–v4 va boshqalar) ma’lumotni birlashtirib tiklash */
+export function recoverDillerDataFromAllLocalSnapshots(): DillerData {
+  let merged = createEmptyDillerData();
+  if (typeof localStorage === 'undefined') return merged;
+
+  const keys = new Set<string>([getDillerDataStorageKey()]);
+  for (let i = 0; i < localStorage.length; i++) {
+    const k = localStorage.key(i);
+    if (!k) continue;
+    if (k.startsWith('aresso:diller:') || k === 'dillerData' || k.startsWith('diller_')) {
+      keys.add(k);
+    }
+  }
+
+  for (const key of keys) {
+    try {
+      const raw = localStorage.getItem(key);
+      if (!raw?.trim()) continue;
+      const parsed = JSON.parse(raw) as Partial<DillerData> | { data?: Partial<DillerData> };
+      const candidate =
+        parsed &&
+        typeof parsed === 'object' &&
+        'data' in parsed &&
+        parsed.data &&
+        typeof parsed.data === 'object'
+          ? normalizeDillerData(parsed.data as Partial<DillerData>)
+          : normalizeDillerData(parsed as Partial<DillerData>);
+      if (hasDillerDataContent(candidate)) {
+        merged = mergeDillerData(merged, candidate);
+      }
+    } catch {
+      /* ignore */
+    }
+  }
+
+  return merged;
+}
+
+/** Mahalliy kesh — faqat joriy diller kaliti */
 export function loadDillerData(): DillerData {
   try {
-    const rawV3 = localStorage.getItem(DATA_KEY);
-    const rawV4 = localStorage.getItem('aresso:diller:data:v4');
-
-    if (rawV3) {
-      const v3 = normalizeDillerData(JSON.parse(rawV3) as DillerData);
-      if (hasDillerDataContent(v3)) {
-        saveDillerData(v3);
-        if (rawV4) {
-          try {
-            localStorage.removeItem('aresso:diller:data:v4');
-          } catch {
-            /* ignore */
-          }
-        }
-        return v3;
-      }
-    }
-
-    if (rawV4) {
-      const downgraded = normalizeDillerData(JSON.parse(rawV4) as DillerData);
-      saveDillerData(downgraded);
-      try {
-        localStorage.removeItem('aresso:diller:data:v4');
-      } catch {
-        /* ignore */
-      }
-      return downgraded;
-    }
-
-    if (rawV3) {
-      return normalizeDillerData(JSON.parse(rawV3) as DillerData);
-    }
-
-    for (const legacyKey of LEGACY_KEYS) {
-      if (legacyKey === 'aresso:diller:data:v4') continue;
-      const rawLegacy = localStorage.getItem(legacyKey);
-      if (rawLegacy) {
-        const migrated = normalizeDillerData(JSON.parse(rawLegacy) as DillerData);
-        saveDillerData(migrated);
-        return migrated;
-      }
-    }
-
-    return createEmptyDillerData();
+    const raw = localStorage.getItem(getDillerDataStorageKey());
+    if (!raw?.trim()) return createEmptyDillerData();
+    return normalizeDillerData(JSON.parse(raw) as Partial<DillerData>);
   } catch {
     return createEmptyDillerData();
   }
@@ -649,7 +675,7 @@ export function loadDillerData(): DillerData {
 
 export function saveDillerData(data: DillerData): void {
   try {
-    localStorage.setItem(DATA_KEY, JSON.stringify(normalizeDillerData(data)));
+    localStorage.setItem(getDillerDataStorageKey(), JSON.stringify(normalizeDillerData(data)));
   } catch (e) {
     console.error('Diller ma’lumot saqlanmadi:', e);
   }

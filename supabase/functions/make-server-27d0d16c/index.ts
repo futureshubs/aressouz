@@ -15256,7 +15256,7 @@ registerSellerDebtRoutes(app, {
   sellerShopIdsMatchFn: sellerShopIdsMatch,
 });
 
-registerDillerRoutes(app, { kv });
+registerDillerRoutes(app, { kv, validateAdminAccess });
 
 registerSmsBillingRoutes(app, {
   kv,
