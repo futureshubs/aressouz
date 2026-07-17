@@ -5,8 +5,7 @@ import { Lock, User, Loader2 } from 'lucide-react';
 import { useTheme } from '../context/ThemeContext';
 import PanelLoginShell from '../components/brand/PanelLoginShell';
 import { dillerApiLogin } from '../utils/dillerApi';
-import { runDillerSync } from '../utils/dillerSync';
-import { clearLegacyDillerLocalData, createEmptyDillerData, saveDillerData } from '../utils/dillerData';
+import { clearLegacyDillerLocalData } from '../utils/dillerData';
 import { saveDillerCloudCreds } from '../utils/dillerSyncMeta';
 import { readDillerSession, saveDillerSession } from '../utils/dillerSession';
 
@@ -63,14 +62,8 @@ export default function DillerLogin() {
         displayName: result.displayName,
         loggedInAt: new Date().toISOString(),
       });
-      saveDillerData(createEmptyDillerData());
 
-      const sync = await runDillerSync({ silent: true, forcePull: true });
-      if (sync.status === 'synced') {
-        toast.success('Xush kelibsiz — bulut bilan ulandi');
-      } else {
-        toast.warning(sync.message || 'Bulutdan yuklanmadi — Yangilash tugmasini bosing');
-      }
+      toast.success('Xush kelibsiz — net bo‘lsa Yuklash / Yuborish ishlaydi');
       navigate('/diller/dashboard', { replace: true });
     },
     [login, password, navigate],

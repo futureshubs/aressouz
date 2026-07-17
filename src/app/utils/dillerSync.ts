@@ -332,3 +332,126 @@ export async function flushDillerToCloud(): Promise<DillerSyncOutcome> {
   touchLocalModified();
   return pushDillerLocalNow();
 }
+
+/**
+ * Yuborish — mahalliy (telefon) ma’lumotlarni Supabase’ga yozadi.
+ * Internet bo‘lmasa oflayn qoladi; ma’lumot telefonda saqlanadi.
+ */
+export async function uploadDillerToCloud(): Promise<DillerSyncOutcome> {
+  return withDillerSyncLock(async () => {
+    const local = loadDillerData();
+    if (!hasDillerDataContent(local)) {
+      return {
+        status: 'synced',
+        data: local,
+        message: 'Yuborish uchun mahalliy ma’lumot yo‘q',
+      };
+    }
+
+    touchLocalModified();
+
+    const online = await dillerApiPing();
+    if (!online) {
+      return {
+        status: 'offline',
+        data: local,
+        message: 'Internet yo‘q — ma’lumot telefonda saqlangan. Net bo‘lganda Yuborishni bosing',
+      };
+    }
+
+    const { token, upgraded } = await ensureCloudToken();
+    if (!token || isOfflineDillerToken(token)) {
+      return {
+        status: 'offline',
+        data: local,
+        message: 'Sessiya yo‘q — qayta kiring (/diller)',
+      };
+    }
+
+    const toPush = loadDillerData();
+    const push = await pushIfAllowed(token, toPush);
+    if (!push.ok) {
+      return {
+        status: 'offline',
+        data: toPush,
+        message: push.error || 'Bulutga yuborilmadi',
+      };
+    }
+
+    markDillerSynced(push.updatedAt!);
+    const withOrders = await pullRemoteShopOrders(token, toPush);
+    saveDillerData(withOrders);
+    return {
+      status: 'synced',
+      data: withOrders,
+      upgradedToken: upgraded,
+      message: 'Mahalliy ma’lumotlar Supabase’ga yuborildi',
+    };
+  });
+}
+
+/**
+ * Yuklash — oxirgi bulutdagi (yuborilgan) nusxani telefondan o‘qiydi.
+ * Har diller o‘z workspace’idan oladi.
+ */
+export async function downloadDillerFromCloud(): Promise<DillerSyncOutcome> {
+  return withDillerSyncLock(async () => {
+    const local = loadDillerData();
+
+    const online = await dillerApiPing();
+    if (!online) {
+      return {
+        status: 'offline',
+        data: local,
+        message: 'Internet yo‘q — yuklab bo‘lmadi. Mahalliy nusxa ochiq',
+      };
+    }
+
+    const { token, upgraded } = await ensureCloudToken();
+    if (!token || isOfflineDillerToken(token)) {
+      return {
+        status: 'offline',
+        data: local,
+        message: 'Sessiya yo‘q — qayta kiring (/diller)',
+      };
+    }
+
+    const remote = await dillerApiFetchData(token);
+    if (!remote.ok) {
+      return {
+        status: 'offline',
+        data: local,
+        message: remote.error || 'Bulutdan yuklanmadi',
+      };
+    }
+
+    const serverData = remote.data ? normalizeDillerData(remote.data) : null;
+    if (!serverData || !hasDillerDataContent(serverData)) {
+      const withOrders = await pullRemoteShopOrders(token, local);
+      saveDillerData(withOrders);
+      return {
+        status: 'synced',
+        data: withOrders,
+        upgradedToken: upgraded,
+        message: 'Bulutda hali ma’lumot yo‘q — mahalliy nusxa ochiq',
+      };
+    }
+
+    // Oxirgi yuborilgan + mahalliy (id bo‘yicha) — hech narsa yo‘qolmasin
+    const merged = mergeDillerData(serverData, local);
+    const withOrders = await pullRemoteShopOrders(token, merged);
+    saveDillerData(withOrders);
+    writeDillerSyncMeta({
+      localModifiedAt: remote.updatedAt || new Date().toISOString(),
+      lastSyncedAt: remote.updatedAt || new Date().toISOString(),
+      pendingPush: false,
+    });
+
+    return {
+      status: 'synced',
+      data: withOrders,
+      upgradedToken: upgraded,
+      message: 'Oxirgi yangilanish bulutdan yuklandi',
+    };
+  });
+}
