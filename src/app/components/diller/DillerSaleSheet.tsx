@@ -11,6 +11,8 @@ import {
   formatStoreCoords,
   getWarehouseQty,
 } from '../../utils/dillerData';
+import { normalizeUzPhoneForSms } from '../../utils/dillerPurchaseSms';
+import { maybeSendSalePurchaseSms, purchaseSmsToast } from '../../utils/dillerPurchaseSmsSend';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 
 type Props = {
@@ -48,6 +50,8 @@ export function DillerSaleSheet({ open, onClose, data, onComplete, initialStoreI
   const [paidNow, setPaidNow] = useState('');
   const [debtDueDate, setDebtDueDate] = useState('');
   const [note, setNote] = useState('');
+  const [sendSms, setSendSms] = useState(true);
+  const [submitting, setSubmitting] = useState(false);
 
   const presetStore = initialStoreId
     ? data.stores.find((s) => s.id === initialStoreId)
@@ -72,6 +76,8 @@ export function DillerSaleSheet({ open, onClose, data, onComplete, initialStoreI
     setPaidNow('');
     setDebtDueDate('');
     setNote('');
+    setSendSms(true);
+    setSubmitting(false);
   }, [open, data.products, data.stores, initialStoreId, presetStore?.id]);
 
   const product = data.products.find((p) => p.id === productId);
@@ -103,6 +109,13 @@ export function DillerSaleSheet({ open, onClose, data, onComplete, initialStoreI
   };
 
   const store = data.stores.find((s) => s.id === storeId);
+  const storePhoneOk = Boolean(normalizeUzPhoneForSms(store?.phone || ''));
+
+  useEffect(() => {
+    if (!open) return;
+    if (storePhoneOk) setSendSms(true);
+    else setSendSms(false);
+  }, [open, storeId, storePhoneOk]);
 
   const storeSearchResults = useMemo(() => {
     const q = storeSearch.trim().toLowerCase();
@@ -142,11 +155,13 @@ export function DillerSaleSheet({ open, onClose, data, onComplete, initialStoreI
     });
   };
 
-  const submit = () => {
+  const submit = async () => {
     if (!productId || !storeId) {
       toast.error('Mahsulot va do‘konni tanlang');
       return;
     }
+    if (submitting) return;
+    setSubmitting(true);
     const result = createSale(data, {
       storeId,
       productId,
@@ -157,12 +172,19 @@ export function DillerSaleSheet({ open, onClose, data, onComplete, initialStoreI
       debtDueDate: paymentType === 'qarz' ? debtDueDate : undefined,
       note,
     });
-    if (result.error) {
-      toast.error(result.error);
+    if (result.error || !result.sale) {
+      setSubmitting(false);
+      toast.error(result.error || 'Sotuv saqlanmadi');
       return;
     }
     onComplete(result.data);
-    toast.success('Sotuv saqlandi');
+    const sms = await maybeSendSalePurchaseSms({
+      data: result.data,
+      sale: result.sale,
+      send: sendSms && storePhoneOk,
+    });
+    setSubmitting(false);
+    toast.success(purchaseSmsToast(sms, 'Sotuv saqlandi'));
     onClose();
   };
 
@@ -610,6 +632,27 @@ export function DillerSaleSheet({ open, onClose, data, onComplete, initialStoreI
                 <label className="block text-xs font-medium opacity-80 mb-1">Izoh (ixtiyoriy)</label>
                 <input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls(isDark)} placeholder="Masalan: yetkazib berildi" />
               </div>
+              <label
+                className={`mt-3 flex items-start gap-3 rounded-xl border px-3 py-3 text-sm ${
+                  isDark ? 'border-white/10 bg-white/5' : 'border-gray-200 bg-white'
+                } ${!storePhoneOk ? 'opacity-50' : ''}`}
+              >
+                <input
+                  type="checkbox"
+                  className="mt-0.5"
+                  checked={sendSms && storePhoneOk}
+                  disabled={!storePhoneOk}
+                  onChange={(e) => setSendSms(e.target.checked)}
+                />
+                <span>
+                  <span className="font-medium">Xarid SMS yuborish</span>
+                  <span className="block text-xs opacity-60 mt-0.5">
+                    {storePhoneOk
+                      ? 'Do‘kon telefoniga informatsion (purchase_info) SMS'
+                      : 'Do‘konda telefon raqam yo‘q — avval qo‘shing'}
+                  </span>
+                </span>
+              </label>
             </section>
           </div>
 
@@ -619,14 +662,14 @@ export function DillerSaleSheet({ open, onClose, data, onComplete, initialStoreI
           >
             <button
               type="button"
-              onClick={submit}
-              disabled={!productId || !storeId || !totals}
+              onClick={() => void submit()}
+              disabled={!productId || !storeId || !totals || submitting}
               className="w-full py-4 rounded-2xl font-bold text-slate-900 disabled:opacity-40 flex items-center justify-center gap-2 text-base"
               style={{ background: accentColor.gradient }}
             >
               <ShoppingCart className="w-5 h-5" />
-              Sotuvni tasdiqlash
-              {totals ? ` · ${formatMoney(totals.total)}` : ''}
+              {submitting ? 'Saqlanmoqda…' : 'Sotuvni tasdiqlash'}
+              {!submitting && totals ? ` · ${formatMoney(totals.total)}` : ''}
             </button>
           </footer>
         </>

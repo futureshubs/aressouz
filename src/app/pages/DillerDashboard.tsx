@@ -119,6 +119,15 @@ export default function DillerDashboard() {
     if (pendingDataRef.current) {
       saveDillerData(pendingDataRef.current);
     }
+    const metaNow = readDillerSyncMeta();
+    if (metaNow.pendingPush && hasDillerDataContent(loadDillerData())) {
+      const ok = window.confirm(
+        'Telefonda hali yuborilmagan o‘zgarishlar bor.\n\n' +
+          'Yuklashdan oldin «Yuborish»ni bosing — aks holda ba’zi mahalliy yozuvlar chalkashishi mumkin.\n\n' +
+          'Baribir yuklaysizmi?',
+      );
+      if (!ok) return;
+    }
     setBusyAction('download');
     setSyncState('loading');
     try {
@@ -141,7 +150,7 @@ export default function DillerDashboard() {
   };
 
   const openDebtCount = useMemo(
-    () => data.sales.filter((s) => (s.debtAmount ?? 0) > 0).length,
+    () => data.sales.filter((s) => !s.cancelled && (s.debtAmount ?? 0) > 0).length,
     [data.sales],
   );
 

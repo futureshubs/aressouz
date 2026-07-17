@@ -5,6 +5,7 @@ import {
   ExternalLink,
   MapPin,
   Package,
+  Pencil,
   Phone,
   Receipt,
   Trash2,
@@ -37,13 +38,14 @@ type Props = {
   data: DillerData;
   onClose: () => void;
   onDelete: (firmId: string) => void;
+  onEdit?: (firm: DillerFirm) => void;
 };
 
 function unitLabel(u: string) {
   return DILLER_PRODUCT_UNITS.find((x) => x.value === u)?.label ?? u;
 }
 
-export function DillerFirmDetailSheet({ open, firm, data, onClose, onDelete }: Props) {
+export function DillerFirmDetailSheet({ open, firm, data, onClose, onDelete, onEdit }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const [receiptSale, setReceiptSale] = useState<DillerSale | null>(null);
@@ -236,6 +238,21 @@ export function DillerFirmDetailSheet({ open, firm, data, onClose, onDelete }: P
               </ul>
             )}
           </Section>
+
+          {onEdit ? (
+            <button
+              type="button"
+              onClick={() => {
+                onEdit(firm);
+                onClose();
+              }}
+              className="w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-slate-900 mb-2"
+              style={{ background: accentColor.gradient }}
+            >
+              <Pencil className="w-4 h-4" />
+              Firmani tahrirlash
+            </button>
+          ) : null}
 
           <button
             type="button"

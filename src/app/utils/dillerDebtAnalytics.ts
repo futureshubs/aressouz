@@ -467,9 +467,9 @@ export function filterSalesByPeriod(
   period: HistoryPeriod,
   customRange?: HistoryDateRange,
 ): DillerSale[] {
-  const sorted = [...sales].sort(
-    (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime(),
-  );
+  const sorted = [...sales]
+    .filter((s) => !s.cancelled)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
   const window = periodWindow(period, customRange);
   if (!window) return sorted;
   return sorted.filter((s) => {

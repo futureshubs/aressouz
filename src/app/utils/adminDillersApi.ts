@@ -108,3 +108,23 @@ export async function fetchAdminDillerDetail(id: string) {
   }
   return { ok: true as const, ...data };
 }
+
+export type PatchDillerInput = Partial<CreateDillerInput> & {
+  active?: boolean;
+};
+
+export async function patchAdminDiller(
+  id: string,
+  input: PatchDillerInput,
+): Promise<{ ok: true; dealer: AdminDillerRow } | { ok: false; error: string }> {
+  const res = await fetch(`${base()}/admin/dillers/${encodeURIComponent(id)}`, {
+    method: 'PATCH',
+    headers: buildAdminHeaders({ 'Content-Type': 'application/json' }),
+    body: JSON.stringify(input),
+  });
+  const data = await res.json().catch(() => ({}));
+  if (!res.ok || !data.success) {
+    return { ok: false, error: String(data.error || 'Yangilashda xatolik') };
+  }
+  return { ok: true, dealer: data.dealer as AdminDillerRow };
+}

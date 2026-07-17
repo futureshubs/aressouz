@@ -388,3 +388,32 @@ export async function dillerApiPatchShopOrderStatus(
     return { ok: false, error: 'Serverga ulanishda xatolik' };
   }
 }
+
+/** Xarid / qarz informatsion SMS (Eskiz) */
+export async function dillerApiSendPurchaseSms(
+  token: string,
+  payload: {
+    phone: string;
+    message?: string;
+    vars?: Record<string, unknown>;
+    template?: string;
+  },
+): Promise<{ ok: true; messageId?: string } | { ok: false; error: string }> {
+  if (isOfflineDillerToken(token)) {
+    return { ok: false, error: 'Oflayn rejimda SMS yuborib bo‘lmaydi' };
+  }
+  try {
+    const res = await fetch(`${getDillerApiBase()}/diller/sms/purchase`, {
+      method: 'POST',
+      headers: authHeaders(token),
+      body: JSON.stringify(payload),
+    });
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok || !body.success) {
+      return { ok: false, error: String(body.error || 'SMS yuborilmadi') };
+    }
+    return { ok: true, messageId: body.messageId ? String(body.messageId) : undefined };
+  } catch {
+    return { ok: false, error: 'Serverga ulanishda xatolik' };
+  }
+}

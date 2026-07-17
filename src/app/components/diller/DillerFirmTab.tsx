@@ -1,9 +1,15 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { Building2, ChevronRight, Package, Save, Search } from 'lucide-react';
+import { Building2, ChevronRight, Package, Save, Search, UserRound } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerFirm } from '../../utils/dillerData';
-import { createFirm, deleteFirm, formatMoney } from '../../utils/dillerData';
+import {
+  createFirm,
+  deleteFirm,
+  formatMoney,
+  updateDillerProfile,
+  updateFirm,
+} from '../../utils/dillerData';
 import { formatDillerDateTime, getFirmStats } from '../../utils/dillerFirmStats';
 import { DillerFirmDetailSheet } from './DillerFirmDetailSheet';
 import { dillerTabContentClass } from './dillerMobileLayout';
@@ -46,8 +52,19 @@ export function DillerProfilTab({ data, onDataChange }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const [firmForm, setFirmForm] = useState(emptyFirmForm);
+  const [editingFirmId, setEditingFirmId] = useState<string | null>(null);
   const [search, setSearch] = useState('');
   const [detailFirm, setDetailFirm] = useState<DillerFirm | null>(null);
+  const [profileForm, setProfileForm] = useState({
+    companyName: data.profile.companyName || '',
+    directorName: data.profile.directorName || '',
+    phone: data.profile.phone || '',
+    region: data.profile.region || '',
+    note: data.profile.note || '',
+    orderPhone: data.profile.orderPhone || '',
+    telegram: data.profile.telegram || '',
+    instagram: data.profile.instagram || '',
+  });
 
   const sortedFirms = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -66,9 +83,25 @@ export function DillerProfilTab({ data, onDataChange }: Props) {
       if (tb !== ta) return tb - ta;
       return a.name.localeCompare(b.name, 'uz');
     });
-  }, [data.firms, data.products, data.sales, data.warehouse, search, data]);
+  }, [data, search]);
 
-  const totalSales = data.sales.reduce((s, x) => s + x.total, 0);
+  const totalSales = data.sales.filter((s) => !s.cancelled).reduce((s, x) => s + x.total, 0);
+
+  const saveProfile = () => {
+    onDataChange(
+      updateDillerProfile(data, {
+        companyName: profileForm.companyName,
+        directorName: profileForm.directorName,
+        phone: profileForm.phone,
+        region: profileForm.region,
+        note: profileForm.note,
+        orderPhone: profileForm.orderPhone,
+        telegram: profileForm.telegram,
+        instagram: profileForm.instagram,
+      }),
+    );
+    toast.success('Profil saqlandi');
+  };
 
   const saveFirm = () => {
     if (!firmForm.name.trim()) {
@@ -92,14 +125,35 @@ export function DillerProfilTab({ data, onDataChange }: Props) {
       return;
     }
 
-    const next = createFirm(data, firmForm);
-    onDataChange(next);
+    if (editingFirmId) {
+      onDataChange(updateFirm(data, editingFirmId, firmForm));
+      toast.success('Firma yangilandi');
+      setEditingFirmId(null);
+    } else {
+      onDataChange(createFirm(data, firmForm));
+      toast.success('Firma saqlandi');
+    }
     setFirmForm(emptyFirmForm());
-    toast.success('Firma saqlandi');
+  };
+
+  const startEditFirm = (firm: DillerFirm) => {
+    setEditingFirmId(firm.id);
+    setFirmForm({
+      name: firm.name,
+      ownerName: firm.ownerName,
+      address: firm.address,
+      productName: firm.productName,
+      phone: firm.phone,
+    });
+    setDetailFirm(null);
   };
 
   const removeFirm = (id: string) => {
     onDataChange(deleteFirm(data, id));
+    if (editingFirmId === id) {
+      setEditingFirmId(null);
+      setFirmForm(emptyFirmForm());
+    }
     toast.success('Firma o‘chirildi');
   };
 
@@ -111,8 +165,80 @@ export function DillerProfilTab({ data, onDataChange }: Props) {
     <div className={dillerTabContentClass}>
       <Card isDark={isDark}>
         <div className="flex items-center gap-2 mb-2">
+          <UserRound className="w-5 h-5" style={{ color: accentColor.color }} />
+          <h3 className="font-bold">Diller profili</h3>
+        </div>
+        <p className="text-xs opacity-70 mb-4">
+          Kompaniya ma’lumotlari chek va QR buyurtmada ko‘rinadi.
+        </p>
+        <div className="space-y-2">
+          <input
+            placeholder="Kompaniya nomi"
+            value={profileForm.companyName}
+            onChange={(e) => setProfileForm((f) => ({ ...f, companyName: e.target.value }))}
+            className={inputCls(isDark)}
+          />
+          <input
+            placeholder="Direktor / mas‘ul"
+            value={profileForm.directorName}
+            onChange={(e) => setProfileForm((f) => ({ ...f, directorName: e.target.value }))}
+            className={inputCls(isDark)}
+          />
+          <input
+            placeholder="Telefon"
+            type="tel"
+            value={profileForm.phone}
+            onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))}
+            className={inputCls(isDark)}
+          />
+          <input
+            placeholder="Viloyat / hudud"
+            value={profileForm.region}
+            onChange={(e) => setProfileForm((f) => ({ ...f, region: e.target.value }))}
+            className={inputCls(isDark)}
+          />
+          <input
+            placeholder="Buyurtma telefoni (QR)"
+            type="tel"
+            value={profileForm.orderPhone}
+            onChange={(e) => setProfileForm((f) => ({ ...f, orderPhone: e.target.value }))}
+            className={inputCls(isDark)}
+          />
+          <input
+            placeholder="Telegram"
+            value={profileForm.telegram}
+            onChange={(e) => setProfileForm((f) => ({ ...f, telegram: e.target.value }))}
+            className={inputCls(isDark)}
+          />
+          <input
+            placeholder="Instagram"
+            value={profileForm.instagram}
+            onChange={(e) => setProfileForm((f) => ({ ...f, instagram: e.target.value }))}
+            className={inputCls(isDark)}
+          />
+          <textarea
+            placeholder="Izoh / manzil"
+            value={profileForm.note}
+            onChange={(e) => setProfileForm((f) => ({ ...f, note: e.target.value }))}
+            className={`${inputCls(isDark)} min-h-[72px]`}
+            rows={2}
+          />
+          <button
+            type="button"
+            onClick={saveProfile}
+            className="w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-slate-900"
+            style={{ background: accentColor.gradient }}
+          >
+            <Save className="w-4 h-4" />
+            Profilni saqlash
+          </button>
+        </div>
+      </Card>
+
+      <Card isDark={isDark}>
+        <div className="flex items-center gap-2 mb-2">
           <Building2 className="w-5 h-5" style={{ color: accentColor.color }} />
-          <h3 className="font-bold">Firma qo‘shish</h3>
+          <h3 className="font-bold">{editingFirmId ? 'Firmani tahrirlash' : 'Firma qo‘shish'}</h3>
         </div>
         <p className="text-xs opacity-70 mb-4">
           Yetkazib beruvchi: nom, ega, manzil, qaysi mahsulot berishi va telefon.
@@ -149,15 +275,32 @@ export function DillerProfilTab({ data, onDataChange }: Props) {
             onChange={(e) => setFirmForm((f) => ({ ...f, phone: e.target.value }))}
             className={inputCls(isDark)}
           />
-          <button
-            type="button"
-            onClick={saveFirm}
-            className="w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-slate-900"
-            style={{ background: accentColor.gradient }}
-          >
-            <Save className="w-4 h-4" />
-            Firmani saqlash
-          </button>
+          <div className="flex gap-2">
+            {editingFirmId ? (
+              <button
+                type="button"
+                onClick={() => {
+                  setEditingFirmId(null);
+                  setFirmForm(emptyFirmForm());
+                }}
+                className="flex-1 py-3 rounded-xl font-bold border"
+                style={{
+                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
+                }}
+              >
+                Bekor
+              </button>
+            ) : null}
+            <button
+              type="button"
+              onClick={saveFirm}
+              className="flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-slate-900"
+              style={{ background: accentColor.gradient }}
+            >
+              <Save className="w-4 h-4" />
+              {editingFirmId ? 'Yangilash' : 'Firmani saqlash'}
+            </button>
+          </div>
         </div>
       </Card>
 
@@ -199,7 +342,10 @@ export function DillerProfilTab({ data, onDataChange }: Props) {
           { label: 'Firmalar', value: String(data.firms.length) },
           { label: 'Mahsulotlar', value: String(data.products.length) },
           { label: 'Do‘konlar', value: String(data.stores.length) },
-          { label: 'Sotuvlar', value: String(data.sales.length) },
+          {
+            label: 'Sotuvlar',
+            value: String(data.sales.filter((s) => !s.cancelled).length),
+          },
           { label: 'Aylanma', value: formatMoney(totalSales), span: true },
         ].map((s) => (
           <Card key={s.label} isDark={isDark} className={s.span ? 'col-span-2' : undefined}>
@@ -215,6 +361,7 @@ export function DillerProfilTab({ data, onDataChange }: Props) {
         data={data}
         onClose={() => setDetailFirm(null)}
         onDelete={removeFirm}
+        onEdit={startEditFirm}
       />
     </div>
   );

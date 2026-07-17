@@ -13,12 +13,15 @@ import {
   Loader2,
   X,
   BarChart3,
+  Pencil,
+  Power,
 } from 'lucide-react';
 import { toast } from 'sonner';
 import {
   createAdminDiller,
   fetchAdminDillerDetail,
   fetchAdminDillers,
+  patchAdminDiller,
   type AdminDillerRow,
   type CreateDillerInput,
 } from '../../utils/adminDillersApi';
@@ -57,6 +60,11 @@ export default function AdminDillersView() {
   const [form, setForm] = useState<CreateDillerInput>(emptyForm);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [detailLoading, setDetailLoading] = useState(false);
+  const [editing, setEditing] = useState(false);
+  const [editForm, setEditForm] = useState<CreateDillerInput & { active: boolean }>({
+    ...emptyForm(),
+    active: true,
+  });
   const [detail, setDetail] = useState<{
     dealer: AdminDillerRow;
     stats: AdminDillerRow['stats'];
@@ -81,6 +89,7 @@ export default function AdminDillersView() {
 
   const openDetail = async (id: string) => {
     setSelectedId(id);
+    setEditing(false);
     setDetailLoading(true);
     const res = await fetchAdminDillerDetail(id);
     setDetailLoading(false);
@@ -88,10 +97,23 @@ export default function AdminDillersView() {
       toast.error(res.error);
       return;
     }
+    const dealer = res.dealer as AdminDillerRow;
     setDetail({
-      dealer: res.dealer as AdminDillerRow,
+      dealer,
       stats: res.stats as AdminDillerRow['stats'],
       recentSales: Array.isArray(res.recentSales) ? res.recentSales : [],
+    });
+    setEditForm({
+      fullName: dealer.fullName,
+      phone: dealer.phone,
+      address: dealer.address,
+      passportSeries: dealer.passportSeries,
+      gender: dealer.gender,
+      birthDate: dealer.birthDate,
+      startDate: dealer.startDate,
+      login: dealer.login,
+      password: '',
+      active: dealer.active,
     });
   };
 
@@ -112,6 +134,56 @@ export default function AdminDillersView() {
     setShowForm(false);
     setForm(emptyForm());
     void load();
+  };
+
+  const saveEdit = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!selectedId) return;
+    if (!editForm.fullName.trim() || !editForm.login.trim()) {
+      toast.error('Ism va login majburiy');
+      return;
+    }
+    if (editForm.password && editForm.password.length < 4) {
+      toast.error('Yangi parol kamida 4 belgi');
+      return;
+    }
+    setSaving(true);
+    const payload: Record<string, unknown> = {
+      fullName: editForm.fullName,
+      phone: editForm.phone,
+      address: editForm.address,
+      passportSeries: editForm.passportSeries,
+      gender: editForm.gender,
+      birthDate: editForm.birthDate,
+      startDate: editForm.startDate,
+      login: editForm.login,
+      active: editForm.active,
+    };
+    if (editForm.password.trim()) payload.password = editForm.password.trim();
+    const res = await patchAdminDiller(selectedId, payload);
+    setSaving(false);
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success('Diller yangilandi');
+    setEditing(false);
+    void load();
+    void openDetail(selectedId);
+  };
+
+  const toggleActive = async (dealer: AdminDillerRow) => {
+    const next = !dealer.active;
+    const label = next ? 'faollashtirasizmi' : 'to‘xtatasizmi';
+    if (!window.confirm(`«${dealer.fullName}» ni ${label}?`)) return;
+    const res = await patchAdminDiller(dealer.id, { active: next });
+    if (!res.ok) {
+      toast.error(res.error);
+      return;
+    }
+    toast.success(next ? 'Faollashtirildi' : 'To‘xtatildi');
+    void load();
+    if (selectedId === dealer.id) void openDetail(dealer.id);
   };
 
   const cardStyle = {
@@ -137,20 +209,98 @@ export default function AdminDillersView() {
         aria-modal="true"
         onClick={onClose}
       >
-        <div onClick={(e) => e.stopPropagation()}>{content}</div>
+        <div className="w-full max-w-lg" onClick={(e) => e.stopPropagation()}>
+          {content}
+        </div>
       </div>,
       document.body,
     );
   };
+
+  const fieldClass = 'w-full px-3 py-2 rounded-xl border outline-none text-sm';
+  const fieldStyle = {
+    borderColor: modalPanelStyle.borderColor,
+    background: isDark ? 'rgba(255,255,255,0.05)' : '#f9fafb',
+    color: isDark ? '#fff' : '#111',
+  };
+
+  const formFields = (
+    values: CreateDillerInput,
+    setValues: (fn: (f: CreateDillerInput) => CreateDillerInput) => void,
+    opts?: { passwordOptional?: boolean },
+  ) => (
+    <>
+      {(
+        [
+          ['fullName', 'Ism familiya', 'text'],
+          ['phone', 'Telefon', 'tel'],
+          ['address', 'Manzil', 'text'],
+          ['passportSeries', 'Pasport seriyasi', 'text'],
+          ['birthDate', 'Tug‘ilgan kun', 'date'],
+          ['startDate', 'Ish boshlagan kun', 'date'],
+          ['login', 'Login (/diller uchun)', 'text'],
+          [
+            'password',
+            opts?.passwordOptional ? 'Yangi parol (bo‘sh qoldirish mumkin)' : 'Parol',
+            'password',
+          ],
+        ] as const
+      ).map(([key, label, type]) => (
+        <div key={key}>
+          <label className="block text-xs font-medium mb-1 opacity-70">{label}</label>
+          <input
+            type={type}
+            value={values[key]}
+            onChange={(e) => setValues((f) => ({ ...f, [key]: e.target.value }))}
+            className={fieldClass}
+            style={fieldStyle}
+            required={
+              key === 'fullName' ||
+              key === 'login' ||
+              (key === 'password' && !opts?.passwordOptional)
+            }
+          />
+        </div>
+      ))}
+      <div>
+        <label className="block text-xs font-medium mb-1 opacity-70">Jinsi</label>
+        <select
+          value={values.gender}
+          onChange={(e) =>
+            setValues((f) => ({ ...f, gender: e.target.value as 'male' | 'female' }))
+          }
+          className={fieldClass}
+          style={fieldStyle}
+        >
+          <option value="male">Erkak</option>
+          <option value="female">Ayol</option>
+        </select>
+      </div>
+    </>
+  );
 
   const statsCards = [
     { label: 'Dillerlar', value: dealers.length, icon: Users, color: '#14b8a6' },
     { label: 'Sotuvlar', value: totals.sales, icon: TrendingUp, color: '#3b82f6' },
     { label: 'Do‘konlar', value: totals.stores, icon: Store, color: '#f59e0b' },
     { label: 'Mahsulotlar', value: totals.products, icon: Package, color: '#8b5cf6' },
-    { label: 'Jami savdo', value: `${formatSum(totals.totalSalesAmount)} so‘m`, icon: BarChart3, color: '#10b981' },
-    { label: 'Qarz', value: `${formatSum(totals.totalDebtAmount)} so‘m`, icon: Wallet, color: '#ef4444' },
+    {
+      label: 'Jami savdo',
+      value: `${formatSum(totals.totalSalesAmount)} so‘m`,
+      icon: BarChart3,
+      color: '#10b981',
+    },
+    {
+      label: 'Qarz',
+      value: `${formatSum(totals.totalDebtAmount)} so‘m`,
+      icon: Wallet,
+      color: '#ef4444',
+    },
   ];
+
+  const avgSale =
+    totals.sales > 0 ? Math.round(totals.totalSalesAmount / totals.sales) : 0;
+  const activeCount = dealers.filter((d) => d.active).length;
 
   return (
     <div className="space-y-6">
@@ -158,7 +308,7 @@ export default function AdminDillersView() {
         <div>
           <h2 className="text-2xl font-bold">Dillerlar</h2>
           <p className="text-sm opacity-70 mt-1">
-            Yangi diller qo‘shing — u o‘z login/paroli bilan /diller ga kiradi
+            Diller qo‘shing, tahrirlang — har biri o‘z login bilan /diller ga kiradi
           </p>
         </div>
         <div className="flex gap-2">
@@ -198,6 +348,27 @@ export default function AdminDillersView() {
         })}
       </div>
 
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
+        <div className="p-4 rounded-2xl border" style={cardStyle}>
+          <div className="text-xs opacity-60">Faol dillerlar</div>
+          <div className="text-xl font-bold mt-1">
+            {activeCount} / {dealers.length}
+          </div>
+        </div>
+        <div className="p-4 rounded-2xl border" style={cardStyle}>
+          <div className="text-xs opacity-60">O‘rtacha chek</div>
+          <div className="text-xl font-bold mt-1">{formatSum(avgSale)} so‘m</div>
+        </div>
+        <div className="p-4 rounded-2xl border" style={cardStyle}>
+          <div className="text-xs opacity-60">Qarz / savdo</div>
+          <div className="text-xl font-bold mt-1">
+            {totals.totalSalesAmount > 0
+              ? `${Math.round((totals.totalDebtAmount / totals.totalSalesAmount) * 100)}%`
+              : '0%'}
+          </div>
+        </div>
+      </div>
+
       <div className="rounded-2xl border overflow-hidden" style={cardStyle}>
         {loading ? (
           <div className="p-12 flex justify-center">
@@ -213,7 +384,7 @@ export default function AdminDillersView() {
               <thead>
                 <tr className="border-b" style={{ borderColor: cardStyle.borderColor }}>
                   <th className="text-left p-4 font-semibold">Ism</th>
-                  <th className="text-left p-4 font-semibold">Telefon</th>
+                  <th className="text-left p-4 font-semibold">Holat</th>
                   <th className="text-left p-4 font-semibold">Login</th>
                   <th className="text-right p-4 font-semibold">Sotuv</th>
                   <th className="text-right p-4 font-semibold">Savdo</th>
@@ -225,12 +396,27 @@ export default function AdminDillersView() {
                 {dealers.map((d) => (
                   <tr
                     key={d.id}
-                    className="border-b hover:bg-white/5 cursor-pointer"
+                    className="border-b hover:bg-white/5"
                     style={{ borderColor: cardStyle.borderColor }}
-                    onClick={() => void openDetail(d.id)}
                   >
-                    <td className="p-4 font-medium">{d.fullName}</td>
-                    <td className="p-4">{d.phone || '—'}</td>
+                    <td
+                      className="p-4 font-medium cursor-pointer"
+                      onClick={() => void openDetail(d.id)}
+                    >
+                      {d.fullName}
+                      <div className="text-xs opacity-50 font-normal">{d.phone || '—'}</div>
+                    </td>
+                    <td className="p-4">
+                      <span
+                        className={`text-[10px] font-bold px-2 py-0.5 rounded-full ${
+                          d.active
+                            ? 'bg-emerald-500/20 text-emerald-400'
+                            : 'bg-red-500/20 text-red-400'
+                        }`}
+                      >
+                        {d.active ? 'Faol' : 'To‘xtatilgan'}
+                      </span>
+                    </td>
                     <td className="p-4 font-mono text-xs">{d.login}</td>
                     <td className="p-4 text-right tabular-nums">{d.stats.sales}</td>
                     <td className="p-4 text-right tabular-nums">
@@ -239,8 +425,29 @@ export default function AdminDillersView() {
                     <td className="p-4 text-right tabular-nums text-red-400">
                       {formatSum(d.stats.totalDebtAmount)}
                     </td>
-                    <td className="p-4 text-right text-xs opacity-60">
-                      {d.startDate || '—'}
+                    <td className="p-4">
+                      <div className="flex items-center justify-end gap-1">
+                        <button
+                          type="button"
+                          className="p-2 rounded-lg"
+                          style={cardStyle}
+                          title="Tahrirlash"
+                          onClick={() => void openDetail(d.id).then(() => setEditing(true))}
+                        >
+                          <Pencil className="w-3.5 h-3.5" />
+                        </button>
+                        <button
+                          type="button"
+                          className="p-2 rounded-lg"
+                          style={cardStyle}
+                          title={d.active ? 'To‘xtatish' : 'Faollashtirish'}
+                          onClick={() => void toggleActive(d)}
+                        >
+                          <Power
+                            className={`w-3.5 h-3.5 ${d.active ? 'text-amber-400' : 'text-emerald-400'}`}
+                          />
+                        </button>
+                      </div>
                     </td>
                   </tr>
                 ))}
@@ -253,7 +460,7 @@ export default function AdminDillersView() {
       {showForm &&
         renderModal(
           <div
-            className="w-full max-w-lg rounded-3xl border p-6 max-h-[90vh] overflow-y-auto shadow-2xl"
+            className="w-full rounded-3xl border p-6 max-h-[90vh] overflow-y-auto shadow-2xl"
             style={modalPanelStyle}
           >
             <div className="flex items-center justify-between mb-4">
@@ -263,52 +470,7 @@ export default function AdminDillersView() {
               </button>
             </div>
             <form onSubmit={submitForm} className="space-y-3">
-              {(
-                [
-                  ['fullName', 'Ism familiya', 'text'],
-                  ['phone', 'Telefon', 'tel'],
-                  ['address', 'Manzil', 'text'],
-                  ['passportSeries', 'Pasport seriyasi', 'text'],
-                  ['birthDate', 'Tug‘ilgan kun', 'date'],
-                  ['startDate', 'Ish boshlagan kun', 'date'],
-                  ['login', 'Login (/diller uchun)', 'text'],
-                  ['password', 'Parol', 'password'],
-                ] as const
-              ).map(([key, label, type]) => (
-                <div key={key}>
-                  <label className="block text-xs font-medium mb-1 opacity-70">{label}</label>
-                  <input
-                    type={type}
-                    value={form[key]}
-                    onChange={(e) => setForm((f) => ({ ...f, [key]: e.target.value }))}
-                    className="w-full px-3 py-2 rounded-xl border outline-none text-sm"
-                    style={{
-                      borderColor: modalPanelStyle.borderColor,
-                      background: isDark ? 'rgba(255,255,255,0.05)' : '#f9fafb',
-                      color: isDark ? '#fff' : '#111',
-                    }}
-                    required={key === 'fullName' || key === 'login' || key === 'password'}
-                  />
-                </div>
-              ))}
-              <div>
-                <label className="block text-xs font-medium mb-1 opacity-70">Jinsi</label>
-                <select
-                  value={form.gender}
-                  onChange={(e) =>
-                    setForm((f) => ({ ...f, gender: e.target.value as 'male' | 'female' }))
-                  }
-                  className="w-full px-3 py-2 rounded-xl border outline-none text-sm"
-                  style={{
-                    borderColor: modalPanelStyle.borderColor,
-                    background: isDark ? 'rgba(255,255,255,0.05)' : '#f9fafb',
-                    color: isDark ? '#fff' : '#111',
-                  }}
-                >
-                  <option value="male">Erkak</option>
-                  <option value="female">Ayol</option>
-                </select>
-              </div>
+              {formFields(form, setForm)}
               <button
                 type="submit"
                 disabled={saving}
@@ -326,33 +488,98 @@ export default function AdminDillersView() {
         renderModal(
           <div
             className="w-full max-w-2xl rounded-3xl border p-6 max-h-[90vh] overflow-y-auto shadow-2xl"
-            style={modalPanelStyle}
+            style={{ ...modalPanelStyle, maxWidth: '42rem' }}
           >
             <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-bold">Diller tafsilotlari</h3>
-              <button
-                type="button"
-                onClick={() => {
-                  setSelectedId(null);
-                  setDetail(null);
-                }}
-              >
-                <X className="w-5 h-5 opacity-60" />
-              </button>
+              <h3 className="text-xl font-bold">
+                {editing ? 'Dillerni tahrirlash' : 'Diller tafsilotlari'}
+              </h3>
+              <div className="flex items-center gap-2">
+                {!editing && detail ? (
+                  <button
+                    type="button"
+                    onClick={() => setEditing(true)}
+                    className="px-3 py-1.5 rounded-xl text-xs font-bold flex items-center gap-1"
+                    style={cardStyle}
+                  >
+                    <Pencil className="w-3.5 h-3.5" />
+                    Tahrir
+                  </button>
+                ) : null}
+                <button
+                  type="button"
+                  onClick={() => {
+                    setSelectedId(null);
+                    setDetail(null);
+                    setEditing(false);
+                  }}
+                >
+                  <X className="w-5 h-5 opacity-60" />
+                </button>
+              </div>
             </div>
             {detailLoading || !detail ? (
               <div className="py-12 flex justify-center">
                 <Loader2 className="w-8 h-8 animate-spin opacity-50" />
               </div>
+            ) : editing ? (
+              <form onSubmit={saveEdit} className="space-y-3">
+                {formFields(editForm, (fn) =>
+                  setEditForm((prev) => ({ ...fn(prev), active: prev.active })),
+                  { passwordOptional: true },
+                )}
+                <label className="flex items-center gap-2 text-sm">
+                  <input
+                    type="checkbox"
+                    checked={editForm.active}
+                    onChange={(e) => setEditForm((f) => ({ ...f, active: e.target.checked }))}
+                  />
+                  Faol (login qila oladi)
+                </label>
+                <div className="flex gap-2 pt-2">
+                  <button
+                    type="button"
+                    onClick={() => setEditing(false)}
+                    className="flex-1 py-3 rounded-xl font-bold border"
+                    style={cardStyle}
+                  >
+                    Bekor
+                  </button>
+                  <button
+                    type="submit"
+                    disabled={saving}
+                    className="flex-1 py-3 rounded-xl font-bold text-slate-900 disabled:opacity-60"
+                    style={{ background: 'linear-gradient(135deg, #14b8a6, #0d9488)' }}
+                  >
+                    {saving ? 'Saqlanmoqda...' : 'Saqlash'}
+                  </button>
+                </div>
+              </form>
             ) : (
               <div className="space-y-4">
                 <div className="grid grid-cols-2 gap-3 text-sm">
-                  <div><span className="opacity-60">Ism:</span> {detail.dealer.fullName}</div>
-                  <div><span className="opacity-60">Login:</span> {detail.dealer.login}</div>
-                  <div><span className="opacity-60">Telefon:</span> {detail.dealer.phone}</div>
-                  <div><span className="opacity-60">Pasport:</span> {detail.dealer.passportSeries}</div>
-                  <div><span className="opacity-60">Manzil:</span> {detail.dealer.address}</div>
-                  <div><span className="opacity-60">Boshlangan:</span> {detail.dealer.startDate}</div>
+                  <div>
+                    <span className="opacity-60">Ism:</span> {detail.dealer.fullName}
+                  </div>
+                  <div>
+                    <span className="opacity-60">Login:</span> {detail.dealer.login}
+                  </div>
+                  <div>
+                    <span className="opacity-60">Telefon:</span> {detail.dealer.phone}
+                  </div>
+                  <div>
+                    <span className="opacity-60">Pasport:</span> {detail.dealer.passportSeries}
+                  </div>
+                  <div>
+                    <span className="opacity-60">Manzil:</span> {detail.dealer.address}
+                  </div>
+                  <div>
+                    <span className="opacity-60">Boshlangan:</span> {detail.dealer.startDate}
+                  </div>
+                  <div>
+                    <span className="opacity-60">Holat:</span>{' '}
+                    {detail.dealer.active ? 'Faol' : 'To‘xtatilgan'}
+                  </div>
                 </div>
                 <div className="grid grid-cols-3 gap-2">
                   {[
@@ -392,6 +619,7 @@ export default function AdminDillersView() {
                           <span>{String(s.createdAt || '').slice(0, 10)}</span>
                           <span className="font-medium tabular-nums">
                             {formatSum(Number(s.total || 0))} so‘m
+                            {s.cancelled ? ' (bekor)' : ''}
                           </span>
                         </div>
                       ))}
@@ -404,6 +632,7 @@ export default function AdminDillersView() {
           () => {
             setSelectedId(null);
             setDetail(null);
+            setEditing(false);
           },
         )}
     </div>

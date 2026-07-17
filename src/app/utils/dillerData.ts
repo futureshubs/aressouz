@@ -104,6 +104,9 @@ export type DillerSale = {
   createdAt: string;
   /** QR buyurtmadan kelgan sotuv */
   shopOrderId?: string;
+  /** Bekor qilingan sotuv */
+  cancelled?: boolean;
+  cancelledAt?: string;
 };
 
 export type DillerWarehouseRow = {
@@ -293,6 +296,8 @@ function normalizeSale(s: Partial<DillerSale> & { id: string }): DillerSale {
     note: String(s.note ?? '').trim(),
     createdAt: s.createdAt ?? new Date().toISOString(),
     shopOrderId: s.shopOrderId ? String(s.shopOrderId) : undefined,
+    cancelled: Boolean(s.cancelled),
+    cancelledAt: s.cancelledAt ? String(s.cancelledAt) : undefined,
   };
 }
 
@@ -707,6 +712,73 @@ export function deleteFirm(data: DillerData, firmId: string): DillerData {
   };
 }
 
+export function updateFirm(
+  data: DillerData,
+  firmId: string,
+  patch: Partial<Omit<DillerFirm, 'id' | 'createdAt'>>,
+): DillerData {
+  const firm = data.firms.find((f) => f.id === firmId);
+  if (!firm) return data;
+  const nextName = patch.name != null ? String(patch.name).trim() : firm.name;
+  const updated: DillerFirm = {
+    ...firm,
+    name: nextName,
+    ownerName: patch.ownerName != null ? String(patch.ownerName).trim() : firm.ownerName,
+    address: patch.address != null ? String(patch.address).trim() : firm.address,
+    productName: patch.productName != null ? String(patch.productName).trim() : firm.productName,
+    phone: patch.phone != null ? String(patch.phone).trim() : firm.phone,
+  };
+  return {
+    ...data,
+    firms: data.firms.map((f) => (f.id === firmId ? updated : f)),
+    products: data.products.map((p) => {
+      if (p.firmId === firmId || p.firmName === firm.name) {
+        return { ...p, firmId, firmName: nextName };
+      }
+      return p;
+    }),
+  };
+}
+
+/** Sotuvni bekor qilish — omborga qaytaradi */
+export function cancelSale(
+  data: DillerData,
+  saleId: string,
+): { data: DillerData; error?: string } {
+  const sale = data.sales.find((s) => s.id === saleId);
+  if (!sale) return { data, error: 'Sotuv topilmadi' };
+  if (sale.cancelled) return { data, error: 'Bu sotuv allaqachon bekor qilingan' };
+
+  let next: DillerData = {
+    ...data,
+    sales: data.sales.map((s) =>
+      s.id === saleId
+        ? normalizeSale({
+            ...s,
+            cancelled: true,
+            cancelledAt: new Date().toISOString(),
+            debtAmount: 0,
+            debtDueDate: '',
+          })
+        : s,
+    ),
+  };
+  // QR buyurtmadan kelgan sotuvda ombor allaqachon rezervdan chiqarilgan bo‘lishi mumkin —
+  // oddiy sotuvlarda omborga qaytaramiz
+  if (!sale.shopOrderId || sale.productId) {
+    next = adjustWarehouseQty(next, sale.productId, sale.qty);
+  }
+  return { data: next };
+}
+
+export function isActiveSale(sale: DillerSale): boolean {
+  return !sale.cancelled;
+}
+
+export function getActiveSales(data: DillerData): DillerSale[] {
+  return data.sales.filter(isActiveSale);
+}
+
 export function getWarehouseQty(data: DillerData, productId: string): number {
   return data.warehouse.find((w) => w.productId === productId)?.qty ?? 0;
 }
@@ -1068,7 +1140,7 @@ export function calcSaleTotals(
   };
 }
 
-export function createSale(data: DillerData, input: CreateSaleInput): { data: DillerData; error?: string } {
+export function createSale(data: DillerData, input: CreateSaleInput): { data: DillerData; sale?: DillerSale; error?: string } {
   const qty = Math.max(1, Math.floor(input.qty));
   const product = data.products.find((p) => p.id === input.productId);
   if (!product) return { data, error: 'Mahsulot topilmadi' };
@@ -1138,7 +1210,7 @@ export function createSale(data: DillerData, input: CreateSaleInput): { data: Di
   if (!input.skipWarehouseDeduction) {
     next = setWarehouseQty(next, product.id, stock - qty);
   }
-  return { data: next };
+  return { data: next, sale };
 }
 
 export function formatMoney(n: number): string {
@@ -1157,7 +1229,13 @@ export function recordDebtPayment(
   data: DillerData,
   saleId: string,
   amount: number,
-): { data: DillerData; error?: string } {
+): {
+  data: DillerData;
+  sale?: DillerSale;
+  paidAmount?: number;
+  remainingDebt?: number;
+  error?: string;
+} {
   const sale = data.sales.find((s) => s.id === saleId);
   if (!sale) return { data, error: 'Sotuv topilmadi' };
   const debt = sale.debtAmount ?? 0;
@@ -1175,10 +1253,25 @@ export function recordDebtPayment(
     initialDebtAmount: sale.initialDebtAmount ?? debt,
     debtPayments,
   });
-  return { data: next };
+  const nextSale = next.sales.find((s) => s.id === saleId);
+  return {
+    data: next,
+    sale: nextSale,
+    paidAmount: pay,
+    remainingDebt: nextDebt,
+  };
 }
 
-export function settleDebtFully(data: DillerData, saleId: string): { data: DillerData; error?: string } {
+export function settleDebtFully(
+  data: DillerData,
+  saleId: string,
+): {
+  data: DillerData;
+  sale?: DillerSale;
+  paidAmount?: number;
+  remainingDebt?: number;
+  error?: string;
+} {
   const sale = data.sales.find((s) => s.id === saleId);
   if (!sale) return { data, error: 'Sotuv topilmadi' };
   return recordDebtPayment(data, saleId, sale.debtAmount ?? 0);

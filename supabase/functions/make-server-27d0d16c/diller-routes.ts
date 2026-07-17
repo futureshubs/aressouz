@@ -5,8 +5,14 @@ import {
   dillerWorkspaceBackupPrefix,
   findDillerByLogin,
   registerDillerAdminRoutes,
-  verifyDillerPassword,
+  verifyDillerPasswordAsync,
 } from "./diller-accounts.ts";
+import * as eskiz from "./eskiz-sms.tsx";
+import {
+  buildPurchaseInfoSms,
+  normalizeUzSmsPhone,
+  type PurchaseSmsVars,
+} from "./diller-purchase-sms.ts";
 
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
 
@@ -676,7 +682,7 @@ export function registerDillerRoutes(
       }
 
       const account = await findDillerByLogin(kv, loginRaw);
-      if (!account || !verifyDillerPassword(account, password)) {
+      if (!account || !(await verifyDillerPasswordAsync(account, password))) {
         return c.json({ success: false, error: "Login yoki parol noto‘g‘ri" }, 401);
       }
 
@@ -1161,6 +1167,75 @@ export function registerDillerRoutes(
       return c.json({ success: true, order: list[idx] });
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : String(e);
+      return c.json({ success: false, error: msg || "Xatolik" }, 500);
+    }
+  });
+
+  /**
+   * Diller — xarid informatsion SMS (Eskiz shablon: purchase_info).
+   * Faqat tranzaksion matn; reklama iboralari yuborilmasin.
+   */
+  app.post("/make-server-27d0d16c/diller/sms/purchase", async (c) => {
+    try {
+      const sess = await resolveDillerSession(c, kv);
+      if (!sess) return c.json({ success: false, error: "Avval tizimga kiring" }, 401);
+
+      if (!eskiz.isEskizConfigured()) {
+        return c.json({ success: false, error: "SMS xizmati sozlanmagan" }, 503);
+      }
+
+      const body = await c.req.json().catch(() => ({}));
+      const phoneRaw = String(body.phone ?? "").trim();
+      const phone = normalizeUzSmsPhone(phoneRaw);
+      if (!phone) {
+        return c.json(
+          { success: false, error: "Telefon raqam noto‘g‘ri (masalan: 998901234567)" },
+          400,
+        );
+      }
+
+      let message = String(body.message ?? "").trim();
+      if (!message && body.vars && typeof body.vars === "object") {
+        message = buildPurchaseInfoSms(body.vars as PurchaseSmsVars);
+      }
+      if (!message) {
+        return c.json({ success: false, error: "SMS matni kerak" }, 400);
+      }
+      if (message.length > 700) {
+        return c.json({ success: false, error: "SMS matni juda uzun" }, 400);
+      }
+
+      const lower = message.toLowerCase();
+      const banned = ["aksiya", "yana xarid", "yana buyurtma", "eng yaxshi narx"];
+      if (banned.some((w) => lower.includes(w))) {
+        return c.json(
+          { success: false, error: "SMS matnida reklama iboralari bo‘lishi mumkin emas" },
+          400,
+        );
+      }
+
+      const res = await eskiz.sendCustomSMS(phone, message);
+      if (!res.success) {
+        return c.json(
+          {
+            success: false,
+            error:
+              res.error ||
+              "SMS yuborilmadi. Eskiz’da tegishli shablonni (purchase_info / debt_*) tasdiqlatganingizni tekshiring.",
+          },
+          502,
+        );
+      }
+
+      return c.json({
+        success: true,
+        messageId: res.messageId,
+        phone,
+        template: String(body.template || "purchase_info").trim() || "purchase_info",
+      });
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : String(e);
+      console.error("[diller/sms/purchase]", msg);
       return c.json({ success: false, error: msg || "Xatolik" }, 500);
     }
   });

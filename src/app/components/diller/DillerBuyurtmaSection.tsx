@@ -154,6 +154,13 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
     void refreshOrders();
   }, [refreshOrders]);
 
+  useEffect(() => {
+    const id = window.setInterval(() => {
+      void refreshOrders();
+    }, 60_000);
+    return () => window.clearInterval(id);
+  }, [refreshOrders]);
+
   const pendingCount = (data.shopOrders ?? []).filter((o) => o.status === 'pending').length;
 
   const detailOrder = useMemo(

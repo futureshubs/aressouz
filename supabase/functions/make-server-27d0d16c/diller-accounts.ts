@@ -94,7 +94,33 @@ export async function findDillerByLogin(kv: Kv, login: string): Promise<DillerAc
 }
 
 export function verifyDillerPassword(account: DillerAccount, password: string): boolean {
-  return String(account.password || "") === String(password || "");
+  const stored = String(account.password || "");
+  const incoming = String(password || "");
+  if (!stored || !incoming) return false;
+  // Legacy plaintext
+  if (stored === incoming) return true;
+  // SHA-256 hex (async hash compared via sync helper filled at login)
+  return false;
+}
+
+export async function hashDillerPassword(password: string): Promise<string> {
+  const data = new TextEncoder().encode(String(password));
+  const digest = await crypto.subtle.digest("SHA-256", data);
+  return Array.from(new Uint8Array(digest))
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
+}
+
+export async function verifyDillerPasswordAsync(
+  account: DillerAccount,
+  password: string,
+): Promise<boolean> {
+  const stored = String(account.password || "");
+  const incoming = String(password || "");
+  if (!stored || !incoming) return false;
+  if (stored === incoming) return true; // legacy plaintext
+  const hashed = await hashDillerPassword(incoming);
+  return hashed === stored;
 }
 
 export function computeWorkspaceStats(workspace: Record<string, unknown> | null): DillerWorkspaceStats {
@@ -191,6 +217,7 @@ export async function createDillerAccount(
 
   const id = newDealerId();
   const now = new Date().toISOString();
+  const passwordHash = await hashDillerPassword(password);
   const account: DillerAccount = {
     id,
     fullName,
@@ -201,7 +228,7 @@ export async function createDillerAccount(
     birthDate: String(input.birthDate || "").trim(),
     startDate: String(input.startDate || "").trim(),
     login,
-    password,
+    password: passwordHash,
     active: true,
     createdAt: now,
     updatedAt: now,
@@ -368,6 +395,11 @@ export function registerDillerAdminRoutes(
         await kv.set(dillerLoginKey(newLogin), id);
       }
 
+      const newPassword =
+        body.password != null && String(body.password).trim()
+          ? await hashDillerPassword(String(body.password).trim())
+          : existing.password;
+
       const updated: DillerAccount = {
         ...existing,
         fullName: body.fullName != null ? String(body.fullName).trim() : existing.fullName,
@@ -381,10 +413,7 @@ export function registerDillerAdminRoutes(
         birthDate: body.birthDate != null ? String(body.birthDate).trim() : existing.birthDate,
         startDate: body.startDate != null ? String(body.startDate).trim() : existing.startDate,
         login: newLogin,
-        password:
-          body.password != null && String(body.password).trim()
-            ? String(body.password).trim()
-            : existing.password,
+        password: newPassword,
         active: body.active != null ? Boolean(body.active) : existing.active,
         updatedAt: new Date().toISOString(),
       };

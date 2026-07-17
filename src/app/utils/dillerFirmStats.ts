@@ -33,7 +33,7 @@ export function getFirmProducts(data: DillerData, firm: DillerFirm): DillerProdu
 export function getFirmSales(data: DillerData, firm: DillerFirm): DillerSale[] {
   const productIds = new Set(getFirmProducts(data, firm).map((p) => p.id));
   return data.sales
-    .filter((s) => productIds.has(s.productId))
+    .filter((s) => !s.cancelled && productIds.has(s.productId))
     .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
 }
 

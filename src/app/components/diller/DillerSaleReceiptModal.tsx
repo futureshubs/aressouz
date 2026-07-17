@@ -1,8 +1,14 @@
 import { useRef } from 'react';
-import { Printer, X } from 'lucide-react';
+import { Printer, Trash2, X } from 'lucide-react';
+import { toast } from 'sonner';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerSale } from '../../utils/dillerData';
-import { DILLER_PRODUCT_UNITS, formatMoney, getDillerBrandLabel } from '../../utils/dillerData';
+import {
+  cancelSale,
+  DILLER_PRODUCT_UNITS,
+  formatMoney,
+  getDillerBrandLabel,
+} from '../../utils/dillerData';
 import { dillerSheetScrollClass } from './dillerMobileLayout';
 
 type Props = {
@@ -10,6 +16,7 @@ type Props = {
   onClose: () => void;
   sale: DillerSale | null;
   data: DillerData;
+  onDataChange?: (next: DillerData) => void;
 };
 
 function unitLabel(u: string) {
@@ -21,7 +28,7 @@ function chekNumber(saleId: string): string {
   return `CHK-${tail}`;
 }
 
-export function DillerSaleReceiptModal({ open, onClose, sale, data }: Props) {
+export function DillerSaleReceiptModal({ open, onClose, sale, data, onDataChange }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const printRef = useRef<HTMLDivElement>(null);
@@ -34,6 +41,30 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data }: Props) {
   const isDebt = sale.paymentType === 'qarz';
   const hasDiscount = (sale.discountAmount ?? 0) > 0;
   const dt = new Date(sale.createdAt);
+  const isCancelled = Boolean(sale.cancelled);
+
+  const handleCancelSale = () => {
+    if (!onDataChange) return;
+    if (isCancelled) {
+      toast.error('Bu sotuv allaqachon bekor qilingan');
+      return;
+    }
+    if (
+      !window.confirm(
+        'Sotuvni bekor qilasizmi? Miqdor omborga qaytariladi va qarz yopiladi.',
+      )
+    ) {
+      return;
+    }
+    const result = cancelSale(data, sale.id);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    onDataChange(result.data);
+    toast.success('Sotuv bekor qilindi — ombor yangilandi');
+    onClose();
+  };
 
   const handlePrint = () => {
     const el = printRef.current;
@@ -103,6 +134,11 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data }: Props) {
         <div className={`${dillerSheetScrollClass} p-4 pb-6`}>
           <div ref={printRef}>
             <div className="text-center mb-4 pb-4 border-b border-dashed" style={{ borderColor: border }}>
+              {isCancelled ? (
+                <div className="mb-2 inline-block px-3 py-1 rounded-full text-xs font-bold bg-red-500/20 text-red-400">
+                  BEKOR QILINGAN
+                </div>
+              ) : null}
               <div className="text-xs font-bold tracking-widest opacity-60">ARESSO</div>
               <h3 className="font-bold text-base mt-1">{getDillerBrandLabel(profile.companyName)}</h3>
               {profile.phone ? <div className="text-xs opacity-60 mt-0.5">{profile.phone}</div> : null}
@@ -216,7 +252,7 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data }: Props) {
           </div>
         </div>
 
-        <div className="shrink-0 p-4 border-t safe-area-pb" style={{ borderColor: border }}>
+        <div className="shrink-0 p-4 border-t safe-area-pb space-y-2" style={{ borderColor: border }}>
           <button
             type="button"
             onClick={handlePrint}
@@ -226,6 +262,17 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data }: Props) {
             <Printer className="w-5 h-5" />
             Chekni chop etish
           </button>
+          {onDataChange && !isCancelled ? (
+            <button
+              type="button"
+              onClick={handleCancelSale}
+              className="w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-red-400"
+              style={{ background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.1)' }}
+            >
+              <Trash2 className="w-4 h-4" />
+              Sotuvni bekor qilish
+            </button>
+          ) : null}
         </div>
       </div>
     </div>

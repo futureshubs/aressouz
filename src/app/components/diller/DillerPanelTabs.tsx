@@ -95,16 +95,20 @@ export function DillerSotuvTab({ data, onDataChange }: Omit<Props, 'tab'>) {
         onClose={() => setReceiptSale(null)}
         sale={receiptSale}
         data={data}
+        onDataChange={onDataChange}
       />
 
       <Card isDark={isDark}>
         <h3 className="font-bold text-sm mb-1">So‘nggi sotuvlar</h3>
         <p className="text-[10px] opacity-50 mb-3">Kartani bosing — to‘liq chek ochiladi</p>
-        {data.sales.length === 0 ? (
+        {data.sales.filter((s) => !s.cancelled).length === 0 ? (
           <p className="text-sm opacity-60">Hali sotuv yo‘q — «Yangi sotuv» tugmasini bosing</p>
         ) : (
           <ul className={dillerListClass}>
-            {data.sales.slice(0, 40).map((sale) => (
+            {data.sales
+              .filter((s) => !s.cancelled)
+              .slice(0, 40)
+              .map((sale) => (
               <li key={sale.id}>
                 <DillerSaleCard
                   sale={sale}

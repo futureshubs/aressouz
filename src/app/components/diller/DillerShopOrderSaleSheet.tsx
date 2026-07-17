@@ -9,6 +9,11 @@ import {
   findStoresByPhone,
   formatMoney,
 } from '../../utils/dillerData';
+import { normalizeUzPhoneForSms } from '../../utils/dillerPurchaseSms';
+import {
+  maybeSendShopOrderPurchaseSms,
+  purchaseSmsToast,
+} from '../../utils/dillerPurchaseSmsSend';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 
 type Props = {
@@ -39,6 +44,7 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
   const [discountMode, setDiscountMode] = useState<'percent' | 'amount'>('percent');
   const [discountPercent, setDiscountPercent] = useState('');
   const [discountAmountInput, setDiscountAmountInput] = useState('');
+  const [sendSms, setSendSms] = useState(true);
 
   const store = useMemo(() => {
     if (!order) return null;
@@ -99,7 +105,18 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
     setDiscountMode('percent');
     setDiscountPercent('');
     setDiscountAmountInput('');
+    setSendSms(true);
   }, [open, orderId, order?.note, order?.total, subtotal]);
+
+  const orderPhoneOk = Boolean(
+    normalizeUzPhoneForSms(order?.customerPhone || '') ||
+      normalizeUzPhoneForSms(store?.phone || ''),
+  );
+
+  useEffect(() => {
+    if (!open) return;
+    setSendSms(orderPhoneOk);
+  }, [open, orderId, orderPhoneOk]);
 
   useEffect(() => {
     if (paymentType === 'naqd') {
@@ -120,7 +137,8 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
 
   const debtRemainder = Math.max(0, finalTotal - (Number(paidNow) || 0));
 
-  const submit = () => {
+  const submit = async () => {
+    if (submitting || !order) return;
     setSubmitting(true);
     const result = confirmShopOrderSale(data, order.id, {
       paymentType,
@@ -130,13 +148,25 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
       discountPercent: discountOn && discountMode === 'percent' ? Number(discountPercent) || 0 : undefined,
       discountAmount: discountOn && discountMode === 'amount' ? Number(discountAmountInput) || 0 : undefined,
     });
-    setSubmitting(false);
     if (result.error) {
+      setSubmitting(false);
       toast.error(result.error);
       return;
     }
     onComplete(result.data);
-    toast.success('Sotuv tasdiqlandi — ombor va statistika yangilandi');
+    const debtAmount =
+      paymentType === 'qarz' ? Math.max(0, finalTotal - (Number(paidNow) || 0)) : 0;
+    const sms = await maybeSendShopOrderPurchaseSms({
+      data: result.data,
+      order,
+      total: finalTotal,
+      discountPercent: totals.discountPercent,
+      debtAmount,
+      debtDueDate: paymentType === 'qarz' ? debtDueDate : undefined,
+      send: sendSms && orderPhoneOk,
+    });
+    setSubmitting(false);
+    toast.success(purchaseSmsToast(sms, 'Sotuv tasdiqlandi — ombor va statistika yangilandi'));
     onClose();
   };
 
@@ -355,6 +385,27 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
               placeholder="Masalan: yetkazib berildi"
             />
           </div>
+          <label
+            className={`mt-3 flex items-start gap-3 rounded-xl border px-3 py-3 text-sm ${
+              isDark ? 'border-white/10 bg-white/5' : 'border-gray-200 bg-white'
+            } ${!orderPhoneOk ? 'opacity-50' : ''}`}
+          >
+            <input
+              type="checkbox"
+              className="mt-0.5"
+              checked={sendSms && orderPhoneOk}
+              disabled={!orderPhoneOk}
+              onChange={(e) => setSendSms(e.target.checked)}
+            />
+            <span>
+              <span className="font-medium">Xarid SMS yuborish</span>
+              <span className="block text-xs opacity-60 mt-0.5">
+                {orderPhoneOk
+                  ? 'Mijoz telefoniga informatsion (purchase_info) SMS'
+                  : 'Telefon raqam yo‘q — SMS yuborib bo‘lmaydi'}
+              </span>
+            </span>
+          </label>
         </section>
 
         <p className="text-[10px] opacity-45 leading-relaxed px-1">
@@ -368,7 +419,7 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
       >
         <button
           type="button"
-          onClick={submit}
+          onClick={() => void submit()}
           disabled={submitting || !store}
           className="w-full py-4 rounded-2xl font-bold text-slate-900 disabled:opacity-40 flex items-center justify-center gap-2"
           style={{ background: accentColor.gradient }}

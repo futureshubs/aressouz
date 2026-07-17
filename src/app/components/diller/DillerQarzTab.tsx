@@ -28,6 +28,12 @@ import { computeExpenseSummary, filterExpensesByPeriod } from '../../utils/dille
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerSale } from '../../utils/dillerData';
 import { formatMoney, recordDebtPayment, settleDebtFully } from '../../utils/dillerData';
+import { normalizeUzPhoneForSms } from '../../utils/dillerPurchaseSms';
+import {
+  maybeSendDebtOverdueSms,
+  maybeSendDebtPaymentSms,
+  purchaseSmsToast,
+} from '../../utils/dillerPurchaseSmsSend';
 import { formatStoreDistance, getStoreDistanceKm, getStoreStats } from '../../utils/dillerStoreStats';
 import { DillerSaleCard } from './DillerSaleCard';
 import { DillerSaleReceiptModal } from './DillerSaleReceiptModal';
@@ -121,6 +127,8 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
   );
   const [paySaleId, setPaySaleId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState('');
+  const [sendDebtSms, setSendDebtSms] = useState(true);
+  const [smsBusyId, setSmsBusyId] = useState<string | null>(null);
   const [statPeriod, setStatPeriod] = useState<HistoryPeriod>('all');
   const [statCustomRange, setStatCustomRange] = useState<HistoryDateRange>(() =>
     defaultCustomHistoryRange(),
@@ -269,18 +277,43 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
     });
   };
 
-  const submitPayment = (saleId: string, full = false) => {
+  const submitPayment = async (saleId: string, full = false) => {
+    const before = data.sales.find((s) => s.id === saleId);
     const result = full
       ? settleDebtFully(data, saleId)
       : recordDebtPayment(data, saleId, Number(payAmount) || 0);
-    if (result.error) {
-      toast.error(result.error);
+    if (result.error || !result.sale) {
+      toast.error(result.error || 'To‘lov saqlanmadi');
       return;
     }
     onDataChange(result.data);
     setPaySaleId(null);
     setPayAmount('');
-    toast.success(full ? 'Qarz yopildi' : 'To‘lov qayd etildi');
+
+    const storePhone = normalizeUzPhoneForSms(
+      data.stores.find((s) => s.id === (before?.storeId || result.sale?.storeId))?.phone || '',
+    );
+    const sms = await maybeSendDebtPaymentSms({
+      data: result.data,
+      sale: result.sale,
+      paidAmount: result.paidAmount ?? 0,
+      remainingDebt: result.remainingDebt ?? 0,
+      send: sendDebtSms && Boolean(storePhone),
+    });
+    toast.success(
+      purchaseSmsToast(sms, full || (result.remainingDebt ?? 0) <= 0 ? 'Qarz yopildi' : 'To‘lov qayd etildi'),
+    );
+  };
+
+  const sendOverdueSms = async (sale: DillerSale) => {
+    if (smsBusyId) return;
+    setSmsBusyId(sale.id);
+    const sms = await maybeSendDebtOverdueSms({ data, sale });
+    setSmsBusyId(null);
+    if (sms.sent) toast.success('Muddat SMS yuborildi');
+    else if (sms.error) toast.error(sms.error);
+    else if (sms.skipped === 'no_phone') toast.error('Do‘konda telefon yo‘q');
+    else toast.error('SMS yuborilmadi');
   };
 
   const debtFilters: { id: DebtFilter; label: string }[] = [
@@ -349,6 +382,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
         onClose={() => setReceiptSale(null)}
         sale={receiptSale}
         data={data}
+        onDataChange={onDataChange}
       />
 
       <div
@@ -567,6 +601,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                   const saleDebt = sale.debtAmount ?? 0;
                   const saleSettledPercent =
                     sale.total > 0 ? Math.min(100, Math.round((salePaid / sale.total) * 100)) : 0;
+                  const storePhoneOk = Boolean(normalizeUzPhoneForSms(store?.phone || ''));
 
                   return (
                     <li
@@ -704,51 +739,104 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                           Chekni ko‘rish
                         </button>
                       ) : paying ? (
-                        <div className="mt-3 flex gap-2">
-                          <input
-                            type="number"
-                            min={1}
-                            max={sale.debtAmount}
-                            value={payAmount}
-                            onChange={(e) => setPayAmount(e.target.value)}
-                            className={`flex-1 px-3 py-2 rounded-xl border text-sm ${
-                              isDark
-                                ? 'bg-white/5 border-white/10 text-white'
-                                : 'bg-white border-gray-200'
+                        <div className="mt-3 space-y-2">
+                          <div className="flex gap-2">
+                            <input
+                              type="number"
+                              min={1}
+                              max={sale.debtAmount}
+                              value={payAmount}
+                              onChange={(e) => setPayAmount(e.target.value)}
+                              className={`flex-1 px-3 py-2 rounded-xl border text-sm ${
+                                isDark
+                                  ? 'bg-white/5 border-white/10 text-white'
+                                  : 'bg-white border-gray-200'
+                              }`}
+                            />
+                            <button
+                              type="button"
+                              onClick={() => void submitPayment(sale.id)}
+                              className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500 text-slate-900"
+                            >
+                              OK
+                            </button>
+                          </div>
+                          <label
+                            className={`flex items-start gap-2 text-[11px] ${
+                              !storePhoneOk ? 'opacity-50' : 'opacity-80'
                             }`}
-                          />
-                          <button
-                            type="button"
-                            onClick={() => submitPayment(sale.id)}
-                            className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500 text-slate-900"
                           >
-                            OK
-                          </button>
+                            <input
+                              type="checkbox"
+                              className="mt-0.5"
+                              checked={sendDebtSms && storePhoneOk}
+                              disabled={!storePhoneOk}
+                              onChange={(e) => setSendDebtSms(e.target.checked)}
+                            />
+                            <span>
+                              SMS yuborish
+                              {!storePhoneOk ? ' (telefon yo‘q)' : ''}
+                            </span>
+                          </label>
                         </div>
                       ) : (
-                        <div className="mt-3 flex gap-2">
-                          <button
-                            type="button"
-                            onClick={() => {
-                              setPaySaleId(sale.id);
-                              setPayAmount(String(sale.debtAmount));
-                            }}
-                            className="flex-1 py-2 rounded-xl text-xs font-bold border"
-                            style={{
-                              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
-                            }}
-                          >
-                            To‘lov
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => submitPayment(sale.id, true)}
-                            className="flex-1 py-2 rounded-xl text-xs font-bold text-slate-900 flex items-center justify-center gap-1"
-                            style={{ background: accentColor.gradient }}
-                          >
-                            <CheckCircle2 className="w-3.5 h-3.5" />
-                            Yopildi
-                          </button>
+                        <div className="mt-3 space-y-2">
+                          <div className="flex gap-2">
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setPaySaleId(sale.id);
+                                setPayAmount(String(sale.debtAmount));
+                                setSendDebtSms(storePhoneOk);
+                              }}
+                              className="flex-1 py-2 rounded-xl text-xs font-bold border"
+                              style={{
+                                borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
+                              }}
+                            >
+                              To‘lov
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => void submitPayment(sale.id, true)}
+                              className="flex-1 py-2 rounded-xl text-xs font-bold text-slate-900 flex items-center justify-center gap-1"
+                              style={{ background: accentColor.gradient }}
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" />
+                              Yopildi
+                            </button>
+                          </div>
+                          {overdue ? (
+                            <button
+                              type="button"
+                              disabled={!storePhoneOk || smsBusyId === sale.id}
+                              onClick={() => void sendOverdueSms(sale)}
+                              className="w-full py-2 rounded-xl text-xs font-bold border text-red-500 disabled:opacity-40"
+                              style={{
+                                borderColor: 'rgba(239,68,68,0.35)',
+                                background: isDark
+                                  ? 'rgba(239,68,68,0.08)'
+                                  : 'rgba(239,68,68,0.06)',
+                              }}
+                            >
+                              {smsBusyId === sale.id
+                                ? 'SMS yuborilmoqda…'
+                                : storePhoneOk
+                                  ? 'Muddat o‘tdi — SMS'
+                                  : 'Muddat SMS (telefon yo‘q)'}
+                            </button>
+                          ) : null}
+                          {storePhoneOk ? (
+                            <label className="flex items-start gap-2 text-[11px] opacity-80">
+                              <input
+                                type="checkbox"
+                                className="mt-0.5"
+                                checked={sendDebtSms}
+                                onChange={(e) => setSendDebtSms(e.target.checked)}
+                              />
+                              <span>«Yopildi» / to‘lovda SMS</span>
+                            </label>
+                          ) : null}
                         </div>
                       )}
                     </li>
