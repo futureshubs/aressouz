@@ -4,6 +4,7 @@ import { Banknote, CreditCard, Receipt, Save, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerExpense, DillerExpensePayment } from '../../utils/dillerData';
 import { updateExpense } from '../../utils/dillerData';
+import { dillerDatetimeLocalToIso, dillerToDatetimeLocalValue } from '../../utils/dillerTime';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 import {
   iosAccentFillStyle,
@@ -42,16 +43,14 @@ export function DillerExpenseEditSheet({ open, expense, data, onClose, onSave }:
     setAmount(String(expense.amount));
     setPaymentMethod(expense.paymentMethod);
     setNote(expense.note);
-    const d = new Date(expense.createdAt);
-    if (!Number.isNaN(d.getTime())) {
-      setDate(d.toISOString().slice(0, 16));
-    }
+    const local = dillerToDatetimeLocalValue(expense.createdAt);
+    if (local) setDate(local);
   }, [open, expense]);
 
   if (!open || !expense) return null;
 
   const save = () => {
-    const createdAt = date ? new Date(date).toISOString() : expense.createdAt;
+    const createdAt = date ? dillerDatetimeLocalToIso(date) : expense.createdAt;
     const result = updateExpense(data, expense.id, {
       purpose,
       amount: Number(amount),

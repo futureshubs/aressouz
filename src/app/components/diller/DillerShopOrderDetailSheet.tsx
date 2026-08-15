@@ -14,6 +14,7 @@ import {
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerShopOrder, DillerShopOrderStatus } from '../../utils/dillerData';
 import { findStoresByPhone, formatMoney } from '../../utils/dillerData';
+import { formatDillerDateTime } from '../../utils/dillerTime';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 import { iosAccentFillStyle, iosGlassBarStyle, iosGlassCardStyle, iosGlassPageStyle } from './dillerIosGlass';
 
@@ -106,7 +107,6 @@ export function DillerShopOrderDetailSheet({
     : null);
 
   const totalQty = order.items.reduce((s, it) => s + it.qty, 0);
-  const created = new Date(order.createdAt);
   const orderNo = order.id.replace(/^ord_/, '').slice(0, 12).toUpperCase();
 
   return (
@@ -253,13 +253,11 @@ export function DillerShopOrderDetailSheet({
         <Section title="Vaqt" icon={<Calendar className="w-3.5 h-3.5" />} isDark={isDark}>
           <InfoRow
             label="Buyurtma vaqti"
-            value={created.toLocaleString('uz-UZ', {
+            value={formatDillerDateTime(order.createdAt, {
               weekday: 'long',
               day: '2-digit',
               month: 'long',
               year: 'numeric',
-              hour: '2-digit',
-              minute: '2-digit',
             })}
           />
           <InfoRow label="Buyurtma ID" value={order.id} />

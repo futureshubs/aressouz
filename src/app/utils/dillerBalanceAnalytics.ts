@@ -1,4 +1,5 @@
 import type { DillerBalanceEntry, DillerData } from './dillerData';
+import { formatDillerDateTime } from './dillerTime';
 import { filterSalesByPeriod, type HistoryDateRange, type HistoryPeriod } from './dillerDebtAnalytics';
 
 export type BalanceChannel = 'naqd' | 'karta';
@@ -159,12 +160,5 @@ export function computeBalanceBreakdown(
 }
 
 export function formatBalanceDate(iso: string): string {
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleString('uz-UZ', {
-    day: 'numeric',
-    month: 'short',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDillerDateTime(iso, { year: undefined });
 }

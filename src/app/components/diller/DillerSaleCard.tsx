@@ -2,6 +2,7 @@ import { Banknote, ChevronRight, Clock3, CreditCard, Receipt, Store, Wallet } fr
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerSale } from '../../utils/dillerData';
 import { formatMoney } from '../../utils/dillerData';
+import { formatDillerDate, formatDillerTime, isDillerToday } from '../../utils/dillerTime';
 import { iosGlassCardStyle } from './dillerIosGlass';
 
 type Props = {
@@ -12,16 +13,10 @@ type Props = {
 };
 
 function formatSaleWhen(iso: string): string {
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '';
-  const now = new Date();
-  const sameDay =
-    d.getFullYear() === now.getFullYear() &&
-    d.getMonth() === now.getMonth() &&
-    d.getDate() === now.getDate();
-  const time = d.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit' });
-  if (sameDay) return time;
-  const date = d.toLocaleDateString('uz-UZ', { day: 'numeric', month: 'short' });
+  const time = formatDillerTime(iso);
+  if (!time) return '';
+  if (isDillerToday(iso)) return time;
+  const date = formatDillerDate(iso, { day: 'numeric', month: 'short', year: undefined });
   return `${date} · ${time}`;
 }
 

@@ -27,7 +27,8 @@ import {
   normalizeExpensePurposeKey,
 } from '../../utils/dillerExpenseAnalytics';
 import type { HistoryDateRange, HistoryPeriod } from '../../utils/dillerDebtAnalytics';
-import { getHistoryPeriodLabel, toIsoDate } from '../../utils/dillerDebtAnalytics';
+import { getHistoryPeriodLabel } from '../../utils/dillerDebtAnalytics';
+import { dillerTodayDate } from '../../utils/dillerTime';
 import { DillerExpenseEditSheet } from './DillerExpenseEditSheet';
 import { dillerListClass } from './dillerMobileLayout';
 import { iosAccentFillStyle, iosGlassCardStyle, iosGlassInputStyle } from './dillerIosGlass';
@@ -524,7 +525,7 @@ export function DillerHarajatSection({ data, onDataChange, isDark }: Props) {
               type="date"
               value={customRange.to}
               min={customRange.from}
-              max={toIsoDate(new Date())}
+              max={dillerTodayDate()}
               onChange={(e) => setCustomRange((r) => ({ ...r, to: e.target.value }))}
               className={`px-2 py-2 rounded-lg border text-sm ${
                 isDark ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]' : 'bg-white border-gray-200'

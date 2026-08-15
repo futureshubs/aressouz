@@ -23,6 +23,7 @@ import {
   uploadDillerToCloud,
   type DillerSyncStatus,
 } from '../utils/dillerSync';
+import { DILLER_TIME_ZONE } from '../utils/dillerTime';
 import {
   dillerMainScrollClass,
   dillerPageShellClass,
@@ -45,6 +46,7 @@ function formatSyncTime(iso: string | null): string {
   const t = new Date(iso).getTime();
   if (!Number.isFinite(t) || t <= 0) return '';
   return new Intl.DateTimeFormat('uz-UZ', {
+    timeZone: DILLER_TIME_ZONE,
     day: '2-digit',
     month: '2-digit',
     hour: '2-digit',

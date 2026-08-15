@@ -9,6 +9,7 @@ import {
   formatMoney,
   getWarehouseQty,
 } from '../../utils/dillerData';
+import { formatDillerDateTime } from '../../utils/dillerTime';
 import { dillerTabContentClass } from './dillerMobileLayout';
 import { iosAccentFillStyle, iosGlassCardStyle } from './dillerIosGlass';
 import { resolveDillerImage } from '../../utils/dillerMedia';
@@ -220,12 +221,7 @@ export function DillerOmborTab({ data, onDataChange }: Props) {
                   <div className="min-w-0">
                     <div className="font-semibold truncate">{p?.name ?? 'Mahsulot'}</div>
                     <div className="text-[10px] opacity-45 truncate">
-                      {m.note} · {new Date(m.createdAt).toLocaleString('uz-UZ', {
-                        day: '2-digit',
-                        month: 'short',
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
+                      {m.note} · {formatDillerDateTime(m.createdAt, { year: undefined })}
                     </div>
                   </div>
                   <span className={`font-black shrink-0 ${kirim ? 'text-emerald-500' : 'text-rose-400'}`}>

@@ -32,6 +32,7 @@ import {
 import { readDillerSession } from '../../utils/dillerSession';
 import { downloadDillerQrPoster } from '../../utils/dillerQrPoster';
 import { pushDillerLocalNow } from '../../utils/dillerSync';
+import { formatDillerDateTime } from '../../utils/dillerTime';
 import { dillerListClass } from './dillerMobileLayout';
 import { iosAccentFillStyle, iosGlassCardStyle, iosGlassInputStyle } from './dillerIosGlass';
 import { DillerShopOrderDetailSheet } from './DillerShopOrderDetailSheet';
@@ -431,13 +432,13 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
                       ) : (
                         <span className="text-[10px] opacity-40">
                           {order.completedAt
-                            ? new Date(order.completedAt).toLocaleString('uz-UZ')
+                            ? formatDillerDateTime(order.completedAt)
                             : ''}
                         </span>
                       )}
                     </div>
                     <div className="text-[10px] opacity-40 mt-2">
-                      {new Date(order.createdAt).toLocaleString('uz-UZ')}
+                      {formatDillerDateTime(order.createdAt)}
                     </div>
                   </div>
                 </li>
@@ -521,7 +522,7 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
                     </div>
 
                     <div className="text-[10px] opacity-40 mt-2">
-                      {new Date(order.createdAt).toLocaleString('uz-UZ')} · Batafsil
+                      {formatDillerDateTime(order.createdAt)} · Batafsil
                     </div>
                   </button>
                 </li>

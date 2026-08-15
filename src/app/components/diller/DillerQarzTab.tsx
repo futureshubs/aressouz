@@ -24,6 +24,14 @@ import {
   purchaseSmsToast,
 } from '../../utils/dillerPurchaseSmsSend';
 import { formatStoreDistance, getStoreDistanceKm, getStoreStats } from '../../utils/dillerStoreStats';
+import {
+  dillerAddCalendarDays,
+  dillerAddCalendarMonths,
+  dillerCalendarDate,
+  dillerCalendarDaysBetween,
+  dillerTodayDate,
+  formatDillerDate,
+} from '../../utils/dillerTime';
 import { DillerSaleCard } from './DillerSaleCard';
 import { DillerSaleReceiptModal } from './DillerSaleReceiptModal';
 import {
@@ -32,7 +40,6 @@ import {
   countSaleTransactions,
   defaultCustomHistoryRange,
   filterSalesByPeriod,
-  toIsoDate,
   getHistoryPeriodLabel,
   groupSalesByMonth,
   sumSalesProfit,
@@ -97,31 +104,18 @@ function StatTile({
 }
 
 function formatIsoDay(iso: string): string {
-  const d = new Date(`${iso}T12:00:00`);
-  if (!Number.isFinite(d.getTime())) return iso;
-  return d.toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' });
+  return formatDillerDate(iso, { day: '2-digit', month: '2-digit', year: 'numeric' });
 }
 
 function daysInclusive(from: string, to: string): number {
-  const a = new Date(`${from}T12:00:00`).getTime();
-  const b = new Date(`${to}T12:00:00`).getTime();
-  if (!Number.isFinite(a) || !Number.isFinite(b)) return 1;
-  return Math.max(1, Math.round(Math.abs(b - a) / 86_400_000) + 1);
+  return Math.max(1, Math.abs(dillerCalendarDaysBetween(from, to)) + 1);
 }
 
 function rangeFromDebtPreset(id: HistoryPeriod, earliest: string): { from: string; to: string } {
-  const to = toIsoDate(new Date());
-  const from = new Date();
-  from.setHours(12, 0, 0, 0);
+  const to = dillerTodayDate();
   if (id === '1d') return { from: to, to };
-  if (id === '1w') {
-    from.setDate(from.getDate() - 6);
-    return { from: toIsoDate(from), to };
-  }
-  if (id === '1m') {
-    from.setMonth(from.getMonth() - 1);
-    return { from: toIsoDate(from), to };
-  }
+  if (id === '1w') return { from: dillerAddCalendarDays(to, -6), to };
+  if (id === '1m') return { from: dillerAddCalendarMonths(to, -1), to };
   return { from: earliest || to, to };
 }
 
@@ -181,11 +175,11 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
   const activeSection = forcedSection ?? 'qarz';
 
   const earliestQarzDay = useMemo(() => {
-    let min = toIsoDate(new Date());
+    let min = dillerTodayDate();
     for (const sale of data.sales) {
       if (sale.paymentType !== 'qarz' || sale.cancelled) continue;
-      const day = toIsoDate(new Date(sale.createdAt));
-      if (day < min) min = day;
+      const day = dillerCalendarDate(sale.createdAt);
+      if (day && day < min) min = day;
     }
     return min;
   }, [data.sales]);
@@ -516,7 +510,7 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
                     type="date"
                     value={hulosaDates.from}
                     min={earliestQarzDay}
-                    max={toIsoDate(new Date())}
+                    max={dillerTodayDate()}
                     onChange={(e) => setCustomBound('from', e.target.value)}
                     className={`w-full min-w-0 bg-transparent outline-none text-[13px] font-semibold tabular-nums ${
                       isDark ? '[color-scheme:dark] text-white' : 'text-gray-900'
@@ -532,7 +526,7 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
                     type="date"
                     value={hulosaDates.to}
                     min={hulosaDates.from || earliestQarzDay}
-                    max={toIsoDate(new Date())}
+                    max={dillerTodayDate()}
                     onChange={(e) => setCustomBound('to', e.target.value)}
                     className={`w-full min-w-0 bg-transparent outline-none text-[13px] font-semibold tabular-nums ${
                       isDark ? '[color-scheme:dark] text-white' : 'text-gray-900'
@@ -717,7 +711,7 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
                     type="date"
                     value={historyCustomRange.to}
                     min={historyCustomRange.from}
-                    max={toIsoDate(new Date())}
+                    max={dillerTodayDate()}
                     onChange={(e) =>
                       setHistoryCustomRange((r) => ({ ...r, to: e.target.value }))
                     }

@@ -1,4 +1,17 @@
 import type { DillerData, DillerProduct, DillerSale } from './dillerData';
+import {
+  dillerAddCalendarDays,
+  dillerCalendarDate,
+  dillerCalendarDaysBetween,
+  dillerDayEndMs,
+  dillerDayStartMs,
+  dillerDueDateKey,
+  dillerMonthKey,
+  dillerStartOfTodayMs,
+  dillerTodayDate,
+  formatDillerDate,
+  toDillerIsoDate,
+} from './dillerTime';
 
 export type DebtStoreSummary = {
   storeId: string;
@@ -24,17 +37,8 @@ export type DebtAnalytics = {
   byStore: DebtStoreSummary[];
 };
 
-function parseDueDate(iso: string): Date | null {
-  const s = iso.trim();
-  if (!s) return null;
-  const d = new Date(s.length <= 10 ? `${s}T12:00:00` : s);
-  return Number.isNaN(d.getTime()) ? null : d;
-}
-
 function startOfToday(): Date {
-  const d = new Date();
-  d.setHours(0, 0, 0, 0);
-  return d;
+  return new Date(dillerStartOfTodayMs());
 }
 
 export function isSaleDebtOpen(sale: DillerSale): boolean {
@@ -46,26 +50,24 @@ export function isSaleDebtClosed(sale: DillerSale): boolean {
   return sale.paymentType === 'qarz' && !isSaleDebtOpen(sale);
 }
 
-export function isSaleOverdue(sale: DillerSale, now = startOfToday()): boolean {
+export function isSaleOverdue(sale: DillerSale, now = new Date()): boolean {
   if (!isSaleDebtOpen(sale)) return false;
-  const due = parseDueDate(sale.debtDueDate);
+  const due = dillerDueDateKey(sale.debtDueDate);
   if (!due) return false;
-  due.setHours(0, 0, 0, 0);
-  return due.getTime() < now.getTime();
+  return due < dillerCalendarDate(now);
 }
 
-export function isSaleDueSoon(sale: DillerSale, now = startOfToday(), withinDays = 7): boolean {
+export function isSaleDueSoon(sale: DillerSale, now = new Date(), withinDays = 7): boolean {
   if (!isSaleDebtOpen(sale)) return false;
-  const due = parseDueDate(sale.debtDueDate);
+  const due = dillerDueDateKey(sale.debtDueDate);
   if (!due) return false;
-  due.setHours(0, 0, 0, 0);
-  const end = new Date(now);
-  end.setDate(end.getDate() + withinDays);
-  return due.getTime() >= now.getTime() && due.getTime() <= end.getTime();
+  const today = dillerCalendarDate(now);
+  const last = dillerAddCalendarDays(today, withinDays);
+  return due >= today && due <= last;
 }
 
 export function computeDebtAnalytics(data: DillerData, sales = data.sales): DebtAnalytics {
-  const today = startOfToday();
+  const today = new Date();
   let openDebtTotal = 0;
   let paidOnCreditTotal = 0;
   let creditSalesTotal = 0;
@@ -264,21 +266,21 @@ export type HistoryDateRange = {
 };
 
 export function toIsoDate(d: Date): string {
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return toDillerIsoDate(d);
 }
 
 export function defaultCustomHistoryRange(): HistoryDateRange {
-  const to = new Date();
-  const from = new Date();
-  from.setDate(from.getDate() - 30);
-  return { from: toIsoDate(from), to: toIsoDate(to) };
+  const to = dillerTodayDate();
+  return { from: dillerAddCalendarDays(to, -30), to };
 }
 
 function parseRangeBound(iso: string, endOfDay: boolean): number {
   const s = iso.trim();
   if (!s) return NaN;
-  const d = new Date(s.length <= 10 ? `${s}T${endOfDay ? '23:59:59' : '00:00:00'}` : s);
-  return d.getTime();
+  if (s.length <= 10) {
+    return endOfDay ? dillerDayEndMs(s) : dillerDayStartMs(s);
+  }
+  return new Date(s).getTime();
 }
 
 function periodWindow(
@@ -293,24 +295,23 @@ function periodWindow(
     if (Number.isNaN(start) || Number.isNaN(end)) return null;
     return { start: Math.min(start, end), end: Math.max(start, end) };
   }
-  const dayMs = 24 * 60 * 60 * 1000;
-  const rollingDays: Partial<Record<HistoryPeriod, number>> = {
+  const today = dillerTodayDate();
+  const end = Date.now();
+  const calendarDays: Partial<Record<HistoryPeriod, number>> = {
     '1d': 1,
     '2d': 2,
     '1w': 7,
     '1m': 30,
     '3m': 90,
     '6m': 182,
+    '1y': 365,
+    '3y': 1095,
+    '5y': 1825,
   };
-  const days = rollingDays[period];
-  if (days != null) {
-    return { start: Date.now() - days * dayMs, end: Date.now() };
-  }
-  const years = period === '1y' ? 1 : period === '3y' ? 3 : period === '5y' ? 5 : 0;
-  if (years > 0) {
-    return { start: Date.now() - years * 365.25 * dayMs, end: Date.now() };
-  }
-  return null;
+  const days = calendarDays[period];
+  if (days == null) return null;
+  const from = dillerAddCalendarDays(today, -(days - 1));
+  return { start: dillerDayStartMs(from), end };
 }
 
 export type SaleHistoryGroup = {
@@ -482,7 +483,7 @@ export function groupSalesByMonth(sales: DillerSale[]): SaleHistoryGroup[] {
   const map = new Map<string, DillerSale[]>();
   for (const sale of sales) {
     const d = new Date(sale.createdAt);
-    const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const key = dillerMonthKey(sale.createdAt) || `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
     const list = map.get(key) ?? [];
     list.push(sale);
     map.set(key, list);
@@ -551,8 +552,7 @@ export function computeExtendedAnalytics(
     if (sale.paymentType === 'naqd') naqdProfit += profit;
     else qarzProfit += profit;
 
-    const d = new Date(sale.createdAt);
-    const mKey = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+    const mKey = dillerMonthKey(sale.createdAt);
     let m = monthMap.get(mKey);
     if (!m) {
       m = { key: mKey, label: monthLabel(mKey), total: 0, count: 0, naqd: 0, qarz: 0, cost: 0, profit: 0 };
@@ -684,11 +684,11 @@ export type DebtCollectionAnalytics = {
   collectionRate: number;
 };
 
-function daysBetween(from: Date, to: Date): number {
-  return Math.floor((to.getTime() - from.getTime()) / 86_400_000);
+function daysBetweenYmd(fromYmd: string, toYmd: string): number {
+  return dillerCalendarDaysBetween(fromYmd, toYmd);
 }
 
-function enrichCreditSale(sale: DillerSale, data: DillerData, now = startOfToday()): DebtSaleInsight {
+function enrichCreditSale(sale: DillerSale, data: DillerData, now = new Date()): DebtSaleInsight {
   const store = data.stores.find((s) => s.id === sale.storeId);
   const product = data.products.find((p) => p.id === sale.productId);
   const isClosed = isSaleDebtClosed(sale);
@@ -696,17 +696,13 @@ function enrichCreditSale(sale: DillerSale, data: DillerData, now = startOfToday
   const debtAmount = sale.debtAmount ?? 0;
   const paidAmount = sale.paidAmount ?? 0;
   let daysOverdue = 0;
+  const todayKey = dillerCalendarDate(now);
   if (isOverdue && sale.debtDueDate) {
-    const due = parseDueDate(sale.debtDueDate);
-    if (due) {
-      due.setHours(0, 0, 0, 0);
-      daysOverdue = Math.max(0, daysBetween(due, now));
-    }
+    const due = dillerDueDateKey(sale.debtDueDate);
+    if (due) daysOverdue = Math.max(0, daysBetweenYmd(due, todayKey));
   }
-  const created = new Date(sale.createdAt);
-  const daysSinceSale = Number.isNaN(created.getTime())
-    ? 0
-    : Math.max(0, daysBetween(created, new Date()));
+  const createdKey = dillerCalendarDate(sale.createdAt);
+  const daysSinceSale = createdKey ? Math.max(0, daysBetweenYmd(createdKey, todayKey)) : 0;
 
   return {
     saleId: sale.id,
@@ -825,9 +821,7 @@ export function computeCurrentDebtSnapshot(data: DillerData): DebtCollectionAnal
 
 export function formatDebtInsightDate(iso: string): string {
   if (!iso.trim()) return '—';
-  const d = new Date(iso.length <= 10 ? `${iso}T12:00:00` : iso);
-  if (Number.isNaN(d.getTime())) return iso;
-  return d.toLocaleDateString('uz-UZ', { day: '2-digit', month: 'short', year: 'numeric' });
+  return formatDillerDate(iso, { day: '2-digit', month: 'short', year: 'numeric' });
 }
 
 export type PaymentFlowBreakdown = {

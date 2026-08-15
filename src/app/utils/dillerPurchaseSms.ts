@@ -8,6 +8,8 @@
  *   debt_overdue   — muddat o‘tdi
  */
 
+import { formatDillerDayDot } from './dillerTime';
+
 export type DillerPurchaseSmsVars = {
   mijoz: string;
   dokon: string;
@@ -40,12 +42,7 @@ export function formatSmsMoney(n: number): string {
 }
 
 export function formatSmsDate(isoOrDate: string): string {
-  const d = new Date(isoOrDate);
-  if (!Number.isFinite(d.getTime())) return String(isoOrDate || '').trim();
-  const dd = String(d.getDate()).padStart(2, '0');
-  const mm = String(d.getMonth() + 1).padStart(2, '0');
-  const yyyy = d.getFullYear();
-  return `${dd}.${mm}.${yyyy}`;
+  return formatDillerDayDot(isoOrDate);
 }
 
 export function paymentTypeSmsLabel(type: string): string {

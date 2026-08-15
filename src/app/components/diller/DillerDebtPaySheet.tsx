@@ -16,6 +16,7 @@ import type { DillerData, DillerSale } from '../../utils/dillerData';
 import { formatMoney } from '../../utils/dillerData';
 import { normalizeUzPhoneForSms } from '../../utils/dillerPurchaseSms';
 import { formatDillerDateTime } from '../../utils/dillerStoreStats';
+import { formatDillerDate } from '../../utils/dillerTime';
 import { isSaleDebtClosed, isSaleOverdue } from '../../utils/dillerDebtAnalytics';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 import {
@@ -313,7 +314,7 @@ export function DillerDebtPaySheet({
               <div className="text-[13px] font-bold text-red-400">Muddat o‘tgan</div>
               {live.debtDueDate ? (
                 <div className="text-[11px] opacity-60">
-                  Qaytarish: {new Date(live.debtDueDate).toLocaleDateString('uz-UZ')}
+                  Qaytarish: {formatDillerDate(live.debtDueDate, { day: '2-digit', month: '2-digit', year: 'numeric' })}
                 </div>
               ) : null}
             </div>
@@ -324,7 +325,7 @@ export function DillerDebtPaySheet({
             style={iosGlassCardStyle(isDark)}
           >
             <CalendarClock className="w-4 h-4 opacity-50" />
-            Qaytarish: {new Date(live.debtDueDate).toLocaleDateString('uz-UZ')}
+            Qaytarish: {formatDillerDate(live.debtDueDate, { day: '2-digit', month: '2-digit', year: 'numeric' })}
           </div>
         ) : null}
 

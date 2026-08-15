@@ -9,6 +9,7 @@ import {
   formatMoney,
   getDillerBrandLabel,
 } from '../../utils/dillerData';
+import { formatDillerDate, formatDillerTime } from '../../utils/dillerTime';
 import { dillerSheetScrollClass } from './dillerMobileLayout';
 import { iosAccentFillStyle } from './dillerIosGlass';
 
@@ -41,7 +42,6 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data, onDataChange
   const profile = data.profile;
   const isDebt = sale.paymentType === 'qarz';
   const hasDiscount = (sale.discountAmount ?? 0) > 0;
-  const dt = new Date(sale.createdAt);
   const isCancelled = Boolean(sale.cancelled);
 
   const handleCancelSale = () => {
@@ -147,7 +147,7 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data, onDataChange
                 {chekNumber(sale.id)}
               </div>
               <div className="text-xs opacity-60 mt-2">
-                {dt.toLocaleDateString('uz-UZ', {
+                {formatDillerDate(sale.createdAt, {
                   weekday: 'long',
                   day: '2-digit',
                   month: 'long',
@@ -155,7 +155,7 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data, onDataChange
                 })}
               </div>
               <div className="text-xs opacity-60">
-                {dt.toLocaleTimeString('uz-UZ', { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
+                {formatDillerTime(sale.createdAt)}
               </div>
             </div>
 
@@ -233,7 +233,7 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data, onDataChange
                   ) : null}
                   {sale.debtDueDate ? (
                     <div className="opacity-70">
-                      Qaytarish: {new Date(sale.debtDueDate).toLocaleDateString('uz-UZ')}
+                      Qaytarish: {formatDillerDate(sale.debtDueDate, { day: '2-digit', month: '2-digit', year: 'numeric' })}
                     </div>
                   ) : null}
                 </div>

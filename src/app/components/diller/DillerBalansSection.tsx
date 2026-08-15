@@ -18,6 +18,7 @@ import {
   formatMoney,
 } from '../../utils/dillerData';
 import { filterSalesByPeriod, type HistoryPeriod } from '../../utils/dillerDebtAnalytics';
+import { formatDillerDateTime } from '../../utils/dillerTime';
 import { getStoreStats } from '../../utils/dillerStoreStats';
 import { iosAccentFillStyle, iosGlassCardStyle, iosGlassInputStyle } from './dillerIosGlass';
 
@@ -109,12 +110,7 @@ export function DillerBalansSection({ data, onDataChange, isDark }: Props) {
             {product?.name} · {sale.qty} {product?.unit ?? ''}
           </div>
           <div className="text-[10px] opacity-40 mt-1">
-            {new Date(sale.createdAt).toLocaleString('uz-UZ', {
-              day: '2-digit',
-              month: 'short',
-              hour: '2-digit',
-              minute: '2-digit',
-            })}
+            {formatDillerDateTime(sale.createdAt, { year: undefined })}
           </div>
         </div>
       </li>

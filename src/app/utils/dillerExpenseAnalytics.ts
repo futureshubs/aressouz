@@ -1,4 +1,5 @@
 import type { DillerData, DillerExpense } from './dillerData';
+import { formatDillerDateTime } from './dillerTime';
 import {
   defaultCustomHistoryRange,
   filterSalesByPeriod,
@@ -133,22 +134,7 @@ export function computeAllExpenseSummary(data: DillerData): ExpenseSummary {
 }
 
 export function formatExpenseDate(iso: string): string {
-  try {
-    const d = new Date(iso);
-    if (Number.isNaN(d.getTime())) return iso;
-    const date = d.toLocaleDateString('uz-UZ', {
-      day: 'numeric',
-      month: 'short',
-      year: 'numeric',
-    });
-    const time = d.toLocaleTimeString('uz-UZ', {
-      hour: '2-digit',
-      minute: '2-digit',
-    });
-    return `${date}, ${time}`;
-  } catch {
-    return iso;
-  }
+  return formatDillerDateTime(iso, { year: 'numeric' });
 }
 
 export { defaultCustomHistoryRange };

@@ -18,6 +18,7 @@ import type {
   DillerData,
 } from '../../utils/dillerData';
 import { deleteBalanceEntry, updateBalanceEntry } from '../../utils/dillerData';
+import { dillerDatetimeLocalToIso, dillerToDatetimeLocalValue } from '../../utils/dillerTime';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 import { iosAccentFillStyle, iosGlassBarStyle, iosGlassPageSurface } from './dillerIosGlass';
 
@@ -54,16 +55,14 @@ export function DillerBalanceEditSheet({ open, entry, data, onClose, onSave }: P
     setPurpose(entry.purpose);
     setAmount(String(entry.amount));
     setNote(entry.note);
-    const d = new Date(entry.createdAt);
-    if (!Number.isNaN(d.getTime())) {
-      setDate(d.toISOString().slice(0, 16));
-    }
+    const local = dillerToDatetimeLocalValue(entry.createdAt);
+    if (local) setDate(local);
   }, [open, entry]);
 
   if (!open || !entry) return null;
 
   const save = () => {
-    const createdAt = date ? new Date(date).toISOString() : entry.createdAt;
+    const createdAt = date ? dillerDatetimeLocalToIso(date) : entry.createdAt;
     const result = updateBalanceEntry(data, entry.id, {
       kind,
       channel,

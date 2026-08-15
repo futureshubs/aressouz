@@ -22,10 +22,10 @@ import {
   computePaymentFlowBreakdown,
   defaultCustomHistoryRange,
   filterSalesByPeriod,
-  toIsoDate,
   type HistoryDateRange,
   type HistoryPeriod,
 } from '../../utils/dillerDebtAnalytics';
+import { dillerTodayDate } from '../../utils/dillerTime';
 import { iosAccentFillStyle, iosGlassCardStyle, iosGlassInputStyle } from './dillerIosGlass';
 
 type Mode = 'statistika' | 'analitika';
@@ -236,7 +236,7 @@ export function DillerStatistikaSection({ mode, data, onGoHome }: Props) {
               type="date"
               value={customRange.to}
               min={customRange.from}
-              max={toIsoDate(new Date())}
+              max={dillerTodayDate()}
               onChange={(e) => setCustomRange((r) => ({ ...r, to: e.target.value }))}
               className={`w-full bg-transparent outline-none text-sm ${isDark ? '[color-scheme:dark]' : ''}`}
             />

@@ -5,11 +5,19 @@ import {
   Search,
   ShoppingCart,
   Sparkles,
+  TrendingUp,
   Wallet,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerSale } from '../../utils/dillerData';
 import { formatMoney } from '../../utils/dillerData';
+import { sumSalesProfit } from '../../utils/dillerDebtAnalytics';
+import {
+  dillerCalendarDate,
+  formatDillerDate,
+  isDillerToday,
+  isDillerYesterday,
+} from '../../utils/dillerTime';
 import { DillerSaleSheet } from './DillerSaleSheet';
 import { DillerSaleCard } from './DillerSaleCard';
 import { DillerSaleReceiptModal } from './DillerSaleReceiptModal';
@@ -23,38 +31,10 @@ type Props = {
 
 type SaleFilter = 'all' | 'today' | 'naqd' | 'karta' | 'qarz';
 
-function startOfDay(d = new Date()) {
-  const x = new Date(d);
-  x.setHours(0, 0, 0, 0);
-  return x.getTime();
-}
-
-function isToday(iso: string) {
-  const t = new Date(iso).getTime();
-  return Number.isFinite(t) && t >= startOfDay();
-}
-
-function dayKey(iso: string) {
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '—';
-  return `${d.getFullYear()}-${d.getMonth()}-${d.getDate()}`;
-}
-
 function dayTitle(iso: string) {
-  const d = new Date(iso);
-  if (!Number.isFinite(d.getTime())) return '';
-  if (isToday(iso)) return 'Bugun';
-  const y = new Date();
-  y.setDate(y.getDate() - 1);
-  y.setHours(0, 0, 0, 0);
-  const dy = new Date(iso);
-  dy.setHours(0, 0, 0, 0);
-  if (dy.getTime() === y.getTime()) return 'Kecha';
-  return d.toLocaleDateString('uz-UZ', {
-    weekday: 'short',
-    day: 'numeric',
-    month: 'long',
-  });
+  if (isDillerToday(iso)) return 'Bugun';
+  if (isDillerYesterday(iso)) return 'Kecha';
+  return formatDillerDate(iso, { weekday: 'short', day: 'numeric', month: 'long', year: undefined });
 }
 
 export function DillerSotuvTab({ data, onDataChange }: Props) {
@@ -70,7 +50,10 @@ export function DillerSotuvTab({ data, onDataChange }: Props) {
     [data.sales],
   );
 
-  const todaySales = useMemo(() => liveSales.filter((s) => isToday(s.createdAt)), [liveSales]);
+  const todaySales = useMemo(
+    () => liveSales.filter((s) => isDillerToday(s.createdAt)),
+    [liveSales],
+  );
 
   const todayStats = useMemo(() => {
     let total = 0;
@@ -83,8 +66,9 @@ export function DillerSotuvTab({ data, onDataChange }: Props) {
       else if (s.paymentType === 'karta') karta += s.total;
       else naqd += s.total;
     }
-    return { count: todaySales.length, total, naqd, karta, qarz };
-  }, [todaySales]);
+    const profit = sumSalesProfit(todaySales, data);
+    return { count: todaySales.length, total, naqd, karta, qarz, profit };
+  }, [todaySales, data]);
 
   const openDebtTotal = useMemo(
     () =>
@@ -95,7 +79,7 @@ export function DillerSotuvTab({ data, onDataChange }: Props) {
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
     return liveSales.filter((sale) => {
-      if (filter === 'today' && !isToday(sale.createdAt)) return false;
+      if (filter === 'today' && !isDillerToday(sale.createdAt)) return false;
       if (filter === 'naqd' && sale.paymentType !== 'naqd') return false;
       if (filter === 'karta' && sale.paymentType !== 'karta') return false;
       if (filter === 'qarz' && sale.paymentType !== 'qarz') return false;
@@ -110,7 +94,7 @@ export function DillerSotuvTab({ data, onDataChange }: Props) {
   const grouped = useMemo(() => {
     const map = new Map<string, DillerSale[]>();
     for (const sale of filtered) {
-      const key = dayKey(sale.createdAt);
+      const key = dillerCalendarDate(sale.createdAt) || '—';
       const list = map.get(key) ?? [];
       list.push(sale);
       map.set(key, list);
@@ -173,13 +157,28 @@ export function DillerSotuvTab({ data, onDataChange }: Props) {
         </div>
       </button>
 
-      <div className="grid grid-cols-3 gap-2">
+      <div className="grid grid-cols-2 gap-2">
         <div className="rounded-[20px] px-3 py-3" style={iosGlassCardStyle(isDark)}>
           <div className="text-[10px] font-semibold uppercase tracking-wide opacity-45">Bugun</div>
           <div className="text-[15px] font-black mt-1 tabular-nums leading-tight" style={{ color: accentColor.color }}>
             {formatMoney(todayStats.total)}
           </div>
           <div className="text-[10px] opacity-50 mt-0.5">{todayStats.count} ta sotuv</div>
+        </div>
+        <div className="rounded-[20px] px-3 py-3" style={iosGlassCardStyle(isDark)}>
+          <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-45">
+            <TrendingUp className="w-3 h-3" />
+            Foyda
+          </div>
+          <div
+            className={`text-[15px] font-black mt-1 tabular-nums leading-tight ${
+              todayStats.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'
+            }`}
+          >
+            {todayStats.profit > 0 ? '+' : ''}
+            {formatMoney(todayStats.profit)}
+          </div>
+          <div className="text-[10px] opacity-50 mt-0.5">bugungi</div>
         </div>
         <div className="rounded-[20px] px-3 py-3" style={iosGlassCardStyle(isDark)}>
           <div className="flex items-center gap-1 text-[10px] font-semibold uppercase tracking-wide opacity-45">
@@ -202,6 +201,7 @@ export function DillerSotuvTab({ data, onDataChange }: Props) {
           <div className="text-[10px] opacity-50 mt-0.5">ochiq qoldiq</div>
         </div>
       </div>
+      <p className="text-[10px] opacity-35 px-1 -mt-1">O‘zbekiston vaqti · UTC+05:00</p>
 
       <div
         className="flex items-center gap-2 rounded-[18px] px-3 py-2.5"

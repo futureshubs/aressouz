@@ -1,4 +1,8 @@
 import type { DillerData, DillerSale, DillerStore } from './dillerData';
+import {
+  formatDillerDate as formatDillerDateTz,
+  formatDillerDateTime as formatDillerDateTimeTz,
+} from './dillerTime';
 import { distanceKm } from './leafletMapTiles';
 import {
   googleMapsUrlForAddressQuery,
@@ -33,23 +37,11 @@ export type DillerStoreStats = {
 };
 
 export function formatDillerDateTime(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleString('uz-UZ', {
-    day: 'numeric',
-    month: 'short',
-    year: 'numeric',
-    hour: '2-digit',
-    minute: '2-digit',
-  });
+  return formatDillerDateTimeTz(iso);
 }
 
 export function formatDillerDate(iso: string | null | undefined): string {
-  if (!iso) return '—';
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
-  return d.toLocaleDateString('uz-UZ', { day: 'numeric', month: 'long', year: 'numeric' });
+  return formatDillerDateTz(iso);
 }
 
 export function getStoreDistanceKm(
