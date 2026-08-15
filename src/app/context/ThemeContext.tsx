@@ -13,7 +13,6 @@ import { getUserId } from '../utils/userId';
 import { useVisibilityTick } from '../utils/visibilityRefetch';
 import { projectId, publicAnonKey } from '../../../utils/supabase/info';
 import { AUTH_SESSION_CHANGED_EVENT } from '../utils/authSessionEvents';
-import { isMarketplaceNativeApp } from '../utils/marketplaceNativeBridge';
 
 /**
  * Tema: `themePreference` localStorage + serverda (`system` | `light` | `dark`).
@@ -48,16 +47,61 @@ function normalizeThemePreference(value: unknown): ThemePreference | null {
 
 function readThemePreferenceLs(): ThemePreference {
   try {
-    /** Brauzer (PWA): faqat qurilma kun/tun — foydalanuvchi tanlovi yo‘q */
-    if (typeof window !== 'undefined' && !isMarketplaceNativeApp()) {
-      return 'system';
-    }
     const saved = normalizeThemePreference(localStorage.getItem('theme'));
     if (saved) return saved;
   } catch {
     /* ignore */
   }
   return 'system';
+}
+
+function clampByte(n: number) {
+  return Math.max(0, Math.min(255, Math.round(n)));
+}
+
+export function normalizeAccentHex(raw: string): string | null {
+  let s = String(raw ?? '').trim();
+  if (s.toLowerCase().startsWith('custom:')) s = s.slice(7);
+  if (!s.startsWith('#')) s = `#${s}`;
+  if (/^#[0-9a-fA-F]{3}$/.test(s)) {
+    s = `#${s[1]}${s[1]}${s[2]}${s[2]}${s[3]}${s[3]}`;
+  }
+  return /^#[0-9a-fA-F]{6}$/.test(s) ? s.toLowerCase() : null;
+}
+
+export function gradientFromHex(hex: string): string {
+  const h = normalizeAccentHex(hex) ?? '#14b8a6';
+  const n = parseInt(h.slice(1), 16);
+  const r = (n >> 16) & 255;
+  const g = (n >> 8) & 255;
+  const b = n & 255;
+  return `linear-gradient(135deg, ${h}, rgb(${clampByte(r * 0.78)}, ${clampByte(g * 0.78)}, ${clampByte(b * 0.78)}))`;
+}
+
+function customAccent(hex: string) {
+  const color = normalizeAccentHex(hex) ?? '#14b8a6';
+  return {
+    id: `custom:${color}`,
+    name: 'Maxsus',
+    color,
+    gradient: gradientFromHex(color),
+  };
+}
+
+function readAccentFromLs() {
+  try {
+    const saved = localStorage.getItem('accentColor');
+    if (saved) {
+      const hex = normalizeAccentHex(saved);
+      if (hex && (saved.startsWith('#') || saved.startsWith('custom:'))) {
+        return customAccent(hex);
+      }
+      return accentColors.find((c) => c.id === saved) || accentColors[0];
+    }
+  } catch {
+    /* ignore */
+  }
+  return accentColors[0];
 }
 
 /** `prefers-color-scheme: light` aniq bo‘lsa — kun; aks holda `dark` so‘rovi (no-preference → yorug‘) */
@@ -150,17 +194,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   const [themePreference, setThemePreferenceState] = useState<ThemePreference>(readThemePreferenceLs);
   const [systemIsDark, setSystemIsDark] = useState<boolean>(readSystemPrefersDark);
 
-  /** Brauzer: majburiy `system` (sozlamalar va serverdagi light/dark e’tiborsiz) */
-  useEffect(() => {
-    if (typeof window === 'undefined' || isMarketplaceNativeApp()) return;
-    setThemePreferenceState('system');
-    try {
-      localStorage.setItem('theme', 'system');
-    } catch {
-      /* ignore */
-    }
-  }, []);
-
   useEffect(() => {
     if (typeof window === 'undefined') return;
     const mqDark = window.matchMedia('(prefers-color-scheme: dark)');
@@ -244,10 +277,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     readBoolLs('supportChatEnabled', true),
   );
 
-  const [accentColor, setAccentColorState] = useState(() => {
-    const saved = localStorage.getItem('accentColor');
-    return accentColors.find(c => c.id === saved) || accentColors[0];
-  });
+  const [accentColor, setAccentColorState] = useState(readAccentFromLs);
 
   // Unified save function with useCallback to prevent re-renders
   const saveToSupabase = useCallback(async (settings: any) => {
@@ -292,7 +322,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             const settings = data.settings;
 
             const serverTheme = normalizeThemePreference(settings?.theme);
-            if (serverTheme && isMarketplaceNativeApp()) {
+            if (serverTheme) {
               setThemePreferenceState(serverTheme);
               localStorage.setItem('theme', serverTheme);
             }
@@ -301,7 +331,10 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
             if (settings.soundEnabled !== undefined) setSoundEnabled(settings.soundEnabled);
             if (settings.supportChatEnabled !== undefined) setSupportChatEnabled(settings.supportChatEnabled);
             if (settings.accentColor) {
-              const color = accentColors.find(c => c.id === settings.accentColor);
+              const hex = normalizeAccentHex(settings.accentColor);
+              const color = hex
+                ? customAccent(hex)
+                : accentColors.find((c) => c.id === settings.accentColor);
               if (color) setAccentColorState(color);
             }
 
@@ -330,6 +363,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     const isDark = theme === 'dark';
     root.classList.toggle('dark', isDark);
     root.style.colorScheme = isDark ? 'dark' : 'light';
+    root.style.setProperty('--accent-color', accentColor.color);
 
     let schemeMeta = document.querySelector('meta[name="color-scheme"]');
     if (!schemeMeta) {
@@ -348,7 +382,7 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
     if (appleStatus) {
       appleStatus.setAttribute('content', isDark ? 'black-translucent' : 'default');
     }
-  }, [theme]);
+  }, [theme, accentColor.color]);
 
   useEffect(() => {
     const map: Record<string, string> = { uz: 'uz', ru: 'ru', en: 'en' };
@@ -396,7 +430,6 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   ]);
 
   const toggleTheme = useCallback(() => {
-    if (typeof window !== 'undefined' && !isMarketplaceNativeApp()) return;
     setThemePreferenceState((prev) => {
       if (prev === 'system') {
         const osDark = readSystemPrefersDark();
@@ -424,10 +457,13 @@ export function ThemeProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const setAccentColor = useCallback((colorId: string) => {
-    const color = accentColors.find((c) => c.id === colorId);
-    if (color) {
-      setAccentColorState(color);
+    const preset = accentColors.find((c) => c.id === colorId);
+    if (preset) {
+      setAccentColorState(preset);
+      return;
     }
+    const hex = normalizeAccentHex(colorId);
+    if (hex) setAccentColorState(customAccent(hex));
   }, []);
 
   const contextValue = useMemo<ThemeContextType>(

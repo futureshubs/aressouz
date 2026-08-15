@@ -8,6 +8,7 @@ import {
   buildDillerPurchaseSms,
   formatSmsDate,
   normalizeUzPhoneForSms,
+  paymentTypeSmsLabel,
 } from './dillerPurchaseSms';
 import { readDillerSession } from './dillerSession';
 
@@ -48,36 +49,62 @@ async function sendBuiltSms(
   return { sent: true };
 }
 
-/** Oddiy sotuvdan keyin do‘kon telefoniga purchase_info SMS */
+/** Oddiy sotuv(lar)dan keyin do‘kon egasiga purchase_info SMS */
+export async function maybeSendSalesBatchPurchaseSms(opts: {
+  data: DillerData;
+  sales: DillerSale[];
+  send: boolean;
+}): Promise<{ sent: boolean; skipped?: string; error?: string }> {
+  if (!opts.send) return { sent: false, skipped: 'off' };
+  const sales = opts.sales.filter(Boolean);
+  if (sales.length === 0) return { sent: false, skipped: 'no_sale' };
+
+  const first = sales[0];
+  const store = opts.data.stores.find((s) => s.id === first.storeId);
+  const phoneOk = normalizeUzPhoneForSms(store?.phone || '');
+  if (!phoneOk) return { sent: false, skipped: 'no_phone' };
+
+  const names = sales.map((sale) => {
+    const product = opts.data.products.find((p) => p.id === sale.productId);
+    return product?.name || 'Mahsulot';
+  });
+  const uniqueNames = [...new Set(names)];
+  const mahsulot =
+    uniqueNames.length <= 2
+      ? uniqueNames.join(', ')
+      : `${uniqueNames[0]} va yana ${uniqueNames.length - 1} ta`;
+  const miqdor = sales.reduce((s, row) => s + (row.qty || 0), 0);
+  const jami = sales.reduce((s, row) => s + (row.total || 0), 0);
+  const chegirma = sales.reduce((s, row) => s + (row.discountAmount || 0), 0);
+  const { diller, telefon } = dealerContact(opts.data);
+
+  const message = buildDillerPurchaseSms({
+    mijoz: store?.contactName?.trim() || store?.name || 'mijoz',
+    dokon: store?.name || '—',
+    mahsulot,
+    miqdor,
+    jami,
+    tolov_turi: paymentTypeSmsLabel(first.paymentType),
+    chegirma,
+    sana: formatSmsDate(first.createdAt || new Date().toISOString()),
+    diller,
+    telefon: telefon || '—',
+  });
+
+  return sendBuiltSms(phoneOk, message, 'purchase_info');
+}
+
+/** Bitta sotuvdan keyin */
 export async function maybeSendSalePurchaseSms(opts: {
   data: DillerData;
   sale: DillerSale;
   send: boolean;
 }): Promise<{ sent: boolean; skipped?: string; error?: string }> {
-  if (!opts.send) return { sent: false, skipped: 'off' };
-
-  const store = opts.data.stores.find((s) => s.id === opts.sale.storeId);
-  const product = opts.data.products.find((p) => p.id === opts.sale.productId);
-  const phoneOk = normalizeUzPhoneForSms(store?.phone || '');
-  if (!phoneOk) return { sent: false, skipped: 'no_phone' };
-
-  const { diller, telefon } = dealerContact(opts.data);
-  const qarz = opts.sale.debtAmount ?? 0;
-  const message = buildDillerPurchaseSms({
-    mijoz: store?.contactName?.trim() || store?.name || 'mijoz',
-    dokon: store?.name || '—',
-    mahsulot: product?.name || '—',
-    miqdor: opts.sale.qty,
-    jami: opts.sale.total,
-    chegirma: opts.sale.discountPercent ?? 0,
-    sana: formatSmsDate(opts.sale.createdAt),
-    diller,
-    telefon: telefon || '—',
-    qarz,
-    muddat: qarz > 0 ? formatSmsDate(opts.sale.debtDueDate || '') : undefined,
+  return maybeSendSalesBatchPurchaseSms({
+    data: opts.data,
+    sales: [opts.sale],
+    send: opts.send,
   });
-
-  return sendBuiltSms(phoneOk, message, 'purchase_info');
 }
 
 /** QR buyurtma sotuvidan keyin */
@@ -85,17 +112,17 @@ export async function maybeSendShopOrderPurchaseSms(opts: {
   data: DillerData;
   order: DillerShopOrder;
   total: number;
-  discountPercent: number;
-  debtAmount: number;
-  debtDueDate?: string;
+  discountAmount?: number;
+  discountPercent?: number;
+  paymentType?: string;
   send: boolean;
 }): Promise<{ sent: boolean; skipped?: string; error?: string }> {
   if (!opts.send) return { sent: false, skipped: 'off' };
 
   const store = opts.data.stores.find((s) => s.id === opts.order.storeId);
   const phoneOk =
-    normalizeUzPhoneForSms(opts.order.customerPhone || '') ||
-    normalizeUzPhoneForSms(store?.phone || '');
+    normalizeUzPhoneForSms(store?.phone || '') ||
+    normalizeUzPhoneForSms(opts.order.customerPhone || '');
   if (!phoneOk) return { sent: false, skipped: 'no_phone' };
 
   const items = opts.order.items || [];
@@ -108,23 +135,28 @@ export async function maybeSendShopOrderPurchaseSms(opts: {
   const miqdor = items.reduce((s, it) => s + (it.qty || 0), 0) || 1;
   const storeName = opts.order.storeName?.trim() || store?.name || '—';
   const mijoz =
-    opts.order.customerName?.trim() ||
     store?.contactName?.trim() ||
+    opts.order.customerName?.trim() ||
     storeName;
 
   const { diller, telefon } = dealerContact(opts.data);
+  const chegirma =
+    opts.discountAmount != null && opts.discountAmount > 0
+      ? opts.discountAmount
+      : opts.discountPercent
+        ? `${Math.round(opts.discountPercent)}%`
+        : 0;
   const message = buildDillerPurchaseSms({
     mijoz,
     dokon: storeName,
     mahsulot,
     miqdor,
     jami: opts.total,
-    chegirma: opts.discountPercent,
+    tolov_turi: paymentTypeSmsLabel(opts.paymentType || 'naqd'),
+    chegirma,
     sana: formatSmsDate(new Date().toISOString()),
     diller,
     telefon: telefon || '—',
-    qarz: opts.debtAmount,
-    muddat: opts.debtAmount > 0 ? formatSmsDate(opts.debtDueDate || '') : undefined,
   });
 
   return sendBuiltSms(phoneOk, message, 'purchase_info');

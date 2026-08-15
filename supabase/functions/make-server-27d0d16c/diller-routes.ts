@@ -9,9 +9,8 @@ import {
 } from "./diller-accounts.ts";
 import * as eskiz from "./eskiz-sms.tsx";
 import {
-  buildPurchaseInfoSms,
+  buildSmsFromTemplateAndVars,
   normalizeUzSmsPhone,
-  type PurchaseSmsVars,
 } from "./diller-purchase-sms.ts";
 
 const SESSION_TTL_MS = 365 * 24 * 60 * 60 * 1000;
@@ -1196,7 +1195,8 @@ export function registerDillerRoutes(
 
       let message = String(body.message ?? "").trim();
       if (!message && body.vars && typeof body.vars === "object") {
-        message = buildPurchaseInfoSms(body.vars as PurchaseSmsVars);
+        const tmpl = String(body.template || "purchase_info").trim() || "purchase_info";
+        message = buildSmsFromTemplateAndVars(tmpl, body.vars as Record<string, unknown>);
       }
       if (!message) {
         return c.json({ success: false, error: "SMS matni kerak" }, 400);

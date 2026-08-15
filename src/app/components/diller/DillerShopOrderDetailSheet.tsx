@@ -15,6 +15,7 @@ import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerShopOrder, DillerShopOrderStatus } from '../../utils/dillerData';
 import { findStoresByPhone, formatMoney } from '../../utils/dillerData';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
+import { iosAccentFillStyle, iosGlassBarStyle, iosGlassCardStyle, iosGlassPageStyle } from './dillerIosGlass';
 
 const statusLabel: Record<DillerShopOrderStatus, string> = {
   pending: 'Kutilmoqda',
@@ -51,13 +52,7 @@ function Section({
   isDark: boolean;
 }) {
   return (
-    <section
-      className="rounded-2xl border p-4"
-      style={{
-        background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
-        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-      }}
-    >
+    <section className="rounded-[22px] p-4" style={iosGlassCardStyle(isDark)}>
       <div className="flex items-center gap-2 mb-3 text-xs font-bold uppercase tracking-wide opacity-50">
         {icon}
         {title}
@@ -115,25 +110,33 @@ export function DillerShopOrderDetailSheet({
   const orderNo = order.id.replace(/^ord_/, '').slice(0, 12).toUpperCase();
 
   return (
-    <div className={dillerSheetShellClass} style={{ background: isDark ? '#000' : '#f4f4f5' }}>
-      <div
-        className="shrink-0 flex items-center justify-between gap-3 px-4 py-3 border-b"
-        style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
+    <div
+      className={`${dillerSheetShellClass} animate-in fade-in slide-in-from-right-8 duration-300`}
+      style={{ ...iosGlassPageStyle(isDark), zIndex: 115 }}
+    >
+      <header
+        className="shrink-0 px-4 pt-2 pb-3"
+        style={{ ...iosGlassBarStyle(isDark), borderTop: 'none' }}
       >
+        <div className="flex justify-center pb-2">
+          <span className="w-10 h-1 rounded-full bg-white/25" />
+        </div>
+        <div className="flex items-center justify-between gap-3">
         <div className="min-w-0">
-          <h2 className="font-black text-base truncate">Buyurtma batafsil</h2>
+          <h2 className="font-black text-[17px] truncate tracking-tight">Buyurtma batafsil</h2>
           <p className="text-[10px] opacity-50 font-mono">#{orderNo}</p>
         </div>
         <button
           type="button"
           onClick={onClose}
-          className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center opacity-70 active:opacity-100"
-          style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+          className="shrink-0 w-10 h-10 rounded-full flex items-center justify-center active:scale-95"
+          style={iosGlassCardStyle(isDark)}
           aria-label="Yopish"
         >
           <X className="w-5 h-5" />
         </button>
-      </div>
+        </div>
+      </header>
 
       <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-4 max-w-lg mx-auto w-full pb-8`}>
         <div className="flex items-center justify-between gap-3">
@@ -264,12 +267,8 @@ export function DillerShopOrderDetailSheet({
       </div>
 
       <div
-        className="shrink-0 px-4 pt-3 pb-[max(12px,var(--app-safe-bottom))] border-t space-y-2 max-w-lg mx-auto w-full"
-        style={{
-          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-          background: isDark ? 'rgba(0,0,0,0.95)' : 'rgba(255,255,255,0.95)',
-          backdropFilter: 'blur(12px)',
-        }}
+        className="shrink-0 px-4 pt-3 pb-[max(12px,var(--app-safe-bottom))] space-y-2 max-w-lg mx-auto w-full"
+        style={{ ...iosGlassBarStyle(isDark), borderBottom: 'none' }}
       >
         {order.status === 'pending' ? (
           <div className="flex gap-2">
@@ -294,16 +293,16 @@ export function DillerShopOrderDetailSheet({
           <button
             type="button"
             onClick={() => (onCompleteOrder ? onCompleteOrder(order) : onSetStatus(order, 'done'))}
-            className="w-full min-h-[48px] py-3 rounded-2xl text-sm font-bold text-slate-900 active:scale-[0.98]"
-            style={{ background: accentColor.gradient }}
+            className="w-full min-h-[48px] py-3 rounded-2xl text-sm font-bold text-white active:scale-[0.98]"
+            style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
           >
             Sotuvni tasdiqlash (bajarildi)
           </button>
         ) : null}
         <a
           href={`tel:${order.customerPhone.replace(/\s/g, '')}`}
-          className="w-full min-h-[44px] py-2.5 rounded-2xl text-sm font-bold border flex items-center justify-center gap-2 opacity-80 active:opacity-100"
-          style={{ borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }}
+          className="w-full min-h-[44px] py-2.5 rounded-[16px] text-sm font-bold flex items-center justify-center gap-2 active:scale-[0.98]"
+          style={iosGlassCardStyle(isDark)}
         >
           <Phone className="w-4 h-4" />
           Qo‘ng‘iroq qilish

@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from 'react';
 import { X } from 'lucide-react';
 import { toast } from 'sonner';
+import { dillerSheetShellClass } from './dillerMobileLayout';
 
 type Props = {
   open: boolean;
@@ -95,14 +96,17 @@ export function DillerSkuScanner({ open, onClose, onScan, isDark }: Props) {
   };
 
   return (
-    <div className="fixed inset-0 z-[100] flex flex-col app-safe-pad" style={{ background: 'rgba(0,0,0,0.92)' }}>
+    <div
+      className={`${dillerSheetShellClass} !z-[130]`}
+      style={{ background: 'rgba(0,0,0,0.92)', zIndex: 130 }}
+    >
       <div className="flex items-center justify-between px-4 py-3">
         <h2 className="text-lg font-bold text-white">SKU / shtrix-kod</h2>
         <button type="button" onClick={onClose} className="p-2 rounded-xl bg-white/10 text-white" aria-label="Yopish">
           <X className="w-5 h-5" />
         </button>
       </div>
-      <div className="flex-1 relative mx-4 rounded-2xl overflow-hidden bg-black min-h-[40vh]">
+      <div className="flex-1 relative mx-4 rounded-2xl overflow-hidden bg-black min-h-0">
         <video ref={videoRef} autoPlay playsInline muted className="w-full h-full object-cover" />
         <div className="absolute inset-0 flex items-center justify-center pointer-events-none">
           <div className="w-56 h-32 border-2 border-emerald-400 rounded-xl" style={{ boxShadow: '0 0 0 9999px rgba(0,0,0,0.45)' }} />
@@ -121,7 +125,7 @@ export function DillerSkuScanner({ open, onClose, onScan, isDark }: Props) {
             }`}
             onKeyDown={(e) => e.key === 'Enter' && applyManual()}
           />
-          <button type="button" onClick={applyManual} className="px-4 py-2.5 rounded-xl font-bold bg-emerald-500 text-slate-900">
+          <button type="button" onClick={applyManual} className="px-4 py-2.5 rounded-xl font-bold bg-emerald-500 text-white">
             OK
           </button>
         </div>

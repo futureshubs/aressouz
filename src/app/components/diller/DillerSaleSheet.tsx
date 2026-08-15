@@ -1,679 +1,595 @@
 import { useEffect, useMemo, useState } from 'react';
 import { toast } from 'sonner';
-import { Minus, Plus, Search, ShoppingCart, X } from 'lucide-react';
-import { useTheme } from '../../context/ThemeContext';
-import type { DillerData, DillerPaymentType, DillerProduct, DillerStore } from '../../utils/dillerData';
 import {
-  calcSaleTotals,
-  createSale,
+  ArrowLeft,
+  Banknote,
+  CreditCard,
+  MapPin,
+  Minus,
+  Navigation,
+  Plus,
+  Search,
+  ShoppingCart,
+  Store,
+  Wallet,
+  X,
+} from 'lucide-react';
+import { useTheme } from '../../context/ThemeContext';
+import { useDillerUserLocation } from '../../hooks/useDillerUserLocation';
+import type { DillerData, DillerPaymentType, DillerProduct, DillerSavedCard } from '../../utils/dillerData';
+import {
+  createDealerOrder,
+  createSalesBatch,
+  createSavedCard,
   DILLER_PRODUCT_UNITS,
+  formatCardNumber,
   formatMoney,
-  formatStoreCoords,
   getWarehouseQty,
 } from '../../utils/dillerData';
+import { formatStoreDistance, getStoreDistanceKm } from '../../utils/dillerStoreStats';
+import { resolveDillerImage } from '../../utils/dillerMedia';
 import { normalizeUzPhoneForSms } from '../../utils/dillerPurchaseSms';
-import { maybeSendSalePurchaseSms, purchaseSmsToast } from '../../utils/dillerPurchaseSmsSend';
+import {
+  maybeSendSalesBatchPurchaseSms,
+  purchaseSmsToast,
+} from '../../utils/dillerPurchaseSmsSend';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
+import {
+  iosAccentFillStyle,
+  iosGlassBarStyle,
+  iosGlassCardStyle,
+  iosGlassInputStyle,
+  iosGlassPageSurface,
+} from './dillerIosGlass';
 
 type Props = {
   open: boolean;
   onClose: () => void;
   data: DillerData;
   onComplete: (next: DillerData) => void;
-  /** Do‘kondan sotuv — do‘kon avtomatik tanlanadi */
   initialStoreId?: string | null;
+  mode?: 'sale' | 'order';
 };
-
-const inputCls = (isDark: boolean) =>
-  `w-full px-3 py-2.5 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-emerald-500/40 ${
-    isDark
-      ? 'bg-white/5 border-white/10 text-white placeholder:text-white/40'
-      : 'bg-white border-gray-200 text-gray-900'
-  }`;
 
 function unitLabel(u: string) {
   return DILLER_PRODUCT_UNITS.find((x) => x.value === u)?.label ?? u;
 }
 
-export function DillerSaleSheet({ open, onClose, data, onComplete, initialStoreId = null }: Props) {
+export function DillerSaleSheet({
+  open,
+  onClose,
+  data,
+  onComplete,
+  initialStoreId = null,
+  mode = 'sale',
+}: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
+  const isOrder = mode === 'order';
+  const { location } = useDillerUserLocation(open);
 
-  const [productId, setProductId] = useState('');
-  const [productSearch, setProductSearch] = useState('');
-  const [storeId, setStoreId] = useState('');
-  const [storeSearch, setStoreSearch] = useState('');
-  const [qty, setQty] = useState(1);
-  const [discountOn, setDiscountOn] = useState(false);
-  const [discountPercent, setDiscountPercent] = useState('');
+  const presetStore = initialStoreId ? data.stores.find((s) => s.id === initialStoreId) : undefined;
+  const [step, setStep] = useState<1 | 2 | 3>(presetStore ? 2 : 1);
+  const [storeId, setStoreId] = useState(presetStore?.id ?? '');
+  const [query, setQuery] = useState('');
+  const [cart, setCart] = useState<Record<string, number>>({});
   const [paymentType, setPaymentType] = useState<DillerPaymentType>('naqd');
+  const [cardId, setCardId] = useState('');
   const [paidNow, setPaidNow] = useState('');
   const [debtDueDate, setDebtDueDate] = useState('');
-  const [note, setNote] = useState('');
+  const [discount, setDiscount] = useState('');
+  const [cardForm, setCardForm] = useState(false);
+  const [newCard, setNewCard] = useState({ number: '', holderName: '', bank: 'Uzcard' });
+  const [busy, setBusy] = useState(false);
   const [sendSms, setSendSms] = useState(true);
-  const [submitting, setSubmitting] = useState(false);
-
-  const presetStore = initialStoreId
-    ? data.stores.find((s) => s.id === initialStoreId)
-    : undefined;
-
-  const inStockProducts = useMemo(
-    () =>
-      data.products.filter((p) => getWarehouseQty(data, p.id) > 0).slice(0, 40),
-    [data],
-  );
 
   useEffect(() => {
     if (!open) return;
-    setProductId('');
-    setProductSearch('');
+    setStep(presetStore ? 2 : 1);
     setStoreId(presetStore?.id ?? '');
-    setStoreSearch('');
-    setQty(1);
-    setDiscountOn(false);
-    setDiscountPercent('');
+    setQuery('');
+    setCart({});
     setPaymentType('naqd');
+    setCardId(data.cards?.[0]?.id ?? '');
     setPaidNow('');
     setDebtDueDate('');
-    setNote('');
-    setSendSms(true);
-    setSubmitting(false);
-  }, [open, data.products, data.stores, initialStoreId, presetStore?.id]);
-
-  const product = data.products.find((p) => p.id === productId);
-  const stock = product ? getWarehouseQty(data, product.id) : 0;
-
-  const searchResults = useMemo(() => {
-    const q = productSearch.trim().toLowerCase();
-    if (!q) return [];
-    return data.products.filter((p) => {
-      const hay = `${p.name} ${p.firmName} ${p.sku}`.toLowerCase();
-      return hay.includes(q);
-    });
-  }, [data.products, productSearch]);
-
-  const selectProduct = (p: DillerProduct) => {
-    const q = getWarehouseQty(data, p.id);
-    if (q < 1) {
-      toast.error('Omborda mahsulot yo‘q');
-      return;
-    }
-    setProductId(p.id);
-    setProductSearch('');
-    setQty(1);
-  };
-
-  const clearProduct = () => {
-    setProductId('');
-    setQty(1);
-  };
+    setDiscount('');
+    setCardForm(false);
+    setBusy(false);
+    setSendSms(Boolean(normalizeUzPhoneForSms(presetStore?.phone || '')));
+  }, [open, initialStoreId, presetStore?.id, data.cards]);
 
   const store = data.stores.find((s) => s.id === storeId);
   const storePhoneOk = Boolean(normalizeUzPhoneForSms(store?.phone || ''));
 
   useEffect(() => {
-    if (!open) return;
-    if (storePhoneOk) setSendSms(true);
-    else setSendSms(false);
-  }, [open, storeId, storePhoneOk]);
+    if (!open || isOrder) return;
+    setSendSms(storePhoneOk);
+  }, [open, storeId, storePhoneOk, isOrder]);
 
-  const storeSearchResults = useMemo(() => {
-    const q = storeSearch.trim().toLowerCase();
-    if (!q) return [];
-    return data.stores.filter((s) => {
-      const hay = `${s.name} ${s.address} ${s.contactName} ${s.phone}`.toLowerCase();
-      return hay.includes(q);
+  const storesNear = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return [...data.stores]
+      .map((s) => ({ s, km: getStoreDistanceKm(s, location) }))
+      .filter(({ s }) => {
+        if (!q) return true;
+        return `${s.name} ${s.address} ${s.phone} ${s.contactName}`.toLowerCase().includes(q);
+      })
+      .sort((a, b) => (a.km ?? Infinity) - (b.km ?? Infinity));
+  }, [data.stores, location, query]);
+
+  const products = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    return data.products.filter((p) => {
+      if (!q) return true;
+      return `${p.name} ${p.sku}`.toLowerCase().includes(q);
     });
-  }, [data.stores, storeSearch]);
+  }, [data.products, query]);
 
-  const selectStore = (s: DillerStore) => {
-    setStoreId(s.id);
-    setStoreSearch('');
-  };
+  const lines = useMemo(
+    () =>
+      Object.entries(cart)
+        .filter(([, qty]) => qty > 0)
+        .map(([productId, qty]) => ({ productId, qty })),
+    [cart],
+  );
 
-  const clearStore = () => {
-    setStoreId('');
-  };
-
-  const totals = useMemo(() => {
-    if (!product) return null;
-    return calcSaleTotals(product.unitPrice, qty, {
-      discountPercent: discountOn ? Number(discountPercent) || 0 : 0,
-    });
-  }, [product, qty, discountOn, discountPercent]);
-
-  useEffect(() => {
-    if (paymentType === 'naqd' && totals) {
-      setPaidNow(String(totals.total));
+  const cartTotal = useMemo(() => {
+    let sub = 0;
+    for (const line of lines) {
+      const p = data.products.find((x) => x.id === line.productId);
+      if (!p) continue;
+      sub += p.unitPrice * line.qty;
     }
-  }, [paymentType, totals?.total]);
+    const discountAmount = Math.min(sub, Math.max(0, Number(discount) || 0));
+    return { sub, discountAmount, total: Math.max(0, sub - discountAmount) };
+  }, [lines, data.products, discount]);
 
-  const bumpQty = (delta: number) => {
-    setQty((prev) => {
-      const max = stock || 9999;
-      return Math.max(1, Math.min(max, prev + delta));
+  const bump = (product: DillerProduct, delta: number) => {
+    const stock = getWarehouseQty(data, product.id);
+    const cap = isOrder ? Math.max(stock, 999) : stock;
+    setCart((prev) => {
+      const cur = prev[product.id] ?? 0;
+      const next = Math.max(0, Math.min(cap, cur + delta));
+      if (next === 0) {
+        const { [product.id]: _, ...rest } = prev;
+        return rest;
+      }
+      return { ...prev, [product.id]: next };
     });
   };
 
   const submit = async () => {
-    if (!productId || !storeId) {
-      toast.error('Mahsulot va do‘konni tanlang');
+    if (!store) {
+      toast.error('Do‘kon tanlang');
       return;
     }
-    if (submitting) return;
-    setSubmitting(true);
-    const result = createSale(data, {
-      storeId,
-      productId,
-      qty,
-      discountPercent: discountOn ? Number(discountPercent) || 0 : 0,
+    if (lines.length === 0) {
+      toast.error('Mahsulot tanlang');
+      return;
+    }
+    setBusy(true);
+    if (isOrder) {
+      const result = createDealerOrder(data, { storeId: store.id, lines });
+      setBusy(false);
+      if (result.error) {
+        toast.error(result.error);
+        return;
+      }
+      onComplete(result.data);
+      toast.success('Buyurtma yaratildi — topshirgach to‘lov ochiladi');
+      onClose();
+      return;
+    }
+    const result = createSalesBatch(data, {
+      storeId: store.id,
+      lines,
       paymentType,
+      cardId: paymentType === 'karta' ? cardId : undefined,
+      discountAmount: cartTotal.discountAmount,
       paidAmount: paymentType === 'qarz' ? Number(paidNow) || 0 : undefined,
       debtDueDate: paymentType === 'qarz' ? debtDueDate : undefined,
-      note,
     });
-    if (result.error || !result.sale) {
-      setSubmitting(false);
-      toast.error(result.error || 'Sotuv saqlanmadi');
+    if (result.error) {
+      setBusy(false);
+      toast.error(result.error);
       return;
     }
     onComplete(result.data);
-    const sms = await maybeSendSalePurchaseSms({
+    const sms = await maybeSendSalesBatchPurchaseSms({
       data: result.data,
-      sale: result.sale,
+      sales: result.sales ?? [],
       send: sendSms && storePhoneOk,
     });
-    setSubmitting(false);
+    setBusy(false);
     toast.success(purchaseSmsToast(sms, 'Sotuv saqlandi'));
     onClose();
   };
 
-  if (!open) return null;
+  const addCard = () => {
+    const result = createSavedCard(data, newCard);
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    onComplete(result.data);
+    if (result.card) setCardId(result.card.id);
+    setCardForm(false);
+    setNewCard({ number: '', holderName: '', bank: 'Uzcard' });
+    toast.success('Karta saqlandi');
+  };
 
-  const canSell = data.products.length > 0 && data.stores.length > 0;
+  if (!open) return null;
+  const title = isOrder ? 'Buyurtma olish' : 'Yangi sotuv';
 
   return (
-    <div
-      className={dillerSheetShellClass}
-      style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: initialStoreId ? 116 : 110 }}
-    >
-      <header
-        className="shrink-0 flex items-center justify-between px-4 py-3 border-b"
-        style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
-      >
-        <div>
-          <h2 className="text-lg font-bold" style={{ color: isDark ? '#fff' : '#111' }}>
-            {presetStore ? 'Do‘konga sotuv' : 'Yangi sotuv'}
-          </h2>
-          <p className="text-xs opacity-60">
-            {presetStore
-              ? `${presetStore.name} · mahsulot tanlang`
-              : 'Mahsulot → miqdor → do‘kon → to‘lov'}
+    <div className={dillerSheetShellClass} style={{ ...iosGlassPageSurface(isDark), zIndex: 116 }}>
+      <header className="shrink-0 flex items-center gap-2 px-4 py-3" style={iosGlassBarStyle(isDark)}>
+        {(step > 1 && !presetStore) || (step > 2 && presetStore) ? (
+          <button
+            type="button"
+            onClick={() => setStep(step === 3 ? 2 : 1)}
+            className="p-2.5 rounded-xl"
+            style={iosGlassCardStyle(isDark)}
+            aria-label="Orqaga"
+          >
+            <ArrowLeft className="w-5 h-5" />
+          </button>
+        ) : null}
+        <div className="min-w-0 flex-1">
+          <h2 className="text-lg font-black truncate">{title}</h2>
+          <p className="text-[11px] opacity-50">
+            {step === 1 ? 'Eng yaqin do‘konni tanlang' : step === 2 ? 'Mahsulot tanlang' : isOrder ? 'Tasdiqlang' : 'To‘lov'}
           </p>
         </div>
-        <button
-          type="button"
-          onClick={onClose}
-          className="p-2.5 rounded-xl"
-          style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
-          aria-label="Yopish"
-        >
-          <X className="w-5 h-5" style={{ color: isDark ? '#fff' : '#333' }} />
+        <button type="button" onClick={onClose} className="p-2.5 rounded-xl" style={iosGlassCardStyle(isDark)}>
+          <X className="w-5 h-5" />
         </button>
       </header>
 
-      {!canSell ? (
-        <div className="flex-1 flex flex-col items-center justify-center px-6 text-center">
-          <p className="text-sm opacity-70 mb-4">
-            {data.products.length === 0
-              ? 'Avval «Mahsulot» tabida mahsulot qo‘shing.'
-              : 'Avval «Do‘konlar» tabida do‘kon qo‘shing.'}
-          </p>
-          <button type="button" onClick={onClose} className="px-6 py-2.5 rounded-xl font-bold bg-emerald-500 text-slate-900">
-            Yopish
-          </button>
-        </div>
-      ) : (
-        <>
-          <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-5 max-w-lg mx-auto w-full`}>
-            {presetStore ? (
-              <section>
-                <div
-                  className="p-3 rounded-2xl border flex items-center gap-3"
-                  style={{
-                    background: isDark ? 'rgba(66,133,244,0.12)' : 'rgba(66,133,244,0.08)',
-                    borderColor: isDark ? 'rgba(66,133,244,0.25)' : 'rgba(66,133,244,0.2)',
+      {step === 1 ? (
+        <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-2 max-w-lg mx-auto w-full`}>
+          <div className="flex items-center gap-2 rounded-[16px] px-3 py-2.5" style={iosGlassInputStyle(isDark)}>
+            <Search className="w-4 h-4 opacity-40" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder="Do‘kon qidirish..."
+              className="flex-1 bg-transparent outline-none text-sm"
+            />
+          </div>
+          {storesNear.length === 0 ? (
+            <p className="text-sm opacity-55 text-center py-10">Do‘kon yo‘q — avval qo‘shing</p>
+          ) : (
+            storesNear.map(({ s, km }) => {
+              const img = resolveDillerImage(s.imageUrl);
+              return (
+                <button
+                  key={s.id}
+                  type="button"
+                  onClick={() => {
+                    setStoreId(s.id);
+                    setQuery('');
+                    setStep(2);
                   }}
+                  className="w-full text-left rounded-[20px] px-3.5 py-3 flex items-center gap-3 active:scale-[0.99]"
+                  style={iosGlassCardStyle(isDark)}
                 >
                   <div
-                    className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0 text-lg"
-                    style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#fff' }}
+                    className="w-12 h-12 rounded-[14px] overflow-hidden shrink-0 flex items-center justify-center"
+                    style={{ background: `${accentColor.color}18`, color: accentColor.color }}
                   >
-                    🏪
+                    {img ? <img src={img} alt="" className="w-full h-full object-cover" /> : <Store className="w-6 h-6" />}
                   </div>
                   <div className="min-w-0 flex-1">
-                    <div className="text-[10px] font-bold uppercase tracking-wide text-blue-400">
-                      Sotuv do‘koni
-                    </div>
-                    <div className="font-bold text-sm truncate">{presetStore.name}</div>
-                    {presetStore.address ? (
-                      <div className="text-[10px] opacity-60 truncate">{presetStore.address}</div>
-                    ) : null}
+                    <div className="font-bold truncate">{s.name}</div>
+                    <div className="text-[11px] opacity-50 truncate">{s.address || s.contactName}</div>
                   </div>
-                </div>
-              </section>
+                  <span className="text-[11px] font-bold shrink-0" style={{ color: accentColor.color }}>
+                    {formatStoreDistance(km) || <Navigation className="w-4 h-4 opacity-40" />}
+                  </span>
+                </button>
+              );
+            })
+          )}
+        </div>
+      ) : null}
+
+      {step === 2 ? (
+        <>
+          <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-2 max-w-lg mx-auto w-full`}>
+            {store ? (
+              <div className="rounded-[16px] px-3 py-2.5 flex items-center gap-2" style={iosGlassCardStyle(isDark)}>
+                <MapPin className="w-4 h-4" style={{ color: accentColor.color }} />
+                <span className="text-sm font-bold truncate">{store.name}</span>
+              </div>
             ) : null}
-
-            {/* Mahsulot */}
-            <section>
-              <h3 className="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">Mahsulot</h3>
-
-              {product ? (
-                <div
-                  className="p-3 rounded-2xl border ring-2 ring-emerald-500/50 mb-2"
-                  style={{
-                    background: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
-                    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-sm">{product.name}</div>
-                      <div className="text-xs opacity-70 mt-0.5">{product.firmName}</div>
-                      <div className="flex flex-wrap gap-x-2 mt-1.5 text-xs">
-                        <span className="font-bold text-emerald-500">{formatMoney(product.unitPrice)}</span>
-                        <span className={stock < 5 ? 'text-amber-500 font-bold' : 'opacity-60'}>
-                          Ombor: {stock} {unitLabel(String(product.unit))}
-                        </span>
-                      </div>
+            <div className="flex items-center gap-2 rounded-[16px] px-3 py-2.5" style={iosGlassInputStyle(isDark)}>
+              <Search className="w-4 h-4 opacity-40" />
+              <input
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                placeholder="Mahsulot, shtrix kod..."
+                className="flex-1 bg-transparent outline-none text-sm"
+              />
+            </div>
+            {products.map((p) => {
+              const stock = getWarehouseQty(data, p.id);
+              const qty = cart[p.id] ?? 0;
+              const img = resolveDillerImage(p.imageUrl);
+              const low = stock > 0 && stock <= 5;
+              return (
+                <div key={p.id} className="rounded-[20px] px-3 py-3 flex items-center gap-3" style={iosGlassCardStyle(isDark)}>
+                  <div
+                    className="w-12 h-12 rounded-[14px] overflow-hidden shrink-0 flex items-center justify-center relative"
+                    style={{ background: `${accentColor.color}18`, color: accentColor.color }}
+                  >
+                    {img ? <img src={img} alt="" className="w-full h-full object-cover" /> : <ShoppingCart className="w-5 h-5" />}
+                    <span
+                      className={`absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full ${
+                        stock === 0 ? 'bg-rose-400' : low ? 'bg-amber-400' : 'bg-emerald-400'
+                      }`}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-sm truncate">{p.name}</div>
+                    <div className="text-[12px] font-bold" style={{ color: accentColor.color }}>
+                      {formatMoney(p.unitPrice)}
                     </div>
+                    <div className={`text-[10px] ${low ? 'text-amber-500' : 'opacity-45'}`}>
+                      Qoldiq: {stock} {unitLabel(String(p.unit))}
+                    </div>
+                  </div>
+                  {qty > 0 ? (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <button
+                        type="button"
+                        onClick={() => bump(p, -1)}
+                        className="w-8 h-8 rounded-xl flex items-center justify-center"
+                        style={iosGlassInputStyle(isDark)}
+                      >
+                        <Minus className="w-4 h-4" />
+                      </button>
+                      <span className="w-5 text-center font-black">{qty}</span>
+                      <button
+                        type="button"
+                        onClick={() => bump(p, 1)}
+                        disabled={!isOrder && qty >= stock}
+                        className="w-8 h-8 rounded-xl flex items-center justify-center text-white"
+                        style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+                      >
+                        <Plus className="w-4 h-4" />
+                      </button>
+                    </div>
+                  ) : (
                     <button
                       type="button"
-                      onClick={clearProduct}
-                      className="shrink-0 text-xs font-bold px-2.5 py-1 rounded-lg opacity-70 hover:opacity-100"
-                      style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+                      disabled={!isOrder && stock < 1}
+                      onClick={() => bump(p, 1)}
+                      className="w-10 h-10 rounded-xl flex items-center justify-center text-white disabled:opacity-30"
+                      style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
                     >
-                      O‘zgartirish
+                      <Plus className="w-5 h-5" />
                     </button>
-                  </div>
+                  )}
                 </div>
-              ) : (
-                <>
-                  <div className="relative mb-2">
-                    <Search
-                      className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-40 pointer-events-none"
-                    />
-                    <input
-                      type="search"
-                      value={productSearch}
-                      onChange={(e) => setProductSearch(e.target.value)}
-                      placeholder="Mahsulot nomi, firma yoki SKU..."
-                      className={`${inputCls(isDark)} pl-9`}
-                      autoComplete="off"
-                    />
-                  </div>
+              );
+            })}
+          </div>
+          <div className="shrink-0 px-4 py-3 max-w-lg mx-auto w-full" style={iosGlassBarStyle(isDark)}>
+            <button
+              type="button"
+              disabled={lines.length === 0}
+              onClick={() => setStep(3)}
+              className="w-full py-3.5 rounded-2xl font-bold text-white disabled:opacity-40 flex items-center justify-between px-5"
+              style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+            >
+              <span>
+                Savat · {lines.reduce((s, l) => s + l.qty, 0)}
+              </span>
+              <span>{formatMoney(cartTotal.total)}</span>
+            </button>
+          </div>
+        </>
+      ) : null}
 
-                  {productSearch.trim() ? (
-                    <div className="space-y-2">
-                      {searchResults.length === 0 ? (
-                        <p className="text-sm opacity-60 text-center py-6">Mahsulot topilmadi</p>
-                      ) : (
-                        searchResults.map((p: DillerProduct) => {
-                          const q = getWarehouseQty(data, p.id);
-                          const out = q < 1;
+      {step === 3 ? (
+        <>
+          <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-4 max-w-lg mx-auto w-full`}>
+            <div className="rounded-[20px] p-4 space-y-2" style={iosGlassCardStyle(isDark)}>
+              {lines.map((line) => {
+                const p = data.products.find((x) => x.id === line.productId);
+                if (!p) return null;
+                return (
+                  <div key={line.productId} className="flex justify-between text-sm">
+                    <span className="opacity-80 truncate mr-2">
+                      {p.name} × {line.qty}
+                    </span>
+                    <span className="font-bold">{formatMoney(p.unitPrice * line.qty)}</span>
+                  </div>
+                );
+              })}
+              {!isOrder ? (
+                <div className="flex items-center justify-between pt-2">
+                  <span className="text-sm opacity-60">Chegirma</span>
+                  <input
+                    type="number"
+                    min={0}
+                    value={discount}
+                    onChange={(e) => setDiscount(e.target.value)}
+                    className="w-28 px-3 py-2 rounded-xl text-sm text-right outline-none"
+                    style={iosGlassInputStyle(isDark)}
+                  />
+                </div>
+              ) : null}
+              <div className="flex justify-between font-black pt-1">
+                <span>Jami</span>
+                <span style={{ color: accentColor.color }}>{formatMoney(cartTotal.total)}</span>
+              </div>
+            </div>
+
+            {isOrder ? (
+              <p className="text-xs opacity-55 leading-relaxed px-1">
+                Buyurtma do‘konga birikadi. Yetkazib bergach «Topshirdim» — keyin to‘lov tanlanadi. Ombordan hozircha ayirilmaydi.
+              </p>
+            ) : (
+              <>
+                <div className="text-[11px] font-bold uppercase tracking-wide opacity-45">To‘lov turi</div>
+                <div className="grid grid-cols-3 gap-2">
+                  {(
+                    [
+                      { id: 'naqd' as const, label: 'Naqt', Icon: Banknote },
+                      { id: 'karta' as const, label: 'Karta', Icon: CreditCard },
+                      { id: 'qarz' as const, label: 'Qarz', Icon: Wallet },
+                    ]
+                  ).map((t) => {
+                    const on = paymentType === t.id;
+                    return (
+                      <button
+                        key={t.id}
+                        type="button"
+                        onClick={() => setPaymentType(t.id)}
+                        className="rounded-[16px] py-3 flex flex-col items-center gap-1 active:scale-[0.97]"
+                        style={on ? iosAccentFillStyle(accentColor.gradient, accentColor.color) : iosGlassCardStyle(isDark)}
+                      >
+                        <t.Icon className="w-5 h-5" />
+                        <span className="text-[12px] font-bold">{t.label}</span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {paymentType === 'karta' ? (
+                  <div className="space-y-2">
+                    <div className="text-[11px] font-bold uppercase tracking-wide opacity-45">Karta tanlang</div>
+                    {(data.cards ?? []).length === 0 || cardForm ? (
+                      <div className="rounded-[20px] p-4 space-y-2" style={iosGlassCardStyle(isDark)}>
+                        <input
+                          placeholder="8600 0000 0000 0000"
+                          value={newCard.number}
+                          onChange={(e) => setNewCard((c) => ({ ...c, number: e.target.value }))}
+                          className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                          style={iosGlassInputStyle(isDark)}
+                        />
+                        <input
+                          placeholder="Ism familiya"
+                          value={newCard.holderName}
+                          onChange={(e) => setNewCard((c) => ({ ...c, holderName: e.target.value }))}
+                          className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                          style={iosGlassInputStyle(isDark)}
+                        />
+                        <input
+                          placeholder="Bank"
+                          value={newCard.bank}
+                          onChange={(e) => setNewCard((c) => ({ ...c, bank: e.target.value }))}
+                          className="w-full px-3 py-2.5 rounded-xl text-sm outline-none"
+                          style={iosGlassInputStyle(isDark)}
+                        />
+                        <button
+                          type="button"
+                          onClick={addCard}
+                          className="w-full py-2.5 rounded-xl font-bold text-white"
+                          style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+                        >
+                          Qo‘shish
+                        </button>
+                      </div>
+                    ) : (
+                      <>
+                        {(data.cards ?? []).map((c: DillerSavedCard) => {
+                          const on = cardId === c.id;
                           return (
                             <button
-                              key={p.id}
+                              key={c.id}
                               type="button"
-                              disabled={out}
-                              onClick={() => selectProduct(p)}
-                              className={`w-full text-left p-3 rounded-2xl border transition-all active:scale-[0.99] ${
-                                out ? 'opacity-40' : ''
-                              }`}
-                              style={{
-                                background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-                                borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-                              }}
+                              onClick={() => setCardId(c.id)}
+                              className="w-full text-left rounded-[16px] px-3.5 py-3"
+                              style={on ? iosAccentFillStyle(accentColor.gradient, accentColor.color) : iosGlassCardStyle(isDark)}
                             >
-                              <div className="font-semibold text-sm truncate">{p.name}</div>
-                              <div className="text-xs opacity-70 mt-0.5">{p.firmName}</div>
-                              {p.sku && p.sku !== '—' ? (
-                                <div className="text-[10px] font-mono opacity-50 mt-0.5">{p.sku}</div>
-                              ) : null}
-                              <div className="flex justify-between items-center mt-1.5">
-                                <span className="text-sm font-bold text-emerald-500">{formatMoney(p.unitPrice)}</span>
-                                <span className={`text-xs ${q < 5 ? 'text-amber-500 font-bold' : 'opacity-60'}`}>
-                                  {out ? 'Tugagan' : `Ombor: ${q}`}
-                                </span>
+                              <div className="font-bold">{formatCardNumber(c.number)}</div>
+                              <div className={`text-[11px] ${on ? 'opacity-80' : 'opacity-50'}`}>
+                                {c.holderName} · {c.bank}
                               </div>
                             </button>
                           );
-                        })
-                      )}
-                    </div>
-                  ) : (
-                    <>
-                      {presetStore && inStockProducts.length > 0 ? (
-                        <div className="mb-3">
-                          <p className="text-[10px] font-bold uppercase tracking-wide opacity-45 mb-2">
-                            Ombordagi mahsulotlar
-                          </p>
-                          <div className="space-y-2 max-h-[240px] overflow-y-auto pr-1">
-                            {inStockProducts.map((p) => {
-                              const q = getWarehouseQty(data, p.id);
-                              return (
-                                <button
-                                  key={p.id}
-                                  type="button"
-                                  onClick={() => selectProduct(p)}
-                                  className="w-full text-left p-3 rounded-2xl border transition-all active:scale-[0.99]"
-                                  style={{
-                                    background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-                                    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-                                  }}
-                                >
-                                  <div className="font-semibold text-sm truncate">{p.name}</div>
-                                  <div className="text-xs opacity-70">{p.firmName}</div>
-                                  <div className="flex justify-between items-center mt-1">
-                                    <span className="text-sm font-bold text-emerald-500">
-                                      {formatMoney(p.unitPrice)}
-                                    </span>
-                                    <span className="text-xs opacity-60">Ombor: {q}</span>
-                                  </div>
-                                </button>
-                              );
-                            })}
-                          </div>
-                          <p className="text-[10px] opacity-40 text-center mt-2">yoki qidiruv orqali toping</p>
-                        </div>
-                      ) : null}
-                      <p className="text-xs opacity-50 text-center py-2 px-2">
-                        Qidiruv yozing — mahsulot chiqadi, ustiga bosing va tanlang
-                      </p>
-                    </>
-                  )}
-                </>
-              )}
-            </section>
-
-            {/* Miqdor */}
-            {product ? (
-              <section>
-                <h3 className="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">Miqdor</h3>
-                <div
-                  className="flex items-center justify-between p-4 rounded-2xl border"
-                  style={{
-                    background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-                    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-                  }}
-                >
-                  <button
-                    type="button"
-                    onClick={() => bumpQty(-1)}
-                    disabled={qty <= 1}
-                    className="w-12 h-12 rounded-xl flex items-center justify-center disabled:opacity-30"
-                    style={{ background: isDark ? 'rgba(255,255,255,0.1)' : '#e2e8f0' }}
-                  >
-                    <Minus className="w-6 h-6" />
-                  </button>
-                  <div className="text-center">
-                    <div className="text-3xl font-black tabular-nums">{qty}</div>
-                    <div className="text-xs opacity-60">{unitLabel(String(product.unit))}</div>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => bumpQty(1)}
-                    disabled={qty >= stock}
-                    className="w-12 h-12 rounded-xl flex items-center justify-center disabled:opacity-30"
-                    style={{ background: accentColor.gradient, color: '#0f172a' }}
-                  >
-                    <Plus className="w-6 h-6" />
-                  </button>
-                </div>
-              </section>
-            ) : null}
-
-            {/* Do'kon */}
-            {!presetStore ? (
-            <section>
-              <h3 className="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">Do‘kon</h3>
-
-              {store ? (
-                <div
-                  className="p-3 rounded-2xl border ring-2 ring-emerald-500/50"
-                  style={{
-                    background: isDark ? 'rgba(16,185,129,0.12)' : 'rgba(16,185,129,0.08)',
-                    borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-                  }}
-                >
-                  <div className="flex items-start justify-between gap-2">
-                    <div className="min-w-0 flex-1">
-                      <div className="font-semibold text-sm">{store.name}</div>
-                      {store.address ? (
-                        <div className="text-xs opacity-70 mt-0.5 truncate">{store.address}</div>
-                      ) : null}
-                      <div className="text-xs opacity-60 mt-1">
-                        {store.contactName}
-                        {store.phone ? ` · ${store.phone}` : ''}
-                      </div>
-                      {formatStoreCoords(store) ? (
-                        <div className="text-[10px] font-mono opacity-50 mt-0.5">{formatStoreCoords(store)}</div>
-                      ) : null}
-                    </div>
-                    <button
-                      type="button"
-                      onClick={clearStore}
-                      className="shrink-0 text-xs font-bold px-2.5 py-1 rounded-lg opacity-70 hover:opacity-100"
-                      style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
-                    >
-                      O‘zgartirish
-                    </button>
-                  </div>
-                </div>
-              ) : (
-                <>
-                  <div className="relative mb-2">
-                    <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-40 pointer-events-none" />
-                    <input
-                      type="search"
-                      value={storeSearch}
-                      onChange={(e) => setStoreSearch(e.target.value)}
-                      placeholder="Do‘kon nomi, manzil, telefon..."
-                      className={`${inputCls(isDark)} pl-9`}
-                      autoComplete="off"
-                    />
-                  </div>
-
-                  {storeSearch.trim() ? (
-                    <div className="space-y-2">
-                      {storeSearchResults.length === 0 ? (
-                        <p className="text-sm opacity-60 text-center py-6">Do‘kon topilmadi</p>
-                      ) : (
-                        storeSearchResults.map((s: DillerStore) => (
-                          <button
-                            key={s.id}
-                            type="button"
-                            onClick={() => selectStore(s)}
-                            className="w-full text-left p-3 rounded-2xl border transition-all active:scale-[0.99]"
-                            style={{
-                              background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-                              borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-                            }}
-                          >
-                            <div className="font-semibold text-sm truncate">{s.name}</div>
-                            {s.address ? (
-                              <div className="text-xs opacity-70 mt-0.5 truncate">{s.address}</div>
-                            ) : null}
-                            <div className="text-xs opacity-60 mt-1 truncate">
-                              {s.contactName}
-                              {s.phone ? ` · ${s.phone}` : ''}
-                            </div>
-                          </button>
-                        ))
-                      )}
-                    </div>
-                  ) : (
-                    <p className="text-xs opacity-50 text-center py-4 px-2">
-                      Qidiruv yozing — do‘kon chiqadi, ustiga bosing va tanlang
-                    </p>
-                  )}
-                </>
-              )}
-            </section>
-            ) : null}
-
-            {/* Chegirma */}
-            {totals ? (
-              <section>
-                <div className="flex items-center justify-between mb-2">
-                  <h3 className="text-xs font-bold uppercase tracking-wide opacity-50">Chegirma</h3>
-                  <button
-                    type="button"
-                    onClick={() => setDiscountOn((v) => !v)}
-                    className={`text-xs font-bold px-3 py-1 rounded-full ${
-                      discountOn ? 'bg-emerald-500/20 text-emerald-400' : 'opacity-50'
-                    }`}
-                  >
-                    {discountOn ? 'Yoqilgan' : 'O‘chiq'}
-                  </button>
-                </div>
-                {discountOn ? (
-                  <div className="flex gap-2 items-center">
-                    <input
-                      type="number"
-                      min={0}
-                      max={100}
-                      placeholder="Foiz"
-                      value={discountPercent}
-                      onChange={(e) => setDiscountPercent(e.target.value)}
-                      className={inputCls(isDark)}
-                    />
-                    <span className="text-sm font-bold opacity-60">%</span>
+                        })}
+                        <button
+                          type="button"
+                          onClick={() => setCardForm(true)}
+                          className="text-sm font-bold"
+                          style={{ color: accentColor.color }}
+                        >
+                          + Karta qo‘shish
+                        </button>
+                      </>
+                    )}
                   </div>
                 ) : null}
-                <div
-                  className="mt-3 p-3 rounded-2xl text-sm space-y-1"
-                  style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#fff' }}
-                >
-                  <div className="flex justify-between opacity-70">
-                    <span>Jami (chegirmasiz)</span>
-                    <span>{formatMoney(totals.subtotal)}</span>
-                  </div>
-                  {totals.discountAmount > 0 ? (
-                    <div className="flex justify-between text-amber-500">
-                      <span>Chegirma</span>
-                      <span>−{formatMoney(totals.discountAmount)}</span>
-                    </div>
-                  ) : null}
-                  <div className="flex justify-between font-bold text-base pt-1 border-t border-white/10">
-                    <span>To‘lanadi</span>
-                    <span className="text-emerald-400">{formatMoney(totals.total)}</span>
-                  </div>
-                </div>
-              </section>
-            ) : null}
 
-            {/* To'lov */}
-            <section>
-              <h3 className="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">To‘lov</h3>
-              <div className="flex gap-2 mb-3">
-                {(['naqd', 'qarz'] as const).map((t) => (
-                  <button
-                    key={t}
-                    type="button"
-                    onClick={() => setPaymentType(t)}
-                    className={`flex-1 py-3 rounded-xl text-sm font-bold border ${
-                      paymentType === t
-                        ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-                        : isDark
-                          ? 'border-white/10 opacity-70'
-                          : 'border-gray-200'
-                    }`}
-                  >
-                    {t === 'naqd' ? 'Naqd / to‘liq' : 'Qarzga'}
-                  </button>
-                ))}
-              </div>
-              {paymentType === 'qarz' && totals ? (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs font-medium opacity-80 mb-1">Oldindan olindi (so‘m)</label>
+                {paymentType === 'qarz' ? (
+                  <div className="space-y-2">
+                    <label className="block text-[11px] font-bold opacity-45 uppercase">Hozir to‘langan</label>
                     <input
                       type="number"
                       min={0}
-                      max={totals.total}
                       value={paidNow}
                       onChange={(e) => setPaidNow(e.target.value)}
-                      className={inputCls(isDark)}
-                      placeholder="0"
+                      className="w-full px-3 py-3 rounded-xl text-sm outline-none"
+                      style={iosGlassInputStyle(isDark)}
                     />
-                  </div>
-                  <div
-                    className="p-3 rounded-xl text-sm"
-                    style={{ background: isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.15)' }}
-                  >
-                    <span className="opacity-80">Qarz qoldig‘i: </span>
-                    <span className="font-bold text-amber-500">
-                      {formatMoney(Math.max(0, totals.total - (Number(paidNow) || 0)))}
-                    </span>
-                  </div>
-                  <div>
-                    <label className="block text-xs font-medium opacity-80 mb-1">Qachon qaytaradi</label>
+                    <label className="block text-[11px] font-bold opacity-45 uppercase">Qaytarish kuni</label>
                     <input
                       type="date"
                       value={debtDueDate}
                       onChange={(e) => setDebtDueDate(e.target.value)}
-                      className={inputCls(isDark)}
+                      className="w-full px-3 py-3 rounded-xl text-sm outline-none"
+                      style={iosGlassInputStyle(isDark)}
                     />
+                    <div className="rounded-xl px-3 py-2.5 text-amber-500 bg-amber-500/10 text-sm font-bold">
+                      Qolgan qarz:{' '}
+                      {formatMoney(Math.max(0, cartTotal.total - (Number(paidNow) || 0)))}
+                    </div>
                   </div>
-                </div>
-              ) : null}
-              <div className="mt-3">
-                <label className="block text-xs font-medium opacity-80 mb-1">Izoh (ixtiyoriy)</label>
-                <input value={note} onChange={(e) => setNote(e.target.value)} className={inputCls(isDark)} placeholder="Masalan: yetkazib berildi" />
-              </div>
-              <label
-                className={`mt-3 flex items-start gap-3 rounded-xl border px-3 py-3 text-sm ${
-                  isDark ? 'border-white/10 bg-white/5' : 'border-gray-200 bg-white'
-                } ${!storePhoneOk ? 'opacity-50' : ''}`}
-              >
-                <input
-                  type="checkbox"
-                  className="mt-0.5"
-                  checked={sendSms && storePhoneOk}
-                  disabled={!storePhoneOk}
-                  onChange={(e) => setSendSms(e.target.checked)}
-                />
-                <span>
-                  <span className="font-medium">Xarid SMS yuborish</span>
-                  <span className="block text-xs opacity-60 mt-0.5">
-                    {storePhoneOk
-                      ? 'Do‘kon telefoniga informatsion (purchase_info) SMS'
-                      : 'Do‘konda telefon raqam yo‘q — avval qo‘shing'}
-                  </span>
-                </span>
-              </label>
-            </section>
-          </div>
+                ) : null}
 
-          <footer
-            className="shrink-0 p-4 border-t safe-area-pb max-w-lg mx-auto w-full"
-            style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
-          >
+                <label
+                  className={`flex items-start gap-3 rounded-[16px] px-3 py-3 text-sm ${
+                    !storePhoneOk ? 'opacity-50' : ''
+                  }`}
+                  style={iosGlassCardStyle(isDark)}
+                >
+                  <input
+                    type="checkbox"
+                    className="mt-0.5"
+                    checked={sendSms && storePhoneOk}
+                    disabled={!storePhoneOk}
+                    onChange={(e) => setSendSms(e.target.checked)}
+                  />
+                  <span>
+                    <span className="font-medium">Xarid SMS yuborish</span>
+                    <span className="block text-xs opacity-60 mt-0.5">
+                      {storePhoneOk
+                        ? 'Do‘kon egasi telefoniga: xarid rasmiylashtirildi'
+                        : 'Do‘konda telefon yo‘q — SMS yuborib bo‘lmaydi'}
+                    </span>
+                  </span>
+                </label>
+              </>
+            )}
+          </div>
+          <div className="shrink-0 px-4 py-3 max-w-lg mx-auto w-full" style={iosGlassBarStyle(isDark)}>
             <button
               type="button"
+              disabled={busy}
               onClick={() => void submit()}
-              disabled={!productId || !storeId || !totals || submitting}
-              className="w-full py-4 rounded-2xl font-bold text-slate-900 disabled:opacity-40 flex items-center justify-center gap-2 text-base"
-              style={{ background: accentColor.gradient }}
+              className="w-full py-3.5 rounded-2xl font-bold text-white disabled:opacity-40"
+              style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
             >
-              <ShoppingCart className="w-5 h-5" />
-              {submitting ? 'Saqlanmoqda…' : 'Sotuvni tasdiqlash'}
-              {!submitting && totals ? ` · ${formatMoney(totals.total)}` : ''}
+              {isOrder ? 'Buyurtma yaratish' : `Yakunlash — ${formatMoney(cartTotal.total)}`}
             </button>
-          </footer>
+          </div>
         </>
-      )}
+      ) : null}
     </div>
   );
 }

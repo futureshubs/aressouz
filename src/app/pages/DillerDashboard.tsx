@@ -3,7 +3,10 @@ import { useNavigate } from 'react-router';
 import { Cloud, CloudOff, Download, Loader2, LogOut, Upload } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../context/ThemeContext';
-import DillerBottomNav, { getDillerTabMeta, type DillerTabId } from '../components/diller/DillerBottomNav';
+import DillerBottomNav, {
+  getDillerTabMeta,
+  type DillerTabId,
+} from '../components/diller/DillerBottomNav';
 import { resolveAressoPanelLogoSrc } from '../components/brand/AressoPanelBrand';
 import { DillerPanelContent } from '../components/diller/DillerPanelTabs';
 import { clearDillerSession, readDillerSession } from '../utils/dillerSession';
@@ -24,9 +27,18 @@ import {
   dillerMainScrollClass,
   dillerPageShellClass,
   DILLER_NAV_BOTTOM_PADDING,
+  DILLER_NAV_BOTTOM_PADDING_MENU_OPEN,
 } from '../components/diller/dillerMobileLayout';
+import {
+  iosAccentFillStyle,
+  iosGlassBarStyle,
+  iosGlassCardStyle,
+  iosGlassPageSurface,
+  iosGlassTintStyle,
+} from '../components/diller/dillerIosGlass';
 
-const NAV_BOTTOM = DILLER_NAV_BOTTOM_PADDING;
+const NAV_BOTTOM_CLOSED = DILLER_NAV_BOTTOM_PADDING;
+const NAV_BOTTOM_OPEN = DILLER_NAV_BOTTOM_PADDING_MENU_OPEN;
 
 function formatSyncTime(iso: string | null): string {
   if (!iso) return '';
@@ -47,6 +59,7 @@ export default function DillerDashboard() {
 
   const [session, setSession] = useState(readDillerSession());
   const [activeTab, setActiveTab] = useState<DillerTabId>('sotuv');
+  const [menuOpen, setMenuOpen] = useState(false);
   const [data, setData] = useState<DillerData>(() => loadDillerData() || createEmptyDillerData());
   const [booting, setBooting] = useState(true);
   const [syncState, setSyncState] = useState<DillerSyncStatus>('offline');
@@ -69,6 +82,7 @@ export default function DillerDashboard() {
 
   const handleTabChange = useCallback((tab: DillerTabId) => {
     setActiveTab(tab);
+    setMenuOpen(false);
     requestAnimationFrame(() => {
       mainScrollRef.current?.scrollTo({ top: 0 });
     });
@@ -177,7 +191,7 @@ export default function DillerDashboard() {
     return (
       <div
         className="flex flex-col items-center justify-center gap-3 min-h-[var(--app-viewport-height,100dvh)]"
-        style={{ background: isDark ? '#000' : '#f4f4f5', color: isDark ? '#fff' : '#111' }}
+        style={iosGlassPageSurface(isDark)}
       >
         <Loader2 className="w-8 h-8 animate-spin" style={{ color: accentColor.color }} />
         <p className="text-sm opacity-60">Ma’lumot yuklanmoqda…</p>
@@ -190,6 +204,9 @@ export default function DillerDashboard() {
   const logoSrc = resolveAressoPanelLogoSrc('seller', isDark);
   const SyncIcon = meta.pendingPush || syncState === 'offline' ? CloudOff : Cloud;
   const busy = Boolean(busyAction);
+  const isMapTab = activeTab === 'xarita';
+  const showTopBar = activeTab === 'sotuv';
+  const navBottom = menuOpen ? NAV_BOTTOM_OPEN : NAV_BOTTOM_CLOSED;
 
   const btnBase =
     'inline-flex items-center justify-center gap-1.5 px-2.5 py-1.5 rounded-xl text-[11px] font-bold active:scale-[0.97] disabled:opacity-40 min-h-[32px]';
@@ -198,18 +215,14 @@ export default function DillerDashboard() {
     <div
       className={dillerPageShellClass}
       style={{
-        background: isDark ? '#000' : '#f4f4f5',
-        color: isDark ? '#fff' : '#111',
-        paddingTop: 'var(--app-safe-top, 0px)',
+        ...iosGlassPageSurface(isDark),
+        paddingTop: isMapTab ? 0 : 'var(--app-safe-top, 0px)',
       }}
     >
+      {showTopBar ? (
       <header
-        className="shrink-0 sticky top-0 z-30 border-b px-4 py-3"
-        style={{
-          background: isDark ? 'rgba(0,0,0,0.85)' : 'rgba(255,255,255,0.92)',
-          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-          backdropFilter: 'blur(12px)',
-        }}
+        className="shrink-0 sticky top-0 z-30 px-4 py-3"
+        style={iosGlassBarStyle(isDark)}
       >
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1 pt-0.5">
@@ -217,7 +230,7 @@ export default function DillerDashboard() {
               <div
                 className="shrink-0 w-9 h-9 rounded-xl flex items-center justify-center"
                 style={{
-                  background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.05)',
+                  ...iosGlassCardStyle(isDark),
                   color: accentColor.color,
                 }}
               >
@@ -248,18 +261,7 @@ export default function DillerDashboard() {
           </div>
 
           <div className="shrink-0 flex flex-col items-end gap-2">
-            <div
-              className="rounded-2xl p-1.5"
-              style={{
-                background: isDark
-                  ? `linear-gradient(145deg, ${accentColor.color}22, rgba(255,255,255,0.04))`
-                  : `linear-gradient(145deg, ${accentColor.color}14, #fff)`,
-                border: isDark ? '1px solid rgba(255,255,255,0.08)' : '1px solid rgba(0,0,0,0.06)',
-                boxShadow: isDark
-                  ? `0 4px 16px ${accentColor.color}18`
-                  : `0 4px 14px ${accentColor.color}12`,
-              }}
-            >
+            <div className="rounded-2xl p-1.5" style={iosGlassCardStyle(isDark)}>
               <img
                 src={logoSrc}
                 alt="Aresso"
@@ -275,10 +277,7 @@ export default function DillerDashboard() {
                 onClick={() => void handleUpload()}
                 disabled={busy}
                 className={btnBase}
-                style={{
-                  background: accentColor.gradient,
-                  color: '#0f172a',
-                }}
+                style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
                 aria-label="Yuborish"
                 title="Mahalliy ma’lumotlarni Supabase’ga yuborish"
               >
@@ -295,9 +294,8 @@ export default function DillerDashboard() {
                 disabled={busy}
                 className={btnBase}
                 style={{
-                  background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-                  color: isDark ? '#fff' : '#111',
-                  border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)',
+                  ...iosGlassCardStyle(isDark),
+                  color: isDark ? '#fff' : '#0f172a',
                 }}
                 aria-label="Yuklash"
                 title="Oxirgi yuborilgan ma’lumotni bulutdan yuklash"
@@ -313,7 +311,7 @@ export default function DillerDashboard() {
                 type="button"
                 onClick={() => void logout()}
                 className="p-2 rounded-xl text-red-400 active:scale-95"
-                style={{ background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.04)' }}
+                style={iosGlassCardStyle(isDark)}
                 aria-label="Chiqish"
               >
                 <LogOut className="w-4 h-4" />
@@ -322,21 +320,22 @@ export default function DillerDashboard() {
           </div>
         </div>
       </header>
+      ) : null}
 
-      {meta.pendingPush && !busy ? (
+      {showTopBar && meta.pendingPush && !busy ? (
         <div
           className="mx-4 mt-2 px-3 py-2 rounded-xl text-[10px] text-center max-w-lg w-full self-center"
-          style={{ background: isDark ? 'rgba(245,158,11,0.12)' : 'rgba(245,158,11,0.15)' }}
+          style={iosGlassTintStyle(isDark, '#f59e0b')}
         >
           O‘zgarishlar telefonda. Net bo‘lganda <span className="font-semibold">Yuborish</span> ni
           bosing — Supabase’ga saqlanadi
         </div>
       ) : null}
 
-      {dataIsEmpty && !busy ? (
+      {showTopBar && dataIsEmpty && !busy ? (
         <div
           className="mx-4 mt-2 px-3 py-2.5 rounded-xl text-[11px] text-center max-w-lg w-full self-center"
-          style={{ background: isDark ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.1)' }}
+          style={iosGlassTintStyle(isDark, '#3b82f6')}
         >
           Mahalliy ma’lumot bo‘sh. Boshqa telefon yuborgan bo‘lsa{' '}
           <span className="font-semibold">Yuklash</span> ni bosing. Yoki shu yerda yangi savdo
@@ -344,10 +343,10 @@ export default function DillerDashboard() {
         </div>
       ) : null}
 
-      {pendingOrderCount > 0 ? (
+      {showTopBar && pendingOrderCount > 0 ? (
         <div
           className="mx-4 mt-2 px-3 py-2 rounded-xl text-[10px] text-center max-w-lg w-full self-center flex items-center justify-center gap-1.5"
-          style={{ background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.1)' }}
+          style={iosGlassTintStyle(isDark, '#ef4444')}
         >
           <span className="font-bold text-red-400">{pendingOrderCount} ta yangi QR buyurtma</span>
           <span className="opacity-60">— Qarz → Buyurtma</span>
@@ -356,15 +355,26 @@ export default function DillerDashboard() {
 
       <main
         ref={mainScrollRef}
-        className={`${dillerMainScrollClass} px-4 py-4 max-w-lg mx-auto w-full`}
-        style={{ paddingBottom: NAV_BOTTOM }}
+        className={
+          isMapTab
+            ? 'relative flex-1 min-h-0 overflow-hidden w-full'
+            : `${dillerMainScrollClass} px-4 py-4 max-w-lg mx-auto w-full min-w-0`
+        }
+        style={{ paddingBottom: isMapTab ? 0 : navBottom }}
       >
-        <DillerPanelContent tab={activeTab} data={data} onDataChange={persist} />
+        <DillerPanelContent
+          tab={activeTab}
+          data={data}
+          onDataChange={persist}
+          onGoHome={() => handleTabChange('sotuv')}
+        />
       </main>
 
       <DillerBottomNav
         activeTab={activeTab}
         onTabChange={handleTabChange}
+        menuOpen={menuOpen}
+        onMenuOpenChange={setMenuOpen}
         openDebtCount={openDebtCount}
         pendingOrderCount={pendingOrderCount}
       />

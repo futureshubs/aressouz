@@ -10,6 +10,7 @@ import {
   getDillerBrandLabel,
 } from '../../utils/dillerData';
 import { dillerSheetScrollClass } from './dillerMobileLayout';
+import { iosAccentFillStyle } from './dillerIosGlass';
 
 type Props = {
   open: boolean;
@@ -256,8 +257,8 @@ export function DillerSaleReceiptModal({ open, onClose, sale, data, onDataChange
           <button
             type="button"
             onClick={handlePrint}
-            className="w-full py-3 rounded-xl font-bold text-slate-900 flex items-center justify-center gap-2"
-            style={{ background: accentColor.gradient }}
+            className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2"
+            style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
           >
             <Printer className="w-5 h-5" />
             Chekni chop etish

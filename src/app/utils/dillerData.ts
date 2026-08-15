@@ -13,7 +13,7 @@ export type DillerFirm = {
   createdAt: string;
 };
 
-export type DillerProductUnit = 'dona' | 'kg' | 'quti';
+export type DillerProductUnit = 'dona' | 'kg' | 'quti' | 'litr' | 'paket';
 
 export type DillerProduct = {
   id: string;
@@ -26,6 +26,8 @@ export type DillerProduct = {
   /** Firmadan olish narxi */
   buyPrice: number;
   unit: DillerProductUnit | string;
+  /** Mahsulot rasmi (local:id yoki R2 URL) */
+  imageUrl?: string;
   /** Faqat /qrcode buyurtma sahifasida ko‘rinadi */
   qrcodeImageUrl?: string;
   createdAt: string;
@@ -39,10 +41,12 @@ export type DillerStore = {
   contactName: string;
   lat?: number;
   lng?: number;
+  /** Do‘kon rasmi (local:id yoki R2 URL) */
+  imageUrl?: string;
   createdAt: string;
 };
 
-export type DillerPaymentType = 'naqd' | 'qarz';
+export type DillerPaymentType = 'naqd' | 'qarz' | 'karta';
 
 /** Xarajat to‘lov usuli */
 export type DillerExpensePayment = 'naqd' | 'karta';
@@ -71,6 +75,24 @@ export type DillerBalanceEntry = {
   createdAt: string;
 };
 
+export type DillerSavedCard = {
+  id: string;
+  number: string;
+  holderName: string;
+  bank: string;
+  createdAt: string;
+};
+
+export type DillerWarehouseMove = {
+  id: string;
+  productId: string;
+  qty: number;
+  kind: 'kirim' | 'chiqim';
+  note: string;
+  createdAt: string;
+  saleId?: string;
+};
+
 export type DillerDebtPayment = {
   amount: number;
   at: string;
@@ -90,6 +112,10 @@ export type DillerSale = {
   subtotal: number;
   total: number;
   paymentType: DillerPaymentType;
+  /** Karta to‘lov — saqlangan karta */
+  cardId?: string;
+  /** Bir savatdagi bir nechta qator */
+  batchId?: string;
   /** Oldindan olingan summa */
   paidAmount: number;
   /** Qarz qoldig‘i */
@@ -179,6 +205,20 @@ export type DillerShopOrder = {
   completedAt?: string;
 };
 
+export type DillerDealerOrderStatus = 'open' | 'done';
+
+export type DillerDealerOrder = {
+  id: string;
+  storeId: string;
+  items: DillerShopOrderItem[];
+  total: number;
+  status: DillerDealerOrderStatus;
+  createdAt: string;
+  completedAt?: string;
+  saleIds?: string[];
+  note?: string;
+};
+
 export type DillerData = {
   profile: DillerProfile;
   firms: DillerFirm[];
@@ -189,6 +229,9 @@ export type DillerData = {
   expenses: DillerExpense[];
   balanceEntries: DillerBalanceEntry[];
   shopOrders: DillerShopOrder[];
+  cards: DillerSavedCard[];
+  dealerOrders: DillerDealerOrder[];
+  warehouseMoves: DillerWarehouseMove[];
 };
 
 const DATA_KEY_PREFIX = 'aresso:diller:data:v5:';
@@ -229,14 +272,18 @@ export function clearLegacyDillerLocalData(): void {
 
 export const DILLER_PRODUCT_UNITS: { value: DillerProductUnit; label: string }[] = [
   { value: 'dona', label: 'Dona' },
-  { value: 'kg', label: 'Kilogramm (kg)' },
+  { value: 'kg', label: 'Kg' },
   { value: 'quti', label: 'Quti' },
+  { value: 'litr', label: 'Litr' },
+  { value: 'paket', label: 'Paket' },
 ];
 
 function normalizeUnit(unit: unknown): DillerProductUnit | string {
   const u = String(unit ?? 'dona').trim().toLowerCase();
   if (u === 'kg' || u === 'kilogramm') return 'kg';
   if (u === 'quti' || u === 'qadoq') return 'quti';
+  if (u === 'litr' || u === 'l' || u === 'liter') return 'litr';
+  if (u === 'paket' || u === 'pack') return 'paket';
   return 'dona';
 }
 
@@ -262,9 +309,13 @@ function normalizeSale(s: Partial<DillerSale> & { id: string }): DillerSale {
     Number(s.discountPercent) ||
     (subtotal > 0 ? Math.round((discountAmount / subtotal) * 1000) / 10 : 0);
   const total = Number(s.total) || Math.max(0, subtotal - discountAmount);
-  const paymentType: DillerPaymentType = s.paymentType === 'qarz' ? 'qarz' : 'naqd';
-  const paidAmount = Math.max(0, Number(s.paidAmount) ?? (paymentType === 'naqd' ? total : 0));
-  const debtAmount = Math.max(0, Number(s.debtAmount) ?? Math.max(0, total - paidAmount));
+  const paymentType: DillerPaymentType =
+    s.paymentType === 'qarz' ? 'qarz' : s.paymentType === 'karta' ? 'karta' : 'naqd';
+  const paidAmount = Math.max(0, Number(s.paidAmount) ?? (paymentType === 'qarz' ? 0 : total));
+  const debtAmount =
+    paymentType === 'qarz'
+      ? Math.max(0, Number(s.debtAmount) ?? Math.max(0, total - paidAmount))
+      : 0;
   const debtPayments = normalizeDebtPayments(s.debtPayments);
   const paidLater = debtPayments.reduce((sum, row) => sum + row.amount, 0);
   const initialDebtAmount =
@@ -288,8 +339,10 @@ function normalizeSale(s: Partial<DillerSale> & { id: string }): DillerSale {
     subtotal,
     total,
     paymentType,
-    paidAmount: paymentType === 'naqd' ? total : paidAmount,
-    debtAmount: paymentType === 'naqd' ? 0 : debtAmount,
+    cardId: s.cardId ? String(s.cardId) : undefined,
+    batchId: s.batchId ? String(s.batchId) : undefined,
+    paidAmount: paymentType === 'qarz' ? paidAmount : total,
+    debtAmount: paymentType === 'qarz' ? debtAmount : 0,
     initialDebtAmount: paymentType === 'qarz' ? initialDebtAmount : undefined,
     debtPayments: debtPayments.length > 0 ? debtPayments : undefined,
     debtDueDate: String(s.debtDueDate ?? '').trim(),
@@ -312,6 +365,7 @@ function normalizeStore(s: Partial<DillerStore> & { id: string }): DillerStore {
     contactName: String(s.contactName ?? '').trim(),
     lat: Number.isFinite(lat) ? lat : undefined,
     lng: Number.isFinite(lng) ? lng : undefined,
+    imageUrl: s.imageUrl ? String(s.imageUrl).trim() : undefined,
     createdAt: s.createdAt ?? new Date().toISOString(),
   };
 }
@@ -391,6 +445,57 @@ function normalizeBalanceEntry(e: Partial<DillerBalanceEntry> & { id: string }):
   };
 }
 
+function digitsOnly(value: string) {
+  return value.replace(/\D/g, '');
+}
+
+function normalizeSavedCard(c: Partial<DillerSavedCard> & { id?: string }): DillerSavedCard {
+  return {
+    id: String(c.id ?? uid('card')),
+    number: digitsOnly(String(c.number ?? '')).slice(0, 19),
+    holderName: String(c.holderName ?? '').trim(),
+    bank: String(c.bank ?? '').trim() || 'Uzcard',
+    createdAt: c.createdAt ?? new Date().toISOString(),
+  };
+}
+
+function normalizeDealerOrder(o: Partial<DillerDealerOrder> & { id?: string }): DillerDealerOrder {
+  const items = Array.isArray(o.items)
+    ? o.items.map((it) => ({
+        productId: String(it.productId ?? ''),
+        productName: String(it.productName ?? ''),
+        qty: Math.max(1, Math.floor(Number(it.qty) || 1)),
+        unitPrice: Math.max(0, Math.round(Number(it.unitPrice) || 0)),
+        lineTotal: Math.max(0, Math.round(Number(it.lineTotal) || 0)),
+        unit: String(it.unit ?? 'dona'),
+      }))
+    : [];
+  return {
+    id: String(o.id ?? uid('dord')),
+    storeId: String(o.storeId ?? ''),
+    items,
+    total:
+      Math.max(0, Math.round(Number(o.total) || 0)) || items.reduce((s, it) => s + it.lineTotal, 0),
+    status: o.status === 'done' ? 'done' : 'open',
+    createdAt: o.createdAt ?? new Date().toISOString(),
+    completedAt: o.completedAt ? String(o.completedAt) : undefined,
+    saleIds: Array.isArray(o.saleIds) ? o.saleIds.map(String) : undefined,
+    note: o.note ? String(o.note).trim() : undefined,
+  };
+}
+
+function normalizeWarehouseMove(m: Partial<DillerWarehouseMove> & { id?: string }): DillerWarehouseMove {
+  return {
+    id: String(m.id ?? uid('whm')),
+    productId: String(m.productId ?? ''),
+    qty: Math.max(0, Math.floor(Number(m.qty) || 0)),
+    kind: m.kind === 'chiqim' ? 'chiqim' : 'kirim',
+    note: String(m.note ?? '').trim(),
+    createdAt: m.createdAt ?? new Date().toISOString(),
+    saleId: m.saleId ? String(m.saleId) : undefined,
+  };
+}
+
 function normalizeShopOrder(o: Partial<DillerShopOrder> & { id: string }): DillerShopOrder {
   const items = Array.isArray(o.items)
     ? o.items.map((it) => ({
@@ -438,6 +543,7 @@ function normalizeProduct(p: Partial<DillerProduct> & { id: string }): DillerPro
     unitPrice: sell,
     buyPrice: buy,
     unit: normalizeUnit(p.unit),
+    imageUrl: p.imageUrl ? String(p.imageUrl).trim() : undefined,
     qrcodeImageUrl: p.qrcodeImageUrl ? String(p.qrcodeImageUrl).trim() : undefined,
     createdAt: p.createdAt ?? new Date().toISOString(),
   };
@@ -531,26 +637,13 @@ function seedData(): DillerData {
       { productId: p2.id, qty: 85 },
     ],
     sales: [],
+    expenses: [],
+    balanceEntries: [],
     shopOrders: [],
+    cards: [],
+    dealerOrders: [],
+    warehouseMoves: [],
   };
-}
-
-function firmsFromLegacyProducts(products: DillerProduct[]): DillerFirm[] {
-  const seen = new Map<string, DillerFirm>();
-  for (const p of products) {
-    const key = (p.firmName || '').trim().toLowerCase();
-    if (!key || seen.has(key)) continue;
-    seen.set(key, {
-      id: uid('firm'),
-      name: p.firmName.trim(),
-      ownerName: '',
-      address: '',
-      productName: p.name,
-      phone: '',
-      createdAt: new Date().toISOString(),
-    });
-  }
-  return [...seen.values()];
 }
 
 /** Bo‘sh ish maydoni (demo seedsiz) */
@@ -571,6 +664,9 @@ export function createEmptyDillerData(): DillerData {
     expenses: [],
     balanceEntries: [],
     shopOrders: [],
+    cards: [],
+    dealerOrders: [],
+    warehouseMoves: [],
   };
 }
 
@@ -583,6 +679,8 @@ export function hasDillerDataContent(data: DillerData): boolean {
     data.expenses.length > 0 ||
     (data.balanceEntries?.length ?? 0) > 0 ||
     (data.shopOrders?.length ?? 0) > 0 ||
+    (data.cards?.length ?? 0) > 0 ||
+    (data.dealerOrders?.length ?? 0) > 0 ||
     Boolean(data.profile.orderToken?.trim()) ||
     data.warehouse.some((w) => (w.qty ?? 0) > 0)
   );
@@ -596,9 +694,6 @@ export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData
     normalizeProduct(p as DillerProduct),
   );
   let firms = Array.isArray(raw.firms) ? raw.firms : [];
-  if (firms.length === 0 && products.length > 0) {
-    firms = firmsFromLegacyProducts(products);
-  }
 
   return {
     profile: {
@@ -625,6 +720,13 @@ export function normalizeDillerData(raw: Partial<DillerData> | null): DillerData
     ),
     shopOrders: (Array.isArray(raw.shopOrders) ? raw.shopOrders : []).map((o) =>
       normalizeShopOrder(o as DillerShopOrder),
+    ),
+    cards: (Array.isArray(raw.cards) ? raw.cards : []).map((c) => normalizeSavedCard(c)),
+    dealerOrders: (Array.isArray(raw.dealerOrders) ? raw.dealerOrders : []).map((o) =>
+      normalizeDealerOrder(o),
+    ),
+    warehouseMoves: (Array.isArray(raw.warehouseMoves) ? raw.warehouseMoves : []).map((m) =>
+      normalizeWarehouseMove(m),
     ),
   };
 }
@@ -819,6 +921,20 @@ export function createProduct(
   let next: DillerData = { ...data, products: [...data.products, product] };
   if (initialStock > 0) {
     next = setWarehouseQty(next, product.id, initialStock);
+    next = {
+      ...next,
+      warehouseMoves: [
+        normalizeWarehouseMove({
+          id: uid('whm'),
+          productId: product.id,
+          qty: initialStock,
+          kind: 'kirim',
+          note: 'Mahsulot qo‘shish',
+          createdAt: product.createdAt,
+        }),
+        ...(next.warehouseMoves ?? []),
+      ],
+    };
   }
   return { data: next };
 }
@@ -834,6 +950,7 @@ export function updateProduct(
     unitPrice?: number;
     buyPrice?: number;
     unit?: DillerProductUnit | string;
+    imageUrl?: string;
     qrcodeImageUrl?: string;
   },
   stock?: number,
@@ -865,6 +982,8 @@ export function updateProduct(
     unitPrice: input.unitPrice ?? existing.unitPrice,
     buyPrice: input.buyPrice ?? existing.buyPrice,
     unit: input.unit ?? existing.unit,
+    imageUrl:
+      input.imageUrl !== undefined ? input.imageUrl.trim() || undefined : existing.imageUrl,
     qrcodeImageUrl:
       input.qrcodeImageUrl !== undefined
         ? input.qrcodeImageUrl.trim() || undefined
@@ -1104,6 +1223,8 @@ export type CreateSaleInput = {
   /** So‘mda chegirma (foizdan ustun) */
   discountAmount?: number;
   paymentType: DillerPaymentType;
+  cardId?: string;
+  batchId?: string;
   /** Qarzda oldindan olingan summa */
   paidAmount?: number;
   debtDueDate?: string;
@@ -1165,12 +1286,13 @@ export function createSale(data: DillerData, input: CreateSaleInput): { data: Di
         discountAmount: input.discountAmount,
       });
 
-  const paymentType: DillerPaymentType = input.paymentType === 'qarz' ? 'qarz' : 'naqd';
+  const paymentType: DillerPaymentType =
+    input.paymentType === 'qarz' ? 'qarz' : input.paymentType === 'karta' ? 'karta' : 'naqd';
   let paidAmount = Math.max(0, Math.round(Number(input.paidAmount) || 0));
   let debtAmount = 0;
   let debtDueDate = '';
 
-  if (paymentType === 'naqd') {
+  if (paymentType !== 'qarz') {
     paidAmount = totals.total;
     debtAmount = 0;
   } else {
@@ -1196,6 +1318,8 @@ export function createSale(data: DillerData, input: CreateSaleInput): { data: Di
     subtotal: totals.subtotal,
     total: totals.total,
     paymentType,
+    cardId: input.cardId,
+    batchId: input.batchId,
     paidAmount,
     debtAmount,
     initialDebtAmount: paymentType === 'qarz' ? debtAmount : undefined,
@@ -1209,12 +1333,206 @@ export function createSale(data: DillerData, input: CreateSaleInput): { data: Di
   let next = { ...data, sales: [sale, ...data.sales] };
   if (!input.skipWarehouseDeduction) {
     next = setWarehouseQty(next, product.id, stock - qty);
+    next = {
+      ...next,
+      warehouseMoves: [
+        normalizeWarehouseMove({
+          id: uid('whm'),
+          productId: product.id,
+          qty,
+          kind: 'chiqim',
+          note: 'Sotuv',
+          createdAt: sale.createdAt,
+          saleId: sale.id,
+        }),
+        ...(next.warehouseMoves ?? []),
+      ],
+    };
   }
   return { data: next, sale };
 }
 
 export function formatMoney(n: number): string {
   return `${Math.round(n).toLocaleString('uz-UZ')} so‘m`;
+}
+
+export function formatCardNumber(number: string): string {
+  const d = number.replace(/\D/g, '');
+  if (d.length < 4) return d;
+  return `**** ${d.slice(-4)}`;
+}
+
+export function createSavedCard(
+  data: DillerData,
+  input: { number: string; holderName: string; bank?: string },
+): { data: DillerData; error?: string; card?: DillerSavedCard } {
+  const number = input.number.replace(/\D/g, '');
+  if (number.length < 12) return { data, error: 'Karta raqami to‘liq emas' };
+  if (!input.holderName.trim()) return { data, error: 'Ism familiya kiriting' };
+  const card = normalizeSavedCard({
+    id: uid('card'),
+    number,
+    holderName: input.holderName.trim(),
+    bank: input.bank?.trim() || 'Uzcard',
+    createdAt: new Date().toISOString(),
+  });
+  return { data: { ...data, cards: [card, ...(data.cards ?? [])] }, card };
+}
+
+export function deleteSavedCard(data: DillerData, cardId: string): DillerData {
+  return { ...data, cards: (data.cards ?? []).filter((c) => c.id !== cardId) };
+}
+
+export function createSalesBatch(
+  data: DillerData,
+  input: {
+    storeId: string;
+    lines: { productId: string; qty: number }[];
+    paymentType: DillerPaymentType;
+    cardId?: string;
+    discountPercent?: number;
+    discountAmount?: number;
+    paidAmount?: number;
+    debtDueDate?: string;
+    note?: string;
+  },
+): { data: DillerData; sales?: DillerSale[]; error?: string } {
+  if (input.lines.length === 0) return { data, error: 'Mahsulot tanlang' };
+  if (input.paymentType === 'karta' && !input.cardId) {
+    return { data, error: 'Karta tanlang' };
+  }
+  const batchId = uid('batch');
+  let next = data;
+  const sales: DillerSale[] = [];
+  let remainingPaid = Math.max(0, Math.round(Number(input.paidAmount) || 0));
+  for (let i = 0; i < input.lines.length; i++) {
+    const line = input.lines[i];
+    const product = next.products.find((p) => p.id === line.productId);
+    if (!product) return { data, error: 'Mahsulot topilmadi' };
+    const totals = calcSaleTotals(product.unitPrice, line.qty, {
+      discountPercent: input.discountPercent,
+      discountAmount: i === 0 ? input.discountAmount : 0,
+    });
+    let paidAmount: number | undefined;
+    if (input.paymentType === 'qarz') {
+      paidAmount = Math.min(remainingPaid, totals.total);
+      remainingPaid -= paidAmount;
+    }
+    const result = createSale(next, {
+      storeId: input.storeId,
+      productId: line.productId,
+      qty: line.qty,
+      paymentType: input.paymentType,
+      cardId: input.cardId,
+      batchId,
+      discountPercent: i === 0 ? input.discountPercent : 0,
+      discountAmount: i === 0 ? input.discountAmount : 0,
+      paidAmount,
+      debtDueDate: input.debtDueDate,
+      note: input.note,
+    });
+    if (result.error || !result.sale) return { data, error: result.error || 'Sotuv saqlanmadi' };
+    next = result.data;
+    sales.push(result.sale);
+  }
+  return { data: next, sales };
+}
+
+export function createDealerOrder(
+  data: DillerData,
+  input: { storeId: string; lines: { productId: string; qty: number }[]; note?: string },
+): { data: DillerData; order?: DillerDealerOrder; error?: string } {
+  const store = data.stores.find((s) => s.id === input.storeId);
+  if (!store) return { data, error: 'Do‘kon topilmadi' };
+  if (input.lines.length === 0) return { data, error: 'Mahsulot tanlang' };
+  const items: DillerShopOrderItem[] = [];
+  for (const line of input.lines) {
+    const product = data.products.find((p) => p.id === line.productId);
+    if (!product) return { data, error: 'Mahsulot topilmadi' };
+    const qty = Math.max(1, Math.floor(line.qty));
+    items.push({
+      productId: product.id,
+      productName: product.name,
+      qty,
+      unitPrice: product.unitPrice,
+      lineTotal: product.unitPrice * qty,
+      unit: String(product.unit),
+    });
+  }
+  const order = normalizeDealerOrder({
+    id: uid('dord'),
+    storeId: store.id,
+    items,
+    total: items.reduce((s, it) => s + it.lineTotal, 0),
+    status: 'open',
+    createdAt: new Date().toISOString(),
+    note: input.note,
+  });
+  return { data: { ...data, dealerOrders: [order, ...(data.dealerOrders ?? [])] }, order };
+}
+
+export function completeDealerOrder(
+  data: DillerData,
+  orderId: string,
+  pay: {
+    paymentType: DillerPaymentType;
+    cardId?: string;
+    paidAmount?: number;
+    debtDueDate?: string;
+  },
+): { data: DillerData; sales?: DillerSale[]; error?: string } {
+  const order = (data.dealerOrders ?? []).find((o) => o.id === orderId);
+  if (!order) return { data, error: 'Buyurtma topilmadi' };
+  if (order.status === 'done') return { data, error: 'Buyurtma allaqachon topshirilgan' };
+  const result = createSalesBatch(data, {
+    storeId: order.storeId,
+    lines: order.items.map((it) => ({ productId: it.productId, qty: it.qty })),
+    paymentType: pay.paymentType,
+    cardId: pay.cardId,
+    paidAmount: pay.paidAmount,
+    debtDueDate: pay.debtDueDate,
+    note: `Buyurtma ${order.id.slice(-6)}`,
+  });
+  if (result.error) return { data, error: result.error };
+  const done = normalizeDealerOrder({
+    ...order,
+    status: 'done',
+    completedAt: new Date().toISOString(),
+    saleIds: result.sales?.map((s) => s.id),
+  });
+  return {
+    data: {
+      ...result.data,
+      dealerOrders: (result.data.dealerOrders ?? []).map((o) => (o.id === orderId ? done : o)),
+    },
+    sales: result.sales,
+  };
+}
+
+export function applyWarehouseMove(
+  data: DillerData,
+  input: { productId: string; qty: number; kind: 'kirim' | 'chiqim'; note?: string },
+): { data: DillerData; error?: string } {
+  const product = data.products.find((p) => p.id === input.productId);
+  if (!product) return { data, error: 'Mahsulot topilmadi' };
+  const qty = Math.max(1, Math.floor(input.qty));
+  const current = getWarehouseQty(data, product.id);
+  const nextQty = input.kind === 'kirim' ? current + qty : current - qty;
+  if (nextQty < 0) return { data, error: 'Omborda yetarli emas' };
+  const move = normalizeWarehouseMove({
+    id: uid('whm'),
+    productId: product.id,
+    qty,
+    kind: input.kind,
+    note: input.note ?? (input.kind === 'kirim' ? 'Kirim' : 'Chiqim'),
+    createdAt: new Date().toISOString(),
+  });
+  return {
+    data: {
+      ...setWarehouseQty(data, product.id, nextQty),
+      warehouseMoves: [move, ...(data.warehouseMoves ?? [])],
+    },
+  };
 }
 
 export function updateSaleInData(data: DillerData, saleId: string, patch: Partial<DillerSale>): DillerData {
@@ -1373,6 +1691,17 @@ export function mergeDillerData(local: DillerData, remote: DillerData): DillerDa
     local.shopOrders ?? [],
   ).shopOrders;
 
+  const mergeById = <T extends { id: string }>(
+    a: T[],
+    b: T[],
+    norm: (x: T) => T,
+  ): T[] => {
+    const map = new Map<string, T>();
+    for (const x of a) map.set(x.id, norm(x));
+    for (const x of b) map.set(x.id, norm(x));
+    return [...map.values()];
+  };
+
   const productMap = new Map<string, DillerProduct>();
   for (const p of remote.products) productMap.set(p.id, normalizeProduct(p));
   for (const p of local.products) productMap.set(p.id, normalizeProduct(p));
@@ -1410,6 +1739,17 @@ export function mergeDillerData(local: DillerData, remote: DillerData): DillerDa
     expenses,
     balanceEntries,
     shopOrders,
+    cards: mergeById(remote.cards ?? [], local.cards ?? [], normalizeSavedCard),
+    dealerOrders: mergeById(
+      remote.dealerOrders ?? [],
+      local.dealerOrders ?? [],
+      normalizeDealerOrder,
+    ),
+    warehouseMoves: mergeById(
+      remote.warehouseMoves ?? [],
+      local.warehouseMoves ?? [],
+      normalizeWarehouseMove,
+    ),
   });
 }
 
@@ -1500,6 +1840,7 @@ export function rejectShopOrder(data: DillerData, orderId: string): { data: Dill
 
 export type ConfirmShopOrderSaleInput = {
   paymentType: DillerPaymentType;
+  cardId?: string;
   paidAmount?: number;
   debtDueDate?: string;
   note?: string;
@@ -1557,7 +1898,7 @@ function ensureStoreForShopOrder(
 
   const name = order.storeName?.trim() || order.customerName?.trim() || 'Do‘kon';
   if (!order.customerPhone.trim()) {
-    return { data, error: 'Do‘kon topilmadi — telefon raqam yo‘q' };
+    return { data, storeId: '', error: 'Do‘kon topilmadi — telefon raqam yo‘q' };
   }
   const store = normalizeStore({
     id: uid('store'),
@@ -1592,7 +1933,11 @@ export function confirmShopOrderSale(
   next = storeResolved.data;
   const storeId = storeResolved.storeId;
 
-  const paymentType: DillerPaymentType = input.paymentType === 'qarz' ? 'qarz' : 'naqd';
+  const paymentType: DillerPaymentType =
+    input.paymentType === 'qarz' ? 'qarz' : input.paymentType === 'karta' ? 'karta' : 'naqd';
+  if (paymentType === 'karta' && !input.cardId) {
+    return { data, error: 'Karta tanlang' };
+  }
   const subtotal = order.items.reduce(
     (s, it) => s + (it.lineTotal || it.unitPrice * it.qty),
     0,
@@ -1611,7 +1956,7 @@ export function confirmShopOrderSale(
     ? `${noteBase} · QR #${order.id.replace(/^ord_/, '').slice(0, 8)}`
     : `QR buyurtma #${order.id.replace(/^ord_/, '').slice(0, 8)}`;
 
-  if (paymentType === 'naqd') {
+  if (paymentType !== 'qarz') {
     paidTotal = orderTotal;
   } else if (paidTotal > orderTotal) {
     return { data: next, error: 'Oldindan to‘lov jami summadan oshmasligi kerak' };
@@ -1637,7 +1982,7 @@ export function confirmShopOrderSale(
     }
     const lineTotal = Math.max(0, lineSubtotal - lineDiscount);
     let linePaid = 0;
-    if (paymentType === 'naqd') {
+    if (paymentType !== 'qarz') {
       linePaid = lineTotal;
     } else if (i === order.items.length - 1) {
       linePaid = remainingPaid;
@@ -1653,6 +1998,7 @@ export function confirmShopOrderSale(
       listUnitPriceOverride: it.unitPrice,
       discountAmount: lineDiscount,
       paymentType,
+      cardId: paymentType === 'karta' ? input.cardId : undefined,
       paidAmount: linePaid,
       debtDueDate: paymentType === 'qarz' ? debtDueDate : undefined,
       note: orderNote,

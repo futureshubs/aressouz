@@ -1,4 +1,5 @@
 import { AlertTriangle } from 'lucide-react';
+import { iosGlassCardStyle } from './dillerIosGlass';
 
 export type StoreDeleteCandidate = {
   id: string;
@@ -27,37 +28,27 @@ export function DillerStoreDeleteDialog({
 
   return (
     <div
-      className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-4 app-safe-pad"
+      className="fixed inset-0 z-[120] flex items-end sm:items-center justify-center p-4 app-safe-pad animate-in fade-in duration-200"
       role="dialog"
       aria-modal="true"
       aria-labelledby="diller-store-delete-title"
     >
       <button
         type="button"
-        className="absolute inset-0 bg-black/55 backdrop-blur-[2px]"
+        className="absolute inset-0 bg-black/45 backdrop-blur-[12px]"
         aria-label="Yopish"
         onClick={() => onOpenChange(false)}
       />
 
       <div
-        className="relative w-full max-w-sm rounded-2xl overflow-hidden shadow-2xl animate-in fade-in zoom-in-95 duration-200"
-        style={{
-          background: isDark ? '#141414' : '#fff',
-          border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)',
-        }}
+        className="relative w-full max-w-sm rounded-[28px] overflow-hidden animate-in fade-in slide-in-from-bottom-6 zoom-in-95 duration-200"
+        style={iosGlassCardStyle(isDark)}
       >
-        <div
-          className="px-5 pt-5 pb-4"
-          style={{
-            background: isDark
-              ? 'linear-gradient(180deg, rgba(239,68,68,0.12), transparent)'
-              : 'linear-gradient(180deg, rgba(239,68,68,0.08), transparent)',
-          }}
-        >
-          <div className="w-11 h-11 rounded-2xl bg-red-500/15 flex items-center justify-center mb-3">
+        <div className="px-5 pt-5 pb-4">
+          <div className="w-12 h-12 rounded-[18px] bg-red-500/18 flex items-center justify-center mb-3">
             <AlertTriangle className="w-6 h-6 text-red-500" />
           </div>
-          <h2 id="diller-store-delete-title" className="text-base font-bold leading-snug">
+          <h2 id="diller-store-delete-title" className="text-base font-black leading-snug tracking-tight">
             Do‘konni o‘chirasizmi?
           </h2>
           <p
@@ -85,18 +76,15 @@ export function DillerStoreDeleteDialog({
           <button
             type="button"
             onClick={() => onOpenChange(false)}
-            className="w-full py-3 rounded-xl font-bold text-sm active:scale-[0.98] transition-transform"
-            style={{
-              background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-              color: isDark ? '#fff' : '#111',
-            }}
+            className="w-full py-3 rounded-[16px] font-bold text-sm active:scale-[0.98] transition-transform"
+            style={iosGlassCardStyle(isDark)}
           >
             Bekor qilish
           </button>
           <button
             type="button"
             onClick={onConfirm}
-            className="w-full py-3 rounded-xl font-bold text-sm text-white bg-red-500 active:scale-[0.98] transition-transform"
+            className="w-full py-3 rounded-[16px] font-bold text-sm text-white bg-red-500 active:scale-[0.98] transition-transform shadow-[0_8px_20px_rgba(239,68,68,0.35)]"
           >
             Ha, o‘chirish
           </button>

@@ -4,13 +4,14 @@ import { AlertTriangle, Minus, Package, Plus, Search, Warehouse } from 'lucide-r
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerProduct } from '../../utils/dillerData';
 import {
-  adjustWarehouseQty,
+  applyWarehouseMove,
   DILLER_PRODUCT_UNITS,
   formatMoney,
   getWarehouseQty,
-  setWarehouseQty,
 } from '../../utils/dillerData';
 import { dillerTabContentClass } from './dillerMobileLayout';
+import { iosAccentFillStyle, iosGlassCardStyle } from './dillerIosGlass';
+import { resolveDillerImage } from '../../utils/dillerMedia';
 
 type Props = {
   data: DillerData;
@@ -27,13 +28,7 @@ function Card({
   className?: string;
 }) {
   return (
-    <div
-      className={`rounded-2xl border p-4 ${className}`.trim()}
-      style={{
-        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-      }}
-    >
+    <div className={`rounded-[22px] p-4 ${className}`.trim()} style={iosGlassCardStyle(isDark)}>
       {children}
     </div>
   );
@@ -77,7 +72,7 @@ export function DillerOmborTab({ data, onDataChange }: Props) {
     let list = [...data.products];
     if (q) {
       list = list.filter((p) => {
-        const hay = `${p.name} ${p.firmName} ${p.sku}`.toLowerCase();
+        const hay = `${p.name} ${p.sku}`.toLowerCase();
         return hay.includes(q);
       });
     }
@@ -93,12 +88,37 @@ export function DillerOmborTab({ data, onDataChange }: Props) {
   }, [data.products, data.warehouse, search, data]);
 
   const setQty = (productId: string, qty: number) => {
-    onDataChange(setWarehouseQty(data, productId, qty));
+    const current = getWarehouseQty(data, productId);
+    const delta = Math.floor(qty) - current;
+    if (delta === 0) return;
+    const result = applyWarehouseMove(data, {
+      productId,
+      qty: Math.abs(delta),
+      kind: delta > 0 ? 'kirim' : 'chiqim',
+      note: 'Qo‘lda tuzatish',
+    });
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    onDataChange(result.data);
   };
 
   const bump = (productId: string, delta: number) => {
-    onDataChange(adjustWarehouseQty(data, productId, delta));
+    if (delta === 0) return;
+    const result = applyWarehouseMove(data, {
+      productId,
+      qty: Math.abs(delta),
+      kind: delta > 0 ? 'kirim' : 'chiqim',
+    });
+    if (result.error) {
+      toast.error(result.error);
+      return;
+    }
+    onDataChange(result.data);
   };
+
+  const recentMoves = (data.warehouseMoves ?? []).slice(0, 12);
 
   const inputCls = `w-full px-3 py-2.5 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-emerald-500/40 ${
     isDark
@@ -114,7 +134,7 @@ export function DillerOmborTab({ data, onDataChange }: Props) {
           <h3 className="font-bold text-base">Ombor</h3>
         </div>
         <p className="text-xs opacity-70 mb-3">
-          + / − bilan qoldiqni o‘zgartiring. Sotuvda avtomatik kamayadi.
+          Kirim (+) va chiqim (−) qoldiqni yangilaydi. Sotuv va buyurtma topshiruvi avtomatik chiqim yozadi.
         </p>
         <div className="grid grid-cols-2 gap-2">
           <div
@@ -157,7 +177,7 @@ export function DillerOmborTab({ data, onDataChange }: Props) {
           type="search"
           value={search}
           onChange={(e) => setSearch(e.target.value)}
-          placeholder="Mahsulot, firma yoki SKU qidirish..."
+          placeholder="Mahsulot yoki SKU qidirish..."
           className={`${inputCls} pl-9`}
         />
       </div>
@@ -187,6 +207,37 @@ export function DillerOmborTab({ data, onDataChange }: Props) {
           ))}
         </ul>
       )}
+
+      {recentMoves.length > 0 ? (
+        <Card isDark={isDark}>
+          <h3 className="font-bold text-sm mb-2">Kirim / chiqim</h3>
+          <ul className="space-y-2">
+            {recentMoves.map((m) => {
+              const p = data.products.find((x) => x.id === m.productId);
+              const kirim = m.kind === 'kirim';
+              return (
+                <li key={m.id} className="flex items-center justify-between gap-2 text-sm">
+                  <div className="min-w-0">
+                    <div className="font-semibold truncate">{p?.name ?? 'Mahsulot'}</div>
+                    <div className="text-[10px] opacity-45 truncate">
+                      {m.note} · {new Date(m.createdAt).toLocaleString('uz-UZ', {
+                        day: '2-digit',
+                        month: 'short',
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </div>
+                  </div>
+                  <span className={`font-black shrink-0 ${kirim ? 'text-emerald-500' : 'text-rose-400'}`}>
+                    {kirim ? '+' : '−'}
+                    {m.qty} {unitLabel(String(p?.unit ?? ''))}
+                  </span>
+                </li>
+              );
+            })}
+          </ul>
+        </Card>
+      ) : null}
     </div>
   );
 }
@@ -232,21 +283,19 @@ function WarehouseProductCard({
 
   return (
     <li>
-      <div
-        className="rounded-2xl border overflow-hidden"
-        style={{
-          background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-        }}
-      >
+      <div className="rounded-[22px] overflow-hidden" style={iosGlassCardStyle(isDark)}>
         <div className="h-1" style={{ background: status.bar }} />
         <div className="p-3.5">
           <div className="flex items-start gap-3">
             <div
-              className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
+              className="shrink-0 w-10 h-10 rounded-xl overflow-hidden flex items-center justify-center"
               style={{ background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}
             >
-              <Package className="w-5 h-5 opacity-60" />
+              {resolveDillerImage(product.imageUrl) ? (
+                <img src={resolveDillerImage(product.imageUrl)} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <Package className="w-5 h-5 opacity-60" />
+              )}
             </div>
             <div className="flex-1 min-w-0">
               <div className="flex items-center gap-2 flex-wrap">
@@ -255,7 +304,6 @@ function WarehouseProductCard({
                 </span>
               </div>
               <div className="font-bold text-sm mt-1 truncate">{product.name}</div>
-              <div className="text-xs opacity-70 truncate">{product.firmName}</div>
               {product.sku && product.sku !== '—' ? (
                 <div className="text-[10px] font-mono opacity-45 mt-0.5">{product.sku}</div>
               ) : null}
@@ -311,7 +359,7 @@ function WarehouseProductCard({
                   <button
                     type="button"
                     onClick={applyDraft}
-                    className="px-2 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 text-slate-900"
+                    className="px-2 py-1.5 rounded-lg text-xs font-bold bg-emerald-500 text-white"
                   >
                     OK
                   </button>
@@ -335,7 +383,7 @@ function WarehouseProductCard({
               type="button"
               onClick={() => onBump(product.id, 1)}
               className="w-11 h-11 rounded-xl flex items-center justify-center active:scale-95"
-              style={{ background: accentColor.gradient, color: '#0f172a' }}
+              style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
               aria-label="Qo‘shish"
             >
               <Plus className="w-5 h-5" />

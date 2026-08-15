@@ -1,12 +1,13 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { ShoppingCart, Store, X } from 'lucide-react';
+import { CreditCard, ShoppingCart, Store, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerPaymentType, DillerShopOrder } from '../../utils/dillerData';
 import {
   calcSaleTotals,
   confirmShopOrderSale,
   findStoresByPhone,
+  formatCardNumber,
   formatMoney,
 } from '../../utils/dillerData';
 import { normalizeUzPhoneForSms } from '../../utils/dillerPurchaseSms';
@@ -15,6 +16,7 @@ import {
   purchaseSmsToast,
 } from '../../utils/dillerPurchaseSmsSend';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
+import { iosAccentFillStyle, iosGlassBarStyle, iosGlassCardStyle, iosGlassPageSurface } from './dillerIosGlass';
 
 type Props = {
   open: boolean;
@@ -36,6 +38,7 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
   const isDark = theme === 'dark';
 
   const [paymentType, setPaymentType] = useState<DillerPaymentType>('naqd');
+  const [cardId, setCardId] = useState('');
   const [paidNow, setPaidNow] = useState('');
   const [debtDueDate, setDebtDueDate] = useState('');
   const [note, setNote] = useState('');
@@ -97,6 +100,7 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
     if (initOrderRef.current === orderId) return;
     initOrderRef.current = orderId;
     setPaymentType('naqd');
+    setCardId(data.cards?.[0]?.id ?? '');
     setPaidNow(String(order?.total ?? subtotal ?? 0));
     setDebtDueDate('');
     setNote(order?.note?.trim() ?? '');
@@ -109,8 +113,8 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
   }, [open, orderId, order?.note, order?.total, subtotal]);
 
   const orderPhoneOk = Boolean(
-    normalizeUzPhoneForSms(order?.customerPhone || '') ||
-      normalizeUzPhoneForSms(store?.phone || ''),
+    normalizeUzPhoneForSms(store?.phone || '') ||
+      normalizeUzPhoneForSms(order?.customerPhone || ''),
   );
 
   useEffect(() => {
@@ -119,14 +123,14 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
   }, [open, orderId, orderPhoneOk]);
 
   useEffect(() => {
-    if (paymentType === 'naqd') {
+    if (paymentType === 'naqd' || paymentType === 'karta') {
       setPaidNow(String(finalTotal));
     }
   }, [paymentType, finalTotal]);
 
   const selectPaymentType = (t: DillerPaymentType) => {
     setPaymentType(t);
-    if (t === 'naqd') {
+    if (t === 'naqd' || t === 'karta') {
       setPaidNow(String(finalTotal));
     } else {
       setPaidNow('0');
@@ -142,6 +146,7 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
     setSubmitting(true);
     const result = confirmShopOrderSale(data, order.id, {
       paymentType,
+      cardId: paymentType === 'karta' ? cardId : undefined,
       paidAmount: paymentType === 'qarz' ? Number(paidNow) || 0 : finalTotal,
       debtDueDate: paymentType === 'qarz' ? debtDueDate : undefined,
       note,
@@ -154,15 +159,13 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
       return;
     }
     onComplete(result.data);
-    const debtAmount =
-      paymentType === 'qarz' ? Math.max(0, finalTotal - (Number(paidNow) || 0)) : 0;
     const sms = await maybeSendShopOrderPurchaseSms({
       data: result.data,
       order,
       total: finalTotal,
+      discountAmount: totals.discountAmount,
       discountPercent: totals.discountPercent,
-      debtAmount,
-      debtDueDate: paymentType === 'qarz' ? debtDueDate : undefined,
+      paymentType,
       send: sendSms && orderPhoneOk,
     });
     setSubmitting(false);
@@ -173,11 +176,11 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
   return (
     <div
       className={dillerSheetShellClass}
-      style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: 120 }}
+      style={{ ...iosGlassPageSurface(isDark), zIndex: 120 }}
     >
       <header
-        className="shrink-0 flex items-center justify-between px-4 py-3 border-b"
-        style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
+        className="shrink-0 flex items-center justify-between px-4 py-3"
+        style={iosGlassBarStyle(isDark)}
       >
         <div className="min-w-0">
           <h2 className="text-lg font-bold truncate">Sotuvni tasdiqlash</h2>
@@ -325,23 +328,51 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
         <section>
           <h3 className="text-xs font-bold uppercase tracking-wide opacity-50 mb-2">To‘lov</h3>
           <div className="flex gap-2 mb-3">
-            {(['naqd', 'qarz'] as const).map((t) => (
+            {(['naqd', 'karta', 'qarz'] as const).map((t) => (
               <button
                 key={t}
                 type="button"
                 onClick={() => selectPaymentType(t)}
-                className={`flex-1 py-3 rounded-xl text-sm font-bold border ${
-                  paymentType === t
-                    ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-                    : isDark
-                      ? 'border-white/10 opacity-70'
-                      : 'border-gray-200'
+                className={`flex-1 py-3 rounded-xl text-sm font-bold ${
+                  paymentType === t ? 'text-white' : ''
                 }`}
+                style={
+                  paymentType === t
+                    ? iosAccentFillStyle(accentColor.gradient, accentColor.color)
+                    : isDark
+                      ? { border: '0.5px solid rgba(255,255,255,0.12)' }
+                      : { border: '0.5px solid rgba(0,0,0,0.08)' }
+                }
               >
-                {t === 'naqd' ? 'Naqd / to‘liq' : 'Qarzga'}
+                {t === 'naqd' ? 'Naqt' : t === 'karta' ? 'Karta' : 'Qarz'}
               </button>
             ))}
           </div>
+
+          {paymentType === 'karta' ? (
+            <div className="space-y-2 mb-3">
+              {(data.cards ?? []).length === 0 ? (
+                <p className="text-xs opacity-55">Avval Balansda karta saqlang</p>
+              ) : (
+                (data.cards ?? []).map((c) => {
+                  const on = cardId === c.id;
+                  return (
+                    <button
+                      key={c.id}
+                      type="button"
+                      onClick={() => setCardId(c.id)}
+                      className="w-full text-left rounded-[14px] px-3 py-2.5 flex items-center gap-2"
+                      style={on ? iosAccentFillStyle(accentColor.gradient, accentColor.color) : iosGlassCardStyle(isDark)}
+                    >
+                      <CreditCard className="w-4 h-4" />
+                      <span className="text-sm font-bold">{formatCardNumber(c.number)}</span>
+                      <span className={`text-[11px] ml-auto ${on ? 'opacity-80' : 'opacity-50'}`}>{c.bank}</span>
+                    </button>
+                  );
+                })
+              )}
+            </div>
+          ) : null}
 
           {paymentType === 'qarz' ? (
             <div className="space-y-3">
@@ -401,7 +432,7 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
               <span className="font-medium">Xarid SMS yuborish</span>
               <span className="block text-xs opacity-60 mt-0.5">
                 {orderPhoneOk
-                  ? 'Mijoz telefoniga informatsion (purchase_info) SMS'
+                  ? 'Do‘kon egasi telefoniga xarid SMS'
                   : 'Telefon raqam yo‘q — SMS yuborib bo‘lmaydi'}
               </span>
             </span>
@@ -414,15 +445,15 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
       </div>
 
       <footer
-        className="shrink-0 p-4 border-t safe-area-pb max-w-lg mx-auto w-full"
-        style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
+        className="shrink-0 p-4 max-w-lg mx-auto w-full"
+        style={iosGlassBarStyle(isDark)}
       >
         <button
           type="button"
           onClick={() => void submit()}
           disabled={submitting || !store}
-          className="w-full py-4 rounded-2xl font-bold text-slate-900 disabled:opacity-40 flex items-center justify-center gap-2"
-          style={{ background: accentColor.gradient }}
+          className="w-full py-4 rounded-2xl font-bold text-white disabled:opacity-40 flex items-center justify-center gap-2"
+          style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
         >
           <ShoppingCart className="w-5 h-5" />
           {submitting ? 'Saqlanmoqda…' : `Sotuvni tasdiqlash · ${formatMoney(finalTotal)}`}

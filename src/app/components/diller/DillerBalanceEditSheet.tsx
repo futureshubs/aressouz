@@ -19,6 +19,7 @@ import type {
 } from '../../utils/dillerData';
 import { deleteBalanceEntry, updateBalanceEntry } from '../../utils/dillerData';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
+import { iosAccentFillStyle, iosGlassBarStyle, iosGlassPageSurface } from './dillerIosGlass';
 
 type Props = {
   open: boolean;
@@ -90,11 +91,11 @@ export function DillerBalanceEditSheet({ open, entry, data, onClose, onSave }: P
   return (
     <div
       className={dillerSheetShellClass}
-      style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: 115 }}
+      style={{ ...iosGlassPageSurface(isDark), zIndex: 115 }}
     >
       <header
-        className="shrink-0 flex items-center gap-3 px-4 py-3 border-b"
-        style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
+        className="shrink-0 flex items-center gap-3 px-4 py-3"
+        style={iosGlassBarStyle(isDark)}
       >
         <div
           className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
@@ -222,8 +223,8 @@ export function DillerBalanceEditSheet({ open, entry, data, onClose, onSave }: P
         <button
           type="button"
           onClick={save}
-          className="w-full py-3.5 rounded-xl font-bold text-slate-900 flex items-center justify-center gap-2"
-          style={{ background: accentColor.gradient }}
+          className="w-full py-3.5 rounded-xl font-bold text-white flex items-center justify-center gap-2"
+          style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
         >
           <Save className="w-4 h-4" />
           Saqlash

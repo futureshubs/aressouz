@@ -30,6 +30,7 @@ import type { HistoryDateRange, HistoryPeriod } from '../../utils/dillerDebtAnal
 import { getHistoryPeriodLabel, toIsoDate } from '../../utils/dillerDebtAnalytics';
 import { DillerExpenseEditSheet } from './DillerExpenseEditSheet';
 import { dillerListClass } from './dillerMobileLayout';
+import { iosAccentFillStyle, iosGlassCardStyle, iosGlassInputStyle } from './dillerIosGlass';
 
 type Props = {
   data: DillerData;
@@ -47,23 +48,15 @@ function Card({
   className?: string;
 }) {
   return (
-    <div
-      className={`rounded-2xl border p-4 ${className}`.trim()}
-      style={{
-        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-      }}
-    >
+    <div className={`rounded-[22px] p-4 ${className}`.trim()} style={iosGlassCardStyle(isDark)}>
       {children}
     </div>
   );
 }
 
 const inputCls = (isDark: boolean) =>
-  `w-full px-3 py-2.5 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-emerald-500/40 ${
-    isDark
-      ? 'bg-white/5 border-white/10 text-white placeholder:text-white/40'
-      : 'bg-white border-gray-200 text-gray-900'
+  `w-full px-3.5 py-3 rounded-[14px] text-sm outline-none ${
+    isDark ? 'text-white placeholder:text-white/35' : 'text-gray-900 placeholder:text-gray-400'
   }`;
 
 const QUICK_PURPOSES = [
@@ -97,11 +90,8 @@ function ExpenseRow({
 }) {
   return (
     <div
-      className={`flex gap-2 rounded-xl border ${compact ? 'p-2.5' : 'p-3'}`}
-      style={{
-        background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
-        borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-      }}
+      className={`flex gap-2 rounded-[20px] ${compact ? 'p-2.5' : 'p-3'} active:scale-[0.985] transition-transform`}
+      style={iosGlassCardStyle(isDark)}
     >
       <button type="button" onClick={() => onEdit(e)} className="flex-1 min-w-0 text-left">
         <div className="flex items-center gap-2 flex-wrap">
@@ -337,11 +327,8 @@ export function DillerHarajatSection({ data, onDataChange, isDark }: Props) {
       <button
         type="button"
         onClick={() => setShowForm((v) => !v)}
-        className="w-full py-2.5 rounded-xl text-xs font-bold border flex items-center justify-center gap-2"
-        style={{
-          borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
-          color: accentColor.color,
-        }}
+        className="w-full py-2.5 rounded-[16px] text-xs font-bold flex items-center justify-center gap-2 active:scale-[0.98]"
+        style={{ ...iosGlassCardStyle(isDark), color: accentColor.color }}
       >
         <Plus className="w-4 h-4" />
         {showForm ? 'Formani yashirish' : 'Yangi xarajat qo‘shish'}
@@ -379,6 +366,7 @@ export function DillerHarajatSection({ data, onDataChange, isDark }: Props) {
                 value={purpose}
                 onChange={(e) => setPurpose(e.target.value)}
                 className={inputCls(isDark)}
+                style={iosGlassInputStyle(isDark)}
               />
             </div>
             <div>
@@ -390,6 +378,7 @@ export function DillerHarajatSection({ data, onDataChange, isDark }: Props) {
                 value={amount}
                 onChange={(e) => setAmount(e.target.value)}
                 className={inputCls(isDark)}
+                style={iosGlassInputStyle(isDark)}
               />
             </div>
             <div>
@@ -431,13 +420,14 @@ export function DillerHarajatSection({ data, onDataChange, isDark }: Props) {
                 value={note}
                 onChange={(e) => setNote(e.target.value)}
                 className={inputCls(isDark)}
+                style={iosGlassInputStyle(isDark)}
               />
             </div>
             <button
               type="button"
               onClick={add}
-              className="w-full py-3 rounded-xl font-bold text-slate-900 flex items-center justify-center gap-2"
-              style={{ background: accentColor.gradient }}
+              className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2"
+              style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
             >
               <Plus className="w-4 h-4" />
               Saqlash

@@ -33,8 +33,10 @@ import { readDillerSession } from '../../utils/dillerSession';
 import { downloadDillerQrPoster } from '../../utils/dillerQrPoster';
 import { pushDillerLocalNow } from '../../utils/dillerSync';
 import { dillerListClass } from './dillerMobileLayout';
+import { iosAccentFillStyle, iosGlassCardStyle, iosGlassInputStyle } from './dillerIosGlass';
 import { DillerShopOrderDetailSheet } from './DillerShopOrderDetailSheet';
 import { DillerShopOrderSaleSheet } from './DillerShopOrderSaleSheet';
+import { DillerDealerOrderPaySheet } from './DillerDealerOrderPaySheet';
 
 type Props = {
   data: DillerData;
@@ -52,23 +54,15 @@ function Card({
   className?: string;
 }) {
   return (
-    <div
-      className={`rounded-2xl border p-4 ${className}`.trim()}
-      style={{
-        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-      }}
-    >
+    <div className={`rounded-[22px] p-4 ${className}`.trim()} style={iosGlassCardStyle(isDark)}>
       {children}
     </div>
   );
 }
 
 const inputCls = (isDark: boolean) =>
-  `w-full px-3 py-2.5 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-emerald-500/40 ${
-    isDark
-      ? 'bg-white/5 border-white/10 text-white placeholder:text-white/40'
-      : 'bg-white border-gray-200 text-gray-900'
+  `w-full px-3.5 py-3 rounded-[14px] text-sm outline-none ${
+    isDark ? 'text-white placeholder:text-white/35' : 'text-gray-900 placeholder:text-gray-400'
   }`;
 
 const statusLabel: Record<DillerShopOrderStatus, string> = {
@@ -102,6 +96,7 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
   const [downloading, setDownloading] = useState(false);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [saleOrderId, setSaleOrderId] = useState<string | null>(null);
+  const [dealerPayId, setDealerPayId] = useState<string | null>(null);
   const tokenInitRef = useRef(false);
 
   const dataWithToken = useMemo(() => ensureOrderToken(data), [data]);
@@ -171,6 +166,20 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
   const saleOrder = useMemo(
     () => (data.shopOrders ?? []).find((o) => o.id === saleOrderId) ?? null,
     [data.shopOrders, saleOrderId],
+  );
+
+  const dealerPayOrder = useMemo(
+    () => (data.dealerOrders ?? []).find((o) => o.id === dealerPayId) ?? null,
+    [data.dealerOrders, dealerPayId],
+  );
+
+  const openDealerOrders = useMemo(
+    () => (data.dealerOrders ?? []).filter((o) => o.status === 'open'),
+    [data.dealerOrders],
+  );
+  const doneDealerOrders = useMemo(
+    () => (data.dealerOrders ?? []).filter((o) => o.status === 'done'),
+    [data.dealerOrders],
   );
 
   const patchServerStatus = async (orderId: string, status: DillerShopOrderStatus) => {
@@ -268,6 +277,14 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
 
   return (
     <>
+      <DillerDealerOrderPaySheet
+        open={!!dealerPayOrder}
+        order={dealerPayOrder}
+        data={data}
+        onClose={() => setDealerPayId(null)}
+        onComplete={onDataChange}
+      />
+
       <DillerShopOrderSaleSheet
         open={!!saleOrder}
         order={saleOrder}
@@ -295,8 +312,8 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
         </div>
 
         <div
-          className="rounded-xl p-3 mb-3 text-[11px] break-all opacity-70"
-          style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc' }}
+          className="rounded-[16px] p-3 mb-3 text-[11px] break-all opacity-70"
+          style={iosGlassInputStyle(isDark)}
         >
           {orderUrl || '—'}
         </div>
@@ -307,18 +324,21 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
             onChange={(e) => setPhone(e.target.value)}
             placeholder="Telefon (QR va panelda)"
             className={inputCls(isDark)}
+            style={iosGlassInputStyle(isDark)}
           />
           <input
             value={telegram}
             onChange={(e) => setTelegram(e.target.value)}
             placeholder="Telegram (@username)"
             className={inputCls(isDark)}
+            style={iosGlassInputStyle(isDark)}
           />
           <input
             value={instagram}
             onChange={(e) => setInstagram(e.target.value)}
             placeholder="Instagram (@username)"
             className={inputCls(isDark)}
+            style={iosGlassInputStyle(isDark)}
           />
         </div>
 
@@ -326,8 +346,8 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
           <button
             type="button"
             onClick={saveContacts}
-            className="flex-1 py-2.5 rounded-xl text-xs font-bold border"
-            style={{ borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }}
+            className="flex-1 py-2.5 rounded-[16px] text-xs font-bold active:scale-[0.98]"
+            style={iosGlassCardStyle(isDark)}
           >
             Saqlash
           </button>
@@ -335,8 +355,8 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
             type="button"
             onClick={() => void downloadPoster()}
             disabled={downloading || !orderToken}
-            className="flex-1 py-2.5 rounded-xl text-xs font-bold text-slate-900 flex items-center justify-center gap-1.5 disabled:opacity-40"
-            style={{ background: accentColor.gradient }}
+            className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-40"
+            style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
           >
             {downloading ? (
               <Loader2 className="w-4 h-4 animate-spin" />
@@ -359,7 +379,79 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
         <div className="flex items-center justify-between gap-2 mb-3">
           <h3 className="font-bold text-sm flex items-center gap-2">
             <Package className="w-4 h-4 text-emerald-400" />
-            Buyurtmalar
+            Do‘kon buyurtmalari
+            {openDealerOrders.length > 0 ? (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">
+                {openDealerOrders.length} ochiq
+              </span>
+            ) : null}
+          </h3>
+        </div>
+        {(data.dealerOrders ?? []).length === 0 ? (
+          <p className="text-sm opacity-50 text-center py-6">
+            Do‘kon kartasidan «Buyurtma olish» — mahsulot tanlab yaratiladi
+          </p>
+        ) : (
+          <ul className={dillerListClass}>
+            {[...openDealerOrders, ...doneDealerOrders].map((order) => {
+              const store = data.stores.find((s) => s.id === order.storeId);
+              const totalItems = order.items.reduce((s, it) => s + it.qty, 0);
+              const open = order.status === 'open';
+              return (
+                <li key={order.id}>
+                  <div className="p-3.5 rounded-[20px]" style={iosGlassCardStyle(isDark)}>
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0">
+                        <div className="font-bold text-sm truncate">{store?.name ?? 'Do‘kon'}</div>
+                        <div className="text-[11px] opacity-50 mt-0.5">
+                          {totalItems} ta · {order.items.length} tur
+                        </div>
+                      </div>
+                      <span
+                        className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0"
+                        style={{
+                          background: open ? 'rgba(245,158,11,0.18)' : 'rgba(16,185,129,0.16)',
+                          color: open ? '#f59e0b' : '#10b981',
+                        }}
+                      >
+                        {open ? 'Ochiq' : 'Topshirildi'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-black text-emerald-500">{formatMoney(order.total)}</span>
+                      {open ? (
+                        <button
+                          type="button"
+                          onClick={() => setDealerPayId(order.id)}
+                          className="px-3 py-2 rounded-xl text-[12px] font-bold text-white"
+                          style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+                        >
+                          Topshirdim
+                        </button>
+                      ) : (
+                        <span className="text-[10px] opacity-40">
+                          {order.completedAt
+                            ? new Date(order.completedAt).toLocaleString('uz-UZ')
+                            : ''}
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] opacity-40 mt-2">
+                      {new Date(order.createdAt).toLocaleString('uz-UZ')}
+                    </div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
+
+      <Card isDark={isDark}>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h3 className="font-bold text-sm flex items-center gap-2">
+            <Package className="w-4 h-4 text-emerald-400" />
+            QR buyurtmalar
             {pendingCount > 0 ? (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">
                 {pendingCount} yangi
@@ -391,11 +483,8 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
                   <button
                     type="button"
                     onClick={() => setDetailOrderId(order.id)}
-                    className="w-full text-left p-3.5 rounded-xl border active:scale-[0.99] transition-transform"
-                    style={{
-                      background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
-                      borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)',
-                    }}
+                    className="w-full text-left p-3.5 rounded-[20px] active:scale-[0.985] transition-transform"
+                    style={iosGlassCardStyle(isDark)}
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="min-w-0 flex-1">

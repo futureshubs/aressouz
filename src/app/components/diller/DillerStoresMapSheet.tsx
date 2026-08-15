@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { useTheme } from '../../context/ThemeContext';
+import { iosAccentFillStyle, iosGlassCardStyle } from './dillerIosGlass';
 import type { DillerData, DillerStore } from '../../utils/dillerData';
 import { formatMoney } from '../../utils/dillerData';
 import { getStoreStats } from '../../utils/dillerStoreStats';
@@ -46,6 +47,7 @@ type Props = {
   data: DillerData;
   onClose: () => void;
   onStoreClick?: (store: DillerStore) => void;
+  variant?: 'sheet' | 'page';
 };
 
 type UserLocation = {
@@ -77,7 +79,7 @@ function escapeHtml(text: string): string {
 function createStoreMarkerIcon(color: string, hasDebt: boolean, label?: string) {
   const bg = hasDebt ? '#f59e0b' : color;
   const inner = label
-    ? `<span style="font-size:13px;font-weight:800;color:#0f172a">${label}</span>`
+    ? `<span style="font-size:13px;font-weight:800;color:#fff">${label}</span>`
     : '🏪';
   return L.divIcon({
     className: '',
@@ -148,7 +150,13 @@ function ManeuverIcon({ kind, className = 'w-8 h-8' }: { kind: ReturnType<typeof
   return <ArrowUp className={className} strokeWidth={2.5} />;
 }
 
-export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Props) {
+export function DillerStoresMapSheet({
+  open,
+  data,
+  onClose,
+  onStoreClick,
+  variant = 'sheet',
+}: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
   const mapRef = useRef<L.Map | null>(null);
@@ -343,7 +351,7 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
       attributionControl: true,
     }).setView(DEFAULT_CENTER, 11);
 
-    L.control.zoom({ position: 'bottomright' }).addTo(map);
+    L.control.zoom({ position: variant === 'page' ? 'bottomleft' : 'bottomright' }).addTo(map);
     addAppMapTileLayer(map, isDark);
 
     map.on('dragstart', () => {
@@ -378,7 +386,7 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
       map.remove();
       mapRef.current = null;
     };
-  }, [open, isDark, fitAllPoints]);
+  }, [open, isDark, fitAllPoints, variant]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -576,11 +584,14 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
 
   if (!open) return null;
 
+  const isPage = variant === 'page';
+
   return (
     <div
-      className={dillerSheetShellClass}
-      style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: 114 }}
+      className={isPage ? 'relative min-h-0 h-full overflow-hidden' : dillerSheetShellClass}
+      style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: isPage ? undefined : 114 }}
     >
+      {!isPage ? (
       <header
         className="shrink-0 flex items-center gap-3 px-4 py-3 border-b"
         style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
@@ -608,22 +619,71 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
           <X className="w-5 h-5" />
         </button>
       </header>
+      ) : null}
 
-      <div className="flex-1 min-h-0 relative">
+      <div className={`${isPage ? 'absolute inset-0' : 'flex-1 min-h-0 relative'} ${isPage ? '[&_.leaflet-bottom.leaflet-left]:bottom-[calc(6.75rem+var(--app-safe-bottom,0px))] [&_.leaflet-bottom.leaflet-right]:hidden [&_.leaflet-control-attribution]:hidden' : ''}`}>
         <div ref={containerRef} className="absolute inset-0 z-0" />
 
-        <div className="absolute right-3 top-3 z-[500] flex flex-col gap-2">
+        {isPage ? (
+          <div
+            className="absolute left-3 z-[500] rounded-[18px] px-2.5 py-2 text-[10px] font-semibold space-y-1"
+            style={{
+              ...iosGlassCardStyle(isDark),
+              top: 'max(0.75rem, var(--app-safe-top, 0px))',
+            }}
+          >
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-blue-500" />
+              Do‘kon
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-amber-500" />
+              Qarzdor
+            </div>
+            <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full ring-2 ring-blue-400 bg-blue-500" />
+              Siz
+            </div>
+          </div>
+        ) : null}
+
+        <div
+          className="absolute right-3 z-[500] flex flex-col items-end gap-2"
+          style={{ top: isPage ? 'max(0.75rem, var(--app-safe-top, 0px))' : 12 }}
+        >
+          {isPage && !navStarted ? (
+            <button
+              type="button"
+              onClick={handleStartTour}
+              disabled={locStatus !== 'ok' || mappedStores.length === 0}
+              className="inline-flex items-center gap-1.5 pl-3 pr-4 h-11 rounded-full font-bold text-white text-sm disabled:opacity-45 active:scale-[0.97] shadow-lg"
+              style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+            >
+              {locStatus === 'loading' ? (
+                <Loader2 className="w-4 h-4 animate-spin" />
+              ) : (
+                <Play className="w-4 h-4 fill-current" />
+              )}
+              Boshlash
+            </button>
+          ) : null}
+          {isPage && navStarted ? (
+            <button
+              type="button"
+              onClick={stopNavigation}
+              className="inline-flex items-center gap-1.5 px-4 h-11 rounded-full font-bold text-sm active:scale-[0.97]"
+              style={iosGlassCardStyle(isDark)}
+            >
+              To‘xtat
+            </button>
+          ) : null}
           <button
             type="button"
             onClick={centerOnMe}
-            className={`w-11 h-11 rounded-full shadow-lg flex items-center justify-center border active:scale-95 transition-transform ${
+            className={`w-11 h-11 rounded-full flex items-center justify-center active:scale-95 transition-transform ${
               followMe ? 'ring-2 ring-blue-400' : ''
             }`}
-            style={{
-              background: isDark ? 'rgba(20,20,20,0.92)' : 'rgba(255,255,255,0.95)',
-              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
-              color: '#4285F4',
-            }}
+            style={{ ...iosGlassCardStyle(isDark), color: '#4285F4', borderRadius: 999 }}
             aria-label="Mening joylashuvim"
           >
             <Crosshair className="w-5 h-5" />
@@ -631,12 +691,8 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
           <button
             type="button"
             onClick={showAll}
-            className="w-11 h-11 rounded-full shadow-lg flex items-center justify-center border active:scale-95"
-            style={{
-              background: isDark ? 'rgba(20,20,20,0.92)' : 'rgba(255,255,255,0.95)',
-              borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.08)',
-              color: accentColor.color,
-            }}
+            className="w-11 h-11 rounded-full flex items-center justify-center active:scale-95"
+            style={{ ...iosGlassCardStyle(isDark), color: accentColor.color, borderRadius: 999 }}
             aria-label="Hammasini ko‘rish"
           >
             <Store className="w-5 h-5" />
@@ -655,9 +711,75 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
             </p>
           </div>
         ) : null}
+
+        {isPage && navStarted && navTarget ? (
+          <div
+            className="absolute left-3 right-3 z-[500] rounded-[24px] overflow-hidden"
+            style={{
+              ...iosGlassCardStyle(isDark),
+              bottom: 'calc(6.35rem + var(--app-safe-bottom, 0px))',
+            }}
+          >
+            <div className="px-3.5 pt-3 pb-2 flex items-start gap-3">
+              <div
+                className="shrink-0 w-12 h-12 rounded-2xl flex items-center justify-center text-[#4285F4]"
+                style={{ background: isDark ? 'rgba(66,133,244,0.18)' : 'rgba(66,133,244,0.12)' }}
+              >
+                {routeLoading ? (
+                  <Loader2 className="w-7 h-7 animate-spin" />
+                ) : (
+                  <ManeuverIcon kind={instructionKind} className="w-7 h-7" />
+                )}
+              </div>
+              <div className="flex-1 min-w-0">
+                <div className="text-[16px] font-black leading-tight">{instructionText}</div>
+                <div className="text-[11px] opacity-60 mt-0.5 flex flex-wrap gap-x-2">
+                  {activeStep?.name ? <span>{activeStep.name}</span> : null}
+                  {stepDistance > 0 ? (
+                    <span className="text-[#4285F4] font-bold">{formatNavDistance(stepDistance)}</span>
+                  ) : null}
+                </div>
+                <div className="flex items-center justify-between gap-2 mt-1.5">
+                  <div className="text-[12px] font-bold truncate">{navTarget.name}</div>
+                  <div className="text-[12px] font-black text-[#4285F4] tabular-nums shrink-0">
+                    {remaining ? formatNavDistance(remaining.distanceM) : '—'}
+                    {remaining ? (
+                      <span className="opacity-50 font-semibold text-[10px] ml-1">
+                        {formatNavDuration(remaining.durationS)}
+                      </span>
+                    ) : null}
+                  </div>
+                </div>
+              </div>
+            </div>
+            <div className="px-3 pb-3 flex gap-2">
+              <button
+                type="button"
+                onClick={goNextStore}
+                disabled={!nextTourStore}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 disabled:opacity-40"
+                style={{
+                  background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
+                  color: accentColor.color,
+                }}
+              >
+                <SkipForward className="w-4 h-4" />
+                Keyingi
+              </button>
+              <button
+                type="button"
+                onClick={openYandex}
+                className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white bg-[#FC3F1D] flex items-center justify-center gap-1.5"
+              >
+                <MapPin className="w-4 h-4" />
+                Yandex
+              </button>
+            </div>
+          </div>
+        ) : null}
       </div>
 
-      {navStarted && navTarget ? (
+      {!isPage && navStarted && navTarget ? (
         <div
           className="shrink-0 border-t shadow-[0_-8px_32px_rgba(0,0,0,0.18)]"
           style={{
@@ -792,7 +914,7 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
             ) : null}
           </div>
         </div>
-      ) : (
+      ) : !isPage ? (
         <div
           className="shrink-0 px-4 py-3 border-t"
           style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
@@ -806,8 +928,8 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
             type="button"
             onClick={handleStartTour}
             disabled={locStatus !== 'ok' || mappedStores.length === 0}
-            className="w-full py-3.5 rounded-xl font-bold text-slate-900 flex items-center justify-center gap-2 disabled:opacity-45 active:scale-[0.98]"
-            style={{ background: accentColor.gradient }}
+            className="w-full py-3.5 rounded-xl font-bold text-white flex items-center justify-center gap-2 disabled:opacity-45 active:scale-[0.98]"
+            style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
           >
             {locStatus === 'loading' ? (
               <Loader2 className="w-5 h-5 animate-spin" />
@@ -820,7 +942,7 @@ export function DillerStoresMapSheet({ open, data, onClose, onStoreClick }: Prop
             Eng yaqin do‘kon avtomatik tanlanadi
           </p>
         </div>
-      )}
+      ) : null}
     </div>
   );
 }

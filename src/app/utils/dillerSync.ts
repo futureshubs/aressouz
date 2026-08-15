@@ -368,6 +368,13 @@ export async function uploadDillerToCloud(): Promise<DillerSyncOutcome> {
       };
     }
 
+    try {
+      const { flushDillerLocalImages } = await import('./dillerMedia');
+      await flushDillerLocalImages();
+    } catch {
+      /* rasm yuborilmadi — JSON baribir ketadi */
+    }
+
     const toPush = loadDillerData();
     const push = await pushIfAllowed(token, toPush);
     if (!push.ok) {

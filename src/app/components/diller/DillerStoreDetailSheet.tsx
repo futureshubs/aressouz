@@ -1,6 +1,7 @@
 import { useMemo, useState, type ReactNode } from 'react';
 import {
   Calendar,
+  ClipboardList,
   ExternalLink,
   MapPin,
   Pencil,
@@ -10,6 +11,7 @@ import {
   Store,
   Trash2,
   User,
+  Wallet,
   X,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
@@ -24,9 +26,11 @@ import {
   getStoreTelHref,
 } from '../../utils/dillerStoreStats';
 import { openExternalUrlSync } from '../../utils/openExternalUrl';
+import { resolveDillerImage } from '../../utils/dillerMedia';
 import { DillerSaleCard } from './DillerSaleCard';
 import { DillerSaleReceiptModal } from './DillerSaleReceiptModal';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
+import { iosAccentFillStyle, iosGlassBarStyle, iosGlassCardStyle, iosGlassPageStyle } from './dillerIosGlass';
 
 type Props = {
   open: boolean;
@@ -36,6 +40,7 @@ type Props = {
   onEdit: () => void;
   onDeleteRequest: () => void;
   onStartSale: () => void;
+  onStartOrder: () => void;
 };
 
 export function DillerStoreDetailSheet({
@@ -46,6 +51,7 @@ export function DillerStoreDetailSheet({
   onEdit,
   onDeleteRequest,
   onStartSale,
+  onStartOrder,
 }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
@@ -65,10 +71,8 @@ export function DillerStoreDetailSheet({
 
   const coords = formatStoreCoords(store);
   const telHref = getStoreTelHref(store);
-
-  const handleDelete = () => {
-    onDeleteRequest();
-  };
+  const hasPhone = Boolean(store.phone?.trim());
+  const storeImg = resolveDillerImage(store.imageUrl);
 
   const openMap = (url: string) => {
     openExternalUrlSync(url);
@@ -77,61 +81,74 @@ export function DillerStoreDetailSheet({
   return (
     <>
       <div
-        className={dillerSheetShellClass}
-        style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: 115 }}
+        className={`${dillerSheetShellClass} animate-in fade-in slide-in-from-right-8 duration-300`}
+        style={{ ...iosGlassPageStyle(isDark), zIndex: 115 }}
       >
         <header
-          className="shrink-0 flex items-center gap-3 px-4 py-3 border-b"
-          style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
+          className="shrink-0 px-4 pt-2 pb-3"
+          style={{ ...iosGlassBarStyle(isDark), borderTop: 'none' }}
         >
-          <div
-            className="shrink-0 w-11 h-11 rounded-xl flex items-center justify-center"
-            style={{ background: accentColor.gradient, color: '#0f172a' }}
-          >
-            <Store className="w-6 h-6" />
+          <div className="flex justify-center pb-2">
+            <span className="w-10 h-1 rounded-full bg-white/25" />
           </div>
-          <div className="flex-1 min-w-0">
-            <h2 className="text-lg font-bold truncate" style={{ color: isDark ? '#fff' : '#111' }}>
-              {store.name}
-            </h2>
-            <p className="text-xs opacity-60 truncate">{store.address || 'Manzil kiritilmagan'}</p>
+          <div className="flex items-center gap-3">
+            <div
+              className="shrink-0 w-12 h-12 rounded-[16px] overflow-hidden flex items-center justify-center"
+            style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+            >
+              {storeImg ? (
+                <img src={storeImg} alt="" className="w-full h-full object-cover" />
+              ) : (
+                <Store className="w-6 h-6" />
+              )}
+            </div>
+            <div className="flex-1 min-w-0">
+              <h2 className="text-[18px] font-black truncate tracking-tight">
+                {store.name}
+              </h2>
+              <p className="text-[11px] opacity-55 truncate">{store.address || 'Manzil kiritilmagan'}</p>
+            </div>
+            <button
+              type="button"
+              onClick={onEdit}
+              className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center active:scale-95"
+              style={iosGlassCardStyle(isDark)}
+              aria-label="Tahrirlash"
+            >
+              <Pencil className="w-4 h-4" style={{ color: accentColor.color }} />
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="w-10 h-10 rounded-full shrink-0 flex items-center justify-center active:scale-95"
+              style={iosGlassCardStyle(isDark)}
+              aria-label="Yopish"
+            >
+              <X className="w-4 h-4" />
+            </button>
           </div>
-          <button
-            type="button"
-            onClick={onEdit}
-            className="p-2.5 rounded-xl shrink-0"
-            style={{
-              background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)',
-              color: accentColor.color,
-            }}
-            aria-label="Tahrirlash"
-          >
-            <Pencil className="w-5 h-5" />
-          </button>
-          <button
-            type="button"
-            onClick={onClose}
-            className="p-2.5 rounded-xl shrink-0"
-            style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
-            aria-label="Yopish"
-          >
-            <X className="w-5 h-5" style={{ color: isDark ? '#fff' : '#333' }} />
-          </button>
         </header>
 
-        <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-4 max-w-lg mx-auto w-full pb-6`}>
-          <button
-            type="button"
-            onClick={onStartSale}
-            className="w-full py-4 rounded-2xl font-bold text-slate-900 flex items-center justify-center gap-2 shadow-lg active:scale-[0.99] transition-transform"
-            style={{ background: accentColor.gradient }}
-          >
-            <ShoppingCart className="w-5 h-5" />
-            Sotuv boshlash
-          </button>
-          <p className="text-[10px] opacity-50 text-center -mt-2 mb-1">
-            Do‘kon avtomatik tanlanadi — faqat mahsulot va to‘lovni kiriting
-          </p>
+        <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-3 max-w-lg mx-auto w-full`}>
+          {(stats?.openDebt ?? 0) > 0 ? (
+            <div
+              className="rounded-[22px] px-4 py-3.5 flex items-center justify-between"
+              style={{
+                background: isDark ? 'rgba(245,158,11,0.16)' : 'rgba(245,158,11,0.12)',
+                border: '0.5px solid rgba(245,158,11,0.28)',
+                backdropFilter: 'blur(24px)',
+                WebkitBackdropFilter: 'blur(24px)',
+              }}
+            >
+              <div>
+                <div className="text-[11px] font-semibold text-amber-500/80">Qolgan qarz</div>
+                <div className="text-[22px] font-black text-amber-400 tabular-nums leading-tight">
+                  {formatMoney(stats?.openDebt ?? 0)}
+                </div>
+              </div>
+              <Wallet className="w-8 h-8 text-amber-400/70" />
+            </div>
+          ) : null}
 
           <div className="grid grid-cols-2 gap-2">
             <StatBox
@@ -204,80 +221,86 @@ export function DillerStoreDetailSheet({
                 mono
               />
             ) : null}
-            <div className="pt-2">
-              <a
-                href={telHref}
-                className="flex items-center justify-center gap-2 w-full py-3 rounded-xl font-bold text-slate-900"
-                style={{ background: accentColor.gradient }}
-              >
-                <Phone className="w-5 h-5" />
-                {store.phone}
-              </a>
-            </div>
+            {hasPhone ? (
+              <InfoRow
+                isDark={isDark}
+                icon={<Phone className="w-4 h-4" />}
+                label="Telefon"
+                value={store.phone}
+              />
+            ) : null}
           </Section>
 
           {mapLinks ? (
             <Section isDark={isDark} title="Xarita">
-              <p className="text-xs opacity-60 mb-2">Tashqi ilovada ochiladi</p>
+              <p className="text-xs opacity-55 mb-2.5">Tashqi ilovada ochiladi</p>
               <div className="grid grid-cols-2 gap-2">
                 <button
                   type="button"
                   onClick={() => openMap(mapLinks.google)}
-                  className="py-3 px-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98]"
-                  style={{ borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }}
+                  className="py-3 px-3 rounded-[16px] font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.97]"
+                  style={iosGlassCardStyle(isDark)}
                 >
-                  <ExternalLink className="w-4 h-4 text-blue-500" />
-                  Google Maps
+                  <ExternalLink className="w-4 h-4 text-blue-400" />
+                  Google
                 </button>
                 <button
                   type="button"
                   onClick={() => openMap(mapLinks.yandex)}
-                  className="py-3 px-3 rounded-xl border font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.98]"
-                  style={{ borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)' }}
+                  className="py-3 px-3 rounded-[16px] font-bold text-sm flex items-center justify-center gap-2 active:scale-[0.97]"
+                  style={iosGlassCardStyle(isDark)}
                 >
-                  <ExternalLink className="w-4 h-4 text-red-500" />
-                  Yandex Xarita
+                  <ExternalLink className="w-4 h-4 text-red-400" />
+                  Yandex
                 </button>
               </div>
             </Section>
           ) : (
             <div
-              className="rounded-xl p-3 text-xs opacity-60 text-center"
-              style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff' }}
+              className="rounded-[22px] p-3.5 text-xs opacity-60 text-center"
+              style={iosGlassCardStyle(isDark)}
             >
               Xarita uchun manzil yoki GPS koordinata qo‘shing
             </div>
           )}
 
           {stats && stats.products.length > 0 ? (
-            <Section isDark={isDark} title="Berilgan mahsulotlar (jami)">
+            <div>
+              <h3 className="px-1 mb-2 text-[12px] font-bold uppercase tracking-wide opacity-45">
+                Berilgan mahsulotlar
+              </h3>
               <ul className="space-y-2">
                 {stats.products.map((row) => (
                   <li
                     key={row.productId}
-                    className="flex items-center justify-between gap-2 p-2.5 rounded-xl text-sm"
-                    style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc' }}
+                    className="flex items-center justify-between gap-2 px-3.5 py-2.5 rounded-[18px] text-sm"
+                    style={iosGlassCardStyle(isDark)}
                   >
                     <div className="min-w-0">
                       <div className="font-semibold truncate">{row.productName}</div>
-                      <div className="text-[10px] opacity-60">
-                        {row.saleCount} sotuv · {row.qty} dona/jami
+                      <div className="text-[10px] opacity-55">
+                        {row.saleCount} sotuv · {row.qty} dona
                       </div>
                     </div>
-                    <div className="font-bold shrink-0" style={{ color: accentColor.color }}>
+                    <div className="font-black shrink-0 tabular-nums" style={{ color: accentColor.color }}>
                       {formatMoney(row.total)}
                     </div>
                   </li>
                 ))}
               </ul>
-            </Section>
+            </div>
           ) : null}
 
-          <Section isDark={isDark} title={`Sotuvlar tarixi (${sales.length})`}>
+          <div>
+            <h3 className="px-1 mb-2 text-[12px] font-bold uppercase tracking-wide opacity-45">
+              Sotuvlar tarixi ({sales.length})
+            </h3>
             {sales.length === 0 ? (
-              <p className="text-sm opacity-60 text-center py-6">Hali bu do‘konga sotuv yo‘q</p>
+              <div className="rounded-[22px] py-8 text-center" style={iosGlassCardStyle(isDark)}>
+                <p className="text-sm opacity-55">Hali bu do‘konga sotuv yo‘q</p>
+              </div>
             ) : (
-              <ul className="space-y-3">
+              <ul className="space-y-2.5">
                 {sales.map((sale) => (
                   <li key={sale.id}>
                     <DillerSaleCard
@@ -290,30 +313,66 @@ export function DillerStoreDetailSheet({
                 ))}
               </ul>
             )}
-          </Section>
+          </div>
 
-          <div className="grid grid-cols-2 gap-2 mb-6">
+          <div className="grid grid-cols-2 gap-2 pb-2">
             <button
               type="button"
               onClick={onEdit}
-              className="py-3 rounded-xl border font-bold flex items-center justify-center gap-2"
-              style={{
-                borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
-                color: accentColor.color,
-              }}
+              className="py-3 rounded-[16px] font-bold flex items-center justify-center gap-2 active:scale-[0.98]"
+              style={{ ...iosGlassCardStyle(isDark), color: accentColor.color }}
             >
               <Pencil className="w-4 h-4" />
               Tahrirlash
             </button>
             <button
               type="button"
-              onClick={handleDelete}
-              className="py-3 rounded-xl border border-red-500/40 text-red-400 font-bold flex items-center justify-center gap-2"
+              onClick={onDeleteRequest}
+              className="py-3 rounded-[16px] font-bold flex items-center justify-center gap-2 text-red-400 active:scale-[0.98]"
+              style={{
+                background: isDark ? 'rgba(239,68,68,0.14)' : 'rgba(239,68,68,0.08)',
+                border: '0.5px solid rgba(239,68,68,0.28)',
+                backdropFilter: 'blur(20px)',
+              }}
             >
               <Trash2 className="w-4 h-4" />
               O‘chirish
             </button>
           </div>
+        </div>
+
+        <div
+          className={`shrink-0 px-4 py-3 max-w-lg mx-auto w-full grid ${hasPhone ? 'grid-cols-3' : 'grid-cols-2'} gap-2`}
+          style={{ ...iosGlassBarStyle(isDark), borderBottom: 'none' }}
+        >
+          <button
+            type="button"
+            onClick={onStartSale}
+            className="rounded-[18px] py-3.5 px-2 font-bold text-white flex flex-col items-center justify-center gap-1 active:scale-[0.97]"
+            style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+          >
+            <ShoppingCart className="w-5 h-5" />
+            <span className="text-[11px]">Sotuv</span>
+          </button>
+          <button
+            type="button"
+            onClick={onStartOrder}
+            className="rounded-[18px] py-3.5 px-2 font-bold flex flex-col items-center justify-center gap-1 active:scale-[0.97]"
+            style={{ ...iosGlassCardStyle(isDark), color: accentColor.color }}
+          >
+            <ClipboardList className="w-5 h-5" />
+            <span className="text-[11px]">Buyurtma</span>
+          </button>
+          {hasPhone ? (
+            <a
+              href={telHref}
+              className="rounded-[18px] py-3.5 px-2 font-bold flex flex-col items-center justify-center gap-1 active:scale-[0.97]"
+              style={{ ...iosGlassCardStyle(isDark), color: accentColor.color }}
+            >
+              <Phone className="w-5 h-5" />
+              <span className="text-[11px]">Qo‘ng‘iroq</span>
+            </a>
+          ) : null}
         </div>
       </div>
 
@@ -343,10 +402,7 @@ function StatBox({
   warn?: boolean;
 }) {
   return (
-    <div
-      className="rounded-xl p-3"
-      style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#fff', border: isDark ? '1px solid rgba(255,255,255,0.06)' : '1px solid rgba(0,0,0,0.06)' }}
-    >
+    <div className="rounded-[18px] p-3" style={iosGlassCardStyle(isDark)}>
       <div className="text-[10px] opacity-60">{label}</div>
       <div
         className={`text-sm font-black mt-0.5 truncate ${warn ? 'text-amber-500' : ''}`}
@@ -369,14 +425,8 @@ function Section({
   children: ReactNode;
 }) {
   return (
-    <div
-      className="rounded-2xl border p-4"
-      style={{
-        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-      }}
-    >
-      <h3 className="font-bold text-sm mb-3">{title}</h3>
+    <div className="rounded-[22px] p-4" style={iosGlassCardStyle(isDark)}>
+      <h3 className="font-bold text-sm mb-3 tracking-tight">{title}</h3>
       {children}
     </div>
   );

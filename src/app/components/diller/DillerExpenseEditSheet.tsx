@@ -5,6 +5,13 @@ import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerExpense, DillerExpensePayment } from '../../utils/dillerData';
 import { updateExpense } from '../../utils/dillerData';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
+import {
+  iosAccentFillStyle,
+  iosGlassBarStyle,
+  iosGlassCardStyle,
+  iosGlassInputStyle,
+  iosGlassPageStyle,
+} from './dillerIosGlass';
 
 type Props = {
   open: boolean;
@@ -15,10 +22,8 @@ type Props = {
 };
 
 const inputCls = (isDark: boolean) =>
-  `w-full px-3 py-2.5 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-emerald-500/40 ${
-    isDark
-      ? 'bg-white/5 border-white/10 text-white placeholder:text-white/40'
-      : 'bg-white border-gray-200 text-gray-900'
+  `w-full px-3.5 py-3 rounded-[14px] text-sm outline-none ${
+    isDark ? 'text-white placeholder:text-white/35' : 'text-gray-900 placeholder:text-gray-400'
   }`;
 
 export function DillerExpenseEditSheet({ open, expense, data, onClose, onSave }: Props) {
@@ -65,59 +70,69 @@ export function DillerExpenseEditSheet({ open, expense, data, onClose, onSave }:
 
   return (
     <div
-      className={dillerSheetShellClass}
-      style={{ background: isDark ? '#0a0a0a' : '#f1f5f9', zIndex: 115 }}
+      className={`${dillerSheetShellClass} animate-in fade-in slide-in-from-bottom-8 duration-300`}
+      style={{ ...iosGlassPageStyle(isDark), zIndex: 115 }}
     >
-      <header
-        className="shrink-0 flex items-center gap-3 px-4 py-3 border-b"
-        style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
-      >
+      <header className="shrink-0 px-4 pt-2 pb-3" style={{ ...iosGlassBarStyle(isDark), borderTop: 'none' }}>
+        <div className="flex justify-center pb-2">
+          <span className="w-10 h-1 rounded-full bg-white/25" />
+        </div>
+        <div className="flex items-center gap-3">
         <div
-          className="w-10 h-10 rounded-xl flex items-center justify-center shrink-0"
+          className="w-11 h-11 rounded-[16px] flex items-center justify-center shrink-0"
           style={{ background: `${accentColor.color}22` }}
         >
           <Receipt className="w-5 h-5" style={{ color: accentColor.color }} />
         </div>
         <div className="flex-1 min-w-0">
-          <h2 className="font-bold text-base truncate">Xarajatni tahrirlash</h2>
+          <h2 className="font-black text-[17px] truncate tracking-tight">Xarajatni tahrirlash</h2>
         </div>
-        <button type="button" onClick={onClose} className="p-2 rounded-xl opacity-70" aria-label="Yopish">
+        <button
+          type="button"
+          onClick={onClose}
+          className="w-10 h-10 rounded-full flex items-center justify-center active:scale-95"
+          style={iosGlassCardStyle(isDark)}
+          aria-label="Yopish"
+        >
           <X className="w-5 h-5" />
         </button>
+        </div>
       </header>
 
-      <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-3 max-w-lg mx-auto w-full pb-6`}>
+      <div className={`${dillerSheetScrollClass} px-4 py-4 max-w-lg mx-auto w-full pb-6`}>
+        <div className="rounded-[24px] p-4 space-y-3.5" style={iosGlassCardStyle(isDark)}>
         <div>
-          <label className="block text-xs font-medium opacity-80 mb-1">Nima uchun</label>
+          <label className="block text-[11px] font-semibold opacity-60 mb-1.5">Nima uchun</label>
           <input
             value={purpose}
             onChange={(e) => setPurpose(e.target.value)}
             className={inputCls(isDark)}
+            style={iosGlassInputStyle(isDark)}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium opacity-80 mb-1">Summa (so‘m)</label>
+          <label className="block text-[11px] font-semibold opacity-60 mb-1.5">Summa (so‘m)</label>
           <input
             type="number"
             min={1}
             value={amount}
             onChange={(e) => setAmount(e.target.value)}
             className={inputCls(isDark)}
+            style={iosGlassInputStyle(isDark)}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium opacity-80 mb-2">To‘lov usuli</label>
+          <label className="block text-[11px] font-semibold opacity-60 mb-2">To‘lov usuli</label>
           <div className="flex gap-2">
             <button
               type="button"
               onClick={() => setPaymentMethod('naqd')}
-              className={`flex-1 py-3 rounded-xl text-xs font-bold border flex flex-col items-center gap-1 ${
+              className="flex-1 py-3 rounded-[16px] text-xs font-bold flex flex-col items-center gap-1"
+              style={
                 paymentMethod === 'naqd'
-                  ? 'bg-emerald-500/20 border-emerald-500 text-emerald-400'
-                  : isDark
-                    ? 'border-white/10 opacity-70'
-                    : 'border-gray-200'
-              }`}
+                  ? { background: 'linear-gradient(135deg,#34d399,#10b981)', color: '#fff' }
+                  : iosGlassCardStyle(isDark)
+              }
             >
               <Banknote className="w-5 h-5" />
               Naqd
@@ -125,13 +140,12 @@ export function DillerExpenseEditSheet({ open, expense, data, onClose, onSave }:
             <button
               type="button"
               onClick={() => setPaymentMethod('karta')}
-              className={`flex-1 py-3 rounded-xl text-xs font-bold border flex flex-col items-center gap-1 ${
+              className="flex-1 py-3 rounded-[16px] text-xs font-bold flex flex-col items-center gap-1"
+              style={
                 paymentMethod === 'karta'
-                  ? 'bg-violet-500/20 border-violet-500 text-violet-400'
-                  : isDark
-                    ? 'border-white/10 opacity-70'
-                    : 'border-gray-200'
-              }`}
+                  ? { background: 'linear-gradient(135deg,#a78bfa,#7c3aed)', color: '#fff' }
+                  : iosGlassCardStyle(isDark)
+              }
             >
               <CreditCard className="w-5 h-5" />
               Karta
@@ -139,34 +153,37 @@ export function DillerExpenseEditSheet({ open, expense, data, onClose, onSave }:
           </div>
         </div>
         <div>
-          <label className="block text-xs font-medium opacity-80 mb-1">Sana va vaqt</label>
+          <label className="block text-[11px] font-semibold opacity-60 mb-1.5">Sana va vaqt</label>
           <input
             type="datetime-local"
             value={date}
             onChange={(e) => setDate(e.target.value)}
             className={`${inputCls(isDark)} [color-scheme:${isDark ? 'dark' : 'light'}]`}
+            style={iosGlassInputStyle(isDark)}
           />
         </div>
         <div>
-          <label className="block text-xs font-medium opacity-80 mb-1">Izoh (ixtiyoriy)</label>
+          <label className="block text-[11px] font-semibold opacity-60 mb-1.5">Izoh (ixtiyoriy)</label>
           <textarea
             value={note}
             onChange={(e) => setNote(e.target.value)}
             rows={2}
             className={`${inputCls(isDark)} resize-none`}
+            style={iosGlassInputStyle(isDark)}
           />
+        </div>
         </div>
       </div>
 
       <div
-        className="shrink-0 px-4 py-3 border-t max-w-lg mx-auto w-full"
-        style={{ borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)' }}
+        className="shrink-0 px-4 py-3 max-w-lg mx-auto w-full"
+        style={{ ...iosGlassBarStyle(isDark), borderBottom: 'none' }}
       >
         <button
           type="button"
           onClick={save}
-          className="w-full py-3.5 rounded-xl font-bold text-slate-900 flex items-center justify-center gap-2"
-          style={{ background: accentColor.gradient }}
+          className="w-full py-3.5 rounded-[16px] font-bold text-white flex items-center justify-center gap-2 active:scale-[0.98]"
+          style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
         >
           <Save className="w-4 h-4" />
           Saqlash

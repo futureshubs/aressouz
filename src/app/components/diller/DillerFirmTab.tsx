@@ -1,18 +1,20 @@
-import { useMemo, useState, type ReactNode } from 'react';
+import { useState, type ReactNode } from 'react';
 import { toast } from 'sonner';
-import { Building2, ChevronRight, Package, Save, Search, UserRound } from 'lucide-react';
-import { useTheme } from '../../context/ThemeContext';
-import type { DillerData, DillerFirm } from '../../utils/dillerData';
+import { useNavigate } from 'react-router';
+import { LogOut, Moon, Palette, Pencil, Save, Smartphone, Sun, UserRound, X } from 'lucide-react';
+import { accentColors, useTheme, type ThemePreference } from '../../context/ThemeContext';
+import type { DillerData } from '../../utils/dillerData';
+import { updateDillerProfile } from '../../utils/dillerData';
+import { clearDillerSession } from '../../utils/dillerSession';
+import { clearDillerCloudCreds } from '../../utils/dillerSyncMeta';
+import { dillerSheetScrollClass, dillerSheetShellClass, dillerTabContentClass } from './dillerMobileLayout';
 import {
-  createFirm,
-  deleteFirm,
-  formatMoney,
-  updateDillerProfile,
-  updateFirm,
-} from '../../utils/dillerData';
-import { formatDillerDateTime, getFirmStats } from '../../utils/dillerFirmStats';
-import { DillerFirmDetailSheet } from './DillerFirmDetailSheet';
-import { dillerTabContentClass } from './dillerMobileLayout';
+  iosAccentFillStyle,
+  iosGlassBarStyle,
+  iosGlassCardStyle,
+  iosGlassInputStyle,
+  iosGlassPageStyle,
+} from './dillerIosGlass';
 
 type Props = {
   data: DillerData;
@@ -21,40 +23,28 @@ type Props = {
 
 function Card({ children, isDark, className = '' }: { children: ReactNode; isDark: boolean; className?: string }) {
   return (
-    <div
-      className={`rounded-2xl border p-4 ${className}`.trim()}
-      style={{
-        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-      }}
-    >
+    <div className={`rounded-[22px] p-4 ${className}`.trim()} style={iosGlassCardStyle(isDark)}>
       {children}
     </div>
   );
 }
 
 const inputCls = (isDark: boolean) =>
-  `w-full px-3 py-2.5 rounded-xl border text-sm outline-none focus:ring-2 focus:ring-emerald-500/40 ${
-    isDark
-      ? 'bg-white/5 border-white/10 text-white placeholder:text-white/40'
-      : 'bg-white border-gray-200 text-gray-900'
+  `w-full px-3.5 py-3 rounded-[14px] text-sm outline-none ${
+    isDark ? 'text-white placeholder:text-white/35' : 'text-gray-900 placeholder:text-gray-400'
   }`;
 
-const emptyFirmForm = () => ({
-  name: '',
-  ownerName: '',
-  address: '',
-  productName: '',
-  phone: '',
-});
+const THEME_MODES: { id: ThemePreference; label: string; hint: string; Icon: typeof Sun }[] = [
+  { id: 'light', label: 'Kun', hint: 'Yorug‘', Icon: Sun },
+  { id: 'dark', label: 'Tun', hint: 'Qorong‘i', Icon: Moon },
+  { id: 'system', label: 'Avto', hint: 'Qurilma', Icon: Smartphone },
+];
 
 export function DillerProfilTab({ data, onDataChange }: Props) {
-  const { theme, accentColor } = useTheme();
+  const navigate = useNavigate();
+  const { theme, themePreference, setThemePreference, accentColor, setAccentColor } = useTheme();
   const isDark = theme === 'dark';
-  const [firmForm, setFirmForm] = useState(emptyFirmForm);
-  const [editingFirmId, setEditingFirmId] = useState<string | null>(null);
-  const [search, setSearch] = useState('');
-  const [detailFirm, setDetailFirm] = useState<DillerFirm | null>(null);
+  const [profileOpen, setProfileOpen] = useState(false);
   const [profileForm, setProfileForm] = useState({
     companyName: data.profile.companyName || '',
     directorName: data.profile.directorName || '',
@@ -65,27 +55,6 @@ export function DillerProfilTab({ data, onDataChange }: Props) {
     telegram: data.profile.telegram || '',
     instagram: data.profile.instagram || '',
   });
-
-  const sortedFirms = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    let list = [...data.firms];
-    if (q) {
-      list = list.filter((f) => {
-        const hay = `${f.name} ${f.ownerName} ${f.address} ${f.productName} ${f.phone}`.toLowerCase();
-        return hay.includes(q);
-      });
-    }
-    return list.sort((a, b) => {
-      const sa = getFirmStats(data, a.id);
-      const sb = getFirmStats(data, b.id);
-      const ta = sa?.lastSaleAt ? new Date(sa.lastSaleAt).getTime() : 0;
-      const tb = sb?.lastSaleAt ? new Date(sb.lastSaleAt).getTime() : 0;
-      if (tb !== ta) return tb - ta;
-      return a.name.localeCompare(b.name, 'uz');
-    });
-  }, [data, search]);
-
-  const totalSales = data.sales.filter((s) => !s.cancelled).reduce((s, x) => s + x.total, 0);
 
   const saveProfile = () => {
     onDataChange(
@@ -101,355 +70,251 @@ export function DillerProfilTab({ data, onDataChange }: Props) {
       }),
     );
     toast.success('Profil saqlandi');
+    setProfileOpen(false);
   };
 
-  const saveFirm = () => {
-    if (!firmForm.name.trim()) {
-      toast.error('Firma nomi majburiy');
-      return;
-    }
-    if (!firmForm.ownerName.trim()) {
-      toast.error('Ega ismi majburiy');
-      return;
-    }
-    if (!firmForm.address.trim()) {
-      toast.error('Manzil majburiy');
-      return;
-    }
-    if (!firmForm.productName.trim()) {
-      toast.error('Firma beradigan mahsulot nomi majburiy');
-      return;
-    }
-    if (!firmForm.phone.trim()) {
-      toast.error('Telefon raqam majburiy');
-      return;
-    }
-
-    if (editingFirmId) {
-      onDataChange(updateFirm(data, editingFirmId, firmForm));
-      toast.success('Firma yangilandi');
-      setEditingFirmId(null);
-    } else {
-      onDataChange(createFirm(data, firmForm));
-      toast.success('Firma saqlandi');
-    }
-    setFirmForm(emptyFirmForm());
+  const logout = () => {
+    clearDillerCloudCreds();
+    clearDillerSession();
+    toast.success('Chiqildi');
+    navigate('/diller', { replace: true });
   };
 
-  const startEditFirm = (firm: DillerFirm) => {
-    setEditingFirmId(firm.id);
-    setFirmForm({
-      name: firm.name,
-      ownerName: firm.ownerName,
-      address: firm.address,
-      productName: firm.productName,
-      phone: firm.phone,
-    });
-    setDetailFirm(null);
-  };
+  const field = (label: string, input: ReactNode) => (
+    <label className="block">
+      <span className="block text-[11px] font-semibold opacity-55 mb-1.5">{label}</span>
+      {input}
+    </label>
+  );
 
-  const removeFirm = (id: string) => {
-    onDataChange(deleteFirm(data, id));
-    if (editingFirmId === id) {
-      setEditingFirmId(null);
-      setFirmForm(emptyFirmForm());
-    }
-    toast.success('Firma o‘chirildi');
-  };
-
-  const activeDetail = detailFirm
-    ? data.firms.find((f) => f.id === detailFirm.id) ?? detailFirm
-    : null;
+  const companyName = profileForm.companyName.trim() || 'Diller profili';
+  const companySub = profileForm.directorName.trim() || profileForm.phone.trim() || 'Kompaniyani tahrirlash';
 
   return (
     <div className={dillerTabContentClass}>
-      <Card isDark={isDark}>
-        <div className="flex items-center gap-2 mb-2">
-          <UserRound className="w-5 h-5" style={{ color: accentColor.color }} />
-          <h3 className="font-bold">Diller profili</h3>
-        </div>
-        <p className="text-xs opacity-70 mb-4">
-          Kompaniya ma’lumotlari chek va QR buyurtmada ko‘rinadi.
-        </p>
-        <div className="space-y-2">
-          <input
-            placeholder="Kompaniya nomi"
-            value={profileForm.companyName}
-            onChange={(e) => setProfileForm((f) => ({ ...f, companyName: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <input
-            placeholder="Direktor / mas‘ul"
-            value={profileForm.directorName}
-            onChange={(e) => setProfileForm((f) => ({ ...f, directorName: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <input
-            placeholder="Telefon"
-            type="tel"
-            value={profileForm.phone}
-            onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <input
-            placeholder="Viloyat / hudud"
-            value={profileForm.region}
-            onChange={(e) => setProfileForm((f) => ({ ...f, region: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <input
-            placeholder="Buyurtma telefoni (QR)"
-            type="tel"
-            value={profileForm.orderPhone}
-            onChange={(e) => setProfileForm((f) => ({ ...f, orderPhone: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <input
-            placeholder="Telegram"
-            value={profileForm.telegram}
-            onChange={(e) => setProfileForm((f) => ({ ...f, telegram: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <input
-            placeholder="Instagram"
-            value={profileForm.instagram}
-            onChange={(e) => setProfileForm((f) => ({ ...f, instagram: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <textarea
-            placeholder="Izoh / manzil"
-            value={profileForm.note}
-            onChange={(e) => setProfileForm((f) => ({ ...f, note: e.target.value }))}
-            className={`${inputCls(isDark)} min-h-[72px]`}
-            rows={2}
-          />
-          <button
-            type="button"
-            onClick={saveProfile}
-            className="w-full py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-slate-900"
-            style={{ background: accentColor.gradient }}
+      <button
+        type="button"
+        onClick={() => setProfileOpen(true)}
+        className="relative w-full overflow-hidden rounded-[22px] p-4 text-left active:scale-[0.99]"
+        style={iosGlassCardStyle(isDark)}
+      >
+        <div className="flex items-center gap-3">
+          <div
+            className="w-14 h-14 rounded-[18px] flex items-center justify-center shrink-0"
+            style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
           >
-            <Save className="w-4 h-4" />
-            Profilni saqlash
-          </button>
+            <UserRound className="w-7 h-7" />
+          </div>
+          <div className="min-w-0 flex-1">
+            <h2 className="font-black text-[18px] tracking-tight truncate">{companyName}</h2>
+            <p className="text-[12px] opacity-55 truncate">{companySub}</p>
+          </div>
+          <Pencil className="w-4 h-4 opacity-35 shrink-0" />
+        </div>
+      </button>
+
+      <Card isDark={isDark}>
+        <div className="flex items-center gap-2 mb-3">
+          <Palette className="w-5 h-5" style={{ color: accentColor.color }} />
+          <div>
+            <h3 className="font-black text-[15px] tracking-tight">Ko‘rinish</h3>
+            <p className="text-[11px] opacity-50">Kun, tun va rang</p>
+          </div>
+        </div>
+
+        <div className="grid grid-cols-3 gap-2">
+          {THEME_MODES.map((m) => {
+            const on = themePreference === m.id;
+            const Icon = m.Icon;
+            return (
+              <button
+                key={m.id}
+                type="button"
+                onClick={() => setThemePreference(m.id)}
+                className="flex flex-col items-center gap-1 py-3 px-2 rounded-[16px] active:scale-[0.97]"
+                style={on ? iosAccentFillStyle(accentColor.gradient, accentColor.color) : iosGlassInputStyle(isDark)}
+              >
+                <Icon className="w-5 h-5" />
+                <span className="text-[12px] font-black">{m.label}</span>
+                <span className={`text-[10px] ${on ? 'opacity-70' : 'opacity-45'}`}>{m.hint}</span>
+              </button>
+            );
+          })}
+        </div>
+
+        <div className="mt-4">
+          <div className="text-[11px] font-semibold opacity-55 mb-2">Rang</div>
+          <div className="grid grid-cols-6 gap-2">
+            {accentColors.map((c) => {
+              const on = accentColor.id === c.id;
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => setAccentColor(c.id)}
+                  className="aspect-square rounded-full active:scale-90"
+                  style={{
+                    background: c.gradient,
+                    boxShadow: on ? `0 0 0 3px ${isDark ? '#000' : '#fff'}, 0 0 0 5px ${c.color}` : 'none',
+                  }}
+                  aria-label={c.name}
+                />
+              );
+            })}
+          </div>
+          <label className="mt-3 flex items-center gap-3 rounded-[16px] px-3 py-2.5" style={iosGlassInputStyle(isDark)}>
+            <input
+              type="color"
+              value={accentColor.color}
+              onChange={(e) => setAccentColor(e.target.value)}
+              className="w-10 h-10 rounded-full border-0 bg-transparent p-0 cursor-pointer shrink-0"
+              aria-label="Istalgan rang"
+            />
+            <span className="min-w-0">
+              <span className="block text-[13px] font-bold">Istalgan rang</span>
+              <span className="block text-[11px] opacity-50 font-mono">{accentColor.color}</span>
+            </span>
+          </label>
         </div>
       </Card>
 
-      <Card isDark={isDark}>
-        <div className="flex items-center gap-2 mb-2">
-          <Building2 className="w-5 h-5" style={{ color: accentColor.color }} />
-          <h3 className="font-bold">{editingFirmId ? 'Firmani tahrirlash' : 'Firma qo‘shish'}</h3>
-        </div>
-        <p className="text-xs opacity-70 mb-4">
-          Yetkazib beruvchi: nom, ega, manzil, qaysi mahsulot berishi va telefon.
-        </p>
-        <div className="space-y-2">
-          <input
-            placeholder="Firma nomi *"
-            value={firmForm.name}
-            onChange={(e) => setFirmForm((f) => ({ ...f, name: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <input
-            placeholder="Ega ismi (mas‘ul shaxs) *"
-            value={firmForm.ownerName}
-            onChange={(e) => setFirmForm((f) => ({ ...f, ownerName: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <input
-            placeholder="Manzil *"
-            value={firmForm.address}
-            onChange={(e) => setFirmForm((f) => ({ ...f, address: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <input
-            placeholder="Firma beradigan mahsulot nomi *"
-            value={firmForm.productName}
-            onChange={(e) => setFirmForm((f) => ({ ...f, productName: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <input
-            placeholder="Telefon raqam *"
-            type="tel"
-            value={firmForm.phone}
-            onChange={(e) => setFirmForm((f) => ({ ...f, phone: e.target.value }))}
-            className={inputCls(isDark)}
-          />
-          <div className="flex gap-2">
-            {editingFirmId ? (
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingFirmId(null);
-                  setFirmForm(emptyFirmForm());
-                }}
-                className="flex-1 py-3 rounded-xl font-bold border"
-                style={{
-                  borderColor: isDark ? 'rgba(255,255,255,0.1)' : 'rgba(0,0,0,0.1)',
-                }}
+      <button
+        type="button"
+        onClick={logout}
+        className="w-full py-3.5 rounded-[16px] font-bold text-red-400 flex items-center justify-center gap-2 active:scale-[0.98]"
+        style={{
+          background: isDark ? 'rgba(239,68,68,0.12)' : 'rgba(239,68,68,0.08)',
+          border: '0.5px solid rgba(239,68,68,0.28)',
+        }}
+      >
+        <LogOut className="w-4 h-4" />
+        Chiqish
+      </button>
+
+      {profileOpen ? (
+        <div
+          className={`${dillerSheetShellClass} animate-in fade-in slide-in-from-bottom-4 duration-200`}
+          style={{ ...iosGlassPageStyle(isDark), zIndex: 115 }}
+        >
+          <header className="shrink-0 px-4 pt-2 pb-3" style={{ ...iosGlassBarStyle(isDark), borderTop: 'none' }}>
+            <div className="flex justify-center pb-2">
+              <span className="w-10 h-1 rounded-full bg-white/25" />
+            </div>
+            <div className="flex items-center gap-3">
+              <div
+                className="w-11 h-11 rounded-[14px] flex items-center justify-center shrink-0"
+                style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
               >
-                Bekor
+                <UserRound className="w-5 h-5" />
+              </div>
+              <div className="flex-1 min-w-0">
+                <h2 className="font-black text-[16px] truncate">Kompaniya</h2>
+                <p className="text-[11px] opacity-50">Chek va QR buyurtmada</p>
+              </div>
+              <button type="button" onClick={() => setProfileOpen(false)} className="p-2 rounded-xl" aria-label="Yopish">
+                <X className="w-5 h-5" />
               </button>
-            ) : null}
+            </div>
+          </header>
+          <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-2.5 max-w-lg mx-auto w-full`}>
+            {field(
+              'Kompaniya nomi',
+              <input
+                placeholder="Masalan: Aresso"
+                value={profileForm.companyName}
+                onChange={(e) => setProfileForm((f) => ({ ...f, companyName: e.target.value }))}
+                className={inputCls(isDark)}
+                style={iosGlassInputStyle(isDark)}
+              />,
+            )}
+            {field(
+              'Direktor / mas‘ul',
+              <input
+                placeholder="Ism familiya"
+                value={profileForm.directorName}
+                onChange={(e) => setProfileForm((f) => ({ ...f, directorName: e.target.value }))}
+                className={inputCls(isDark)}
+                style={iosGlassInputStyle(isDark)}
+              />,
+            )}
+            {field(
+              'Telefon',
+              <input
+                type="tel"
+                placeholder="+998..."
+                value={profileForm.phone}
+                onChange={(e) => setProfileForm((f) => ({ ...f, phone: e.target.value }))}
+                className={inputCls(isDark)}
+                style={iosGlassInputStyle(isDark)}
+              />,
+            )}
+            {field(
+              'Viloyat / hudud',
+              <input
+                placeholder="Andijon..."
+                value={profileForm.region}
+                onChange={(e) => setProfileForm((f) => ({ ...f, region: e.target.value }))}
+                className={inputCls(isDark)}
+                style={iosGlassInputStyle(isDark)}
+              />,
+            )}
+            {field(
+              'Buyurtma telefoni (QR)',
+              <input
+                type="tel"
+                placeholder="+998..."
+                value={profileForm.orderPhone}
+                onChange={(e) => setProfileForm((f) => ({ ...f, orderPhone: e.target.value }))}
+                className={inputCls(isDark)}
+                style={iosGlassInputStyle(isDark)}
+              />,
+            )}
+            {field(
+              'Telegram',
+              <input
+                placeholder="@username"
+                value={profileForm.telegram}
+                onChange={(e) => setProfileForm((f) => ({ ...f, telegram: e.target.value }))}
+                className={inputCls(isDark)}
+                style={iosGlassInputStyle(isDark)}
+              />,
+            )}
+            {field(
+              'Instagram',
+              <input
+                placeholder="@username"
+                value={profileForm.instagram}
+                onChange={(e) => setProfileForm((f) => ({ ...f, instagram: e.target.value }))}
+                className={inputCls(isDark)}
+                style={iosGlassInputStyle(isDark)}
+              />,
+            )}
+            {field(
+              'Izoh / manzil',
+              <textarea
+                placeholder="Qisqa manzil"
+                value={profileForm.note}
+                onChange={(e) => setProfileForm((f) => ({ ...f, note: e.target.value }))}
+                className={`${inputCls(isDark)} min-h-[72px] resize-none`}
+                style={iosGlassInputStyle(isDark)}
+                rows={2}
+              />,
+            )}
+            <div className="h-4" />
+          </div>
+          <div className="shrink-0 px-4 py-3 max-w-lg mx-auto w-full" style={{ ...iosGlassBarStyle(isDark), borderBottom: 'none' }}>
             <button
               type="button"
-              onClick={saveFirm}
-              className="flex-1 py-3 rounded-xl font-bold flex items-center justify-center gap-2 text-slate-900"
-              style={{ background: accentColor.gradient }}
+              onClick={saveProfile}
+              className="w-full py-3.5 rounded-[16px] font-bold flex items-center justify-center gap-2 text-white active:scale-[0.98]"
+              style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
             >
               <Save className="w-4 h-4" />
-              {editingFirmId ? 'Yangilash' : 'Firmani saqlash'}
+              Saqlash
             </button>
           </div>
         </div>
-      </Card>
-
-      <div className="relative">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-40 pointer-events-none" />
-        <input
-          type="search"
-          value={search}
-          onChange={(e) => setSearch(e.target.value)}
-          placeholder="Firma, ega, mahsulot, telefon..."
-          className={`${inputCls(isDark)} pl-9`}
-        />
-      </div>
-
-      <Card isDark={isDark}>
-        <h3 className="font-bold text-sm mb-3">Saqlangan firmalar ({data.firms.length})</h3>
-        {data.firms.length === 0 ? (
-          <p className="text-sm opacity-60 text-center py-4">Hali firma yo‘q — yuqoridagi formani to‘ldiring</p>
-        ) : sortedFirms.length === 0 ? (
-          <p className="text-sm opacity-60 text-center py-4">Qidiruv bo‘yicha topilmadi</p>
-        ) : (
-          <ul className="space-y-2">
-            {sortedFirms.map((f) => (
-              <FirmListCard
-                key={f.id}
-                firm={f}
-                data={data}
-                isDark={isDark}
-                accentColor={accentColor}
-                onOpen={() => setDetailFirm(f)}
-              />
-            ))}
-          </ul>
-        )}
-      </Card>
-
-      <div className="grid grid-cols-2 gap-3">
-        {[
-          { label: 'Firmalar', value: String(data.firms.length) },
-          { label: 'Mahsulotlar', value: String(data.products.length) },
-          { label: 'Do‘konlar', value: String(data.stores.length) },
-          {
-            label: 'Sotuvlar',
-            value: String(data.sales.filter((s) => !s.cancelled).length),
-          },
-          { label: 'Aylanma', value: formatMoney(totalSales), span: true },
-        ].map((s) => (
-          <Card key={s.label} isDark={isDark} className={s.span ? 'col-span-2' : undefined}>
-            <div className="text-xs opacity-60">{s.label}</div>
-            <div className="text-lg font-bold mt-1">{s.value}</div>
-          </Card>
-        ))}
-      </div>
-
-      <DillerFirmDetailSheet
-        open={activeDetail != null}
-        firm={activeDetail}
-        data={data}
-        onClose={() => setDetailFirm(null)}
-        onDelete={removeFirm}
-        onEdit={startEditFirm}
-      />
+      ) : null}
     </div>
-  );
-}
-
-function FirmListCard({
-  firm,
-  data,
-  isDark,
-  accentColor,
-  onOpen,
-}: {
-  firm: DillerFirm;
-  data: DillerData;
-  isDark: boolean;
-  accentColor: { color: string; gradient: string };
-  onOpen: () => void;
-}) {
-  const stats = getFirmStats(data, firm.id);
-
-  return (
-    <li>
-      <button
-        type="button"
-        onClick={onOpen}
-        className="w-full text-left rounded-2xl border overflow-hidden transition-all active:scale-[0.99] group"
-        style={{
-          background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-          borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-        }}
-      >
-        <div className="h-1" style={{ background: accentColor.gradient }} />
-        <div className="p-3.5 flex items-start gap-3">
-          <div
-            className="shrink-0 w-10 h-10 rounded-xl flex items-center justify-center"
-            style={{ background: isDark ? 'rgba(255,255,255,0.06)' : '#f1f5f9' }}
-          >
-            <Building2 className="w-5 h-5 opacity-70" style={{ color: accentColor.color }} />
-          </div>
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              {(stats?.productCount ?? 0) > 0 ? (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-emerald-500/15 text-emerald-500">
-                  {stats?.productCount} mahsulot
-                </span>
-              ) : (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full opacity-40 border border-current">
-                  Mahsulot yo‘q
-                </span>
-              )}
-              {(stats?.saleCount ?? 0) > 0 ? (
-                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-blue-500/15 text-blue-400">
-                  {stats?.saleCount} sotuv
-                </span>
-              ) : null}
-            </div>
-            <div className="font-bold text-sm mt-1 truncate">{firm.name}</div>
-            <div className="text-xs opacity-70 truncate">Ega: {firm.ownerName}</div>
-            <div className="text-xs opacity-60 truncate mt-0.5">{firm.address}</div>
-            <div className="text-xs mt-1.5 text-emerald-400/90 flex items-center gap-1">
-              <Package className="w-3 h-3 shrink-0" />
-              <span className="truncate">{firm.productName}</span>
-            </div>
-            <div className="text-xs opacity-60 mt-1">{firm.phone}</div>
-            {stats?.lastSaleAt ? (
-              <div className="text-[10px] opacity-45 mt-1">
-                Oxirgi sotuv: {formatDillerDateTime(stats.lastSaleAt)}
-              </div>
-            ) : null}
-          </div>
-          <ChevronRight className="w-5 h-5 opacity-30 shrink-0 group-hover:opacity-60 mt-2" />
-        </div>
-        {(stats?.totalRevenue ?? 0) > 0 || (stats?.warehouseQty ?? 0) > 0 ? (
-          <div
-            className="px-3.5 pb-3 flex justify-between text-[10px] border-t pt-2 mx-3.5 gap-2"
-            style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}
-          >
-            <span className="opacity-50">
-              Ombor: <strong className="opacity-90">{stats?.warehouseQty ?? 0}</strong>
-            </span>
-            {(stats?.totalRevenue ?? 0) > 0 ? (
-              <span className="font-bold shrink-0" style={{ color: accentColor.color }}>
-                {formatMoney(stats?.totalRevenue ?? 0)}
-              </span>
-            ) : null}
-          </div>
-        ) : null}
-      </button>
-    </li>
   );
 }

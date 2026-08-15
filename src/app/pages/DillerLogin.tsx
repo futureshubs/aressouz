@@ -8,6 +8,7 @@ import { dillerApiLogin } from '../utils/dillerApi';
 import { clearLegacyDillerLocalData } from '../utils/dillerData';
 import { saveDillerCloudCreds } from '../utils/dillerSyncMeta';
 import { readDillerSession, saveDillerSession } from '../utils/dillerSession';
+import { iosAccentFillStyle } from '../components/diller/dillerIosGlass';
 
 export default function DillerLogin() {
   const navigate = useNavigate();
@@ -129,8 +130,8 @@ export default function DillerLogin() {
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 rounded-xl font-bold text-slate-900 flex items-center justify-center gap-2 disabled:opacity-60"
-          style={{ background: accentColor.gradient }}
+          className="w-full py-3 rounded-xl font-bold text-white flex items-center justify-center gap-2 disabled:opacity-60"
+          style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
         >
           {loading ? <Loader2 className="w-5 h-5 animate-spin" /> : null}
           Kirish

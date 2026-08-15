@@ -1,30 +1,19 @@
 import { useMemo, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  AlertTriangle,
-  BarChart3,
+  Calendar,
   CalendarClock,
-  CheckCircle2,
   ChevronDown,
   ChevronRight,
   History,
-  PieChart,
   Search,
-  Store,
   Wallet,
-  CircleDollarSign,
   Receipt,
-  Banknote,
-  HandCoins,
-  Navigation,
-  Landmark,
-  ClipboardList,
 } from 'lucide-react';
 import { useDillerUserLocation } from '../../hooks/useDillerUserLocation';
 import { DillerBalansSection } from './DillerBalansSection';
 import { DillerBuyurtmaSection } from './DillerBuyurtmaSection';
 import { DillerHarajatSection } from './DillerHarajatSection';
-import { computeExpenseSummary, filterExpensesByPeriod } from '../../utils/dillerExpenseAnalytics';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerSale } from '../../utils/dillerData';
 import { formatMoney, recordDebtPayment, settleDebtFully } from '../../utils/dillerData';
@@ -38,34 +27,34 @@ import { formatStoreDistance, getStoreDistanceKm, getStoreStats } from '../../ut
 import { DillerSaleCard } from './DillerSaleCard';
 import { DillerSaleReceiptModal } from './DillerSaleReceiptModal';
 import {
-  computeExtendedAnalyticsForPeriod,
   applyDebtFilterToCreditSales,
   computePeriodDebtSummaryFromCreditSales,
-  computePaymentFlowBreakdown,
-  computeDebtAnalytics,
   countSaleTransactions,
   defaultCustomHistoryRange,
   filterSalesByPeriod,
   toIsoDate,
-  getMaxMonthlyProfit,
-  getMaxMonthlyTotal,
   getHistoryPeriodLabel,
   groupSalesByMonth,
   sumSalesProfit,
   isSaleOverdue,
-  isSaleDebtClosed,
   type DebtFilter,
   type HistoryDateRange,
   type HistoryPeriod,
 } from '../../utils/dillerDebtAnalytics';
-import { dillerListClass, dillerTabContentClass } from './dillerMobileLayout';
+import { dillerTabContentClass } from './dillerMobileLayout';
+import { iosAccentFillStyle, iosGlassCardStyle, iosGlassInputStyle } from './dillerIosGlass';
+import { DillerDebtListCard, DillerDebtPaySheet } from './DillerDebtPaySheet';
+import { DillerStatistikaSection } from './DillerStatistikaSection';
+
+type QarzSection = 'qarz' | 'buyurtma' | 'statistika' | 'analitika' | 'balans' | 'tarix' | 'xarajat';
 
 type Props = {
   data: DillerData;
   onDataChange: (next: DillerData) => void;
+  /** Menu orqali ochilganda faqat shu bo‘lim */
+  forcedSection?: QarzSection;
+  onGoHome?: () => void;
 };
-
-type QarzSection = 'qarz' | 'buyurtma' | 'statistika' | 'balans' | 'tarix' | 'xarajat';
 
 function Card({
   children,
@@ -77,13 +66,7 @@ function Card({
   className?: string;
 }) {
   return (
-    <div
-      className={`rounded-2xl border p-4 ${className}`.trim()}
-      style={{
-        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-      }}
-    >
+    <div className={`rounded-[22px] p-4 ${className}`.trim()} style={iosGlassCardStyle(isDark)}>
       {children}
     </div>
   );
@@ -103,36 +86,91 @@ function StatTile({
   isDark: boolean;
 }) {
   return (
-    <div
-      className="rounded-xl p-3 min-w-0"
-      style={{ background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc' }}
-    >
-      <div className="text-[10px] opacity-60 truncate">{label}</div>
-      <div className="text-sm font-bold mt-0.5 truncate" style={{ color }}>
+    <div className="rounded-[18px] p-3 min-w-0" style={iosGlassCardStyle(isDark)}>
+      <div className="text-[10px] font-semibold uppercase tracking-wide opacity-45 truncate">{label}</div>
+      <div className="text-sm font-black mt-0.5 truncate tabular-nums" style={{ color }}>
         {value}
       </div>
-      {sub ? <div className="text-[9px] opacity-50 mt-0.5">{sub}</div> : null}
+      {sub ? <div className="text-[10px] opacity-45 mt-0.5">{sub}</div> : null}
     </div>
   );
 }
 
-export function DillerQarzTab({ data, onDataChange }: Props) {
+function formatIsoDay(iso: string): string {
+  const d = new Date(`${iso}T12:00:00`);
+  if (!Number.isFinite(d.getTime())) return iso;
+  return d.toLocaleDateString('uz-UZ', { day: '2-digit', month: '2-digit', year: 'numeric' });
+}
+
+function daysInclusive(from: string, to: string): number {
+  const a = new Date(`${from}T12:00:00`).getTime();
+  const b = new Date(`${to}T12:00:00`).getTime();
+  if (!Number.isFinite(a) || !Number.isFinite(b)) return 1;
+  return Math.max(1, Math.round(Math.abs(b - a) / 86_400_000) + 1);
+}
+
+function rangeFromDebtPreset(id: HistoryPeriod, earliest: string): { from: string; to: string } {
+  const to = toIsoDate(new Date());
+  const from = new Date();
+  from.setHours(12, 0, 0, 0);
+  if (id === '1d') return { from: to, to };
+  if (id === '1w') {
+    from.setDate(from.getDate() - 6);
+    return { from: toIsoDate(from), to };
+  }
+  if (id === '1m') {
+    from.setMonth(from.getMonth() - 1);
+    return { from: toIsoDate(from), to };
+  }
+  return { from: earliest || to, to };
+}
+
+function PeriodChip({
+  label,
+  active,
+  isDark,
+  onClick,
+  tone = 'accent',
+  fillWidth = false,
+}: {
+  label: string;
+  active: boolean;
+  isDark: boolean;
+  onClick: () => void;
+  tone?: 'accent' | 'amber' | 'emerald';
+  fillWidth?: boolean;
+}) {
+  const { accentColor } = useTheme();
+  const fill =
+    tone === 'amber'
+      ? iosAccentFillStyle('linear-gradient(135deg,#fbbf24,#d97706)', '#d97706')
+      : tone === 'emerald'
+        ? iosAccentFillStyle('linear-gradient(135deg,#34d399,#10b981)', '#10b981')
+        : iosAccentFillStyle(accentColor.gradient, accentColor.color);
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`${fillWidth ? 'w-full min-w-0 px-1' : 'shrink-0 px-3.5'} py-2 rounded-[14px] text-[11px] sm:text-[12px] font-bold active:scale-[0.96]`}
+      style={active ? fill : iosGlassCardStyle(isDark)}
+    >
+      {label}
+    </button>
+  );
+}
+
+export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
-  const [section, setSection] = useState<QarzSection>('qarz');
   const [filter, setFilter] = useState<DebtFilter>('all');
   const [debtPeriod, setDebtPeriod] = useState<HistoryPeriod>('all');
   const [debtCustomRange, setDebtCustomRange] = useState<HistoryDateRange>(() =>
     defaultCustomHistoryRange(),
   );
-  const [paySaleId, setPaySaleId] = useState<string | null>(null);
+  const [detailSaleId, setDetailSaleId] = useState<string | null>(null);
   const [payAmount, setPayAmount] = useState('');
   const [sendDebtSms, setSendDebtSms] = useState(true);
   const [smsBusyId, setSmsBusyId] = useState<string | null>(null);
-  const [statPeriod, setStatPeriod] = useState<HistoryPeriod>('all');
-  const [statCustomRange, setStatCustomRange] = useState<HistoryDateRange>(() =>
-    defaultCustomHistoryRange(),
-  );
   const [historyPeriod, setHistoryPeriod] = useState<HistoryPeriod>('all');
   const [historyCustomRange, setHistoryCustomRange] = useState<HistoryDateRange>(() =>
     defaultCustomHistoryRange(),
@@ -140,41 +178,17 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
   const [historySearch, setHistorySearch] = useState('');
   const [expandedMonths, setExpandedMonths] = useState<Set<string>>(new Set());
   const [receiptSale, setReceiptSale] = useState<DillerSale | null>(null);
+  const activeSection = forcedSection ?? 'qarz';
 
-  const statAnalytics = useMemo(
-    () =>
-      computeExtendedAnalyticsForPeriod(
-        data,
-        statPeriod,
-        statPeriod === 'custom' ? statCustomRange : undefined,
-      ),
-    [data, statPeriod, statCustomRange],
-  );
-
-  const statExpenses = useMemo(() => {
-    const list = filterExpensesByPeriod(
-      data.expenses,
-      statPeriod,
-      statPeriod === 'custom' ? statCustomRange : undefined,
-    );
-    return computeExpenseSummary(list);
-  }, [data.expenses, statPeriod, statCustomRange]);
-
-  const paymentFlow = useMemo(
-    () =>
-      computePaymentFlowBreakdown(
-        data,
-        statPeriod,
-        statPeriod === 'custom' ? statCustomRange : undefined,
-      ),
-    [data, statPeriod, statCustomRange],
-  );
-
-  const currentDebt = useMemo(() => computeDebtAnalytics(data, data.sales), [data]);
-
-  const maxStoreDebt = Math.max(1, ...currentDebt.byStore.map((s) => s.openDebt));
-  const maxMonthTotal = getMaxMonthlyTotal(statAnalytics.monthly);
-  const maxMonthProfit = getMaxMonthlyProfit(statAnalytics.monthly);
+  const earliestQarzDay = useMemo(() => {
+    let min = toIsoDate(new Date());
+    for (const sale of data.sales) {
+      if (sale.paymentType !== 'qarz' || sale.cancelled) continue;
+      const day = toIsoDate(new Date(sale.createdAt));
+      if (day < min) min = day;
+    }
+    return min;
+  }, [data.sales]);
 
   const periodQarzSales = useMemo(
     () =>
@@ -191,7 +205,7 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
     [periodQarzSales],
   );
 
-  const { location: userLoc } = useDillerUserLocation(section === 'qarz');
+  const { location: userLoc } = useDillerUserLocation(activeSection === 'qarz');
 
   const storeById = useMemo(
     () => new Map(data.stores.map((s) => [s.id, s])),
@@ -287,8 +301,8 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
       return;
     }
     onDataChange(result.data);
-    setPaySaleId(null);
-    setPayAmount('');
+    if (full || (result.remainingDebt ?? 0) <= 0) setDetailSaleId(null);
+    setPayAmount(full || (result.remainingDebt ?? 0) <= 0 ? '' : String(result.remainingDebt ?? ''));
 
     const storePhone = normalizeUzPhoneForSms(
       data.stores.find((s) => s.id === (before?.storeId || result.sale?.storeId))?.phone || '',
@@ -329,28 +343,42 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
     },
   ];
 
-  const statPeriodOptions: { id: HistoryPeriod; label: string }[] = [
-    { id: '1d', label: '1 kun' },
-    { id: '2d', label: '2 kun' },
-    { id: '1w', label: '1 hafta' },
+  const debtPeriodOptions: { id: HistoryPeriod; label: string }[] = [
+    { id: '1d', label: 'Bugun' },
+    { id: '1w', label: '7 kun' },
     { id: '1m', label: '1 oy' },
-    { id: '3m', label: '3 oy' },
-    { id: '6m', label: '6 oy' },
-    { id: 'all', label: 'Barcha' },
-    { id: '1y', label: '1 yil' },
-    { id: 'custom', label: 'Tanlash' },
+    { id: 'all', label: 'Barchasi' },
   ];
 
-  const debtPeriodOptions: { id: HistoryPeriod; label: string }[] = [
-    { id: '1d', label: '1 kun' },
-    { id: '2d', label: '2 kun' },
-    { id: '1w', label: '1 hafta' },
-    { id: '1m', label: '1 oy' },
-    { id: '3m', label: '3 oy' },
-    { id: '6m', label: '6 oy' },
-    { id: 'all', label: 'Barcha' },
-    { id: 'custom', label: 'Tanlash' },
-  ];
+  const applyDebtPeriod = (id: HistoryPeriod) => {
+    setDebtPeriod(id);
+    setDebtCustomRange(rangeFromDebtPreset(id, earliestQarzDay));
+  };
+
+  const setCustomBound = (key: 'from' | 'to', value: string) => {
+    if (!value) return;
+    const base =
+      debtPeriod === 'custom'
+        ? debtCustomRange
+        : rangeFromDebtPreset(debtPeriod, earliestQarzDay);
+    const next = { ...base, [key]: value };
+    if (next.from && next.to && next.from > next.to) {
+      next.from = value;
+      next.to = value;
+    }
+    setDebtPeriod('custom');
+    setDebtCustomRange(next);
+  };
+
+  const hulosaDates =
+    debtPeriod === 'custom'
+      ? debtCustomRange
+      : rangeFromDebtPreset(debtPeriod, earliestQarzDay);
+
+  const hulosaRangeLabel =
+    debtPeriod === 'custom'
+      ? `${formatIsoDay(hulosaDates.from)} — ${formatIsoDay(hulosaDates.to)} · ${daysInclusive(hulosaDates.from, hulosaDates.to)} kun`
+      : getHistoryPeriodLabel(debtPeriod);
 
   const periodOptions: { id: HistoryPeriod; label: string }[] = [
     { id: '1d', label: '1 kun' },
@@ -366,14 +394,16 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
     { id: 'custom', label: 'Tanlash' },
   ];
 
-  const sections: { id: QarzSection; label: string; icon: typeof Wallet }[] = [
-    { id: 'qarz', label: 'Qarz', icon: Wallet },
-    { id: 'buyurtma', label: 'Buyurtma', icon: ClipboardList },
-    { id: 'statistika', label: 'Statistika', icon: BarChart3 },
-    { id: 'balans', label: 'Balans', icon: Landmark },
-    { id: 'tarix', label: 'Tarix', icon: History },
-    { id: 'xarajat', label: 'Xarajat', icon: Receipt },
-  ];
+  const detailSale = detailSaleId
+    ? data.sales.find((s) => s.id === detailSaleId) ?? null
+    : null;
+
+  const openDebtDetail = (sale: DillerSale) => {
+    const store = data.stores.find((s) => s.id === sale.storeId);
+    setDetailSaleId(sale.id);
+    setPayAmount(String(sale.debtAmount ?? 0));
+    setSendDebtSms(Boolean(normalizeUzPhoneForSms(store?.phone || '')));
+  };
 
   return (
     <div className={dillerTabContentClass}>
@@ -385,196 +415,209 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
         onDataChange={onDataChange}
       />
 
-      <div
-        className="flex gap-1 p-1 rounded-2xl overflow-x-auto [-webkit-overflow-scrolling:touch]"
-        style={{
-          background: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.05)',
-        }}
-      >
-        {sections.map((s) => {
-          const active = section === s.id;
-          const Icon = s.icon;
-          return (
-            <button
-              key={s.id}
-              type="button"
-              onClick={() => setSection(s.id)}
-              className={`flex-1 min-w-[4.25rem] flex flex-col items-center gap-0.5 py-2 px-1 rounded-xl text-[10px] sm:text-xs font-bold transition-all shrink-0 ${
-                active ? 'shadow-sm' : 'opacity-60'
-              }`}
-              style={
-                active
-                  ? {
-                      background: isDark ? 'rgba(255,255,255,0.1)' : '#fff',
-                      color: accentColor.color,
-                    }
-                  : undefined
-              }
-            >
-              <Icon className="w-4 h-4" />
-              {s.label}
-            </button>
-          );
-        })}
-      </div>
+      {detailSale ? (
+        <DillerDebtPaySheet
+          open
+          sale={detailSale}
+          data={data}
+          distanceLabel={formatStoreDistance(
+            getStoreDistanceKm(storeById.get(detailSale.storeId), userLoc),
+          )}
+          storeDebt={storeDebtById.get(detailSale.storeId) ?? null}
+          sendDebtSms={sendDebtSms}
+          onSendDebtSmsChange={setSendDebtSms}
+          smsBusy={smsBusyId === detailSale.id}
+          payAmount={payAmount}
+          onPayAmountChange={setPayAmount}
+          onClose={() => {
+            setDetailSaleId(null);
+            setPayAmount('');
+          }}
+          onPartialPay={() => void submitPayment(detailSale.id)}
+          onSettle={() => void submitPayment(detailSale.id, true)}
+          onOverdueSms={() => void sendOverdueSms(detailSale)}
+          onOpenChek={() => setReceiptSale(detailSale)}
+        />
+      ) : null}
 
-      {section === 'qarz' ? (
+      {activeSection === 'qarz' ? (
         <>
-          <Card isDark={isDark}>
-            <div className="flex items-center justify-between gap-2 mb-3">
-              <div className="flex items-center gap-2 min-w-0">
-                <Wallet className="w-5 h-5 text-amber-400 shrink-0" />
+          <div className="relative overflow-hidden rounded-[26px] p-4" style={iosGlassCardStyle(isDark)}>
+            <div
+              className="pointer-events-none absolute inset-0 opacity-50"
+              style={{
+                background:
+                  'radial-gradient(120% 90% at 100% -10%, rgba(251,191,36,0.28), transparent 55%)',
+              }}
+            />
+            <div className="relative">
+              <div className="flex items-start justify-between gap-3">
                 <div className="min-w-0">
-                  <h3 className="font-bold text-sm">Qarz hulosasi</h3>
-                  <p className="text-[10px] opacity-55 truncate">
-                    {getHistoryPeriodLabel(debtPeriod)}
-                    {debtPeriod !== 'all' ? ` · ${debtSummary.creditSalesCount} ta qarzli sotuv` : ''}
-                  </p>
+                  <div className="flex items-center gap-2">
+                    <span
+                      className="w-9 h-9 rounded-[12px] flex items-center justify-center"
+                      style={{ background: 'rgba(245,158,11,0.22)', color: '#fbbf24' }}
+                    >
+                      <Wallet className="w-5 h-5" />
+                    </span>
+                    <div className="min-w-0">
+                      <h3 className="font-black text-[15px] tracking-tight leading-tight">Qarz hulosasi</h3>
+                      <p className="text-[11px] opacity-50 truncate">
+                        {hulosaRangeLabel}
+                        {` · ${debtSummary.creditSalesCount} ta sotuv`}
+                      </p>
+                    </div>
+                  </div>
+                  <div className="mt-3 text-[11px] font-semibold uppercase tracking-wide text-amber-400/80">
+                    Ochiq qarz
+                  </div>
+                  <div className="text-[28px] font-black tabular-nums leading-tight tracking-tight text-amber-400">
+                    {formatMoney(debtSummary.openDebtTotal)}
+                  </div>
+                  <div className="text-[12px] opacity-50 mt-0.5">
+                    {debtSummary.openDebtCount} ta ochiq ·{' '}
+                    {debtSummary.overdueCount > 0
+                      ? `${debtSummary.overdueCount} ta kechikkan`
+                      : 'muddati o‘tgan yo‘q'}
+                  </div>
                 </div>
               </div>
-            </div>
 
-            <div className="flex gap-1.5 mb-2 flex-wrap">
-              {debtPeriodOptions.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setDebtPeriod(p.id)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold ${
-                    debtPeriod === p.id
-                      ? 'bg-amber-500/20 text-amber-400'
-                      : isDark
-                        ? 'bg-white/5 opacity-70'
-                        : 'bg-gray-100 opacity-80'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            {debtPeriod === 'custom' ? (
-              <div
-                className="grid grid-cols-2 gap-2 mb-3 p-3 rounded-xl"
-                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc' }}
-              >
-                <div>
-                  <label className="block text-[10px] opacity-60 mb-1">Dan (boshlanish)</label>
-                  <input
-                    type="date"
-                    value={debtCustomRange.from}
-                    max={debtCustomRange.to}
-                    onChange={(e) =>
-                      setDebtCustomRange((r) => ({ ...r, from: e.target.value }))
-                    }
-                    className={`w-full px-2 py-2 rounded-lg border text-sm ${
-                      isDark
-                        ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]'
-                        : 'bg-white border-gray-200'
-                    }`}
+              <div className="grid grid-cols-4 gap-1.5 mt-4">
+                {debtPeriodOptions.map((p) => (
+                  <PeriodChip
+                    key={p.id}
+                    label={p.label}
+                    active={debtPeriod === p.id}
+                    isDark={isDark}
+                    tone="amber"
+                    fillWidth
+                    onClick={() => applyDebtPeriod(p.id)}
                   />
-                </div>
-                <div>
-                  <label className="block text-[10px] opacity-60 mb-1">Gacha (tugash)</label>
+                ))}
+              </div>
+
+              <div
+                className="grid grid-cols-2 gap-2 mt-3 p-2.5 rounded-[16px]"
+                style={{
+                  ...iosGlassInputStyle(isDark),
+                  border:
+                    debtPeriod === 'custom'
+                      ? '0.5px solid rgba(251,191,36,0.45)'
+                      : iosGlassInputStyle(isDark).border,
+                }}
+              >
+                <label className="min-w-0">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold opacity-55 mb-1">
+                    <Calendar className="w-3 h-3" />
+                    Dan
+                  </span>
                   <input
                     type="date"
-                    value={debtCustomRange.to}
-                    min={debtCustomRange.from}
+                    value={hulosaDates.from}
+                    min={earliestQarzDay}
                     max={toIsoDate(new Date())}
-                    onChange={(e) =>
-                      setDebtCustomRange((r) => ({ ...r, to: e.target.value }))
-                    }
-                    className={`w-full px-2 py-2 rounded-lg border text-sm ${
-                      isDark
-                        ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]'
-                        : 'bg-white border-gray-200'
+                    onChange={(e) => setCustomBound('from', e.target.value)}
+                    className={`w-full min-w-0 bg-transparent outline-none text-[13px] font-semibold tabular-nums ${
+                      isDark ? '[color-scheme:dark] text-white' : 'text-gray-900'
                     }`}
                   />
-                </div>
+                </label>
+                <label className="min-w-0">
+                  <span className="flex items-center gap-1 text-[10px] font-semibold opacity-55 mb-1">
+                    <Calendar className="w-3 h-3" />
+                    Gacha
+                  </span>
+                  <input
+                    type="date"
+                    value={hulosaDates.to}
+                    min={hulosaDates.from || earliestQarzDay}
+                    max={toIsoDate(new Date())}
+                    onChange={(e) => setCustomBound('to', e.target.value)}
+                    className={`w-full min-w-0 bg-transparent outline-none text-[13px] font-semibold tabular-nums ${
+                      isDark ? '[color-scheme:dark] text-white' : 'text-gray-900'
+                    }`}
+                  />
+                </label>
               </div>
-            ) : null}
+              {debtPeriod === 'custom' ? (
+                <p className="text-[10px] opacity-45 mt-2 px-0.5">
+                  Tanlangan oraliq bo‘yicha hisoblandi
+                </p>
+              ) : null}
+            </div>
+          </div>
 
-            <div className="grid grid-cols-2 gap-2">
-              <StatTile
-                label="Ochiq qarz"
-                value={formatMoney(debtSummary.openDebtTotal)}
-                sub={`${debtSummary.openDebtCount} ta`}
-                color="#f59e0b"
-                isDark={isDark}
-              />
-              <StatTile
-                label="Muddati o‘tgan"
-                value={formatMoney(debtSummary.overdueTotal)}
-                sub={`${debtSummary.overdueCount} ta`}
-                color="#ef4444"
-                isDark={isDark}
-              />
-              <StatTile
-                label="Yakunlangan"
-                value={formatMoney(debtSummary.closedDebtTotal)}
-                sub={`${debtSummary.closedDebtCount} ta`}
-                color="#10b981"
-                isDark={isDark}
-              />
-              <StatTile
-                label="Undirilgan"
-                value={formatMoney(debtSummary.collectedTotal)}
-                sub={
-                  debtSummary.creditSalesTotal > 0
-                    ? `${Math.round((debtSummary.collectedTotal / debtSummary.creditSalesTotal) * 100)}%`
-                    : '0%'
-                }
-                color={accentColor.color}
-                isDark={isDark}
-              />
+          <div className="grid grid-cols-3 gap-2">
+            <StatTile
+              label="Kechikkan"
+              value={formatMoney(debtSummary.overdueTotal)}
+              sub={`${debtSummary.overdueCount} ta`}
+              color="#ef4444"
+              isDark={isDark}
+            />
+            <StatTile
+              label="Yakunlangan"
+              value={formatMoney(debtSummary.closedDebtTotal)}
+              sub={`${debtSummary.closedDebtCount} ta`}
+              color="#10b981"
+              isDark={isDark}
+            />
+            <StatTile
+              label="Undirilgan"
+              value={formatMoney(debtSummary.collectedTotal)}
+              sub={
+                debtSummary.creditSalesTotal > 0
+                  ? `${Math.round((debtSummary.collectedTotal / debtSummary.creditSalesTotal) * 100)}%`
+                  : '0%'
+              }
+              color={accentColor.color}
+              isDark={isDark}
+            />
+          </div>
+          {debtSummary.dueSoonCount > 0 ? (
+            <div
+              className="flex items-center gap-2 text-xs px-3.5 py-3 rounded-[18px]"
+              style={{
+                background: isDark ? 'rgba(59,130,246,0.16)' : 'rgba(59,130,246,0.1)',
+                border: '0.5px solid rgba(59,130,246,0.28)',
+                backdropFilter: 'blur(20px)',
+              }}
+            >
+              <CalendarClock className="w-4 h-4 text-blue-400 shrink-0" />
+              <span>
+                <strong>{debtSummary.dueSoonCount}</strong> ta qarz 7 kun ichida
+              </span>
             </div>
-            {debtSummary.dueSoonCount > 0 ? (
-              <div
-                className="mt-3 flex items-center gap-2 text-xs px-3 py-2 rounded-xl"
-                style={{ background: isDark ? 'rgba(59,130,246,0.12)' : 'rgba(59,130,246,0.1)' }}
-              >
-                <CalendarClock className="w-4 h-4 text-blue-400 shrink-0" />
-                <span>
-                  <strong>{debtSummary.dueSoonCount}</strong> ta qarz 7 kun ichida
-                </span>
-              </div>
-            ) : null}
-          </Card>
+          ) : null}
 
-          <Card isDark={isDark}>
-            <div className="flex items-center gap-2 mb-3">
-              <Wallet className="w-5 h-5 text-amber-400" />
-              <h3 className="font-bold text-sm">
-                {filter === 'closed' ? 'Yakunlangan qarzlar' : 'Ochiq qarzlar'}
-              </h3>
-            </div>
-            <div className="flex gap-1.5 mb-3 flex-wrap">
-              {debtFilters.map((f) => (
-                <button
-                  key={f.id}
-                  type="button"
-                  onClick={() => {
-                    setFilter(f.id);
-                    setPaySaleId(null);
-                    setPayAmount('');
-                  }}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold ${
-                    filter === f.id
-                      ? f.id === 'closed'
-                        ? 'bg-emerald-500/20 text-emerald-400'
-                        : 'bg-amber-500/20 text-amber-400'
-                      : isDark
-                        ? 'bg-white/5 opacity-70'
-                        : 'bg-gray-100 opacity-80'
-                  }`}
-                >
-                  {f.label}
-                </button>
-              ))}
-            </div>
+          <div className="flex items-center justify-between gap-2 px-1">
+            <h3 className="font-black text-[15px] tracking-tight">
+              {filter === 'closed' ? 'Yakunlangan qarzlar' : 'Ochiq qarzlar'}
+            </h3>
+            <span className="text-[11px] opacity-45 tabular-nums">{filteredSales.length} ta</span>
+          </div>
+          <div className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
+            {debtFilters.map((f) => (
+              <PeriodChip
+                key={f.id}
+                label={f.label}
+                active={filter === f.id}
+                isDark={isDark}
+                tone={f.id === 'closed' ? 'emerald' : 'amber'}
+                onClick={() => {
+                  setFilter(f.id);
+                  setDetailSaleId(null);
+                  setPayAmount('');
+                }}
+              />
+            ))}
+          </div>
 
             {filteredSales.length === 0 ? (
-              <p className="text-sm opacity-60 py-6 text-center">
+              <div className="rounded-[22px] px-5 py-10 text-center" style={iosGlassCardStyle(isDark)}>
+                <Wallet className="w-8 h-8 mx-auto mb-3 opacity-40 text-amber-400" />
+                <p className="text-sm font-bold">
                 {filter === 'closed'
                   ? debtPeriod === 'all'
                     ? 'Yakunlangan qarz yo‘q'
@@ -584,799 +627,51 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                       ? 'Ochiq qarz yo‘q'
                       : 'Tanlangan davrda ochiq qarz yo‘q'
                     : 'Filtr bo‘yicha topilmadi'}
-              </p>
-            ) : (
-              <ul className={dillerListClass}>
-                {filteredSales.map((sale) => {
-                  const store = data.stores.find((s) => s.id === sale.storeId);
-                  const product = data.products.find((p) => p.id === sale.productId);
-                  const storeDebt = storeDebtById.get(sale.storeId);
-                  const distanceLabel = formatStoreDistance(
-                    getStoreDistanceKm(store, userLoc),
-                  );
-                  const overdue = filter !== 'closed' && isSaleOverdue(sale);
-                  const closed = isSaleDebtClosed(sale);
-                  const paying = paySaleId === sale.id;
-                  const salePaid = sale.paidAmount ?? 0;
-                  const saleDebt = sale.debtAmount ?? 0;
-                  const saleSettledPercent =
-                    sale.total > 0 ? Math.min(100, Math.round((salePaid / sale.total) * 100)) : 0;
-                  const storePhoneOk = Boolean(normalizeUzPhoneForSms(store?.phone || ''));
-
-                  return (
-                    <li
-                      key={sale.id}
-                      className="p-3 rounded-xl border"
-                      style={{
-                        background: isDark ? 'rgba(255,255,255,0.03)' : '#f8fafc',
-                        borderColor: closed
-                          ? 'rgba(16,185,129,0.35)'
-                          : overdue
-                            ? 'rgba(239,68,68,0.35)'
-                            : isDark
-                              ? 'rgba(255,255,255,0.06)'
-                              : 'rgba(0,0,0,0.06)',
-                      }}
-                    >
-                      {!closed && storeDebt ? (
-                        <div
-                          className="mb-3 rounded-xl px-3 py-2.5"
-                          style={{
-                            background: isDark
-                              ? 'linear-gradient(135deg, rgba(245,158,11,0.16), rgba(217,119,6,0.06))'
-                              : 'linear-gradient(135deg, rgba(245,158,11,0.12), #fffbeb)',
-                            border: isDark
-                              ? '1px solid rgba(245,158,11,0.22)'
-                              : '1px solid rgba(245,158,11,0.18)',
-                          }}
-                        >
-                          <div className="flex items-start justify-between gap-2">
-                            <div className="min-w-0">
-                              <div className="text-[10px] font-semibold opacity-65 uppercase tracking-wide">
-                                Do‘konda qoldiq
-                              </div>
-                              <div className="text-base font-black text-amber-500 truncate">
-                                {formatMoney(storeDebt.openDebt)}
-                              </div>
-                            </div>
-                            <div className="flex flex-col items-end gap-1 shrink-0">
-                              {distanceLabel ? (
-                                <span className="inline-flex items-center gap-1 text-[10px] font-bold px-2 py-1 rounded-full bg-blue-500/15 text-blue-400">
-                                  <Navigation className="w-3 h-3" />
-                                  {distanceLabel}
-                                </span>
-                              ) : null}
-                              <span className="text-[10px] font-bold px-2 py-1 rounded-full bg-amber-500/15 text-amber-500">
-                                {storeDebt.openCount} ta ochiq
-                              </span>
-                            </div>
-                          </div>
-                        </div>
-                      ) : null}
-
-                      <div className="flex items-start justify-between gap-2">
-                        <div className="min-w-0">
-                          <div className="font-semibold text-sm truncate">{store?.name ?? '—'}</div>
-                          <div className="text-xs opacity-70 truncate">
-                            {product?.name} × {sale.qty}
-                          </div>
-                        </div>
-                        {closed ? (
-                          <span className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold text-emerald-400">
-                            <CheckCircle2 className="w-3 h-3" />
-                            Yakunlandi
-                          </span>
-                        ) : overdue ? (
-                          <span className="shrink-0 flex items-center gap-0.5 text-[10px] font-bold text-red-400">
-                            <AlertTriangle className="w-3 h-3" />
-                            Kechikkan
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-2 grid grid-cols-2 gap-2 text-xs">
-                        {closed ? (
-                          <>
-                            <div>
-                              <span className="opacity-50">Jami to‘langan</span>
-                              <div className="font-bold text-emerald-500">{formatMoney(sale.total)}</div>
-                            </div>
-                            <div>
-                              <span className="opacity-50">Sana</span>
-                              <div className="font-semibold opacity-80">
-                                {new Date(sale.createdAt).toLocaleDateString('uz-UZ')}
-                              </div>
-                            </div>
-                          </>
-                        ) : (
-                          <>
-                            <div>
-                              <span className="opacity-50">Bu sotuv qarzi</span>
-                              <div className="font-bold text-amber-500">{formatMoney(saleDebt)}</div>
-                            </div>
-                            <div>
-                              <span className="opacity-50">Oldin olingan</span>
-                              <div className="font-semibold text-emerald-500/90">
-                                {formatMoney(salePaid)}
-                              </div>
-                            </div>
-                          </>
-                        )}
-                      </div>
-                      {!closed ? (
-                        <div className="mt-2">
-                          <div className="flex justify-between text-[10px] opacity-55 mb-1">
-                            <span>To‘langan {saleSettledPercent}%</span>
-                            <span>{formatMoney(salePaid)} / {formatMoney(sale.total)}</span>
-                          </div>
-                          <div
-                            className="h-1.5 rounded-full overflow-hidden"
-                            style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0' }}
-                          >
-                            <div
-                              className="h-full rounded-full bg-emerald-500"
-                              style={{ width: `${saleSettledPercent}%` }}
-                            />
-                          </div>
-                        </div>
-                      ) : null}
-                      {!closed && sale.debtDueDate ? (
-                        <div className="text-[10px] opacity-60 mt-1 flex items-center gap-1">
-                          <CalendarClock className="w-3 h-3" />
-                          Qaytarish: {new Date(sale.debtDueDate).toLocaleDateString('uz-UZ')}
-                        </div>
-                      ) : null}
-
-                      {closed ? (
-                        <button
-                          type="button"
-                          onClick={() => setReceiptSale(sale)}
-                          className="mt-3 w-full py-2 rounded-xl text-xs font-bold border"
-                          style={{
-                            borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
-                            color: accentColor.color,
-                          }}
-                        >
-                          Chekni ko‘rish
-                        </button>
-                      ) : paying ? (
-                        <div className="mt-3 space-y-2">
-                          <div className="flex gap-2">
-                            <input
-                              type="number"
-                              min={1}
-                              max={sale.debtAmount}
-                              value={payAmount}
-                              onChange={(e) => setPayAmount(e.target.value)}
-                              className={`flex-1 px-3 py-2 rounded-xl border text-sm ${
-                                isDark
-                                  ? 'bg-white/5 border-white/10 text-white'
-                                  : 'bg-white border-gray-200'
-                              }`}
-                            />
-                            <button
-                              type="button"
-                              onClick={() => void submitPayment(sale.id)}
-                              className="px-3 py-2 rounded-xl text-xs font-bold bg-emerald-500 text-slate-900"
-                            >
-                              OK
-                            </button>
-                          </div>
-                          <label
-                            className={`flex items-start gap-2 text-[11px] ${
-                              !storePhoneOk ? 'opacity-50' : 'opacity-80'
-                            }`}
-                          >
-                            <input
-                              type="checkbox"
-                              className="mt-0.5"
-                              checked={sendDebtSms && storePhoneOk}
-                              disabled={!storePhoneOk}
-                              onChange={(e) => setSendDebtSms(e.target.checked)}
-                            />
-                            <span>
-                              SMS yuborish
-                              {!storePhoneOk ? ' (telefon yo‘q)' : ''}
-                            </span>
-                          </label>
-                        </div>
-                      ) : (
-                        <div className="mt-3 space-y-2">
-                          <div className="flex gap-2">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setPaySaleId(sale.id);
-                                setPayAmount(String(sale.debtAmount));
-                                setSendDebtSms(storePhoneOk);
-                              }}
-                              className="flex-1 py-2 rounded-xl text-xs font-bold border"
-                              style={{
-                                borderColor: isDark ? 'rgba(255,255,255,0.12)' : 'rgba(0,0,0,0.1)',
-                              }}
-                            >
-                              To‘lov
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => void submitPayment(sale.id, true)}
-                              className="flex-1 py-2 rounded-xl text-xs font-bold text-slate-900 flex items-center justify-center gap-1"
-                              style={{ background: accentColor.gradient }}
-                            >
-                              <CheckCircle2 className="w-3.5 h-3.5" />
-                              Yopildi
-                            </button>
-                          </div>
-                          {overdue ? (
-                            <button
-                              type="button"
-                              disabled={!storePhoneOk || smsBusyId === sale.id}
-                              onClick={() => void sendOverdueSms(sale)}
-                              className="w-full py-2 rounded-xl text-xs font-bold border text-red-500 disabled:opacity-40"
-                              style={{
-                                borderColor: 'rgba(239,68,68,0.35)',
-                                background: isDark
-                                  ? 'rgba(239,68,68,0.08)'
-                                  : 'rgba(239,68,68,0.06)',
-                              }}
-                            >
-                              {smsBusyId === sale.id
-                                ? 'SMS yuborilmoqda…'
-                                : storePhoneOk
-                                  ? 'Muddat o‘tdi — SMS'
-                                  : 'Muddat SMS (telefon yo‘q)'}
-                            </button>
-                          ) : null}
-                          {storePhoneOk ? (
-                            <label className="flex items-start gap-2 text-[11px] opacity-80">
-                              <input
-                                type="checkbox"
-                                className="mt-0.5"
-                                checked={sendDebtSms}
-                                onChange={(e) => setSendDebtSms(e.target.checked)}
-                              />
-                              <span>«Yopildi» / to‘lovda SMS</span>
-                            </label>
-                          ) : null}
-                        </div>
-                      )}
-                    </li>
-                  );
-                })}
-              </ul>
-            )}
-          </Card>
-        </>
-      ) : null}
-
-      {section === 'statistika' ? (
-        <>
-          <Card isDark={isDark}>
-            <div className="flex items-center gap-2 mb-2">
-              <PieChart className="w-5 h-5 shrink-0" style={{ color: accentColor.color }} />
-              <div className="min-w-0">
-                <h3 className="font-bold text-base">Umumiy ko‘rsatkichlar</h3>
-                <p className="text-[10px] opacity-55 truncate">
-                  {getHistoryPeriodLabel(statPeriod)}
-                  {statPeriod !== 'all'
-                    ? ` · ${statAnalytics.transactionCount} tranzaksiya`
-                    : ''}
                 </p>
               </div>
-            </div>
-
-            <p className="text-xs opacity-60 mb-3">
-              Vaqt oralig‘ini tanlang yoki «Tanlash» orqali aniq sanani belgilang.
-            </p>
-
-            <div className="flex gap-1.5 mb-2 flex-wrap">
-              {statPeriodOptions.map((p) => (
-                <button
-                  key={p.id}
-                  type="button"
-                  onClick={() => setStatPeriod(p.id)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold ${
-                    statPeriod === p.id
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : isDark
-                        ? 'bg-white/5 opacity-70'
-                        : 'bg-gray-100 opacity-80'
-                  }`}
-                >
-                  {p.label}
-                </button>
-              ))}
-            </div>
-
-            {statPeriod === 'custom' ? (
-              <div
-                className="grid grid-cols-2 gap-2 mb-3 p-3 rounded-xl"
-                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc' }}
-              >
-                <div>
-                  <label className="block text-[10px] opacity-60 mb-1">Dan (boshlanish)</label>
-                  <input
-                    type="date"
-                    value={statCustomRange.from}
-                    max={statCustomRange.to}
-                    onChange={(e) =>
-                      setStatCustomRange((r) => ({ ...r, from: e.target.value }))
-                    }
-                    className={`w-full px-2 py-2 rounded-lg border text-sm ${
-                      isDark
-                        ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]'
-                        : 'bg-white border-gray-200'
-                    }`}
-                  />
-                </div>
-                <div>
-                  <label className="block text-[10px] opacity-60 mb-1">Gacha (tugash)</label>
-                  <input
-                    type="date"
-                    value={statCustomRange.to}
-                    min={statCustomRange.from}
-                    max={toIsoDate(new Date())}
-                    onChange={(e) =>
-                      setStatCustomRange((r) => ({ ...r, to: e.target.value }))
-                    }
-                    className={`w-full px-2 py-2 rounded-lg border text-sm ${
-                      isDark
-                        ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]'
-                        : 'bg-white border-gray-200'
-                    }`}
-                  />
-                </div>
-              </div>
-            ) : null}
-
-            <div
-              className="rounded-xl p-4 mb-3"
-              style={{
-                background: isDark
-                  ? 'linear-gradient(135deg, rgba(16,185,129,0.18), rgba(5,150,105,0.08))'
-                  : 'linear-gradient(135deg, rgba(16,185,129,0.12), rgba(236,253,245,1))',
-                border: isDark ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(16,185,129,0.2)',
-              }}
-            >
-              <div className="flex items-center gap-2 text-xs opacity-70 mb-1">
-                <CircleDollarSign className="w-4 h-4 text-emerald-500" />
-                Jami foyda (yalpi)
-              </div>
-              <div
-                className={`text-2xl font-black ${statAnalytics.totalProfit < 0 ? 'text-red-400' : 'text-emerald-500'}`}
-              >
-                {formatMoney(statAnalytics.totalProfit)}
-              </div>
-              <div className="text-[10px] opacity-55 mt-1 flex flex-wrap gap-x-3 gap-y-0.5">
-                <span>
-                  Xarajat: <strong>{formatMoney(statAnalytics.totalCost)}</strong>
-                </span>
-                <span>
-                  Marja: <strong>{statAnalytics.profitMarginPercent}%</strong>
-                </span>
-                <span>
-                  O‘rtacha: <strong>{formatMoney(statAnalytics.avgProfitPerSale)}</strong>/sotuv
-                </span>
-              </div>
-            </div>
-
-            {/* Naqd, yangi qarz, eski qarz undiruvi — alohida */}
-            <div className="mb-3">
-              <div className="flex items-center gap-2 mb-3">
-                <Wallet className="w-4 h-4 shrink-0" style={{ color: accentColor.color }} />
-                <div>
-                  <h4 className="font-bold text-sm">Pul oqimi — alohida</h4>
-                  <p className="text-[10px] opacity-55">
-                    Naqd, yangi qarz va eski qarz undiruvi bir-biriga aralashmaydi
-                  </p>
-                </div>
-              </div>
-
-              <div className="space-y-2 mb-3">
-                <div
-                  className="rounded-xl p-4"
-                  style={{
-                    background: isDark
-                      ? 'linear-gradient(135deg, rgba(16,185,129,0.2), rgba(5,150,105,0.08))'
-                      : 'linear-gradient(135deg, rgba(16,185,129,0.14), #ecfdf5)',
-                    border: isDark ? '1px solid rgba(16,185,129,0.25)' : '1px solid rgba(16,185,129,0.2)',
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold opacity-80 mb-1">
-                        <Banknote className="w-4 h-4 text-emerald-500 shrink-0" />
-                        Naqd sotuv
-                      </div>
-                      <div className="text-[10px] opacity-55">
-                        To‘liq naqd pul bilan sotilgan mahsulotlar
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-xl font-black text-emerald-500">
-                        {formatMoney(paymentFlow.naqd.amount)}
-                      </div>
-                      <div className="text-[10px] opacity-60 mt-0.5">
-                        {paymentFlow.naqd.count} ta tranzaksiya
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  className="rounded-xl p-4"
-                  style={{
-                    background: isDark
-                      ? 'linear-gradient(135deg, rgba(245,158,11,0.18), rgba(217,119,6,0.08))'
-                      : 'linear-gradient(135deg, rgba(245,158,11,0.14), #fffbeb)',
-                    border: isDark ? '1px solid rgba(245,158,11,0.25)' : '1px solid rgba(245,158,11,0.2)',
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold opacity-80 mb-1">
-                        <HandCoins className="w-4 h-4 text-amber-500 shrink-0" />
-                        Yangi qarz berilgan
-                      </div>
-                      <div className="text-[10px] opacity-55">
-                        Sotuv paytida yangi ochilgan qarz summasi
-                      </div>
-                      {paymentFlow.newDebt.downPaymentAtSale > 0 ? (
-                        <div className="text-[10px] text-emerald-500/90 mt-1">
-                          Sotuvda oldindan olingan:{' '}
-                          {formatMoney(paymentFlow.newDebt.downPaymentAtSale)}
-                        </div>
-                      ) : null}
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-xl font-black text-amber-500">
-                        {formatMoney(paymentFlow.newDebt.amount)}
-                      </div>
-                      <div className="text-[10px] opacity-60 mt-0.5">
-                        {paymentFlow.newDebt.count} ta tranzaksiya
-                      </div>
-                    </div>
-                  </div>
-                </div>
-
-                <div
-                  className="rounded-xl p-4"
-                  style={{
-                    background: isDark
-                      ? 'linear-gradient(135deg, rgba(99,102,241,0.18), rgba(79,70,229,0.08))'
-                      : 'linear-gradient(135deg, rgba(99,102,241,0.12), #eef2ff)',
-                    border: isDark ? '1px solid rgba(99,102,241,0.25)' : '1px solid rgba(99,102,241,0.2)',
-                  }}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-1.5 text-xs font-semibold opacity-80 mb-1">
-                        <Receipt className="w-4 h-4 shrink-0" style={{ color: accentColor.color }} />
-                        Eski qarz undirildi
-                      </div>
-                      <div className="text-[10px] opacity-55">
-                        Oldingi qarzlardan olingan to‘lovlar (yopilgan yoki qisman)
-                      </div>
-                    </div>
-                    <div className="text-right shrink-0">
-                      <div className="text-xl font-black" style={{ color: accentColor.color }}>
-                        {formatMoney(paymentFlow.debtCollected.amount)}
-                      </div>
-                      <div className="text-[10px] opacity-60 mt-0.5">
-                        {paymentFlow.debtCollected.count} ta to‘lov
-                      </div>
-                    </div>
-                  </div>
-                </div>
-              </div>
-
-              <div
-                className="rounded-xl px-4 py-3 flex items-center justify-between gap-2"
-                style={{
-                  background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-                  border: isDark ? '1px solid rgba(255,255,255,0.1)' : '1px solid rgba(0,0,0,0.08)',
-                }}
-              >
-                <div className="min-w-0">
-                  <div className="text-[10px] opacity-65">Jami kirim (naqd + undirilgan + oldindan)</div>
-                  <div className="text-lg font-black truncate text-emerald-500">
-                    {formatMoney(paymentFlow.totalCashIn)}
-                  </div>
-                </div>
-                <div className="text-right shrink-0 text-[10px] opacity-55">
-                  <div>Aylanma</div>
-                  <div className="font-bold">{formatMoney(statAnalytics.totalRevenue)}</div>
-                </div>
-              </div>
-            </div>
-
-            <div className="grid grid-cols-2 gap-2">
-              <StatTile
-                label="Jami aylanma"
-                value={formatMoney(statAnalytics.totalRevenue)}
-                sub={`${statAnalytics.transactionCount} tranzaksiya · ${statAnalytics.totalSalesCount} qator`}
-                color={accentColor.color}
-                isDark={isDark}
-              />
-              <StatTile
-                label="Jami foyda"
-                value={formatMoney(statAnalytics.totalProfit)}
-                sub={`Marja ${statAnalytics.profitMarginPercent}%`}
-                color={statAnalytics.totalProfit >= 0 ? '#10b981' : '#ef4444'}
-                isDark={isDark}
-              />
-              <StatTile
-                label="Jami kirim"
-                value={formatMoney(paymentFlow.totalCashIn)}
-                sub={`Naqd ${formatMoney(paymentFlow.naqd.amount)} · Undirilgan ${formatMoney(paymentFlow.debtCollected.amount)}`}
-                color="#6366f1"
-                isDark={isDark}
-              />
-              <StatTile
-                label="Yangi qarz berilgan"
-                value={formatMoney(paymentFlow.newDebt.amount)}
-                sub={`${paymentFlow.newDebt.count} ta tranzaksiya`}
-                color="#f59e0b"
-                isDark={isDark}
-              />
-              <StatTile
-                label="Qarz qoldig‘i"
-                value={formatMoney(currentDebt.openDebtTotal)}
-                sub={`${currentDebt.openDebtCount} ta ochiq · hozirgi holat`}
-                color="#f59e0b"
-                isDark={isDark}
-              />
-              <StatTile
-                label="Chegirma berilgan"
-                value={formatMoney(statAnalytics.totalDiscount)}
-                sub={
-                  statAnalytics.totalRevenue > 0
-                    ? `${Math.round((statAnalytics.totalDiscount / (statAnalytics.totalRevenue + statAnalytics.totalDiscount)) * 1000) / 10}%`
-                    : undefined
-                }
-                color="#f43f5e"
-                isDark={isDark}
-              />
-              <StatTile
-                label="QR buyurtma"
-                value={formatMoney(statAnalytics.shopOrderRevenue)}
-                sub={`${statAnalytics.shopOrderTransactionCount} ta buyurtma`}
-                color="#0ea5e9"
-                isDark={isDark}
-              />
-              <StatTile
-                label="O‘rtacha sotuv"
-                value={formatMoney(statAnalytics.avgSaleAmount)}
-                sub={`Foyda ${formatMoney(statAnalytics.avgProfitPerSale)}`}
-                isDark={isDark}
-                color={isDark ? '#fff' : '#111'}
-              />
-              <StatTile
-                label="Eski qarz undirildi"
-                value={formatMoney(paymentFlow.debtCollected.amount)}
-                sub={`${paymentFlow.debtCollected.count} ta to‘lov`}
-                color="#10b981"
-                isDark={isDark}
-              />
-              <StatTile
-                label="Operatsion xarajat"
-                value={formatMoney(statExpenses.total)}
-                sub={`Naqd ${formatMoney(statExpenses.naqdTotal)} · Karta ${formatMoney(statExpenses.kartaTotal)}`}
-                color="#f87171"
-                isDark={isDark}
-              />
-              <StatTile
-                label="Sof foyda (taxminiy)"
-                value={formatMoney(statAnalytics.totalProfit - statExpenses.total)}
-                sub="Foyda − xarajatlar"
-                color={
-                  statAnalytics.totalProfit - statExpenses.total >= 0 ? '#10b981' : '#ef4444'
-                }
-                isDark={isDark}
-              />
-            </div>
-
-            {statAnalytics.totalRevenue > 0 ? (
-              <div className="mt-4">
-                <div className="flex justify-between text-xs mb-1.5">
-                  <span className="opacity-70">Aylanma vs foyda</span>
-                  <span className="font-mono text-[10px] opacity-60">
-                    Foyda {statAnalytics.profitMarginPercent}%
-                  </span>
-                </div>
-                <div
-                  className="h-3 rounded-full overflow-hidden flex"
-                  style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0' }}
-                >
-                  <div
-                    className="h-full bg-slate-500/60"
-                    style={{
-                      width: `${Math.min(100, (statAnalytics.totalCost / statAnalytics.totalRevenue) * 100)}%`,
-                    }}
-                    title="Xarajat"
-                  />
-                  <div
-                    className="h-full bg-emerald-500"
-                    style={{
-                      width: `${Math.max(0, Math.min(100, (statAnalytics.totalProfit / statAnalytics.totalRevenue) * 100))}%`,
-                    }}
-                    title="Foyda"
-                  />
-                </div>
-                <div className="flex justify-between text-[10px] opacity-50 mt-1">
-                  <span>Xarajat {formatMoney(statAnalytics.totalCost)}</span>
-                  <span className="text-emerald-500/90">Foyda {formatMoney(statAnalytics.totalProfit)}</span>
-                </div>
-              </div>
-            ) : statPeriod !== 'all' ? (
-              <p className="text-sm opacity-60 text-center py-4 mt-2">
-                Tanlangan davrda sotuv topilmadi
-              </p>
-            ) : null}
-          </Card>
-
-          {statAnalytics.monthly.length > 0 ? (
-            <Card isDark={isDark}>
-              <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
-                <BarChart3 className="w-4 h-4" style={{ color: accentColor.color }} />
-                Oylik aylanma va foyda
-                {statPeriod !== 'all' ? (
-                  <span className="text-[10px] font-normal opacity-50">
-                    ({getHistoryPeriodLabel(statPeriod)})
-                  </span>
-                ) : null}
-              </h3>
-              <ul className={dillerListClass}>
-                {statAnalytics.monthly.map((m) => (
-                  <li key={m.key}>
-                    <div className="flex justify-between text-xs mb-1 gap-2">
-                      <span className="font-semibold">{m.label}</span>
-                      <div className="text-right shrink-0">
-                        <div className="text-emerald-400 font-bold">{formatMoney(m.total)}</div>
-                        <div
-                          className={`text-[10px] font-bold ${m.profit >= 0 ? 'text-emerald-500/80' : 'text-red-400'}`}
-                        >
-                          {formatMoney(m.profit)} foyda
-                        </div>
-                      </div>
-                    </div>
-                    <div
-                      className="h-2 rounded-full overflow-hidden mb-1"
-                      style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0' }}
-                    >
-                      <div
-                        className="h-full rounded-full"
-                        style={{
-                          width: `${(m.total / maxMonthTotal) * 100}%`,
-                          background: accentColor.gradient,
-                        }}
-                      />
-                    </div>
-                    <div
-                      className="h-1.5 rounded-full overflow-hidden"
-                      style={{ background: isDark ? 'rgba(255,255,255,0.05)' : '#f1f5f9' }}
-                    >
-                      <div
-                        className="h-full rounded-full bg-emerald-500/80"
-                        style={{
-                          width: `${(Math.abs(m.profit) / maxMonthProfit) * 100}%`,
-                        }}
-                      />
-                    </div>
-                    <div className="text-[10px] opacity-50 mt-0.5">
-                      {m.count} sotuv · Naqd {formatMoney(m.naqd)} · Qarz {formatMoney(m.qarz)}
-                    </div>
+            ) : (
+              <ul className="space-y-2.5">
+                {filteredSales.map((sale) => (
+                  <li key={sale.id}>
+                    <DillerDebtListCard
+                      sale={sale}
+                      data={data}
+                      isDark={isDark}
+                      distanceLabel={formatStoreDistance(
+                        getStoreDistanceKm(storeById.get(sale.storeId), userLoc),
+                      )}
+                      storeDebt={storeDebtById.get(sale.storeId)}
+                      onOpen={() => openDebtDetail(sale)}
+                    />
                   </li>
                 ))}
               </ul>
-            </Card>
-          ) : null}
-
-          {currentDebt.byStore.length > 0 ? (
-            <Card isDark={isDark}>
-              <h3 className="font-bold text-sm mb-3 flex items-center gap-2">
-                <Store className="w-4 h-4 text-emerald-400" />
-                Do‘konlar bo‘yicha ochiq qarz
-                <span className="text-[10px] font-normal opacity-50">(hozirgi holat)</span>
-              </h3>
-              <ul className="space-y-3">
-                {currentDebt.byStore.slice(0, 10).map((row) => (
-                  <li key={row.storeId}>
-                    <div className="flex justify-between text-xs mb-1 gap-2">
-                      <span className="font-semibold truncate">{row.storeName}</span>
-                      <span className="text-amber-500 font-bold shrink-0">
-                        {formatMoney(row.openDebt)}
-                      </span>
-                    </div>
-                    <div
-                      className="h-2 rounded-full overflow-hidden"
-                      style={{ background: isDark ? 'rgba(255,255,255,0.08)' : '#e2e8f0' }}
-                    >
-                      <div
-                        className="h-full rounded-full bg-gradient-to-r from-amber-500 to-amber-600"
-                        style={{ width: `${(row.openDebt / maxStoreDebt) * 100}%` }}
-                      />
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          ) : null}
-
-          {statAnalytics.topStoresByRevenue.length > 0 ? (
-            <Card isDark={isDark}>
-              <h3 className="font-bold text-sm mb-3">
-                Top do‘konlar (sotuv)
-                {statPeriod !== 'all' ? (
-                  <span className="text-[10px] font-normal opacity-50 ml-1">
-                    ({getHistoryPeriodLabel(statPeriod)})
-                  </span>
-                ) : null}
-              </h3>
-              <ul className="space-y-2">
-                {statAnalytics.topStoresByRevenue.map((row, i) => (
-                  <li
-                    key={row.storeId}
-                    className="flex justify-between text-sm py-2 border-b last:border-0"
-                    style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}
-                  >
-                    <span className="opacity-80 truncate pr-2">
-                      {i + 1}. {row.storeName}
-                    </span>
-                    <div className="shrink-0 text-right">
-                      <div className="font-bold text-emerald-400">{formatMoney(row.total)}</div>
-                      <div className="text-[10px] text-emerald-500/70">{formatMoney(row.profit)}</div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          ) : null}
-
-          {statAnalytics.topProductsByQty.length > 0 ? (
-            <Card isDark={isDark}>
-              <h3 className="font-bold text-sm mb-3">
-                Top mahsulotlar
-                {statPeriod !== 'all' ? (
-                  <span className="text-[10px] font-normal opacity-50 ml-1">
-                    ({getHistoryPeriodLabel(statPeriod)})
-                  </span>
-                ) : null}
-              </h3>
-              <ul className="space-y-2">
-                {statAnalytics.topProductsByQty.map((row, i) => (
-                  <li
-                    key={row.productId}
-                    className="flex justify-between text-sm py-2 border-b last:border-0 gap-2"
-                    style={{ borderColor: isDark ? 'rgba(255,255,255,0.06)' : 'rgba(0,0,0,0.06)' }}
-                  >
-                    <span className="opacity-80 truncate">
-                      {i + 1}. {row.productName}
-                    </span>
-                    <div className="shrink-0 text-right">
-                      <div className="font-bold">{row.qty} dona</div>
-                      <div className="text-[10px] text-emerald-500/80">{formatMoney(row.profit)}</div>
-                    </div>
-                  </li>
-                ))}
-              </ul>
-            </Card>
-          ) : null}
+            )}
         </>
       ) : null}
 
-      {section === 'buyurtma' ? (
+      {activeSection === 'statistika' || activeSection === 'analitika' ? (
+        <DillerStatistikaSection
+          mode={activeSection === 'analitika' ? 'analitika' : 'statistika'}
+          data={data}
+          onGoHome={onGoHome}
+        />
+      ) : null}
+
+
+      {activeSection === 'buyurtma' ? (
         <DillerBuyurtmaSection data={data} onDataChange={onDataChange} isDark={isDark} />
       ) : null}
 
-      {section === 'xarajat' ? (
+      {activeSection === 'xarajat' ? (
         <DillerHarajatSection data={data} onDataChange={onDataChange} isDark={isDark} />
       ) : null}
 
-      {section === 'balans' ? (
+      {activeSection === 'balans' ? (
         <DillerBalansSection data={data} onDataChange={onDataChange} isDark={isDark} />
       ) : null}
 
-      {section === 'tarix' ? (
+      {activeSection === 'tarix' ? (
         <>
           <Card isDark={isDark}>
             <div className="flex items-center gap-2 mb-3">
@@ -1387,32 +682,23 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
               Vaqt oralig‘ini tanlang yoki «Tanlash» orqali aniq sanani belgilang.
             </p>
 
-            <div className="flex gap-1.5 mb-2 flex-wrap">
+            <div className="flex gap-1.5 mb-3 overflow-x-auto scrollbar-hide -mx-1 px-1">
               {periodOptions.map((p) => (
-                <button
+                <PeriodChip
                   key={p.id}
-                  type="button"
+                  label={p.label}
+                  active={historyPeriod === p.id}
+                  isDark={isDark}
+                  tone="emerald"
                   onClick={() => setHistoryPeriod(p.id)}
-                  className={`px-3 py-1.5 rounded-full text-xs font-bold ${
-                    historyPeriod === p.id
-                      ? 'bg-emerald-500/20 text-emerald-400'
-                      : isDark
-                        ? 'bg-white/5 opacity-70'
-                        : 'bg-gray-100'
-                  }`}
-                >
-                  {p.label}
-                </button>
+                />
               ))}
             </div>
 
             {historyPeriod === 'custom' ? (
-              <div
-                className="grid grid-cols-2 gap-2 mb-3 p-3 rounded-xl"
-                style={{ background: isDark ? 'rgba(255,255,255,0.04)' : '#f8fafc' }}
-              >
+              <div className="grid grid-cols-2 gap-2 mb-3 p-3 rounded-[16px]" style={iosGlassInputStyle(isDark)}>
                 <div>
-                  <label className="block text-[10px] opacity-60 mb-1">Dan (boshlanish)</label>
+                  <label className="block text-[10px] opacity-60 mb-1">Dan</label>
                   <input
                     type="date"
                     value={historyCustomRange.from}
@@ -1420,15 +706,13 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                     onChange={(e) =>
                       setHistoryCustomRange((r) => ({ ...r, from: e.target.value }))
                     }
-                    className={`w-full px-2 py-2 rounded-lg border text-sm ${
-                      isDark
-                        ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]'
-                        : 'bg-white border-gray-200'
+                    className={`w-full px-2 py-2 rounded-lg bg-transparent outline-none text-sm ${
+                      isDark ? '[color-scheme:dark]' : ''
                     }`}
                   />
                 </div>
                 <div>
-                  <label className="block text-[10px] opacity-60 mb-1">Gacha (tugash)</label>
+                  <label className="block text-[10px] opacity-60 mb-1">Gacha</label>
                   <input
                     type="date"
                     value={historyCustomRange.to}
@@ -1437,28 +721,22 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                     onChange={(e) =>
                       setHistoryCustomRange((r) => ({ ...r, to: e.target.value }))
                     }
-                    className={`w-full px-2 py-2 rounded-lg border text-sm ${
-                      isDark
-                        ? 'bg-white/5 border-white/10 text-white [color-scheme:dark]'
-                        : 'bg-white border-gray-200'
+                    className={`w-full px-2 py-2 rounded-lg bg-transparent outline-none text-sm ${
+                      isDark ? '[color-scheme:dark]' : ''
                     }`}
                   />
                 </div>
               </div>
             ) : null}
 
-            <div className="relative mb-3">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 opacity-40" />
+            <div className="flex items-center gap-2 rounded-[16px] px-3 py-2.5 mb-3" style={iosGlassInputStyle(isDark)}>
+              <Search className="w-4 h-4 opacity-40 shrink-0" />
               <input
                 type="search"
                 value={historySearch}
                 onChange={(e) => setHistorySearch(e.target.value)}
                 placeholder="Do‘kon yoki mahsulot qidirish..."
-                className={`w-full pl-9 pr-3 py-2.5 rounded-xl border text-sm ${
-                  isDark
-                    ? 'bg-white/5 border-white/10 text-white placeholder:text-white/40'
-                    : 'bg-white border-gray-200'
-                }`}
+                className="flex-1 min-w-0 bg-transparent outline-none text-sm placeholder:opacity-40"
               />
             </div>
 
@@ -1513,11 +791,8 @@ export function DillerQarzTab({ data, onDataChange }: Props) {
                     <button
                       type="button"
                       onClick={() => toggleMonth(group.key)}
-                      className="w-full flex items-center gap-2 p-3 rounded-2xl border text-left"
-                      style={{
-                        background: isDark ? 'rgba(255,255,255,0.04)' : '#fff',
-                        borderColor: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.08)',
-                      }}
+                      className="w-full flex items-center gap-2 p-3.5 rounded-[20px] text-left active:scale-[0.985] transition-transform"
+                      style={iosGlassCardStyle(isDark)}
                     >
                       {expanded ? (
                         <ChevronDown className="w-4 h-4 shrink-0 opacity-60" />
