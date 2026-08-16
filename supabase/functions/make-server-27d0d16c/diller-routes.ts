@@ -54,6 +54,8 @@ type ShopOrder = {
   storeId?: string;
   storeName?: string;
   customerAddress?: string;
+  customerLat?: number;
+  customerLng?: number;
 };
 
 function dillerSessionKey(token: string): string {
@@ -1017,6 +1019,11 @@ export function registerDillerRoutes(
       const customerPhone = String(body.customerPhone ?? "").trim();
       const note = String(body.note ?? "").trim();
       const storeId = String(body.storeId ?? "").trim();
+      const bodyLat = Number(body.customerLat ?? body.lat);
+      const bodyLng = Number(body.customerLng ?? body.lng);
+      const customerLat = Number.isFinite(bodyLat) ? bodyLat : undefined;
+      const customerLng = Number.isFinite(bodyLng) ? bodyLng : undefined;
+      const bodyAddress = String(body.customerAddress ?? "").trim();
       const itemsRaw = Array.isArray(body.items) ? body.items : [];
 
       if (!customerName) return c.json({ success: false, error: "Ism kiriting" }, 400);
@@ -1055,7 +1062,7 @@ export function registerDillerRoutes(
 
       let finalName = customerName;
       let storeName: string | undefined;
-      let customerAddress: string | undefined;
+      let customerAddress: string | undefined = bodyAddress || undefined;
       let linkedStoreId: string | undefined;
 
       if (storeId) {
@@ -1063,9 +1070,12 @@ export function registerDillerRoutes(
         if (store) {
           linkedStoreId = storeId;
           storeName = String(store.name ?? "").trim();
-          customerAddress = String(store.address ?? "").trim();
+          const storeAddress = String(store.address ?? "").trim();
+          if (storeAddress) customerAddress = storeAddress;
           if (storeName) finalName = storeName;
         }
+      } else {
+        storeName = customerName;
       }
 
       const order: ShopOrder = {
@@ -1080,6 +1090,8 @@ export function registerDillerRoutes(
         storeId: linkedStoreId,
         storeName,
         customerAddress,
+        customerLat,
+        customerLng,
       };
 
       const key = shopOrdersKey(token);

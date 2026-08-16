@@ -1,11 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
+  ChevronRight,
+  CheckCircle2,
   Phone,
+  Package,
   QrCode,
   RefreshCw,
-  Package,
-  ChevronRight,
   AlertTriangle,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
@@ -70,7 +71,7 @@ const statusLabel: Record<DillerShopOrderStatus, string> = {
 
 const statusColor: Record<DillerShopOrderStatus, string> = {
   pending: '#f59e0b',
-  accepted: '#3b82f6',
+  accepted: '#8b5cf6',
   rejected: '#ef4444',
   done: '#10b981',
 };
@@ -265,6 +266,8 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
     }
     if (status === 'accepted') {
       toast.success('Qabul qilindi — ombordan ayirildi');
+      setDetailOrderId(null);
+      setSaleOrderId(order.id);
     } else {
       toast.success(statusLabel[status]);
     }
@@ -347,6 +350,7 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
         data={data}
         onClose={() => setSaleOrderId(null)}
         onComplete={(next) => void onSaleComplete(next)}
+        onDataChange={onDataChange}
       />
 
       <DillerShopOrderDetailSheet
@@ -386,9 +390,9 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
             <QrCode className="w-6 h-6" strokeWidth={2.4} />
           </span>
           <span className="min-w-0 text-white">
-            <span className="block text-[17px] font-black leading-tight">QR kod yaratish</span>
+            <span className="block text-[17px] font-black leading-tight">Karobka sticker</span>
             <span className="block text-[12px] font-medium opacity-75 mt-0.5">
-              Ko‘rsatish · yuklab olish · do‘konlar shu orqali buyurtma beradi
+              10×5 sm · QR · telefon · Instagram · Telegram
             </span>
           </span>
         </div>
@@ -451,7 +455,7 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
             <QrCode className="w-8 h-8 mx-auto mb-2 opacity-35" />
             <p className="text-sm font-semibold">Hali QR buyurtma yo‘q</p>
             <p className="text-[11px] opacity-50 mt-1 leading-relaxed px-4">
-              Yuqoridagi «QR kod yaratish» ni bosing, posterni yuklab do‘konga yopishtiring. Skaner
+              Yuqoridagi «Karobka sticker» ni bosing, 10×5 sm rasmni karobkaga yopishtiring. Skaner
               orqali tushgan buyurtmalar shu yerda ochiladi.
             </p>
           </div>
@@ -466,56 +470,91 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
               const previewName = store?.name ?? order.storeName ?? order.customerName;
               return (
                 <li key={order.id}>
-                  <button
-                    type="button"
-                    onClick={() => setDetailOrderId(order.id)}
-                    className="w-full text-left p-3.5 rounded-[20px] active:scale-[0.985] transition-transform"
-                    style={iosGlassCardStyle(isDark)}
+                  <div
+                    className="p-3.5 rounded-[20px]"
+                    style={{
+                      ...iosGlassCardStyle(isDark),
+                      outline:
+                        order.status === 'accepted'
+                          ? '1.5px solid rgba(139,92,246,0.55)'
+                          : undefined,
+                    }}
                   >
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="min-w-0 flex-1">
-                        <div className="font-bold text-sm truncate">{previewName}</div>
-                        <div className="text-xs opacity-60 flex items-center gap-1 mt-0.5">
-                          <Phone className="w-3 h-3 shrink-0" />
-                          <span className="truncate">{order.customerPhone}</span>
-                        </div>
-                        <div className="text-[11px] opacity-50 mt-0.5 truncate">
-                          {order.items
-                            .slice(0, 2)
-                            .map((it) => `${it.productName} ×${it.qty}`)
-                            .join(', ')}
-                          {order.items.length > 2 ? ` +${order.items.length - 2}` : ''}
-                        </div>
-                        {storeMatches.length > 1 ? (
-                          <div className="text-[10px] text-sky-500/90 mt-0.5">
-                            {storeMatches.length} ta do‘kon mos keldi
+                    <button
+                      type="button"
+                      onClick={() => setDetailOrderId(order.id)}
+                      className="w-full text-left active:scale-[0.99] transition-transform"
+                    >
+                      <div className="flex items-start justify-between gap-2 mb-2">
+                        <div className="min-w-0 flex-1">
+                          <div className="font-bold text-sm truncate">{previewName}</div>
+                          <div className="text-xs opacity-60 flex items-center gap-1 mt-0.5">
+                            <Phone className="w-3 h-3 shrink-0" />
+                            <span className="truncate">{order.customerPhone}</span>
                           </div>
-                        ) : null}
+                          <div className="text-[11px] opacity-50 mt-0.5 truncate">
+                            {order.items
+                              .slice(0, 2)
+                              .map((it) => `${it.productName} ×${it.qty}`)
+                              .join(', ')}
+                            {order.items.length > 2 ? ` +${order.items.length - 2}` : ''}
+                          </div>
+                          {storeMatches.length > 1 ? (
+                            <div className="text-[10px] text-sky-500/90 mt-0.5">
+                              {storeMatches.length} ta do‘kon mos keldi
+                            </div>
+                          ) : !store && order.status !== 'done' && order.status !== 'rejected' ? (
+                            <div className="text-[10px] text-violet-400 mt-0.5">Do‘kon yo‘q — yaratish mumkin</div>
+                          ) : null}
+                        </div>
+                        <span
+                          className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0"
+                          style={{
+                            background:
+                              order.status === 'accepted'
+                                ? 'rgba(139,92,246,0.18)'
+                                : `${statusColor[order.status]}22`,
+                            color: order.status === 'accepted' ? '#c4b5fd' : statusColor[order.status],
+                          }}
+                        >
+                          {statusLabel[order.status]}
+                        </span>
                       </div>
-                      <span
-                        className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0"
-                        style={{
-                          background: `${statusColor[order.status]}22`,
-                          color: statusColor[order.status],
-                        }}
+                      <div className="flex items-center justify-between gap-2 text-xs">
+                        <span className="opacity-55">
+                          {totalItems} ta · {order.items.length} tur
+                        </span>
+                        <span className="font-black text-emerald-500">{formatMoney(order.total)}</span>
+                      </div>
+                      <div className="text-[10px] opacity-40 mt-2 flex items-center justify-between">
+                        <span>{formatDillerDateTime(order.createdAt)}</span>
+                        <span className="inline-flex items-center gap-0.5">
+                          Batafsil
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </span>
+                      </div>
+                    </button>
+                    {order.status === 'pending' ? (
+                      <button
+                        type="button"
+                        onClick={() => void setStatus(order, 'accepted')}
+                        className="mt-3 w-full min-h-[44px] rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-1.5"
+                        style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)' }}
                       >
-                        {statusLabel[order.status]}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2 text-xs">
-                      <span className="opacity-55">
-                        {totalItems} ta · {order.items.length} tur
-                      </span>
-                      <span className="font-black text-emerald-500">{formatMoney(order.total)}</span>
-                    </div>
-                    <div className="text-[10px] opacity-40 mt-2 flex items-center justify-between">
-                      <span>{formatDillerDateTime(order.createdAt)}</span>
-                      <span className="inline-flex items-center gap-0.5">
-                        Batafsil
-                        <ChevronRight className="w-3.5 h-3.5" />
-                      </span>
-                    </div>
-                  </button>
+                        <CheckCircle2 className="w-4 h-4" />
+                        Qabul qilish
+                      </button>
+                    ) : order.status === 'accepted' ? (
+                      <button
+                        type="button"
+                        onClick={() => openSaleConfirm(order)}
+                        className="mt-3 w-full min-h-[44px] rounded-2xl text-sm font-bold text-white flex items-center justify-center gap-1.5"
+                        style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+                      >
+                        Sotuvni tasdiqlash
+                      </button>
+                    ) : null}
+                  </div>
                 </li>
               );
             })}

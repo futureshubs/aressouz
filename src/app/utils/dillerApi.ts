@@ -256,6 +256,9 @@ export async function dillerApiSubmitQrcodeOrder(
     customerPhone: string;
     note?: string;
     storeId?: string;
+    customerAddress?: string;
+    customerLat?: number;
+    customerLng?: number;
     items: { productId: string; qty: number }[];
   },
 ): Promise<{ ok: true; orderId: string } | { ok: false; error: string }> {

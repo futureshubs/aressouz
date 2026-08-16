@@ -27,7 +27,7 @@ const statusLabel: Record<DillerShopOrderStatus, string> = {
 
 const statusColor: Record<DillerShopOrderStatus, string> = {
   pending: '#f59e0b',
-  accepted: '#3b82f6',
+  accepted: '#8b5cf6',
   rejected: '#ef4444',
   done: '#10b981',
 };
@@ -169,12 +169,15 @@ export function DillerShopOrderDetailSheet({
         {displayStore ? (
           <Section title="Do‘kon" icon={<Store className="w-3.5 h-3.5" />} isDark={isDark}>
             <InfoRow label="Do‘kon nomi" value={displayStore.name} />
-            {(displayStore.address || order.customerAddress) ? (
+            {order.customerAddress || (order.customerLat != null && order.customerLng != null) ? (
               <div className="py-2">
-                <span className="text-[10px] uppercase tracking-wide opacity-45 block mb-1">Manzil</span>
+                <span className="text-[10px] uppercase tracking-wide opacity-45 block mb-1">Joylashuv</span>
                 <div className="flex items-start gap-2 text-sm font-medium opacity-85 leading-snug">
-                  <MapPin className="w-4 h-4 text-emerald-500 shrink-0 mt-0.5" />
-                  {displayStore.address || order.customerAddress}
+                  <MapPin className="w-4 h-4 text-violet-400 shrink-0 mt-0.5" />
+                  <span>
+                    {order.customerAddress ||
+                      `${order.customerLat?.toFixed(5)}, ${order.customerLng?.toFixed(5)}`}
+                  </span>
                 </div>
               </div>
             ) : null}
@@ -189,11 +192,16 @@ export function DillerShopOrderDetailSheet({
           </Section>
         ) : (
           <Section title="Do‘kon" icon={<Store className="w-3.5 h-3.5" />} isDark={isDark}>
-            <p className="text-sm opacity-55">Do‘konlar ro‘yxatida topilmadi</p>
+            <p className="text-sm opacity-55">Do‘konlar ro‘yxatida topilmadi — sotuvda yaratish mumkin</p>
             {order.customerAddress ? (
               <div className="mt-2 flex items-start gap-2 text-sm opacity-75">
-                <MapPin className="w-4 h-4 shrink-0" />
+                <MapPin className="w-4 h-4 text-violet-400 shrink-0" />
                 {order.customerAddress}
+              </div>
+            ) : order.customerLat != null && order.customerLng != null ? (
+              <div className="mt-2 flex items-start gap-2 text-sm opacity-75">
+                <MapPin className="w-4 h-4 text-violet-400 shrink-0" />
+                {order.customerLat.toFixed(5)}, {order.customerLng.toFixed(5)}
               </div>
             ) : null}
           </Section>

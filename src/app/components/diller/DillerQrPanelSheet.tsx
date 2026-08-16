@@ -9,7 +9,11 @@ import {
   getQrcodeOrderUrl,
   updateDillerProfile,
 } from '../../utils/dillerData';
-import { downloadDillerQrPoster, makeDillerQrDataUrl } from '../../utils/dillerQrPoster';
+import {
+  DILLER_QR_POSTER_CM,
+  downloadDillerQrPoster,
+  renderDillerQrPosterDataUrl,
+} from '../../utils/dillerQrPoster';
 import { pushDillerLocalNow } from '../../utils/dillerSync';
 import { dillerSheetScrollClass, dillerSheetShellClass } from './dillerMobileLayout';
 import {
@@ -42,7 +46,7 @@ export function DillerQrPanelSheet({ open, data, onClose, onDataChange }: Props)
   const [phone, setPhone] = useState('');
   const [telegram, setTelegram] = useState('');
   const [instagram, setInstagram] = useState('');
-  const [qrSrc, setQrSrc] = useState('');
+  const [posterSrc, setPosterSrc] = useState('');
   const [downloading, setDownloading] = useState(false);
   const [copied, setCopied] = useState(false);
 
@@ -58,21 +62,32 @@ export function DillerQrPanelSheet({ open, data, onClose, onDataChange }: Props)
 
   useEffect(() => {
     if (!open || !orderUrl) {
-      setQrSrc('');
+      setPosterSrc('');
       return;
     }
     let cancelled = false;
-    void makeDillerQrDataUrl(orderUrl, 640).then((src) => {
-      if (!cancelled) setQrSrc(src);
-    });
+    const brand = getDillerBrandLabel(data.profile.companyName);
+    const timer = window.setTimeout(() => {
+      void renderDillerQrPosterDataUrl({
+        orderUrl,
+        companyName: brand,
+        phone: phone.trim() || data.profile.phone,
+        telegram: telegram.trim(),
+        instagram: instagram.trim(),
+      }).then((src) => {
+        if (!cancelled) setPosterSrc(src);
+      });
+    }, 220);
     return () => {
       cancelled = true;
+      window.clearTimeout(timer);
     };
-  }, [open, orderUrl]);
+  }, [open, orderUrl, phone, telegram, instagram, data.profile.companyName, data.profile.phone]);
 
   if (!open) return null;
 
   const brand = getDillerBrandLabel(data.profile.companyName);
+  const sizeLabel = `${DILLER_QR_POSTER_CM.w}×${DILLER_QR_POSTER_CM.h} sm`;
 
   const saveContacts = () => {
     const next = updateDillerProfile(dataWithToken, {
@@ -116,9 +131,9 @@ export function DillerQrPanelSheet({ open, data, onClose, onDataChange }: Props)
         phone: phone.trim() || data.profile.phone,
         telegram: telegram.trim(),
         instagram: instagram.trim(),
-        filename: `buyurtma-qr-${orderToken.slice(0, 8)}.png`,
+        filename: `karobka-sticker-${orderToken.slice(0, 8)}.png`,
       });
-      toast.success('QR yuklab olindi (10×7 sm)');
+      toast.success(`Sticker yuklab olindi (${sizeLabel})`);
     } catch {
       toast.error('QR yuklab olinmadi');
     } finally {
@@ -130,8 +145,8 @@ export function DillerQrPanelSheet({ open, data, onClose, onDataChange }: Props)
     <div className={dillerSheetShellClass} style={{ ...iosGlassPageSurface(isDark), zIndex: 122 }}>
       <header className="shrink-0 flex items-center gap-2 px-4 py-3" style={iosGlassBarStyle(isDark)}>
         <div className="min-w-0 flex-1">
-          <h2 className="text-lg font-black">QR kod</h2>
-          <p className="text-[11px] opacity-50">Do‘konlar skaner qilib buyurtma beradi</p>
+          <h2 className="text-lg font-black">Karobka sticker</h2>
+          <p className="text-[11px] opacity-50">QR · telefon · Instagram · Telegram · {sizeLabel}</p>
         </div>
         <button
           type="button"
@@ -145,19 +160,59 @@ export function DillerQrPanelSheet({ open, data, onClose, onDataChange }: Props)
       </header>
 
       <div className={`${dillerSheetScrollClass} px-4 py-4 space-y-4 max-w-lg mx-auto w-full pb-8`}>
-        <div className="rounded-[26px] p-5 text-center" style={iosGlassCardStyle(isDark)}>
+        <div className="relative mx-auto w-full overflow-hidden rounded-[28px] px-4 pt-5 pb-7">
           <div
-            className="mx-auto w-[min(72vw,280px)] aspect-square rounded-[22px] p-3 flex items-center justify-center"
-            style={{ background: '#fff' }}
-          >
-            {qrSrc ? (
-              <img src={qrSrc} alt="Buyurtma QR" className="w-full h-full object-contain" />
-            ) : (
-              <QrCode className="w-16 h-16 text-slate-300" />
-            )}
+            aria-hidden
+            className="pointer-events-none absolute inset-0"
+            style={{
+              background:
+                'linear-gradient(152deg, #d7b07a 0%, #b58952 28%, #8a6236 62%, #5c3d22 100%)',
+            }}
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-0 opacity-40"
+            style={{
+              backgroundImage:
+                'repeating-linear-gradient(90deg, rgba(255,255,255,0.08) 0 3px, transparent 3px 11px)',
+            }}
+          />
+          <div
+            aria-hidden
+            className="pointer-events-none absolute inset-x-0 top-0 h-16"
+            style={{
+              background: 'linear-gradient(180deg, rgba(255,255,255,0.28), transparent)',
+            }}
+          />
+          <div className="relative text-center mb-3">
+            <div className="text-[10px] font-black tracking-[0.22em] uppercase text-white/70">
+              Karobka · {sizeLabel}
+            </div>
+            <div className="text-[11px] font-semibold text-white/50 mt-0.5">
+              Skaner → buyurtma bo‘limi
+            </div>
           </div>
-          <div className="font-black text-[17px] mt-4">{brand}</div>
-          <p className="text-[11px] opacity-50 mt-1">Kamerani shu kodga yo‘naltiring</p>
+          <div className="relative px-1" style={{ perspective: 980 }}>
+            <div
+              className="overflow-hidden rounded-[16px]"
+              style={{
+                aspectRatio: `${DILLER_QR_POSTER_CM.w} / ${DILLER_QR_POSTER_CM.h}`,
+                transform: 'rotateX(10deg) rotateY(-14deg) translateZ(18px)',
+                transformStyle: 'preserve-3d',
+                boxShadow:
+                  '0 26px 40px rgba(40, 20, 8, 0.55), 0 8px 16px rgba(0,0,0,0.28), inset 0 1px 0 rgba(255,255,255,0.45)',
+                background: '#0b1c1a',
+              }}
+            >
+              {posterSrc ? (
+                <img src={posterSrc} alt="Karobka QR sticker" className="h-full w-full object-cover" />
+              ) : (
+                <div className="flex h-full w-full items-center justify-center">
+                  <QrCode className="h-12 w-12 text-white/25" />
+                </div>
+              )}
+            </div>
+          </div>
         </div>
 
         <div className="rounded-[20px] p-3" style={iosGlassCardStyle(isDark)}>
@@ -179,7 +234,7 @@ export function DillerQrPanelSheet({ open, data, onClose, onDataChange }: Props)
           <input
             value={phone}
             onChange={(e) => setPhone(e.target.value)}
-            placeholder="Telefon (QR va posterda)"
+            placeholder="Telefon raqam"
             className={inputCls(isDark)}
             style={iosGlassInputStyle(isDark)}
           />
@@ -208,8 +263,8 @@ export function DillerQrPanelSheet({ open, data, onClose, onDataChange }: Props)
         </div>
 
         <p className="text-[11px] opacity-45 leading-relaxed px-1">
-          Yuklab olingan 10×7 sm posterni karobkaga yopishtiring. Skaner buyurtma sahifasiga olib boradi —
-          tushgan buyurtmalar shu bo‘limda «QR buyurtmalar»da ko‘rinadi.
+          {sizeLabel} sticker chiqarib karobkaga yopishtiring. QR skaner qilinsa do‘kon buyurtma berish
+          sahifasiga o‘tadi — tushgan buyurtmalar «QR buyurtmalar»da ko‘rinadi.
         </p>
       </div>
 
@@ -222,7 +277,7 @@ export function DillerQrPanelSheet({ open, data, onClose, onDataChange }: Props)
           style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
         >
           {downloading ? <Loader2 className="w-5 h-5 animate-spin" /> : <Download className="w-5 h-5" />}
-          {downloading ? 'Yuklanmoqda…' : 'QR yuklab olish (10×7 sm)'}
+          {downloading ? 'Yuklanmoqda…' : `Sticker yuklab olish (${sizeLabel})`}
         </button>
       </div>
     </div>

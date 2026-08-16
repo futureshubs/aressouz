@@ -9,9 +9,11 @@ export type QrPosterInput = {
   filename?: string;
 };
 
-/** 10 sm × 7 sm @ 300 DPI */
-const W = 1181;
-const H = 827;
+/** Karobka sticker: 10 sm × 5 sm @ 300 DPI */
+export const DILLER_QR_POSTER_CM = { w: 10, h: 5 } as const;
+const DPI = 300;
+const W = Math.round((DILLER_QR_POSTER_CM.w / 2.54) * DPI); // 1181
+const H = Math.round((DILLER_QR_POSTER_CM.h / 2.54) * DPI); // 591
 const FONT = 'system-ui, -apple-system, "Segoe UI", Roboto, sans-serif';
 
 type ContactRow = {
@@ -24,11 +26,30 @@ export async function makeDillerQrDataUrl(orderUrl: string, size = 512): Promise
   return QRCodeLib.toDataURL(orderUrl, {
     width: size,
     margin: 1,
-    color: { dark: '#0f172a', light: '#ffffff' },
+    color: { dark: '#0b1220', light: '#ffffff' },
   });
 }
 
+export async function renderDillerQrPosterDataUrl(input: QrPosterInput): Promise<string> {
+  const canvas = await renderPosterCanvas(input);
+  return canvas.toDataURL('image/png', 1);
+}
+
 export async function downloadDillerQrPoster(input: QrPosterInput): Promise<void> {
+  const canvas = await renderPosterCanvas(input);
+  const blob = await new Promise<Blob | null>((resolve) =>
+    canvas.toBlob((b) => resolve(b), 'image/png', 1),
+  );
+  if (!blob) throw new Error('Rasm yaratilmadi');
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = input.filename ?? 'buyurtma-qr-10x5.png';
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+async function renderPosterCanvas(input: QrPosterInput): Promise<HTMLCanvasElement> {
   const canvas = document.createElement('canvas');
   canvas.width = W;
   canvas.height = H;
@@ -36,162 +57,347 @@ export async function downloadDillerQrPoster(input: QrPosterInput): Promise<void
   if (!ctx) throw new Error('Canvas qo‘llab-quvvatlanmaydi');
 
   const brand = input.companyName.trim() || 'Aresso';
+  const contacts = collectContacts(input);
 
-  // Fon gradient
-  const bg = ctx.createLinearGradient(0, 0, W, H);
-  bg.addColorStop(0, '#ffffff');
-  bg.addColorStop(1, '#f1f5f9');
-  ctx.fillStyle = bg;
-  ctx.fillRect(0, 0, W, H);
+  paintBackdrop(ctx);
+  paintStickerBody(ctx);
 
-  // Tashqi yumaloq ramka effekti
-  roundRect(ctx, 28, 28, W - 56, H - 56, 28);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-  ctx.strokeStyle = '#cbd5e1';
-  ctx.lineWidth = 2;
-  ctx.stroke();
+  const pad = 40;
+  const qrPlate = 448;
+  const qrX = 48;
+  const qrY = (H - qrPlate) / 2;
+  await paintQrPlate(ctx, qrX, qrY, qrPlate, input.orderUrl);
 
-  // Yuqori banner
-  roundRectTop(ctx, 28, 28, W - 56, 112, 28);
-  const banner = ctx.createLinearGradient(28, 28, W - 28, 140);
-  banner.addColorStop(0, '#047857');
-  banner.addColorStop(1, '#059669');
-  ctx.fillStyle = banner;
-  ctx.fill();
+  const rightX = qrX + qrPlate + 28;
+  const rightW = W - pad - rightX;
+  paintCopyAndContacts(ctx, rightX, 36, rightW, H - 72, brand, contacts);
 
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `800 44px ${FONT}`;
-  ctx.fillText(brand, 56, 88);
+  return canvas;
+}
 
-  ctx.font = `500 22px ${FONT}`;
-  ctx.globalAlpha = 0.92;
-  ctx.fillText('Onlayn buyurtma', 56, 118);
-  ctx.globalAlpha = 1;
-
-  // QR blok — chap
-  const qrBoxX = 56;
-  const qrBoxY = 168;
-  const qrSize = 380;
-
-  ctx.shadowColor = 'rgba(15, 23, 42, 0.12)';
-  ctx.shadowBlur = 24;
-  ctx.shadowOffsetY = 8;
-  roundRect(ctx, qrBoxX, qrBoxY, qrSize + 48, qrSize + 48, 20);
-  ctx.fillStyle = '#ffffff';
-  ctx.fill();
-  ctx.shadowColor = 'transparent';
-  ctx.shadowBlur = 0;
-  ctx.shadowOffsetY = 0;
-
-  ctx.strokeStyle = '#10b981';
-  ctx.lineWidth = 3;
-  ctx.stroke();
-
-  const qrX = qrBoxX + 24;
-  const qrY = qrBoxY + 24;
-  const qrDataUrl = await QRCodeLib.toDataURL(input.orderUrl, {
-    width: qrSize,
-    margin: 1,
-    color: { dark: '#0f172a', light: '#ffffff' },
-  });
-  ctx.drawImage(await loadImage(qrDataUrl), qrX, qrY, qrSize, qrSize);
-
-  // Skaner yorlig‘i
-  const tagW = qrSize + 48;
-  const tagY = qrBoxY + qrSize + 48 + 16;
-  roundRect(ctx, qrBoxX, tagY, tagW, 52, 14);
-  ctx.fillStyle = '#0f172a';
-  ctx.fill();
-
-  ctx.save();
-  ctx.translate(qrBoxX + 36, tagY + 26);
-  drawScanIcon(ctx, 0, 0, 14);
-  ctx.restore();
-
-  ctx.fillStyle = '#ffffff';
-  ctx.font = `700 22px ${FONT}`;
-  ctx.textAlign = 'center';
-  ctx.textBaseline = 'middle';
-  ctx.fillText('QR SKANER', qrBoxX + tagW / 2 + 8, tagY + 27);
-  ctx.textBaseline = 'alphabetic';
-  ctx.textAlign = 'left';
-
-  // O‘ng blok
-  const rightX = qrBoxX + tagW + 40;
-  const rightW = W - 28 - 56 - rightX;
-
-  ctx.fillStyle = '#0f172a';
-  ctx.font = `800 36px ${FONT}`;
-  ctx.fillText('Buyurtma', rightX, 200);
-  const buyurtmaW = ctx.measureText('Buyurtma').width;
-  ctx.fillStyle = '#10b981';
-  ctx.fillText('bering', rightX + buyurtmaW + 10, 200);
-
-  ctx.fillStyle = '#64748b';
-  ctx.font = `20px ${FONT}`;
-  ctx.fillText('Telefon kamerasini', rightX, 248);
-  ctx.fillText('QR kodga yo‘naltiring', rightX, 276);
-
-  // Qadamlar
-  const steps = ['Skaner', 'Mahsulot tanlang', 'Buyurtma yuboring'];
-  let stepY = 310;
-  for (let i = 0; i < steps.length; i++) {
-    ctx.beginPath();
-    ctx.arc(rightX + 14, stepY + 2, 14, 0, Math.PI * 2);
-    ctx.fillStyle = '#10b981';
-    ctx.fill();
-    ctx.fillStyle = '#ffffff';
-    ctx.font = `700 16px ${FONT}`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(String(i + 1), rightX + 14, stepY + 3);
-    ctx.textAlign = 'left';
-    ctx.textBaseline = 'alphabetic';
-    ctx.fillStyle = '#334155';
-    ctx.font = `600 19px ${FONT}`;
-    ctx.fillText(steps[i], rightX + 38, stepY + 8);
-    stepY += 44;
-  }
-
-  const contacts: ContactRow[] = [];
+function collectContacts(input: QrPosterInput): ContactRow[] {
+  const rows: ContactRow[] = [];
   if (input.phone.trim()) {
-    contacts.push({ label: 'Telefon', value: input.phone.trim(), kind: 'phone' });
+    rows.push({ label: 'Telefon', value: input.phone.trim(), kind: 'phone' });
   }
   if (input.telegram.trim()) {
-    contacts.push({
+    rows.push({
       label: 'Telegram',
       value: `@${input.telegram.replace(/^@/, '')}`,
       kind: 'telegram',
     });
   }
   if (input.instagram.trim()) {
-    contacts.push({
+    rows.push({
       label: 'Instagram',
       value: `@${input.instagram.replace(/^@/, '')}`,
       kind: 'instagram',
     });
   }
+  return rows;
+}
 
-  let rowY = stepY + 12;
-  const rowH = 72;
-  for (const c of contacts) {
-    drawContactChip(ctx, rightX, rowY, rightW, rowH - 8, c);
-    rowY += rowH;
+function paintBackdrop(ctx: CanvasRenderingContext2D) {
+  const bg = ctx.createLinearGradient(0, 0, W, H);
+  bg.addColorStop(0, '#071018');
+  bg.addColorStop(0.45, '#0f3d38');
+  bg.addColorStop(1, '#052e2b');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  const spot = ctx.createRadialGradient(W * 0.18, H * 0.12, 20, W * 0.18, H * 0.12, 520);
+  spot.addColorStop(0, 'rgba(255,255,255,0.18)');
+  spot.addColorStop(0.4, 'rgba(16,185,129,0.12)');
+  spot.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = spot;
+  ctx.fillRect(0, 0, W, H);
+
+  const spot2 = ctx.createRadialGradient(W * 0.92, H * 0.9, 10, W * 0.92, H * 0.9, 380);
+  spot2.addColorStop(0, 'rgba(52,211,153,0.22)');
+  spot2.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = spot2;
+  ctx.fillRect(0, 0, W, H);
+}
+
+function paintStickerBody(ctx: CanvasRenderingContext2D) {
+  const x = 18;
+  const y = 18;
+  const w = W - 36;
+  const h = H - 36;
+
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.55)';
+  ctx.shadowBlur = 48;
+  ctx.shadowOffsetY = 18;
+  roundRect(ctx, x, y, w, h, 42);
+  ctx.fillStyle = '#0b1c1a';
+  ctx.fill();
+  ctx.restore();
+
+  roundRect(ctx, x, y, w, h, 42);
+  const body = ctx.createLinearGradient(x, y, x + w, y + h);
+  body.addColorStop(0, '#123d38');
+  body.addColorStop(0.5, '#0d2926');
+  body.addColorStop(1, '#0a1f1c');
+  ctx.fillStyle = body;
+  ctx.fill();
+
+  ctx.save();
+  roundRect(ctx, x, y, w, h, 42);
+  ctx.clip();
+  const gloss = ctx.createLinearGradient(x, y, x, y + h * 0.45);
+  gloss.addColorStop(0, 'rgba(255,255,255,0.14)');
+  gloss.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = gloss;
+  ctx.fillRect(x, y, w, h * 0.5);
+
+  ctx.strokeStyle = 'rgba(255,255,255,0.22)';
+  ctx.lineWidth = 2;
+  roundRect(ctx, x + 2, y + 2, w - 4, h - 4, 40);
+  ctx.stroke();
+  ctx.restore();
+
+  // chap emerald 3D chiziq
+  ctx.save();
+  roundRect(ctx, x, y, w, h, 42);
+  ctx.clip();
+  const bar = ctx.createLinearGradient(x, y, x + 14, y);
+  bar.addColorStop(0, '#34d399');
+  bar.addColorStop(1, 'rgba(16,185,129,0)');
+  ctx.fillStyle = bar;
+  ctx.fillRect(x, y, 18, h);
+  ctx.restore();
+}
+
+async function paintQrPlate(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  orderUrl: string,
+) {
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.5)';
+  ctx.shadowBlur = 36;
+  ctx.shadowOffsetY = 16;
+  roundRect(ctx, x, y, size, size, 36);
+  ctx.fillStyle = '#f8fafc';
+  ctx.fill();
+  ctx.restore();
+
+  roundRect(ctx, x, y, size, size, 36);
+  const plate = ctx.createLinearGradient(x, y, x, y + size);
+  plate.addColorStop(0, '#ffffff');
+  plate.addColorStop(0.55, '#f8fafc');
+  plate.addColorStop(1, '#e2e8f0');
+  ctx.fillStyle = plate;
+  ctx.fill();
+
+  ctx.strokeStyle = 'rgba(15,23,42,0.08)';
+  ctx.lineWidth = 2;
+  roundRect(ctx, x + 1, y + 1, size - 2, size - 2, 35);
+  ctx.stroke();
+
+  // 3D rim light
+  ctx.save();
+  roundRect(ctx, x, y, size, size, 36);
+  ctx.clip();
+  const rim = ctx.createLinearGradient(x, y, x, y + 28);
+  rim.addColorStop(0, 'rgba(255,255,255,0.95)');
+  rim.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = rim;
+  ctx.fillRect(x, y, size, 32);
+  ctx.restore();
+
+  const qrPad = 38;
+  const qrSize = size - qrPad * 2;
+  const qrDataUrl = await QRCodeLib.toDataURL(orderUrl, {
+    width: qrSize,
+    margin: 1,
+    color: { dark: '#0b1220', light: '#ffffff' },
+    errorCorrectionLevel: 'M',
+  });
+  ctx.drawImage(await loadImage(qrDataUrl), x + qrPad, y + qrPad, qrSize, qrSize);
+
+  // scan corners
+  ctx.strokeStyle = '#10b981';
+  ctx.lineWidth = 6;
+  ctx.lineCap = 'round';
+  const c = 28;
+  const inset = 18;
+  const x1 = x + inset;
+  const y1 = y + inset;
+  const x2 = x + size - inset;
+  const y2 = y + size - inset;
+  drawCorner(ctx, x1, y1, c, 1, 1);
+  drawCorner(ctx, x2, y1, c, -1, 1);
+  drawCorner(ctx, x1, y2, c, 1, -1);
+  drawCorner(ctx, x2, y2, c, -1, -1);
+}
+
+function drawCorner(
+  ctx: CanvasRenderingContext2D,
+  ox: number,
+  oy: number,
+  len: number,
+  dx: number,
+  dy: number,
+) {
+  ctx.beginPath();
+  ctx.moveTo(ox + dx * len, oy);
+  ctx.lineTo(ox, oy);
+  ctx.lineTo(ox, oy + dy * len);
+  ctx.stroke();
+}
+
+function paintCopyAndContacts(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  brand: string,
+  contacts: ContactRow[],
+) {
+  ctx.textAlign = 'left';
+  ctx.textBaseline = 'alphabetic';
+
+  ctx.fillStyle = 'rgba(167,243,208,0.9)';
+  ctx.font = `700 22px ${FONT}`;
+  ctx.fillText('SCAN · BUYURTMA', x, y + 28);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `800 42px ${FONT}`;
+  const brandDraw = brand.length > 18 ? `${brand.slice(0, 17)}…` : brand;
+  ctx.fillText(brandDraw, x, y + 78);
+
+  ctx.font = `800 34px ${FONT}`;
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('Buyurtma', x, y + 126);
+  const bw = ctx.measureText('Buyurtma ').width;
+  ctx.fillStyle = '#34d399';
+  ctx.fillText('bering', x + bw, y + 126);
+
+  ctx.fillStyle = 'rgba(226,232,240,0.72)';
+  ctx.font = `600 18px ${FONT}`;
+  ctx.fillText('Kamerani QR kodga yo‘naltiring', x, y + 156);
+
+  const n = Math.min(contacts.length, 3);
+  const rowH = n >= 3 ? 78 : n === 2 ? 88 : 96;
+  const startY = y + 176;
+  contacts.slice(0, 3).forEach((c, i) => {
+    drawContactChip3d(ctx, x, startY + i * rowH, w, rowH - 10, c);
+  });
+
+  if (contacts.length === 0) {
+    roundRect(ctx, x, startY, w, 92, 22);
+    ctx.fillStyle = 'rgba(255,255,255,0.08)';
+    ctx.fill();
+    ctx.fillStyle = 'rgba(255,255,255,0.7)';
+    ctx.font = `600 22px ${FONT}`;
+    ctx.fillText('Skaner qiling — catalog ochiladi', x + 22, startY + 54);
   }
 
-  const blob = await new Promise<Blob | null>((resolve) =>
-    canvas.toBlob((b) => resolve(b), 'image/png', 1),
-  );
-  if (!blob) throw new Error('Rasm yaratilmadi');
+  ctx.fillStyle = 'rgba(255,255,255,0.28)';
+  ctx.font = `600 16px ${FONT}`;
+  ctx.fillText('10 × 5 sm  ·  karobka sticker', x, y + h - 4);
+}
 
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement('a');
-  a.href = url;
-  a.download = input.filename ?? 'buyurtma-qr.png';
-  a.click();
-  URL.revokeObjectURL(url);
+function drawContactChip3d(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  w: number,
+  h: number,
+  contact: ContactRow,
+) {
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.28)';
+  ctx.shadowBlur = 16;
+  ctx.shadowOffsetY = 8;
+  roundRect(ctx, x, y, w, h, 22);
+  ctx.fillStyle = 'rgba(8, 20, 18, 0.72)';
+  ctx.fill();
+  ctx.restore();
+
+  roundRect(ctx, x, y, w, h, 22);
+  const g = ctx.createLinearGradient(x, y, x, y + h);
+  g.addColorStop(0, 'rgba(255,255,255,0.14)');
+  g.addColorStop(0.4, 'rgba(255,255,255,0.06)');
+  g.addColorStop(1, 'rgba(255,255,255,0.03)');
+  ctx.fillStyle = g;
+  ctx.fill();
+  ctx.strokeStyle = 'rgba(255,255,255,0.16)';
+  ctx.lineWidth = 1.5;
+  ctx.stroke();
+
+  const icon = Math.min(52, Math.max(38, h - 14));
+  const ix = x + 12;
+  const iy = y + (h - icon) / 2;
+  paintIconCube(ctx, ix, iy, icon, contact.kind);
+
+  const textX = x + icon + 26;
+  ctx.textAlign = 'left';
+  ctx.fillStyle = 'rgba(226,232,240,0.55)';
+  ctx.font = `700 13px ${FONT}`;
+  ctx.fillText(contact.label.toUpperCase(), textX, y + h * 0.38);
+
+  ctx.fillStyle = '#ffffff';
+  ctx.font = `800 22px ${FONT}`;
+  const val = contact.value.length > 22 ? `${contact.value.slice(0, 21)}…` : contact.value;
+  ctx.fillText(val, textX, y + h * 0.72);
+}
+
+function paintIconCube(
+  ctx: CanvasRenderingContext2D,
+  x: number,
+  y: number,
+  size: number,
+  kind: ContactRow['kind'],
+) {
+  ctx.save();
+  ctx.shadowColor = 'rgba(0,0,0,0.35)';
+  ctx.shadowBlur = 10;
+  ctx.shadowOffsetY = 5;
+  roundRect(ctx, x, y, size, size, 16);
+  ctx.fillStyle = '#111';
+  ctx.fill();
+  ctx.restore();
+
+  roundRect(ctx, x, y, size, size, 16);
+  if (kind === 'instagram') {
+    fillInstagramSquare(ctx, x, y, size, 16);
+  } else if (kind === 'telegram') {
+    const tg = ctx.createLinearGradient(x, y, x + size, y + size);
+    tg.addColorStop(0, '#5cc8ff');
+    tg.addColorStop(1, '#1a8ad4');
+    ctx.fillStyle = tg;
+    ctx.fill();
+  } else {
+    const ph = ctx.createLinearGradient(x, y, x + size, y + size);
+    ph.addColorStop(0, '#6ee7b7');
+    ph.addColorStop(1, '#059669');
+    ctx.fillStyle = ph;
+    ctx.fill();
+  }
+
+  ctx.save();
+  roundRect(ctx, x, y, size, size, 16);
+  ctx.clip();
+  const shine = ctx.createLinearGradient(x, y, x, y + size * 0.5);
+  shine.addColorStop(0, 'rgba(255,255,255,0.38)');
+  shine.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = shine;
+  ctx.fillRect(x, y, size, size * 0.5);
+  ctx.restore();
+
+  ctx.save();
+  ctx.translate(x + size / 2, y + size / 2);
+  ctx.scale(size / 44, size / 44);
+  if (kind === 'phone') drawPhoneIcon(ctx);
+  else if (kind === 'telegram') drawTelegramIcon(ctx);
+  else drawInstagramIcon(ctx);
+  ctx.restore();
 }
 
 function roundRect(
@@ -214,77 +420,6 @@ function roundRect(
   ctx.lineTo(x, y + rad);
   ctx.quadraticCurveTo(x, y, x + rad, y);
   ctx.closePath();
-}
-
-function roundRectTop(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  r: number,
-) {
-  const rad = Math.min(r, w / 2, h);
-  ctx.beginPath();
-  ctx.moveTo(x + rad, y);
-  ctx.lineTo(x + w - rad, y);
-  ctx.quadraticCurveTo(x + w, y, x + w, y + rad);
-  ctx.lineTo(x + w, y + h);
-  ctx.lineTo(x, y + h);
-  ctx.lineTo(x, y + rad);
-  ctx.quadraticCurveTo(x, y, x + rad, y);
-  ctx.closePath();
-}
-
-function drawContactChip(
-  ctx: CanvasRenderingContext2D,
-  x: number,
-  y: number,
-  w: number,
-  h: number,
-  contact: ContactRow,
-) {
-  const theme = {
-    phone: { bg: '#ecfdf5', accent: '#10b981', icon: '#10b981' },
-    telegram: { bg: '#eff6ff', accent: '#229ED9', icon: '#229ED9' },
-    instagram: { bg: '#fdf2f8', accent: '#db2777', icon: '' },
-  }[contact.kind];
-
-  roundRect(ctx, x, y, w, h, 14);
-  ctx.fillStyle = theme.bg;
-  ctx.fill();
-  ctx.strokeStyle = '#e2e8f0';
-  ctx.lineWidth = 1;
-  ctx.stroke();
-
-  const iconSize = 44;
-  const iconX = x + 16;
-  const iconY = y + (h - iconSize) / 2;
-
-  roundRect(ctx, iconX, iconY, iconSize, iconSize, 12);
-  if (contact.kind === 'instagram') {
-    fillInstagramSquare(ctx, iconX, iconY, iconSize, 12);
-  } else {
-    ctx.fillStyle = theme.icon;
-    ctx.fill();
-  }
-
-  ctx.save();
-  ctx.translate(iconX + iconSize / 2, iconY + iconSize / 2);
-  if (contact.kind === 'phone') drawPhoneIcon(ctx);
-  else if (contact.kind === 'telegram') drawTelegramIcon(ctx);
-  else drawInstagramIcon(ctx);
-  ctx.restore();
-
-  ctx.textAlign = 'left';
-  ctx.fillStyle = '#64748b';
-  ctx.font = `600 14px ${FONT}`;
-  ctx.fillText(contact.label.toUpperCase(), x + 72, y + 26);
-
-  ctx.fillStyle = '#0f172a';
-  ctx.font = `700 24px ${FONT}`;
-  const val = contact.value.length > 20 ? `${contact.value.slice(0, 19)}…` : contact.value;
-  ctx.fillText(val, x + 72, y + 52);
 }
 
 function fillInstagramSquare(
@@ -310,59 +445,39 @@ function fillInstagramSquare(
 function drawPhoneIcon(ctx: CanvasRenderingContext2D) {
   ctx.strokeStyle = '#ffffff';
   ctx.fillStyle = '#ffffff';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.rect(-8, -12, 16, 24);
+  ctx.lineWidth = 2.4;
+  roundRect(ctx, -8, -12, 16, 24, 3);
   ctx.stroke();
-  ctx.globalAlpha = 0.35;
-  ctx.fillRect(-5, -9, 10, 18);
+  ctx.globalAlpha = 0.28;
+  ctx.fillRect(-5, -8, 10, 16);
   ctx.globalAlpha = 1;
-  ctx.fillRect(-2.5, 8, 5, 2);
+  ctx.fillRect(-2.4, 8, 4.8, 2);
 }
 
 function drawTelegramIcon(ctx: CanvasRenderingContext2D) {
   ctx.fillStyle = '#ffffff';
   ctx.beginPath();
-  ctx.moveTo(-10, 3);
-  ctx.lineTo(10, -3);
-  ctx.lineTo(2, 12);
-  ctx.lineTo(0, 5);
-  ctx.lineTo(-4, 7);
+  ctx.moveTo(-11, 2);
+  ctx.lineTo(11, -5);
+  ctx.lineTo(2, 13);
+  ctx.lineTo(-1, 5);
+  ctx.lineTo(-5, 8);
   ctx.closePath();
   ctx.fill();
 }
 
 function drawInstagramIcon(ctx: CanvasRenderingContext2D) {
   ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2;
-  ctx.beginPath();
-  ctx.rect(-8, -8, 16, 16);
+  ctx.lineWidth = 2.4;
+  roundRect(ctx, -9, -9, 18, 18, 5);
   ctx.stroke();
   ctx.beginPath();
-  ctx.arc(0, 0, 4, 0, Math.PI * 2);
+  ctx.arc(0, 0, 4.2, 0, Math.PI * 2);
   ctx.stroke();
   ctx.fillStyle = '#ffffff';
-  ctx.fillRect(4, -6, 2.5, 2.5);
-}
-
-function drawScanIcon(ctx: CanvasRenderingContext2D, cx: number, cy: number, s: number) {
-  ctx.strokeStyle = '#ffffff';
-  ctx.lineWidth = 2;
-  ctx.lineCap = 'square';
-  const h = s * 0.85;
-  const corners = [
-    [-h, -h, -h / 3, -h, -h, -h / 3],
-    [h / 3, -h, h, -h, h, -h / 3],
-    [-h, h / 3, -h, h, -h / 3, h],
-    [h / 3, h, h, h, h, h / 3],
-  ];
-  for (const [mx, my, cx2, cy2, ex, ey] of corners) {
-    ctx.beginPath();
-    ctx.moveTo(cx + mx, cy + my);
-    ctx.lineTo(cx + cx2, cy + cy2);
-    ctx.lineTo(cx + ex, cy + ey);
-    ctx.stroke();
-  }
+  ctx.beginPath();
+  ctx.arc(6.2, -6.2, 1.5, 0, Math.PI * 2);
+  ctx.fill();
 }
 
 function loadImage(src: string): Promise<HTMLImageElement> {

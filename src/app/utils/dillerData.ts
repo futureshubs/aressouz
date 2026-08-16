@@ -198,6 +198,9 @@ export type DillerShopOrder = {
   storeId?: string;
   storeName?: string;
   customerAddress?: string;
+  /** QR checkout GPS (karobka / do‘kon joyi) */
+  customerLat?: number;
+  customerLng?: number;
   /** Qabul qilinganda ombordan ayirilgan */
   warehouseReserved?: boolean;
   /** Sotuv tasdiqlanganda yaratilgan sotuvlar */
@@ -527,6 +530,8 @@ function normalizeShopOrder(o: Partial<DillerShopOrder> & { id: string }): Dille
     storeId: o.storeId ? String(o.storeId) : undefined,
     storeName: o.storeName ? String(o.storeName).trim() : undefined,
     customerAddress: o.customerAddress ? String(o.customerAddress).trim() : undefined,
+    customerLat: Number.isFinite(Number(o.customerLat)) ? Number(o.customerLat) : undefined,
+    customerLng: Number.isFinite(Number(o.customerLng)) ? Number(o.customerLng) : undefined,
     warehouseReserved: Boolean(o.warehouseReserved),
     saleIds: Array.isArray(o.saleIds) ? o.saleIds.map(String) : undefined,
     completedAt: o.completedAt ? String(o.completedAt) : undefined,
@@ -1712,6 +1717,9 @@ export function mergeShopOrders(data: DillerData, incoming: DillerShopOrder[]): 
         completedAt: existing.completedAt ?? normalized.completedAt,
         storeId: existing.storeId ?? normalized.storeId,
         storeName: existing.storeName ?? normalized.storeName,
+        customerLat: existing.customerLat ?? normalized.customerLat,
+        customerLng: existing.customerLng ?? normalized.customerLng,
+        customerAddress: existing.customerAddress ?? normalized.customerAddress,
         items: existing.items.length ? existing.items : normalized.items,
       }),
     );
@@ -1879,7 +1887,7 @@ export function acceptShopOrder(data: DillerData, orderId: string): { data: Dill
     warehouseReserved: true,
   });
   if (patched.error || !patched.order) return { data, error: patched.error };
-  return { data: patched.data };
+  return { data: applyShopOrderGeoToStore(patched.data, patched.order) };
 }
 
 export function rejectShopOrder(data: DillerData, orderId: string): { data: DillerData; error?: string } {
@@ -1929,49 +1937,123 @@ function ensureProductFromOrderItem(data: DillerData, item: DillerShopOrderItem)
   return { ...data, products: [...data.products, product] };
 }
 
+export function resolveShopOrderStore(data: DillerData, order: DillerShopOrder): DillerStore | null {
+  if (order.storeId) {
+    const byId = data.stores.find((s) => s.id === order.storeId);
+    if (byId) return byId;
+  }
+  const matches = findStoresByPhone(data, order.customerPhone);
+  if (order.storeName) {
+    return matches.find((s) => s.name === order.storeName) ?? matches[0] ?? null;
+  }
+  return matches[0] ?? null;
+}
+
+function shopOrderCoords(order: DillerShopOrder): { lat: number; lng: number } | null {
+  const lat = Number(order.customerLat);
+  const lng = Number(order.customerLng);
+  if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+  return { lat, lng };
+}
+
+function applyShopOrderGeoToStore(data: DillerData, order: DillerShopOrder): DillerData {
+  const store = resolveShopOrderStore(data, order);
+  const geo = shopOrderCoords(order);
+  if (!store || !geo) return data;
+  if (store.lat != null && store.lng != null) return data;
+  const result = updateStore(data, store.id, {
+    lat: geo.lat,
+    lng: geo.lng,
+    address: store.address.trim() || order.customerAddress?.trim() || store.address,
+  });
+  return result.error ? data : result.data;
+}
+
+function buildStoreFromShopOrder(order: DillerShopOrder, id?: string): DillerStore {
+  const name = order.storeName?.trim() || order.customerName?.trim() || 'Do‘kon';
+  const geo = shopOrderCoords(order);
+  return normalizeStore({
+    id: id || uid('store'),
+    name,
+    address: order.customerAddress?.trim() ?? '',
+    phone: order.customerPhone.trim(),
+    contactName: order.customerName?.trim() || name,
+    lat: geo?.lat,
+    lng: geo?.lng,
+    createdAt: new Date().toISOString(),
+  });
+}
+
+/** QR sotuvda do‘kon yo‘q bo‘lsa — buyurtmadan yaratadi */
+export function createStoreFromShopOrder(
+  data: DillerData,
+  orderId: string,
+): { data: DillerData; storeId?: string; error?: string } {
+  const order = (data.shopOrders ?? []).find((o) => o.id === orderId);
+  if (!order) return { data, error: 'Buyurtma topilmadi' };
+
+  if (order.storeId) {
+    const byId = data.stores.find((s) => s.id === order.storeId);
+    if (byId) {
+      const withGeo = applyShopOrderGeoToStore(data, order);
+      const patched = patchShopOrder(withGeo, orderId, {
+        storeId: byId.id,
+        storeName: byId.name,
+      });
+      if (patched.error) return { data, error: patched.error };
+      return { data: patched.data, storeId: byId.id };
+    }
+    const restored = buildStoreFromShopOrder(order, order.storeId);
+    const withStore = { ...data, stores: [restored, ...data.stores] };
+    return { data: withStore, storeId: restored.id };
+  }
+
+  const existing = resolveShopOrderStore(data, order);
+  if (existing) {
+    const withGeo = applyShopOrderGeoToStore(data, order);
+    const patched = patchShopOrder(withGeo, orderId, {
+      storeId: existing.id,
+      storeName: existing.name,
+    });
+    if (patched.error) return { data, error: patched.error };
+    return { data: patched.data, storeId: existing.id };
+  }
+
+  if (!order.customerPhone.trim()) {
+    return { data, error: 'Do‘kon yaratish uchun telefon raqam kerak' };
+  }
+
+  const name = order.storeName?.trim() || order.customerName?.trim() || 'Do‘kon';
+  const geo = shopOrderCoords(order);
+  const made = createStore(data, {
+    name,
+    address: order.customerAddress?.trim() ?? '',
+    phone: order.customerPhone.trim(),
+    contactName: order.customerName?.trim() || name,
+    lat: geo?.lat,
+    lng: geo?.lng,
+  });
+  if (made.error) return { data, error: made.error };
+  const storeId = made.data.stores[0]?.id;
+  if (!storeId) return { data, error: 'Do‘kon yaratilmadi' };
+  const patched = patchShopOrder(made.data, orderId, {
+    storeId,
+    storeName: made.data.stores[0].name,
+  });
+  if (patched.error) return { data, error: patched.error };
+  return { data: patched.data, storeId };
+}
+
 /** Do‘kon topilmasa — buyurtmadan avtomatik yaratiladi */
 function ensureStoreForShopOrder(
   data: DillerData,
   order: DillerShopOrder,
 ): { data: DillerData; storeId: string; error?: string } {
-  if (order.storeId) {
-    const byId = data.stores.find((s) => s.id === order.storeId);
-    if (byId) return { data, storeId: byId.id };
-    const name = order.storeName?.trim() || order.customerName?.trim() || 'Do‘kon';
-    const store = normalizeStore({
-      id: order.storeId,
-      name,
-      address: order.customerAddress?.trim() ?? '',
-      phone: order.customerPhone.trim(),
-      contactName: order.customerName?.trim() || name,
-      createdAt: new Date().toISOString(),
-    });
-    return { data: { ...data, stores: [store, ...data.stores] }, storeId: store.id };
+  const created = createStoreFromShopOrder(data, order.id);
+  if (created.error || !created.storeId) {
+    return { data, storeId: '', error: created.error || 'Do‘kon topilmadi' };
   }
-
-  const matches = findStoresByPhone(data, order.customerPhone);
-  if (matches.length === 1) return { data, storeId: matches[0].id };
-  if (matches.length > 1) {
-    if (order.storeName) {
-      const byName = matches.find((s) => s.name === order.storeName);
-      if (byName) return { data, storeId: byName.id };
-    }
-    return { data, storeId: matches[0].id };
-  }
-
-  const name = order.storeName?.trim() || order.customerName?.trim() || 'Do‘kon';
-  if (!order.customerPhone.trim()) {
-    return { data, storeId: '', error: 'Do‘kon topilmadi — telefon raqam yo‘q' };
-  }
-  const store = normalizeStore({
-    id: uid('store'),
-    name,
-    address: order.customerAddress?.trim() ?? '',
-    phone: order.customerPhone.trim(),
-    contactName: order.customerName?.trim() || name,
-    createdAt: new Date().toISOString(),
-  });
-  return { data: { ...data, stores: [store, ...data.stores] }, storeId: store.id };
+  return { data: created.data, storeId: created.storeId };
 }
 
 export function confirmShopOrderSale(

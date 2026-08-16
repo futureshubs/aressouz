@@ -20,8 +20,8 @@ import {
 import { toast } from 'sonner';
 import { useTheme } from '../../context/ThemeContext';
 import { iosAccentFillStyle, iosGlassCardStyle } from './dillerIosGlass';
-import type { DillerData, DillerStore } from '../../utils/dillerData';
-import { formatMoney } from '../../utils/dillerData';
+import type { DillerData, DillerShopOrder, DillerStore } from '../../utils/dillerData';
+import { formatMoney, resolveShopOrderStore } from '../../utils/dillerData';
 import { getStoreStats } from '../../utils/dillerStoreStats';
 import { addAppMapTileLayer, distanceKm } from '../../utils/leafletMapTiles';
 import {
@@ -76,11 +76,36 @@ function escapeHtml(text: string): string {
     .replace(/"/g, '&quot;');
 }
 
-function createStoreMarkerIcon(color: string, hasDebt: boolean, label?: string) {
-  const bg = hasDebt ? '#f59e0b' : color;
+function createQrOrderMarkerIcon() {
+  return L.divIcon({
+    className: '',
+    html: `
+      <div style="
+        width: 40px;
+        height: 40px;
+        border-radius: 14px;
+        background: linear-gradient(145deg, #c084fc, #7c3aed);
+        border: 3px solid white;
+        box-shadow: 0 8px 20px rgba(124,58,237,0.45);
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        font-size: 18px;
+      ">📦</div>
+    `,
+    iconSize: [40, 40],
+    iconAnchor: [20, 40],
+    popupAnchor: [0, -38],
+  });
+}
+
+function createStoreMarkerIcon(color: string, hasDebt: boolean, label?: string, taken?: boolean) {
+  const bg = taken ? '#8b5cf6' : hasDebt ? '#f59e0b' : color;
   const inner = label
     ? `<span style="font-size:13px;font-weight:800;color:#fff">${label}</span>`
-    : '🏪';
+    : taken
+      ? '📦'
+      : '🏪';
   return L.divIcon({
     className: '',
     html: `
@@ -162,6 +187,7 @@ export function DillerStoresMapSheet({
   const mapRef = useRef<L.Map | null>(null);
   const containerRef = useRef<HTMLDivElement>(null);
   const storeMarkersRef = useRef<L.Marker[]>([]);
+  const orderMarkersRef = useRef<L.Marker[]>([]);
   const userMarkerRef = useRef<L.Marker | null>(null);
   const accuracyCircleRef = useRef<L.Circle | null>(null);
   const routePolylineRef = useRef<L.Polyline | null>(null);
@@ -182,6 +208,33 @@ export function DillerStoresMapSheet({
     () => data.stores.filter(hasStoreCoords),
     [data.stores],
   );
+
+  const takenQrOrders = useMemo(
+    () => (data.shopOrders ?? []).filter((o) => o.status === 'accepted'),
+    [data.shopOrders],
+  );
+
+  const takenStoreIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const order of takenQrOrders) {
+      const store = resolveShopOrderStore(data, order);
+      if (store) ids.add(store.id);
+    }
+    return ids;
+  }, [takenQrOrders, data]);
+
+  const extraQrPins = useMemo(() => {
+    const pins: { order: DillerShopOrder; lat: number; lng: number }[] = [];
+    for (const order of takenQrOrders) {
+      const store = resolveShopOrderStore(data, order);
+      if (store && hasStoreCoords(store)) continue;
+      const lat = Number(order.customerLat);
+      const lng = Number(order.customerLng);
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) continue;
+      pins.push({ order, lat, lng });
+    }
+    return pins;
+  }, [takenQrOrders, data]);
 
   const tourOrder = useMemo(() => {
     if (!navStarted || !userLoc) return mappedStores;
@@ -221,6 +274,10 @@ export function DillerStoresMapSheet({
         bounds.extend([s.lat!, s.lng!]);
         has = true;
       }
+      for (const pin of extraQrPins) {
+        bounds.extend([pin.lat, pin.lng]);
+        has = true;
+      }
       if (user) {
         bounds.extend([user.lat, user.lng]);
         has = true;
@@ -229,14 +286,14 @@ export function DillerStoresMapSheet({
         map.setView(DEFAULT_CENTER, 11, { animate: false });
         return;
       }
-      if (mappedStores.length === 1 && !user) {
+      if (mappedStores.length === 1 && extraQrPins.length === 0 && !user) {
         const s = mappedStores[0];
         map.setView([s.lat!, s.lng!], 15, { animate: false });
         return;
       }
       map.fitBounds(bounds, { padding: [56, 56], maxZoom: 16, animate: false });
     },
-    [mappedStores],
+    [mappedStores, extraQrPins],
   );
 
   const startNavigation = useCallback((store: DillerStore) => {
@@ -435,13 +492,15 @@ export function DillerStoresMapSheet({
           ? `<div style="font-size:11px;margin-top:4px;color:#4285F4">Sizdan: ${distanceKm(userLoc.lat, userLoc.lng, lat, lng).toFixed(1)} km</div>`
           : '';
 
+      const isTaken = takenStoreIds.has(store.id);
       const marker = L.marker([lat, lng], {
         icon: createStoreMarkerIcon(
-          isTarget ? '#4285F4' : accentColor.color,
+          isTarget ? '#4285F4' : isTaken ? '#8b5cf6' : accentColor.color,
           hasDebt,
           orderLabel,
+          isTaken && !isTarget,
         ),
-        zIndexOffset: isTarget ? 400 : 200,
+        zIndexOffset: isTarget ? 400 : isTaken ? 320 : 200,
       });
 
       const lines = [
@@ -459,6 +518,9 @@ export function DillerStoresMapSheet({
           : '',
         hasDebt
           ? `<div style="font-size:11px;margin-top:2px;color:#f59e0b">Qarz: ${formatMoney(stats.openDebt)}</div>`
+          : '',
+        isTaken
+          ? `<div style="font-size:11px;margin-top:4px;color:#8b5cf6;font-weight:700">QR buyurtma qabul qilingan</div>`
           : '',
         navStarted
           ? `<div style="font-size:11px;margin-top:8px;color:#3b82f6;font-weight:600">Yo‘nalish →</div>`
@@ -483,8 +545,33 @@ export function DillerStoresMapSheet({
       storeMarkersRef.current.push(marker);
     }
 
+    orderMarkersRef.current.forEach((m) => m.remove());
+    orderMarkersRef.current = [];
+    for (const pin of extraQrPins) {
+      const marker = L.marker([pin.lat, pin.lng], {
+        icon: createQrOrderMarkerIcon(),
+        zIndexOffset: 350,
+      });
+      const items = pin.order.items
+        .slice(0, 3)
+        .map((it) => `${escapeHtml(it.productName)} ×${it.qty}`)
+        .join(', ');
+      marker.bindPopup(
+        `<div style="min-width:190px">
+          <strong style="font-size:14px;color:#7c3aed">QR buyurtma</strong>
+          <div style="font-size:13px;margin-top:6px;font-weight:700">${escapeHtml(pin.order.customerName)}</div>
+          <div style="font-size:12px;color:#666">${escapeHtml(pin.order.customerPhone)}</div>
+          ${items ? `<div style="font-size:11px;margin-top:4px">${items}</div>` : ''}
+          <div style="font-size:12px;margin-top:6px;font-weight:800;color:#7c3aed">${escapeHtml(formatMoney(pin.order.total))}</div>
+        </div>`,
+        { maxWidth: 280, className: 'diller-store-popup' },
+      );
+      marker.addTo(map);
+      orderMarkersRef.current.push(marker);
+    }
+
     requestAnimationFrame(() => map.invalidateSize());
-  }, [open, mappedStores, data, accentColor.color, userLoc, navTarget, navStarted, tourOrder, startNavigation]);
+  }, [open, mappedStores, extraQrPins, takenStoreIds, data, accentColor.color, userLoc, navTarget, navStarted, tourOrder, startNavigation]);
 
   useEffect(() => {
     const map = mapRef.current;
@@ -637,6 +724,10 @@ export function DillerStoresMapSheet({
               Do‘kon
             </div>
             <div className="flex items-center gap-1.5">
+              <span className="w-2 h-2 rounded-full bg-violet-500" />
+              Qabul qilingan buyurtma
+            </div>
+            <div className="flex items-center gap-1.5">
               <span className="w-2 h-2 rounded-full bg-amber-500" />
               Qarzdor
             </div>
@@ -699,7 +790,7 @@ export function DillerStoresMapSheet({
           </button>
         </div>
 
-        {mappedStores.length === 0 ? (
+        {mappedStores.length === 0 && extraQrPins.length === 0 ? (
           <div
             className="absolute inset-0 z-10 flex flex-col items-center justify-center px-6 text-center pointer-events-none"
             style={{ background: isDark ? 'rgba(0,0,0,0.45)' : 'rgba(255,255,255,0.65)' }}

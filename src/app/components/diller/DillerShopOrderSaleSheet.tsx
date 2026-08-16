@@ -1,11 +1,12 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
-import { CreditCard, ShoppingCart, Store, X } from 'lucide-react';
+import { CreditCard, Plus, ShoppingCart, Store, X } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerPaymentType, DillerShopOrder } from '../../utils/dillerData';
 import {
   calcSaleTotals,
   confirmShopOrderSale,
+  createStoreFromShopOrder,
   findStoresByPhone,
   formatCardNumber,
   formatMoney,
@@ -24,6 +25,7 @@ type Props = {
   data: DillerData;
   onClose: () => void;
   onComplete: (next: DillerData) => void;
+  onDataChange?: (next: DillerData) => void;
 };
 
 const inputCls = (isDark: boolean) =>
@@ -33,7 +35,7 @@ const inputCls = (isDark: boolean) =>
       : 'bg-white border-gray-200 text-gray-900'
   }`;
 
-export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplete }: Props) {
+export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplete, onDataChange }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
 
@@ -48,6 +50,7 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
   const [discountPercent, setDiscountPercent] = useState('');
   const [discountAmountInput, setDiscountAmountInput] = useState('');
   const [sendSms, setSendSms] = useState(true);
+  const [creatingStore, setCreatingStore] = useState(false);
 
   const store = useMemo(() => {
     if (!order) return null;
@@ -256,12 +259,46 @@ export function DillerShopOrderSaleSheet({ open, order, data, onClose, onComplet
               {store.address ? (
                 <div className="text-[10px] opacity-60 truncate">{store.address}</div>
               ) : null}
+              {store.lat != null && store.lng != null ? (
+                <div className="text-[10px] text-violet-400/90 truncate">
+                  GPS {store.lat.toFixed(4)}, {store.lng.toFixed(4)}
+                </div>
+              ) : null}
             </div>
           </section>
         ) : (
-          <p className="text-xs text-amber-500 font-medium px-1">
-            Do‘kon topilmadi — avval «Do‘konlar» bo‘limida telefon raqamini qo‘shing.
-          </p>
+          <section
+            className="rounded-2xl border p-4"
+            style={{
+              background: isDark ? 'rgba(139,92,246,0.12)' : 'rgba(139,92,246,0.08)',
+              borderColor: isDark ? 'rgba(139,92,246,0.3)' : 'rgba(139,92,246,0.2)',
+            }}
+          >
+            <div className="font-bold text-sm mb-1">Do‘kon topilmadi</div>
+            <p className="text-xs opacity-70 leading-relaxed mb-3">
+              Buyurtmadagi nom, telefon va GPS asosida avtomatik yaratiladi — keyin sotuvni tasdiqlaysiz.
+            </p>
+            <button
+              type="button"
+              disabled={creatingStore}
+              onClick={() => {
+                setCreatingStore(true);
+                const result = createStoreFromShopOrder(data, order.id);
+                setCreatingStore(false);
+                if (result.error) {
+                  toast.error(result.error);
+                  return;
+                }
+                onDataChange?.(result.data);
+                toast.success('Do‘kon yaratildi');
+              }}
+              className="w-full py-3 rounded-xl text-sm font-bold text-white flex items-center justify-center gap-2"
+              style={{ background: 'linear-gradient(135deg, #8b5cf6, #6d28d9)' }}
+            >
+              <Plus className="w-4 h-4" />
+              {creatingStore ? 'Yaratilmoqda…' : 'Do‘kon yaratish'}
+            </button>
+          </section>
         )}
 
         <section>
