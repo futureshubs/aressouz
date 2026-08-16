@@ -133,6 +133,42 @@ export function computeAllExpenseSummary(data: DillerData): ExpenseSummary {
   return computeExpenseSummary(data.expenses);
 }
 
+export type DillerPeriodPnl = {
+  grossProfit: number;
+  expenseTotal: number;
+  expenseCount: number;
+  /** Yalpi foyda − xarajat (manfiy bo‘lishi mumkin) */
+  net: number;
+  jamiFoyda: number;
+  ziyon: number;
+  cashIn: number;
+  cashAfterExpenses: number;
+  categories: ExpenseCategorySummary[];
+};
+
+export function computePeriodPnl(opts: {
+  data: DillerData;
+  grossProfit: number;
+  cashIn: number;
+  period: HistoryPeriod;
+  customRange?: HistoryDateRange;
+}): DillerPeriodPnl {
+  const expenses = filterExpensesByPeriod(opts.data.expenses ?? [], opts.period, opts.customRange);
+  const summary = computeExpenseSummary(expenses);
+  const net = opts.grossProfit - summary.total;
+  return {
+    grossProfit: opts.grossProfit,
+    expenseTotal: summary.total,
+    expenseCount: summary.count,
+    net,
+    jamiFoyda: Math.max(0, net),
+    ziyon: Math.max(0, -net),
+    cashIn: opts.cashIn,
+    cashAfterExpenses: opts.cashIn - summary.total,
+    categories: groupExpensesByPurpose(expenses).slice(0, 4),
+  };
+}
+
 export function formatExpenseDate(iso: string): string {
   return formatDillerDateTime(iso, { year: 'numeric' });
 }

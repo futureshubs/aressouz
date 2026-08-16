@@ -10,6 +10,7 @@ import {
   Receipt,
   ShoppingBag,
   Store,
+  TrendingDown,
   TrendingUp,
   Wallet,
 } from 'lucide-react';
@@ -25,6 +26,7 @@ import {
   type HistoryDateRange,
   type HistoryPeriod,
 } from '../../utils/dillerDebtAnalytics';
+import { computePeriodPnl, type DillerPeriodPnl } from '../../utils/dillerExpenseAnalytics';
 import { dillerTodayDate } from '../../utils/dillerTime';
 import { iosAccentFillStyle, iosGlassCardStyle, iosGlassInputStyle } from './dillerIosGlass';
 
@@ -105,6 +107,155 @@ function KpiCard({
   );
 }
 
+function ProfitExpenseBlock({
+  isDark,
+  word,
+  pnl,
+}: {
+  isDark: boolean;
+  word: string;
+  pnl: DillerPeriodPnl;
+}) {
+  const inProfit = pnl.net >= 0;
+  const resultColor = inProfit ? '#10b981' : '#f87171';
+  const resultLabel = inProfit ? 'Jami foyda' : 'Ziyon';
+  const resultValue = inProfit ? pnl.jamiFoyda : pnl.ziyon;
+  const maxCat = Math.max(1, ...pnl.categories.map((c) => c.total));
+
+  return (
+    <div className="space-y-2.5">
+      <div className="relative overflow-hidden rounded-[22px] p-4" style={iosGlassCardStyle(isDark)}>
+        <span
+          className="absolute left-0 top-0 bottom-0 w-[4px]"
+          style={{ background: resultColor }}
+        />
+        <div className="pl-1">
+          <div className="text-[12px] font-bold" style={{ color: resultColor }}>
+            Bu {word} — {inProfit ? 'sof natija' : 'zarar'}
+          </div>
+          <div
+            className="text-[26px] font-black tabular-nums leading-tight tracking-tight mt-0.5"
+            style={{ color: resultColor }}
+          >
+            {inProfit ? '+' : '−'}
+            {formatMoney(resultValue)}
+          </div>
+          <div className="text-[11px] opacity-45 mt-1">
+            {resultLabel}: sotuv foydasi − xarajat
+          </div>
+        </div>
+        <div className="mt-3 grid grid-cols-[1fr_auto_1fr_auto_1fr] items-center gap-1.5 text-center">
+          <div className="min-w-0 rounded-[14px] px-2 py-2" style={iosGlassInputStyle(isDark)}>
+            <div className="text-[10px] opacity-45 truncate">Sof foyda</div>
+            <div className="text-[12px] font-black tabular-nums text-emerald-400 truncate">
+              {formatMoney(pnl.grossProfit)}
+            </div>
+          </div>
+          <span className="text-sm font-black opacity-30">−</span>
+          <div className="min-w-0 rounded-[14px] px-2 py-2" style={iosGlassInputStyle(isDark)}>
+            <div className="text-[10px] opacity-45 truncate">Xarajat</div>
+            <div className="text-[12px] font-black tabular-nums text-rose-400 truncate">
+              {formatMoney(pnl.expenseTotal)}
+            </div>
+          </div>
+          <span className="text-sm font-black opacity-30">=</span>
+          <div className="min-w-0 rounded-[14px] px-2 py-2" style={iosGlassInputStyle(isDark)}>
+            <div className="text-[10px] opacity-45 truncate">{resultLabel}</div>
+            <div className="text-[12px] font-black tabular-nums truncate" style={{ color: resultColor }}>
+              {formatMoney(resultValue)}
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 gap-2.5">
+        <KpiCard
+          isDark={isDark}
+          Icon={TrendingUp}
+          iconBg="rgba(16,185,129,0.16)"
+          iconColor="#10b981"
+          label="Sof foyda"
+          value={formatMoney(pnl.grossProfit)}
+          valueColor="#10b981"
+          sub="Sotuv − tannarx"
+        />
+        <KpiCard
+          isDark={isDark}
+          Icon={Receipt}
+          iconBg="rgba(244,63,94,0.16)"
+          iconColor="#f43f5e"
+          label="Xarajat"
+          value={formatMoney(pnl.expenseTotal)}
+          valueColor="#f43f5e"
+          sub={pnl.expenseCount > 0 ? `${pnl.expenseCount} ta yozuv` : 'Bu davrda yo‘q'}
+        />
+        <KpiCard
+          isDark={isDark}
+          Icon={Wallet}
+          iconBg="rgba(16,185,129,0.16)"
+          iconColor="#10b981"
+          label="Jami foyda"
+          value={formatMoney(pnl.jamiFoyda)}
+          valueColor={pnl.jamiFoyda > 0 ? '#10b981' : undefined}
+          sub="Sof foyda − xarajat"
+        />
+        <KpiCard
+          isDark={isDark}
+          Icon={TrendingDown}
+          iconBg="rgba(248,113,113,0.16)"
+          iconColor="#f87171"
+          label="Ziyon"
+          value={formatMoney(pnl.ziyon)}
+          valueColor={pnl.ziyon > 0 ? '#f87171' : undefined}
+          sub={pnl.ziyon > 0 ? 'Xarajat foydadan oshdi' : 'Zarar yo‘q'}
+        />
+      </div>
+
+      <div className="rounded-[22px] p-4" style={iosGlassCardStyle(isDark)}>
+        <div className="text-[11px] font-semibold opacity-45 mb-2">Topilgan pul (tushum)</div>
+        <div className="flex items-end justify-between gap-3">
+          <div>
+            <div className="text-[13px] font-bold tabular-nums opacity-70">
+              {formatMoney(pnl.cashIn)}
+              <span className="opacity-40 font-semibold"> − </span>
+              <span className="text-rose-400">{formatMoney(pnl.expenseTotal)}</span>
+            </div>
+            <div className="text-[10px] opacity-40 mt-0.5">Kirim − xarajat</div>
+          </div>
+          <div
+            className={`text-[18px] font-black tabular-nums ${
+              pnl.cashAfterExpenses >= 0 ? 'text-emerald-400' : 'text-rose-400'
+            }`}
+          >
+            {formatMoney(pnl.cashAfterExpenses)}
+          </div>
+        </div>
+        {pnl.categories.length > 0 ? (
+          <ul className="mt-3 space-y-2">
+            {pnl.categories.map((cat) => (
+              <li key={cat.key}>
+                <div className="flex items-center justify-between gap-2 text-[12px]">
+                  <span className="truncate opacity-75">{cat.label}</span>
+                  <span className="shrink-0 font-bold tabular-nums">{formatMoney(cat.total)}</span>
+                </div>
+                <div
+                  className="h-1.5 rounded-full mt-1 overflow-hidden"
+                  style={{ background: isDark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.06)' }}
+                >
+                  <div
+                    className="h-full rounded-full bg-rose-400/80"
+                    style={{ width: `${Math.round((cat.total / maxCat) * 100)}%` }}
+                  />
+                </div>
+              </li>
+            ))}
+          </ul>
+        ) : null}
+      </div>
+    </div>
+  );
+}
+
 function OpenDebtBanner({
   isDark,
   amount,
@@ -170,6 +321,17 @@ export function DillerStatistikaSection({ mode, data, onGoHome }: Props) {
   }, [data.sales, period, customRange]);
 
   const debtorStores = currentDebt.byStore.filter((s) => s.openDebt > 0);
+  const pnl = useMemo(
+    () =>
+      computePeriodPnl({
+        data,
+        grossProfit: analytics.totalProfit,
+        cashIn: flow.totalCashIn,
+        period,
+        customRange: custom,
+      }),
+    [data, analytics.totalProfit, flow.totalCashIn, period, customRange],
+  );
 
   return (
     <div className="space-y-4 min-w-0">
@@ -192,8 +354,8 @@ export function DillerStatistikaSection({ mode, data, onGoHome }: Props) {
         <p className="text-[12px] opacity-45 mt-1.5">UTC+05:00 • Bu {word}</p>
         <p className="text-[11px] text-amber-500/90 mt-1.5 leading-snug">
           {isAnalitika
-            ? 'Qarz tushumi undirilganda, mahsulot soni sotuvda'
-            : 'Qarzga sotuv: soni darhol, tushum/foyda/tannarx undirilganda'}
+            ? 'Qarz tushumi undirilganda, mahsulot soni sotuvda. Xarajat sof foydadan ayiriladi.'
+            : 'Qarzga sotuv: soni darhol, tushum/foyda/tannarx undirilganda. Xarajat foydadan ayiriladi.'}
         </p>
       </div>
 
@@ -279,12 +441,12 @@ export function DillerStatistikaSection({ mode, data, onGoHome }: Props) {
           <KpiCard
             isDark={isDark}
             Icon={Wallet}
-            iconBg="rgba(16,185,129,0.16)"
-            iconColor="#10b981"
-            label="Sof foyda"
-            value={formatMoney(analytics.totalProfit)}
-            valueColor={analytics.totalProfit >= 0 ? '#10b981' : '#ef4444'}
-            sub={`${analytics.profitMarginPercent}% marja`}
+            iconBg={pnl.net >= 0 ? 'rgba(16,185,129,0.16)' : 'rgba(248,113,113,0.16)'}
+            iconColor={pnl.net >= 0 ? '#10b981' : '#f87171'}
+            label="Jami foyda"
+            value={formatMoney(pnl.net)}
+            valueColor={pnl.net >= 0 ? '#10b981' : '#ef4444'}
+            sub={`Xarajat ${formatMoney(pnl.expenseTotal)}`}
           />
           <KpiCard
             isDark={isDark}
@@ -306,6 +468,8 @@ export function DillerStatistikaSection({ mode, data, onGoHome }: Props) {
         </div>
       )}
 
+      <ProfitExpenseBlock isDark={isDark} word={word} pnl={pnl} />
+
       {isAnalitika ? (
         <div className="rounded-[22px] p-4" style={iosGlassCardStyle(isDark)}>
           <h3 className="font-bold text-[14px] mb-3">Bu {word} — sotuv analitikasi</h3>
@@ -317,9 +481,27 @@ export function DillerStatistikaSection({ mode, data, onGoHome }: Props) {
               </div>
             </div>
             <div className="min-w-0">
-              <div className="text-[11px] opacity-45">Sof foyda</div>
+              <div className="text-[11px] opacity-45">Sof foyda (sotuv)</div>
               <div className="text-[15px] font-black tabular-nums mt-0.5 text-emerald-500">
                 {formatMoney(analytics.totalProfit)}
+              </div>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] opacity-45">Xarajat</div>
+              <div className="text-[15px] font-black tabular-nums mt-0.5 text-rose-400">
+                {formatMoney(pnl.expenseTotal)}
+              </div>
+            </div>
+            <div className="min-w-0">
+              <div className="text-[11px] opacity-45">
+                {pnl.net >= 0 ? 'Jami foyda' : 'Ziyon'}
+              </div>
+              <div
+                className={`text-[15px] font-black tabular-nums mt-0.5 ${
+                  pnl.net >= 0 ? 'text-emerald-500' : 'text-rose-400'
+                }`}
+              >
+                {formatMoney(pnl.net >= 0 ? pnl.jamiFoyda : pnl.ziyon)}
               </div>
             </div>
             <div className="min-w-0">

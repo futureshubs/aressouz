@@ -20,6 +20,14 @@ type ContactRow = {
   kind: 'phone' | 'telegram' | 'instagram';
 };
 
+export async function makeDillerQrDataUrl(orderUrl: string, size = 512): Promise<string> {
+  return QRCodeLib.toDataURL(orderUrl, {
+    width: size,
+    margin: 1,
+    color: { dark: '#0f172a', light: '#ffffff' },
+  });
+}
+
 export async function downloadDillerQrPoster(input: QrPosterInput): Promise<void> {
   const canvas = document.createElement('canvas');
   canvas.width = W;

@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import { useDillerUserLocation } from '../../hooks/useDillerUserLocation';
-import type { DillerData, DillerPaymentType, DillerProduct, DillerSavedCard } from '../../utils/dillerData';
+import type { DillerData, DillerDealerOrder, DillerPaymentType, DillerProduct, DillerSavedCard } from '../../utils/dillerData';
 import {
   createDealerOrder,
   createSalesBatch,
@@ -25,6 +25,7 @@ import {
   formatCardNumber,
   formatMoney,
   getWarehouseQty,
+  updateDealerOrder,
 } from '../../utils/dillerData';
 import { formatStoreDistance, getStoreDistanceKm } from '../../utils/dillerStoreStats';
 import { resolveDillerImage } from '../../utils/dillerMedia';
@@ -49,6 +50,7 @@ type Props = {
   onComplete: (next: DillerData) => void;
   initialStoreId?: string | null;
   mode?: 'sale' | 'order';
+  editOrder?: DillerDealerOrder | null;
 };
 
 function unitLabel(u: string) {
@@ -62,13 +64,19 @@ export function DillerSaleSheet({
   onComplete,
   initialStoreId = null,
   mode = 'sale',
+  editOrder = null,
 }: Props) {
   const { theme, accentColor } = useTheme();
   const isDark = theme === 'dark';
-  const isOrder = mode === 'order';
+  const isOrder = mode === 'order' || Boolean(editOrder);
+  const isEditing = Boolean(editOrder);
   const { location } = useDillerUserLocation(open);
 
-  const presetStore = initialStoreId ? data.stores.find((s) => s.id === initialStoreId) : undefined;
+  const presetStore = initialStoreId
+    ? data.stores.find((s) => s.id === initialStoreId)
+    : editOrder
+      ? data.stores.find((s) => s.id === editOrder.storeId)
+      : undefined;
   const [step, setStep] = useState<1 | 2 | 3>(presetStore ? 2 : 1);
   const [storeId, setStoreId] = useState(presetStore?.id ?? '');
   const [query, setQuery] = useState('');
@@ -88,7 +96,13 @@ export function DillerSaleSheet({
     setStep(presetStore ? 2 : 1);
     setStoreId(presetStore?.id ?? '');
     setQuery('');
-    setCart({});
+    const initialCart: Record<string, number> = {};
+    if (editOrder) {
+      for (const it of editOrder.items) {
+        if (it.productId) initialCart[it.productId] = it.qty;
+      }
+    }
+    setCart(initialCart);
     setPaymentType('naqd');
     setCardId(data.cards?.[0]?.id ?? '');
     setPaidNow('');
@@ -97,7 +111,7 @@ export function DillerSaleSheet({
     setCardForm(false);
     setBusy(false);
     setSendSms(Boolean(normalizeUzPhoneForSms(presetStore?.phone || '')));
-  }, [open, initialStoreId, presetStore?.id, data.cards]);
+  }, [open, initialStoreId, presetStore?.id, data.cards, editOrder?.id]);
 
   const store = data.stores.find((s) => s.id === storeId);
   const storePhoneOk = Boolean(normalizeUzPhoneForSms(store?.phone || ''));
@@ -170,14 +184,20 @@ export function DillerSaleSheet({
     }
     setBusy(true);
     if (isOrder) {
-      const result = createDealerOrder(data, { storeId: store.id, lines });
+      const result = isEditing && editOrder
+        ? updateDealerOrder(data, editOrder.id, { storeId: store.id, lines })
+        : createDealerOrder(data, { storeId: store.id, lines });
       setBusy(false);
       if (result.error) {
         toast.error(result.error);
         return;
       }
       onComplete(result.data);
-      toast.success('Buyurtma yaratildi — topshirgach to‘lov ochiladi');
+      toast.success(
+        isEditing
+          ? 'Buyurtma yangilandi'
+          : 'Buyurtma yaratildi — topshirgach to‘lov ochiladi',
+      );
       onClose();
       return;
     }
@@ -220,12 +240,12 @@ export function DillerSaleSheet({
   };
 
   if (!open) return null;
-  const title = isOrder ? 'Buyurtma olish' : 'Yangi sotuv';
+  const title = isEditing ? 'Buyurtmani tahrirlash' : isOrder ? 'Buyurtma olish' : 'Yangi sotuv';
 
   return (
     <div className={dillerSheetShellClass} style={{ ...iosGlassPageSurface(isDark), zIndex: 116 }}>
       <header className="shrink-0 flex items-center gap-2 px-4 py-3" style={iosGlassBarStyle(isDark)}>
-        {(step > 1 && !presetStore) || (step > 2 && presetStore) ? (
+        {(step > 1 && !presetStore && !isEditing) || (step > 2 && (presetStore || isEditing)) ? (
           <button
             type="button"
             onClick={() => setStep(step === 3 ? 2 : 1)}
@@ -585,7 +605,11 @@ export function DillerSaleSheet({
               className="w-full py-3.5 rounded-2xl font-bold text-white disabled:opacity-40"
               style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
             >
-              {isOrder ? 'Buyurtma yaratish' : `Yakunlash — ${formatMoney(cartTotal.total)}`}
+              {isOrder
+                ? isEditing
+                  ? `Saqlash — ${formatMoney(cartTotal.total)}`
+                  : 'Buyurtma yaratish'
+                : `Yakunlash — ${formatMoney(cartTotal.total)}`}
             </button>
           </div>
         </>

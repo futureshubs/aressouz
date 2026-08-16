@@ -205,7 +205,7 @@ export type DillerShopOrder = {
   completedAt?: string;
 };
 
-export type DillerDealerOrderStatus = 'open' | 'done';
+export type DillerDealerOrderStatus = 'open' | 'done' | 'cancelled';
 
 export type DillerDealerOrder = {
   id: string;
@@ -215,6 +215,7 @@ export type DillerDealerOrder = {
   status: DillerDealerOrderStatus;
   createdAt: string;
   completedAt?: string;
+  cancelledAt?: string;
   saleIds?: string[];
   note?: string;
 };
@@ -476,9 +477,10 @@ function normalizeDealerOrder(o: Partial<DillerDealerOrder> & { id?: string }): 
     items,
     total:
       Math.max(0, Math.round(Number(o.total) || 0)) || items.reduce((s, it) => s + it.lineTotal, 0),
-    status: o.status === 'done' ? 'done' : 'open',
+    status: o.status === 'done' ? 'done' : o.status === 'cancelled' ? 'cancelled' : 'open',
     createdAt: o.createdAt ?? new Date().toISOString(),
     completedAt: o.completedAt ? String(o.completedAt) : undefined,
+    cancelledAt: o.cancelledAt ? String(o.cancelledAt) : undefined,
     saleIds: Array.isArray(o.saleIds) ? o.saleIds.map(String) : undefined,
     note: o.note ? String(o.note).trim() : undefined,
   };
@@ -1444,21 +1446,9 @@ export function createDealerOrder(
 ): { data: DillerData; order?: DillerDealerOrder; error?: string } {
   const store = data.stores.find((s) => s.id === input.storeId);
   if (!store) return { data, error: 'Do‘kon topilmadi' };
-  if (input.lines.length === 0) return { data, error: 'Mahsulot tanlang' };
-  const items: DillerShopOrderItem[] = [];
-  for (const line of input.lines) {
-    const product = data.products.find((p) => p.id === line.productId);
-    if (!product) return { data, error: 'Mahsulot topilmadi' };
-    const qty = Math.max(1, Math.floor(line.qty));
-    items.push({
-      productId: product.id,
-      productName: product.name,
-      qty,
-      unitPrice: product.unitPrice,
-      lineTotal: product.unitPrice * qty,
-      unit: String(product.unit),
-    });
-  }
+  const built = buildDealerOrderItems(data, input.lines);
+  if (built.error || !built.items) return { data, error: built.error };
+  const items = built.items;
   const order = normalizeDealerOrder({
     id: uid('dord'),
     storeId: store.id,
@@ -1469,6 +1459,78 @@ export function createDealerOrder(
     note: input.note,
   });
   return { data: { ...data, dealerOrders: [order, ...(data.dealerOrders ?? [])] }, order };
+}
+
+function buildDealerOrderItems(
+  data: DillerData,
+  lines: { productId: string; qty: number }[],
+): { items?: DillerShopOrderItem[]; error?: string } {
+  if (lines.length === 0) return { error: 'Mahsulot tanlang' };
+  const items: DillerShopOrderItem[] = [];
+  for (const line of lines) {
+    const product = data.products.find((p) => p.id === line.productId);
+    if (!product) return { error: 'Mahsulot topilmadi' };
+    const qty = Math.max(1, Math.floor(line.qty));
+    items.push({
+      productId: product.id,
+      productName: product.name,
+      qty,
+      unitPrice: product.unitPrice,
+      lineTotal: product.unitPrice * qty,
+      unit: String(product.unit),
+    });
+  }
+  return { items };
+}
+
+export function updateDealerOrder(
+  data: DillerData,
+  orderId: string,
+  input: { storeId?: string; lines: { productId: string; qty: number }[]; note?: string },
+): { data: DillerData; order?: DillerDealerOrder; error?: string } {
+  const order = (data.dealerOrders ?? []).find((o) => o.id === orderId);
+  if (!order) return { data, error: 'Buyurtma topilmadi' };
+  if (order.status !== 'open') return { data, error: 'Faqat ochiq buyurtmani tahrirlash mumkin' };
+  const storeId = input.storeId || order.storeId;
+  const store = data.stores.find((s) => s.id === storeId);
+  if (!store) return { data, error: 'Do‘kon topilmadi' };
+  const built = buildDealerOrderItems(data, input.lines);
+  if (built.error || !built.items) return { data, error: built.error };
+  const next = normalizeDealerOrder({
+    ...order,
+    storeId: store.id,
+    items: built.items,
+    total: built.items.reduce((s, it) => s + it.lineTotal, 0),
+    note: input.note !== undefined ? input.note : order.note,
+  });
+  return {
+    data: {
+      ...data,
+      dealerOrders: (data.dealerOrders ?? []).map((o) => (o.id === orderId ? next : o)),
+    },
+    order: next,
+  };
+}
+
+export function cancelDealerOrder(
+  data: DillerData,
+  orderId: string,
+): { data: DillerData; error?: string } {
+  const order = (data.dealerOrders ?? []).find((o) => o.id === orderId);
+  if (!order) return { data, error: 'Buyurtma topilmadi' };
+  if (order.status === 'done') return { data, error: 'Topshirilgan buyurtmani bekor qilib bo‘lmaydi' };
+  if (order.status === 'cancelled') return { data, error: 'Allaqachon bekor qilingan' };
+  const next = normalizeDealerOrder({
+    ...order,
+    status: 'cancelled',
+    cancelledAt: new Date().toISOString(),
+  });
+  return {
+    data: {
+      ...data,
+      dealerOrders: (data.dealerOrders ?? []).map((o) => (o.id === orderId ? next : o)),
+    },
+  };
 }
 
 export function completeDealerOrder(
@@ -1484,6 +1546,7 @@ export function completeDealerOrder(
   const order = (data.dealerOrders ?? []).find((o) => o.id === orderId);
   if (!order) return { data, error: 'Buyurtma topilmadi' };
   if (order.status === 'done') return { data, error: 'Buyurtma allaqachon topshirilgan' };
+  if (order.status === 'cancelled') return { data, error: 'Bekor qilingan buyurtmani topshirib bo‘lmaydi' };
   const result = createSalesBatch(data, {
     storeId: order.storeId,
     lines: order.items.map((it) => ({ productId: it.productId, qty: it.qty })),

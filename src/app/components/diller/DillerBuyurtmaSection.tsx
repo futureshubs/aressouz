@@ -1,14 +1,12 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { toast } from 'sonner';
 import {
-  ClipboardList,
-  Download,
-  Loader2,
   Phone,
   QrCode,
   RefreshCw,
   Package,
   ChevronRight,
+  AlertTriangle,
 } from 'lucide-react';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerShopOrder, DillerShopOrderStatus } from '../../utils/dillerData';
@@ -16,13 +14,13 @@ import {
   ensureOrderToken,
   findStoresByPhone,
   formatMoney,
-  getQrcodeOrderUrl,
   mergeShopOrders,
-  getDillerBrandLabel,
-  updateDillerProfile,
   acceptShopOrder,
   rejectShopOrder,
   loadDillerData,
+  cancelDealerOrder,
+  DILLER_PRODUCT_UNITS,
+  getWarehouseQty,
 } from '../../utils/dillerData';
 import {
   dillerApiFetchShopOrders,
@@ -30,14 +28,16 @@ import {
   isOfflineDillerToken,
 } from '../../utils/dillerApi';
 import { readDillerSession } from '../../utils/dillerSession';
-import { downloadDillerQrPoster } from '../../utils/dillerQrPoster';
 import { pushDillerLocalNow } from '../../utils/dillerSync';
 import { formatDillerDateTime } from '../../utils/dillerTime';
 import { dillerListClass } from './dillerMobileLayout';
-import { iosAccentFillStyle, iosGlassCardStyle, iosGlassInputStyle } from './dillerIosGlass';
+import { iosAccentFillStyle, iosGlassCardStyle } from './dillerIosGlass';
 import { DillerShopOrderDetailSheet } from './DillerShopOrderDetailSheet';
 import { DillerShopOrderSaleSheet } from './DillerShopOrderSaleSheet';
 import { DillerDealerOrderPaySheet } from './DillerDealerOrderPaySheet';
+import { DillerDealerOrderDetailSheet } from './DillerDealerOrderDetailSheet';
+import { DillerSaleSheet } from './DillerSaleSheet';
+import { DillerQrPanelSheet } from './DillerQrPanelSheet';
 
 type Props = {
   data: DillerData;
@@ -61,11 +61,6 @@ function Card({
   );
 }
 
-const inputCls = (isDark: boolean) =>
-  `w-full px-3.5 py-3 rounded-[14px] text-sm outline-none ${
-    isDark ? 'text-white placeholder:text-white/35' : 'text-gray-900 placeholder:text-gray-400'
-  }`;
-
 const statusLabel: Record<DillerShopOrderStatus, string> = {
   pending: 'Kutilmoqda',
   accepted: 'Qabul qilindi',
@@ -79,6 +74,19 @@ const statusColor: Record<DillerShopOrderStatus, string> = {
   rejected: '#ef4444',
   done: '#10b981',
 };
+
+type QrOrderFilter = 'all' | 'pending' | 'accepted' | 'done';
+
+const QR_STATUS_RANK: Record<DillerShopOrderStatus, number> = {
+  pending: 0,
+  accepted: 1,
+  done: 2,
+  rejected: 3,
+};
+
+function unitLabel(u: string) {
+  return DILLER_PRODUCT_UNITS.find((x) => x.value === u)?.label ?? u;
+}
 
 function resolveOrderStore(data: DillerData, order: DillerShopOrder) {
   if (order.storeId) {
@@ -94,14 +102,16 @@ function resolveOrderStore(data: DillerData, order: DillerShopOrder) {
 export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
   const { accentColor } = useTheme();
   const [refreshing, setRefreshing] = useState(false);
-  const [downloading, setDownloading] = useState(false);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [saleOrderId, setSaleOrderId] = useState<string | null>(null);
   const [dealerPayId, setDealerPayId] = useState<string | null>(null);
+  const [dealerDetailId, setDealerDetailId] = useState<string | null>(null);
+  const [dealerEditId, setDealerEditId] = useState<string | null>(null);
+  const [qrPanelOpen, setQrPanelOpen] = useState(false);
+  const [qrFilter, setQrFilter] = useState<QrOrderFilter>('all');
   const tokenInitRef = useRef(false);
 
   const dataWithToken = useMemo(() => ensureOrderToken(data), [data]);
-  const orderToken = dataWithToken.profile.orderToken ?? '';
 
   useEffect(() => {
     if (tokenInitRef.current) return;
@@ -110,28 +120,6 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
       onDataChange(dataWithToken);
     }
   }, [data.profile.orderToken, dataWithToken, onDataChange]);
-
-  const orderUrl = orderToken ? getQrcodeOrderUrl(orderToken) : '';
-
-  const [phone, setPhone] = useState(data.profile.orderPhone ?? data.profile.phone ?? '');
-  const [telegram, setTelegram] = useState(data.profile.telegram ?? '');
-  const [instagram, setInstagram] = useState(data.profile.instagram ?? '');
-
-  useEffect(() => {
-    setPhone(data.profile.orderPhone ?? data.profile.phone ?? '');
-    setTelegram(data.profile.telegram ?? '');
-    setInstagram(data.profile.instagram ?? '');
-  }, [data.profile.orderPhone, data.profile.phone, data.profile.telegram, data.profile.instagram]);
-
-  const saveContacts = () => {
-    const next = updateDillerProfile(dataWithToken, {
-      orderPhone: phone.trim(),
-      telegram: telegram.trim(),
-      instagram: instagram.trim(),
-    });
-    onDataChange(next);
-    toast.success('Aloqa ma’lumotlari saqlandi');
-  };
 
   const refreshOrders = useCallback(async () => {
     const sess = readDillerSession();
@@ -158,6 +146,15 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
   }, [refreshOrders]);
 
   const pendingCount = (data.shopOrders ?? []).filter((o) => o.status === 'pending').length;
+  const qrOrders = useMemo(() => {
+    const list = [...(data.shopOrders ?? [])].sort((a, b) => {
+      const r = QR_STATUS_RANK[a.status] - QR_STATUS_RANK[b.status];
+      if (r !== 0) return r;
+      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
+    });
+    if (qrFilter === 'all') return list;
+    return list.filter((o) => o.status === qrFilter);
+  }, [data.shopOrders, qrFilter]);
 
   const detailOrder = useMemo(
     () => (data.shopOrders ?? []).find((o) => o.id === detailOrderId) ?? null,
@@ -173,6 +170,14 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
     () => (data.dealerOrders ?? []).find((o) => o.id === dealerPayId) ?? null,
     [data.dealerOrders, dealerPayId],
   );
+  const dealerDetailOrder = useMemo(
+    () => (data.dealerOrders ?? []).find((o) => o.id === dealerDetailId) ?? null,
+    [data.dealerOrders, dealerDetailId],
+  );
+  const dealerEditOrder = useMemo(
+    () => (data.dealerOrders ?? []).find((o) => o.id === dealerEditId) ?? null,
+    [data.dealerOrders, dealerEditId],
+  );
 
   const openDealerOrders = useMemo(
     () => (data.dealerOrders ?? []).filter((o) => o.status === 'open'),
@@ -182,6 +187,42 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
     () => (data.dealerOrders ?? []).filter((o) => o.status === 'done'),
     [data.dealerOrders],
   );
+  const cancelledDealerOrders = useMemo(
+    () => (data.dealerOrders ?? []).filter((o) => o.status === 'cancelled'),
+    [data.dealerOrders],
+  );
+
+  const neededFromOpen = useMemo(() => {
+    const map = new Map<
+      string,
+      { productId: string; name: string; qty: number; unit: string; orders: number }
+    >();
+    for (const order of openDealerOrders) {
+      const seen = new Set<string>();
+      for (const it of order.items) {
+        const key = it.productId || it.productName;
+        const row = map.get(key) ?? {
+          productId: it.productId,
+          name: it.productName,
+          qty: 0,
+          unit: String(it.unit || 'dona'),
+          orders: 0,
+        };
+        row.qty += it.qty || 0;
+        if (!seen.has(key)) {
+          row.orders += 1;
+          seen.add(key);
+        }
+        map.set(key, row);
+      }
+    }
+    return [...map.values()]
+      .map((row) => ({
+        ...row,
+        stock: row.productId ? getWarehouseQty(data, row.productId) : 0,
+      }))
+      .sort((a, b) => b.qty - a.qty);
+  }, [openDealerOrders, data]);
 
   const patchServerStatus = async (orderId: string, status: DillerShopOrderStatus) => {
     const sess = readDillerSession();
@@ -251,31 +292,6 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
     }
   };
 
-  const downloadPoster = async () => {
-    if (!orderToken) return;
-    setDownloading(true);
-    try {
-      const sync = await pushDillerLocalNow();
-      if (sync.status !== 'synced') {
-        toast.error('QR yuborish uchun avval internet va bulutga ulanish kerak');
-        return;
-      }
-      await downloadDillerQrPoster({
-        orderUrl,
-        companyName: getDillerBrandLabel(data.profile.companyName),
-        phone: phone.trim() || data.profile.phone,
-        telegram: telegram.trim(),
-        instagram: instagram.trim(),
-        filename: `buyurtma-qr-${orderToken.slice(0, 8)}.png`,
-      });
-      toast.success('QR yuklab olindi (10×7 sm)');
-    } catch {
-      toast.error('QR yuklab olinmadi');
-    } finally {
-      setDownloading(false);
-    }
-  };
-
   return (
     <>
       <DillerDealerOrderPaySheet
@@ -284,6 +300,45 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
         data={data}
         onClose={() => setDealerPayId(null)}
         onComplete={onDataChange}
+      />
+
+      <DillerDealerOrderDetailSheet
+        open={!!dealerDetailOrder}
+        order={dealerDetailOrder}
+        data={data}
+        onClose={() => setDealerDetailId(null)}
+        onEdit={(order) => {
+          setDealerDetailId(null);
+          setDealerEditId(order.id);
+        }}
+        onCancel={(order) => {
+          const result = cancelDealerOrder(data, order.id);
+          if (result.error) {
+            toast.error(result.error);
+            return;
+          }
+          onDataChange(result.data);
+          setDealerDetailId(null);
+          toast.success('Buyurtma bekor qilindi');
+        }}
+        onDeliver={(order) => {
+          setDealerDetailId(null);
+          setDealerPayId(order.id);
+        }}
+      />
+
+      <DillerSaleSheet
+        open={!!dealerEditOrder}
+        onClose={() => setDealerEditId(null)}
+        data={data}
+        onComplete={(next) => {
+          onDataChange(next);
+          const id = dealerEditId;
+          setDealerEditId(null);
+          if (id) setDealerDetailId(id);
+        }}
+        mode="order"
+        editOrder={dealerEditOrder}
       />
 
       <DillerShopOrderSaleSheet
@@ -303,155 +358,46 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
         onCompleteOrder={openSaleConfirm}
       />
 
-      <Card isDark={isDark}>
-        <div className="flex items-center gap-2 mb-3">
-          <ClipboardList className="w-5 h-5 text-emerald-400" />
-          <div>
-            <h3 className="font-bold text-base">Buyurtma paneli</h3>
-            <p className="text-[10px] opacity-55">Do‘konlar QR skaner qilib buyurtma beradi</p>
-          </div>
-        </div>
+      <DillerQrPanelSheet
+        open={qrPanelOpen}
+        data={data}
+        onClose={() => setQrPanelOpen(false)}
+        onDataChange={onDataChange}
+      />
 
+      <button
+        type="button"
+        onClick={() => setQrPanelOpen(true)}
+        className="relative w-full overflow-hidden rounded-[26px] px-5 py-4 text-left active:scale-[0.985] transition-transform touch-manipulation"
+        style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+      >
         <div
-          className="rounded-[16px] p-3 mb-3 text-[11px] break-all opacity-70"
-          style={iosGlassInputStyle(isDark)}
-        >
-          {orderUrl || '—'}
-        </div>
-
-        <div className="space-y-2 mb-3">
-          <input
-            value={phone}
-            onChange={(e) => setPhone(e.target.value)}
-            placeholder="Telefon (QR va panelda)"
-            className={inputCls(isDark)}
-            style={iosGlassInputStyle(isDark)}
-          />
-          <input
-            value={telegram}
-            onChange={(e) => setTelegram(e.target.value)}
-            placeholder="Telegram (@username)"
-            className={inputCls(isDark)}
-            style={iosGlassInputStyle(isDark)}
-          />
-          <input
-            value={instagram}
-            onChange={(e) => setInstagram(e.target.value)}
-            placeholder="Instagram (@username)"
-            className={inputCls(isDark)}
-            style={iosGlassInputStyle(isDark)}
-          />
-        </div>
-
-        <div className="flex gap-2">
-          <button
-            type="button"
-            onClick={saveContacts}
-            className="flex-1 py-2.5 rounded-[16px] text-xs font-bold active:scale-[0.98]"
-            style={iosGlassCardStyle(isDark)}
+          className="absolute inset-0 opacity-30 pointer-events-none"
+          style={{
+            background:
+              'radial-gradient(120% 80% at 100% -10%, rgba(255,255,255,0.55), transparent 55%)',
+          }}
+        />
+        <div className="relative flex items-center gap-3">
+          <span
+            className="w-12 h-12 rounded-[16px] flex items-center justify-center shrink-0"
+            style={{ background: 'rgba(255,255,255,0.28)', color: '#fff' }}
           >
-            Saqlash
-          </button>
-          <button
-            type="button"
-            onClick={() => void downloadPoster()}
-            disabled={downloading || !orderToken}
-            className="flex-1 py-2.5 rounded-xl text-xs font-bold text-white flex items-center justify-center gap-1.5 disabled:opacity-40"
-            style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
-          >
-            {downloading ? (
-              <Loader2 className="w-4 h-4 animate-spin" />
-            ) : (
-              <>
-                <Download className="w-4 h-4" />
-                QR yuklash (10×7)
-              </>
-            )}
-          </button>
+            <QrCode className="w-6 h-6" strokeWidth={2.4} />
+          </span>
+          <span className="min-w-0 text-white">
+            <span className="block text-[17px] font-black leading-tight">QR kod yaratish</span>
+            <span className="block text-[12px] font-medium opacity-75 mt-0.5">
+              Ko‘rsatish · yuklab olish · do‘konlar shu orqali buyurtma beradi
+            </span>
+          </span>
         </div>
-
-        <p className="text-[10px] opacity-45 mt-2 flex items-center gap-1">
-          <QrCode className="w-3.5 h-3.5" />
-          Karobkaga yopishtiring — skaner /qrcode sahifasiga olib boradi
-        </p>
-      </Card>
+      </button>
 
       <Card isDark={isDark}>
         <div className="flex items-center justify-between gap-2 mb-3">
           <h3 className="font-bold text-sm flex items-center gap-2">
-            <Package className="w-4 h-4 text-emerald-400" />
-            Do‘kon buyurtmalari
-            {openDealerOrders.length > 0 ? (
-              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">
-                {openDealerOrders.length} ochiq
-              </span>
-            ) : null}
-          </h3>
-        </div>
-        {(data.dealerOrders ?? []).length === 0 ? (
-          <p className="text-sm opacity-50 text-center py-6">
-            Do‘kon kartasidan «Buyurtma olish» — mahsulot tanlab yaratiladi
-          </p>
-        ) : (
-          <ul className={dillerListClass}>
-            {[...openDealerOrders, ...doneDealerOrders].map((order) => {
-              const store = data.stores.find((s) => s.id === order.storeId);
-              const totalItems = order.items.reduce((s, it) => s + it.qty, 0);
-              const open = order.status === 'open';
-              return (
-                <li key={order.id}>
-                  <div className="p-3.5 rounded-[20px]" style={iosGlassCardStyle(isDark)}>
-                    <div className="flex items-start justify-between gap-2 mb-2">
-                      <div className="min-w-0">
-                        <div className="font-bold text-sm truncate">{store?.name ?? 'Do‘kon'}</div>
-                        <div className="text-[11px] opacity-50 mt-0.5">
-                          {totalItems} ta · {order.items.length} tur
-                        </div>
-                      </div>
-                      <span
-                        className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0"
-                        style={{
-                          background: open ? 'rgba(245,158,11,0.18)' : 'rgba(16,185,129,0.16)',
-                          color: open ? '#f59e0b' : '#10b981',
-                        }}
-                      >
-                        {open ? 'Ochiq' : 'Topshirildi'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-2">
-                      <span className="font-black text-emerald-500">{formatMoney(order.total)}</span>
-                      {open ? (
-                        <button
-                          type="button"
-                          onClick={() => setDealerPayId(order.id)}
-                          className="px-3 py-2 rounded-xl text-[12px] font-bold text-white"
-                          style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
-                        >
-                          Topshirdim
-                        </button>
-                      ) : (
-                        <span className="text-[10px] opacity-40">
-                          {order.completedAt
-                            ? formatDillerDateTime(order.completedAt)
-                            : ''}
-                        </span>
-                      )}
-                    </div>
-                    <div className="text-[10px] opacity-40 mt-2">
-                      {formatDillerDateTime(order.createdAt)}
-                    </div>
-                  </div>
-                </li>
-              );
-            })}
-          </ul>
-        )}
-      </Card>
-
-      <Card isDark={isDark}>
-        <div className="flex items-center justify-between gap-2 mb-3">
-          <h3 className="font-bold text-sm flex items-center gap-2">
-            <Package className="w-4 h-4 text-emerald-400" />
+            <QrCode className="w-4 h-4 text-emerald-400" />
             QR buyurtmalar
             {pendingCount > 0 ? (
               <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">
@@ -470,11 +416,50 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
           </button>
         </div>
 
+        {(data.shopOrders ?? []).length > 0 ? (
+          <div className="flex gap-1.5 overflow-x-auto [-webkit-overflow-scrolling:touch] pb-2.5">
+            {(
+              [
+                { id: 'all' as const, label: 'Barchasi' },
+                { id: 'pending' as const, label: 'Yangi' },
+                { id: 'accepted' as const, label: 'Qabul' },
+                { id: 'done' as const, label: 'Bajarildi' },
+              ]
+            ).map((f) => {
+              const on = qrFilter === f.id;
+              return (
+                <button
+                  key={f.id}
+                  type="button"
+                  onClick={() => setQrFilter(f.id)}
+                  className="shrink-0 px-3 py-1.5 rounded-full text-[12px] font-bold active:scale-[0.96]"
+                  style={
+                    on
+                      ? iosAccentFillStyle(accentColor.gradient, accentColor.color)
+                      : iosGlassCardStyle(isDark)
+                  }
+                >
+                  {f.label}
+                </button>
+              );
+            })}
+          </div>
+        ) : null}
+
         {(data.shopOrders ?? []).length === 0 ? (
-          <p className="text-sm opacity-50 text-center py-8">Hali buyurtma yo‘q</p>
+          <div className="text-center py-8">
+            <QrCode className="w-8 h-8 mx-auto mb-2 opacity-35" />
+            <p className="text-sm font-semibold">Hali QR buyurtma yo‘q</p>
+            <p className="text-[11px] opacity-50 mt-1 leading-relaxed px-4">
+              Yuqoridagi «QR kod yaratish» ni bosing, posterni yuklab do‘konga yopishtiring. Skaner
+              orqali tushgan buyurtmalar shu yerda ochiladi.
+            </p>
+          </div>
+        ) : qrOrders.length === 0 ? (
+          <p className="text-sm opacity-50 text-center py-8">Bu filterda buyurtma yo‘q</p>
         ) : (
           <ul className={dillerListClass}>
-            {(data.shopOrders ?? []).map((order) => {
+            {qrOrders.map((order) => {
               const store = resolveOrderStore(data, order);
               const storeMatches = findStoresByPhone(data, order.customerPhone);
               const totalItems = order.items.reduce((s, it) => s + it.qty, 0);
@@ -494,37 +479,200 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
                           <Phone className="w-3 h-3 shrink-0" />
                           <span className="truncate">{order.customerPhone}</span>
                         </div>
+                        <div className="text-[11px] opacity-50 mt-0.5 truncate">
+                          {order.items
+                            .slice(0, 2)
+                            .map((it) => `${it.productName} ×${it.qty}`)
+                            .join(', ')}
+                          {order.items.length > 2 ? ` +${order.items.length - 2}` : ''}
+                        </div>
                         {storeMatches.length > 1 ? (
                           <div className="text-[10px] text-sky-500/90 mt-0.5">
                             {storeMatches.length} ta do‘kon mos keldi
                           </div>
                         ) : null}
                       </div>
-                      <div className="flex flex-col items-end gap-1 shrink-0">
-                        <span
-                          className="text-[10px] font-bold px-2 py-1 rounded-full"
-                          style={{
-                            background: `${statusColor[order.status]}22`,
-                            color: statusColor[order.status],
-                          }}
-                        >
-                          {statusLabel[order.status]}
-                        </span>
-                        <ChevronRight className="w-4 h-4 opacity-30" />
-                      </div>
+                      <span
+                        className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0"
+                        style={{
+                          background: `${statusColor[order.status]}22`,
+                          color: statusColor[order.status],
+                        }}
+                      >
+                        {statusLabel[order.status]}
+                      </span>
                     </div>
-
                     <div className="flex items-center justify-between gap-2 text-xs">
                       <span className="opacity-55">
                         {totalItems} ta · {order.items.length} tur
                       </span>
                       <span className="font-black text-emerald-500">{formatMoney(order.total)}</span>
                     </div>
-
-                    <div className="text-[10px] opacity-40 mt-2">
-                      {formatDillerDateTime(order.createdAt)} · Batafsil
+                    <div className="text-[10px] opacity-40 mt-2 flex items-center justify-between">
+                      <span>{formatDillerDateTime(order.createdAt)}</span>
+                      <span className="inline-flex items-center gap-0.5">
+                        Batafsil
+                        <ChevronRight className="w-3.5 h-3.5" />
+                      </span>
                     </div>
                   </button>
+                </li>
+              );
+            })}
+          </ul>
+        )}
+      </Card>
+
+      {neededFromOpen.length > 0 ? (
+        <Card isDark={isDark}>
+          <div className="flex items-start justify-between gap-2 mb-3">
+            <div>
+              <h3 className="font-bold text-sm flex items-center gap-2">
+                <Package className="w-4 h-4 text-emerald-400" />
+                Omborga kerak
+              </h3>
+              <p className="text-[11px] opacity-50 mt-0.5">
+                Faqat ochiq (hali topshirilmagan) buyurtmalar
+              </p>
+            </div>
+            <span className="text-[11px] font-bold px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-400 shrink-0">
+              {neededFromOpen.length} tur · {neededFromOpen.reduce((s, r) => s + r.qty, 0)} dona
+            </span>
+          </div>
+          <ul className="space-y-1.5">
+            {neededFromOpen.map((row) => {
+              const short = row.stock < row.qty;
+              const label = unitLabel(row.unit);
+              return (
+                <li
+                  key={row.productId || row.name}
+                  className="rounded-[16px] px-3 py-2.5 flex items-center justify-between gap-3"
+                  style={iosGlassCardStyle(isDark)}
+                >
+                  <div className="min-w-0">
+                    <div className="font-semibold text-sm truncate">{row.name}</div>
+                    <div className={`text-[10px] mt-0.5 ${short ? 'text-amber-400' : 'opacity-45'}`}>
+                      {row.orders} ta buyurtmada
+                      {row.productId ? ` · omborda ${row.stock} ${label}` : ''}
+                      {short ? ' · yetishmaydi' : ''}
+                    </div>
+                  </div>
+                  <div className="text-right shrink-0">
+                    <div
+                      className={`text-[15px] font-black tabular-nums ${
+                        short ? 'text-amber-400' : ''
+                      }`}
+                      style={!short ? { color: accentColor.color } : undefined}
+                    >
+                      {row.qty}
+                    </div>
+                    <div className="text-[10px] opacity-45">{label}</div>
+                  </div>
+                </li>
+              );
+            })}
+          </ul>
+          {neededFromOpen.some((r) => r.stock < r.qty) ? (
+            <p className="text-[10px] text-amber-400/90 mt-2.5 flex items-center gap-1">
+              <AlertTriangle className="w-3.5 h-3.5" />
+              Sariq — omborda yetarli emas
+            </p>
+          ) : null}
+        </Card>
+      ) : null}
+
+      <Card isDark={isDark}>
+        <div className="flex items-center justify-between gap-2 mb-3">
+          <h3 className="font-bold text-sm flex items-center gap-2">
+            <Package className="w-4 h-4 text-emerald-400" />
+            Do‘kon buyurtmalari
+            {openDealerOrders.length > 0 ? (
+              <span className="text-[10px] px-2 py-0.5 rounded-full bg-amber-500/20 text-amber-500">
+                {openDealerOrders.length} ochiq
+              </span>
+            ) : null}
+          </h3>
+        </div>
+        {(data.dealerOrders ?? []).length === 0 ? (
+          <p className="text-sm opacity-50 text-center py-6">
+            Do‘kon kartasidan «Buyurtma olish» — mahsulot tanlab yaratiladi
+          </p>
+        ) : (
+          <ul className={dillerListClass}>
+            {[...openDealerOrders, ...doneDealerOrders, ...cancelledDealerOrders].map((order) => {
+              const store = data.stores.find((s) => s.id === order.storeId);
+              const totalItems = order.items.reduce((s, it) => s + it.qty, 0);
+              const open = order.status === 'open';
+              const cancelled = order.status === 'cancelled';
+              return (
+                <li key={order.id}>
+                  <div
+                    role="button"
+                    tabIndex={0}
+                    onClick={() => setDealerDetailId(order.id)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter' || e.key === ' ') setDealerDetailId(order.id);
+                    }}
+                    className={`w-full text-left p-3.5 rounded-[20px] active:scale-[0.99] ${
+                      cancelled ? 'opacity-55' : ''
+                    }`}
+                    style={iosGlassCardStyle(isDark)}
+                  >
+                    <div className="flex items-start justify-between gap-2 mb-2">
+                      <div className="min-w-0">
+                        <div className="font-bold text-sm truncate">{store?.name ?? 'Do‘kon'}</div>
+                        <div className="text-[11px] opacity-50 mt-0.5 truncate">
+                          {order.items
+                            .slice(0, 2)
+                            .map((it) => `${it.productName} ×${it.qty}`)
+                            .join(', ')}
+                          {order.items.length > 2 ? ` +${order.items.length - 2}` : ''}
+                        </div>
+                      </div>
+                      <span
+                        className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0"
+                        style={{
+                          background: cancelled
+                            ? 'rgba(239,68,68,0.16)'
+                            : open
+                              ? 'rgba(245,158,11,0.18)'
+                              : 'rgba(16,185,129,0.16)',
+                          color: cancelled ? '#ef4444' : open ? '#f59e0b' : '#10b981',
+                        }}
+                      >
+                        {cancelled ? 'Bekor' : open ? 'Ochiq' : 'Topshirildi'}
+                      </span>
+                    </div>
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-black text-emerald-500">{formatMoney(order.total)}</span>
+                      {open ? (
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setDealerPayId(order.id);
+                          }}
+                          className="px-3 py-2 rounded-xl text-[12px] font-bold text-white"
+                          style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+                        >
+                          Topshirdim
+                        </button>
+                      ) : (
+                        <span className="text-[10px] opacity-40 inline-flex items-center gap-1">
+                          {order.completedAt
+                            ? formatDillerDateTime(order.completedAt)
+                            : cancelled && order.cancelledAt
+                              ? formatDillerDateTime(order.cancelledAt)
+                              : `${totalItems} dona`}
+                          <ChevronRight className="w-3.5 h-3.5" />
+                        </span>
+                      )}
+                    </div>
+                    <div className="text-[10px] opacity-40 mt-2 flex items-center justify-between">
+                      <span>{formatDillerDateTime(order.createdAt)}</span>
+                      <span>Batafsil</span>
+                    </div>
+                  </div>
                 </li>
               );
             })}
