@@ -33,6 +33,9 @@ import { pushDillerLocalNow } from '../../utils/dillerSync';
 import { formatDillerDateTime } from '../../utils/dillerTime';
 import { dillerListClass } from './dillerMobileLayout';
 import { iosAccentFillStyle, iosGlassCardStyle } from './dillerIosGlass';
+import { useDillerUserLocation } from '../../hooks/useDillerUserLocation';
+import { distanceKm } from '../../utils/leafletMapTiles';
+import { formatStoreDistance } from '../../utils/dillerStoreStats';
 import { DillerShopOrderDetailSheet } from './DillerShopOrderDetailSheet';
 import { DillerShopOrderSaleSheet } from './DillerShopOrderSaleSheet';
 import { DillerDealerOrderPaySheet } from './DillerDealerOrderPaySheet';
@@ -76,7 +79,7 @@ const statusColor: Record<DillerShopOrderStatus, string> = {
   done: '#10b981',
 };
 
-type QrOrderFilter = 'all' | 'pending' | 'accepted' | 'done';
+type QrOrderFilter = 'all' | 'pending' | 'accepted';
 
 const QR_STATUS_RANK: Record<DillerShopOrderStatus, number> = {
   pending: 0,
@@ -102,6 +105,7 @@ function resolveOrderStore(data: DillerData, order: DillerShopOrder) {
 
 export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
   const { accentColor } = useTheme();
+  const { location: userLoc } = useDillerUserLocation(true);
   const [refreshing, setRefreshing] = useState(false);
   const [detailOrderId, setDetailOrderId] = useState<string | null>(null);
   const [saleOrderId, setSaleOrderId] = useState<string | null>(null);
@@ -147,15 +151,42 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
   }, [refreshOrders]);
 
   const pendingCount = (data.shopOrders ?? []).filter((o) => o.status === 'pending').length;
+  const orderDistanceKm = useCallback(
+    (order: DillerShopOrder): number | null => {
+      if (!userLoc) return null;
+
+      const store = resolveOrderStore(data, order);
+      const lat = store?.lat ?? order.customerLat ?? null;
+      const lng = store?.lng ?? order.customerLng ?? null;
+      if (lat == null || lng == null) return null;
+      if (!Number.isFinite(lat) || !Number.isFinite(lng)) return null;
+      return distanceKm(userLoc.lat, userLoc.lng, lat, lng);
+    },
+    [data, userLoc],
+  );
+
   const qrOrders = useMemo(() => {
-    const list = [...(data.shopOrders ?? [])].sort((a, b) => {
-      const r = QR_STATUS_RANK[a.status] - QR_STATUS_RANK[b.status];
-      if (r !== 0) return r;
-      return new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime();
-    });
-    if (qrFilter === 'all') return list;
-    return list.filter((o) => o.status === qrFilter);
-  }, [data.shopOrders, qrFilter]);
+    const visibleStatuses: DillerShopOrderStatus[] =
+      qrFilter === 'all' ? ['pending', 'accepted', 'rejected'] : [qrFilter];
+
+    return (data.shopOrders ?? [])
+      .filter((o) => o.status !== 'done' && visibleStatuses.includes(o.status))
+      .map((o) => ({
+        order: o,
+        distKm: orderDistanceKm(o),
+      }))
+      .sort((a, b) => {
+        const da = a.distKm ?? Infinity;
+        const db = b.distKm ?? Infinity;
+        if (da !== db) return da - db;
+
+        // If distance same/missing, keep "nearest" feel by newest first.
+        const rank = QR_STATUS_RANK[a.order.status] - QR_STATUS_RANK[b.order.status];
+        if (rank !== 0) return rank;
+        return new Date(b.order.createdAt).getTime() - new Date(a.order.createdAt).getTime();
+      })
+      .map((x) => x.order);
+  }, [data.shopOrders, orderDistanceKm, qrFilter]);
 
   const detailOrder = useMemo(
     () => (data.shopOrders ?? []).find((o) => o.id === detailOrderId) ?? null,
@@ -184,14 +215,29 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
     () => (data.dealerOrders ?? []).filter((o) => o.status === 'open'),
     [data.dealerOrders],
   );
-  const doneDealerOrders = useMemo(
-    () => (data.dealerOrders ?? []).filter((o) => o.status === 'done'),
-    [data.dealerOrders],
+  const dealerOrderDistanceKm = useCallback(
+    (storeId?: string): number | null => {
+      if (!userLoc) return null;
+      if (!storeId) return null;
+      const store = data.stores.find((s) => s.id === storeId);
+      if (!store || store.lat == null || store.lng == null) return null;
+      if (!Number.isFinite(store.lat) || !Number.isFinite(store.lng)) return null;
+      return distanceKm(userLoc.lat, userLoc.lng, store.lat, store.lng);
+    },
+    [data.stores, userLoc],
   );
-  const cancelledDealerOrders = useMemo(
-    () => (data.dealerOrders ?? []).filter((o) => o.status === 'cancelled'),
-    [data.dealerOrders],
-  );
+
+  const dealerOrdersSorted = useMemo(() => {
+    return [...openDealerOrders]
+      .map((o) => ({ order: o, distKm: dealerOrderDistanceKm(o.storeId) }))
+      .sort((a, b) => {
+        const da = a.distKm ?? Infinity;
+        const db = b.distKm ?? Infinity;
+        if (da !== db) return da - db;
+        return new Date(b.order.createdAt).getTime() - new Date(a.order.createdAt).getTime();
+      })
+      .map((x) => x.order);
+  }, [openDealerOrders, dealerOrderDistanceKm]);
 
   const neededFromOpen = useMemo(() => {
     const map = new Map<
@@ -427,7 +473,6 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
                 { id: 'all' as const, label: 'Barchasi' },
                 { id: 'pending' as const, label: 'Yangi' },
                 { id: 'accepted' as const, label: 'Qabul' },
-                { id: 'done' as const, label: 'Bajarildi' },
               ]
             ).map((f) => {
               const on = qrFilter === f.id;
@@ -468,6 +513,8 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
               const storeMatches = findStoresByPhone(data, order.customerPhone);
               const totalItems = order.items.reduce((s, it) => s + it.qty, 0);
               const previewName = store?.name ?? order.storeName ?? order.customerName;
+              const distKm = orderDistanceKm(order);
+              const distLabel = distKm == null ? null : formatStoreDistance(distKm);
               return (
                 <li key={order.id}>
                   <div
@@ -488,6 +535,9 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
                       <div className="flex items-start justify-between gap-2 mb-2">
                         <div className="min-w-0 flex-1">
                           <div className="font-bold text-sm truncate">{previewName}</div>
+                          {distLabel ? (
+                            <div className="text-[10px] text-violet-400/90 mt-0.5">Sizdan: {distLabel}</div>
+                          ) : null}
                           <div className="text-xs opacity-60 flex items-center gap-1 mt-0.5">
                             <Phone className="w-3 h-3 shrink-0" />
                             <span className="truncate">{order.customerPhone}</span>
@@ -632,17 +682,14 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
             ) : null}
           </h3>
         </div>
-        {(data.dealerOrders ?? []).length === 0 ? (
+        {dealerOrdersSorted.length === 0 ? (
           <p className="text-sm opacity-50 text-center py-6">
             Do‘kon kartasidan «Buyurtma olish» — mahsulot tanlab yaratiladi
           </p>
         ) : (
           <ul className={dillerListClass}>
-            {[...openDealerOrders, ...doneDealerOrders, ...cancelledDealerOrders].map((order) => {
+            {dealerOrdersSorted.map((order) => {
               const store = data.stores.find((s) => s.id === order.storeId);
-              const totalItems = order.items.reduce((s, it) => s + it.qty, 0);
-              const open = order.status === 'open';
-              const cancelled = order.status === 'cancelled';
               return (
                 <li key={order.id}>
                   <div
@@ -652,14 +699,20 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
                     onKeyDown={(e) => {
                       if (e.key === 'Enter' || e.key === ' ') setDealerDetailId(order.id);
                     }}
-                    className={`w-full text-left p-3.5 rounded-[20px] active:scale-[0.99] ${
-                      cancelled ? 'opacity-55' : ''
-                    }`}
+                    className="w-full text-left p-3.5 rounded-[20px] active:scale-[0.99]"
                     style={iosGlassCardStyle(isDark)}
                   >
                     <div className="flex items-start justify-between gap-2 mb-2">
                       <div className="min-w-0">
                         <div className="font-bold text-sm truncate">{store?.name ?? 'Do‘kon'}</div>
+                        {userLoc ? (
+                          <div className="text-[10px] text-violet-400/90 mt-0.5">
+                            {(() => {
+                              const km = dealerOrderDistanceKm(order.storeId);
+                              return km == null ? null : formatStoreDistance(km);
+                            })()}
+                          </div>
+                        ) : null}
                         <div className="text-[11px] opacity-50 mt-0.5 truncate">
                           {order.items
                             .slice(0, 2)
@@ -671,41 +724,26 @@ export function DillerBuyurtmaSection({ data, onDataChange, isDark }: Props) {
                       <span
                         className="text-[10px] font-bold px-2 py-1 rounded-full shrink-0"
                         style={{
-                          background: cancelled
-                            ? 'rgba(239,68,68,0.16)'
-                            : open
-                              ? 'rgba(245,158,11,0.18)'
-                              : 'rgba(16,185,129,0.16)',
-                          color: cancelled ? '#ef4444' : open ? '#f59e0b' : '#10b981',
+                          background: 'rgba(245,158,11,0.18)',
+                          color: '#f59e0b',
                         }}
                       >
-                        {cancelled ? 'Bekor' : open ? 'Ochiq' : 'Topshirildi'}
+                        Ochiq
                       </span>
                     </div>
                     <div className="flex items-center justify-between gap-2">
                       <span className="font-black text-emerald-500">{formatMoney(order.total)}</span>
-                      {open ? (
-                        <button
-                          type="button"
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setDealerPayId(order.id);
-                          }}
-                          className="px-3 py-2 rounded-xl text-[12px] font-bold text-white"
-                          style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
-                        >
-                          Topshirdim
-                        </button>
-                      ) : (
-                        <span className="text-[10px] opacity-40 inline-flex items-center gap-1">
-                          {order.completedAt
-                            ? formatDillerDateTime(order.completedAt)
-                            : cancelled && order.cancelledAt
-                              ? formatDillerDateTime(order.cancelledAt)
-                              : `${totalItems} dona`}
-                          <ChevronRight className="w-3.5 h-3.5" />
-                        </span>
-                      )}
+                      <button
+                        type="button"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          setDealerPayId(order.id);
+                        }}
+                        className="px-3 py-2 rounded-xl text-[12px] font-bold text-white"
+                        style={iosAccentFillStyle(accentColor.gradient, accentColor.color)}
+                      >
+                        Topshirdim
+                      </button>
                     </div>
                     <div className="text-[10px] opacity-40 mt-2 flex items-center justify-between">
                       <span>{formatDillerDateTime(order.createdAt)}</span>

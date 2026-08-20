@@ -439,7 +439,7 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
           <div className="relative overflow-hidden rounded-[26px] p-4" style={iosGlassCardStyle(isDark)}>
             <div
               className="pointer-events-none absolute inset-0 opacity-50"
-              style={{
+        style={{
                 background:
                   'radial-gradient(120% 90% at 100% -10%, rgba(251,191,36,0.28), transparent 55%)',
               }}
@@ -454,7 +454,7 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
                     >
                       <Wallet className="w-5 h-5" />
                     </span>
-                    <div className="min-w-0">
+                <div className="min-w-0">
                       <h3 className="font-black text-[15px] tracking-tight leading-tight">Qarz hulosasi</h3>
                       <p className="text-[11px] opacity-50 truncate">
                         {hulosaRangeLabel}
@@ -473,14 +473,14 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
                     {debtSummary.overdueCount > 0
                       ? `${debtSummary.overdueCount} ta kechikkan`
                       : 'muddati o‘tgan yo‘q'}
-                  </div>
                 </div>
               </div>
+            </div>
 
               <div className="grid grid-cols-4 gap-1.5 mt-4">
-                {debtPeriodOptions.map((p) => (
+              {debtPeriodOptions.map((p) => (
                   <PeriodChip
-                    key={p.id}
+                  key={p.id}
                     label={p.label}
                     active={debtPeriod === p.id}
                     isDark={isDark}
@@ -488,8 +488,8 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
                     fillWidth
                     onClick={() => applyDebtPeriod(p.id)}
                   />
-                ))}
-              </div>
+              ))}
+            </div>
 
               <div
                 className="grid grid-cols-2 gap-2 mt-3 p-2.5 rounded-[16px]"
@@ -533,80 +533,80 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
                     }`}
                   />
                 </label>
-              </div>
+                </div>
               {debtPeriod === 'custom' ? (
                 <p className="text-[10px] opacity-45 mt-2 px-0.5">
                   Tanlangan oraliq bo‘yicha hisoblandi
                 </p>
-              ) : null}
+            ) : null}
             </div>
           </div>
 
           <div className="grid grid-cols-3 gap-2">
-            <StatTile
+              <StatTile
               label="Kechikkan"
-              value={formatMoney(debtSummary.overdueTotal)}
-              sub={`${debtSummary.overdueCount} ta`}
-              color="#ef4444"
-              isDark={isDark}
-            />
-            <StatTile
-              label="Yakunlangan"
-              value={formatMoney(debtSummary.closedDebtTotal)}
-              sub={`${debtSummary.closedDebtCount} ta`}
-              color="#10b981"
-              isDark={isDark}
-            />
-            <StatTile
-              label="Undirilgan"
-              value={formatMoney(debtSummary.collectedTotal)}
-              sub={
-                debtSummary.creditSalesTotal > 0
-                  ? `${Math.round((debtSummary.collectedTotal / debtSummary.creditSalesTotal) * 100)}%`
-                  : '0%'
-              }
-              color={accentColor.color}
-              isDark={isDark}
-            />
-          </div>
-          {debtSummary.dueSoonCount > 0 ? (
-            <div
+                value={formatMoney(debtSummary.overdueTotal)}
+                sub={`${debtSummary.overdueCount} ta`}
+                color="#ef4444"
+                isDark={isDark}
+              />
+              <StatTile
+                label="Yakunlangan"
+                value={formatMoney(debtSummary.closedDebtTotal)}
+                sub={`${debtSummary.closedDebtCount} ta`}
+                color="#10b981"
+                isDark={isDark}
+              />
+              <StatTile
+                label="Undirilgan"
+                value={formatMoney(debtSummary.collectedTotal)}
+                sub={
+                  debtSummary.creditSalesTotal > 0
+                    ? `${Math.round((debtSummary.collectedTotal / debtSummary.creditSalesTotal) * 100)}%`
+                    : '0%'
+                }
+                color={accentColor.color}
+                isDark={isDark}
+              />
+            </div>
+            {debtSummary.dueSoonCount > 0 ? (
+              <div
               className="flex items-center gap-2 text-xs px-3.5 py-3 rounded-[18px]"
               style={{
                 background: isDark ? 'rgba(59,130,246,0.16)' : 'rgba(59,130,246,0.1)',
                 border: '0.5px solid rgba(59,130,246,0.28)',
                 backdropFilter: 'blur(20px)',
               }}
-            >
-              <CalendarClock className="w-4 h-4 text-blue-400 shrink-0" />
-              <span>
-                <strong>{debtSummary.dueSoonCount}</strong> ta qarz 7 kun ichida
-              </span>
-            </div>
-          ) : null}
+              >
+                <CalendarClock className="w-4 h-4 text-blue-400 shrink-0" />
+                <span>
+                  <strong>{debtSummary.dueSoonCount}</strong> ta qarz 7 kun ichida
+                </span>
+              </div>
+            ) : null}
 
           <div className="flex items-center justify-between gap-2 px-1">
             <h3 className="font-black text-[15px] tracking-tight">
-              {filter === 'closed' ? 'Yakunlangan qarzlar' : 'Ochiq qarzlar'}
-            </h3>
+                {filter === 'closed' ? 'Yakunlangan qarzlar' : 'Ochiq qarzlar'}
+              </h3>
             <span className="text-[11px] opacity-45 tabular-nums">{filteredSales.length} ta</span>
-          </div>
+            </div>
           <div className="flex gap-1.5 overflow-x-auto scrollbar-hide -mx-1 px-1">
-            {debtFilters.map((f) => (
+              {debtFilters.map((f) => (
               <PeriodChip
-                key={f.id}
+                  key={f.id}
                 label={f.label}
                 active={filter === f.id}
                 isDark={isDark}
                 tone={f.id === 'closed' ? 'emerald' : 'amber'}
-                onClick={() => {
-                  setFilter(f.id);
+                  onClick={() => {
+                    setFilter(f.id);
                   setDetailSaleId(null);
-                  setPayAmount('');
-                }}
+                    setPayAmount('');
+                  }}
               />
-            ))}
-          </div>
+              ))}
+            </div>
 
             {filteredSales.length === 0 ? (
               <div className="rounded-[22px] px-5 py-10 text-center" style={iosGlassCardStyle(isDark)}>
@@ -621,8 +621,8 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
                       ? 'Ochiq qarz yo‘q'
                       : 'Tanlangan davrda ochiq qarz yo‘q'
                     : 'Filtr bo‘yicha topilmadi'}
-                </p>
-              </div>
+              </p>
+                              </div>
             ) : (
               <ul className="space-y-2.5">
                 {filteredSales.map((sale) => (
@@ -637,7 +637,7 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
                       storeDebt={storeDebtById.get(sale.storeId)}
                       onOpen={() => openDebtDetail(sale)}
                     />
-                  </li>
+                    </li>
                 ))}
               </ul>
             )}
@@ -650,7 +650,7 @@ export function DillerQarzTab({ data, onDataChange, forcedSection, onGoHome }: P
           data={data}
           onGoHome={onGoHome}
         />
-      ) : null}
+            ) : null}
 
 
       {activeSection === 'buyurtma' ? (

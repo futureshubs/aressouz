@@ -1949,6 +1949,78 @@ export function resolveShopOrderStore(data: DillerData, order: DillerShopOrder):
   return matches[0] ?? null;
 }
 
+export function shopOrderBelongsToStore(
+  data: DillerData,
+  order: DillerShopOrder,
+  storeId: string,
+): boolean {
+  if (order.storeId === storeId) return true;
+  const resolved = resolveShopOrderStore(data, order);
+  return resolved?.id === storeId;
+}
+
+export function getShopOrdersForStore(data: DillerData, storeId: string): DillerShopOrder[] {
+  return (data.shopOrders ?? [])
+    .filter((o) => shopOrderBelongsToStore(data, o, storeId))
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export function getDealerOrdersForStore(data: DillerData, storeId: string): DillerDealerOrder[] {
+  return (data.dealerOrders ?? [])
+    .filter((o) => o.storeId === storeId)
+    .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+}
+
+export type StoreOrderRow =
+  | { kind: 'qr'; order: DillerShopOrder }
+  | { kind: 'dealer'; order: DillerDealerOrder };
+
+export type StoreOrdersSummary = {
+  total: number;
+  qrPending: number;
+  qrAccepted: number;
+  qrDone: number;
+  dealerOpen: number;
+  dealerDone: number;
+  openCount: number;
+};
+
+export function getStoreOrderRows(data: DillerData, storeId: string): StoreOrderRow[] {
+  const qrRows = getShopOrdersForStore(data, storeId)
+    .filter((o) => o.status !== 'rejected')
+    .map((order) => ({ kind: 'qr' as const, order }));
+  const dealerRows = getDealerOrdersForStore(data, storeId)
+    .filter((o) => o.status !== 'cancelled')
+    .map((order) => ({ kind: 'dealer' as const, order }));
+
+  return [...qrRows, ...dealerRows].sort((a, b) => {
+    const ta = a.order.createdAt;
+    const tb = b.order.createdAt;
+    return new Date(tb).getTime() - new Date(ta).getTime();
+  });
+}
+
+export function getStoreOrdersSummary(data: DillerData, storeId: string): StoreOrdersSummary {
+  const qr = getShopOrdersForStore(data, storeId);
+  const dealer = getDealerOrdersForStore(data, storeId).filter((o) => o.status !== 'cancelled');
+
+  const qrPending = qr.filter((o) => o.status === 'pending').length;
+  const qrAccepted = qr.filter((o) => o.status === 'accepted').length;
+  const qrDone = qr.filter((o) => o.status === 'done').length;
+  const dealerOpen = dealer.filter((o) => o.status === 'open').length;
+  const dealerDone = dealer.filter((o) => o.status === 'done').length;
+
+  return {
+    total: qr.filter((o) => o.status !== 'rejected').length + dealer.length,
+    qrPending,
+    qrAccepted,
+    qrDone,
+    dealerOpen,
+    dealerDone,
+    openCount: qrPending + qrAccepted + dealerOpen,
+  };
+}
+
 function shopOrderCoords(order: DillerShopOrder): { lat: number; lng: number } | null {
   const lat = Number(order.customerLat);
   const lng = Number(order.customerLng);

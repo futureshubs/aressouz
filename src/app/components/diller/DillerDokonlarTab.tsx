@@ -15,7 +15,7 @@ import {
 import { useDillerUserLocation } from '../../hooks/useDillerUserLocation';
 import { useTheme } from '../../context/ThemeContext';
 import type { DillerData, DillerStore } from '../../utils/dillerData';
-import { deleteStore, formatMoney } from '../../utils/dillerData';
+import { deleteStore, formatMoney, getStoreOrdersSummary } from '../../utils/dillerData';
 import {
   formatDillerDateTime,
   formatStoreDistance,
@@ -58,7 +58,8 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
     return data.stores.map((store) => {
       const stats = getStoreStats(data, store.id);
       const distanceKm = getStoreDistanceKm(store, userLoc);
-      return { store, stats, distanceKm };
+      const orders = getStoreOrdersSummary(data, store.id);
+      return { store, stats, distanceKm, orders };
     });
   }, [data, userLoc]);
 
@@ -313,11 +314,12 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
         </div>
       ) : (
         <ul className="space-y-2.5">
-          {sortedStores.map(({ store, stats, distanceKm }) => (
+          {sortedStores.map(({ store, stats, distanceKm, orders }) => (
             <StoreGlassCard
               key={store.id}
               store={store}
               stats={stats}
+              orders={orders}
               distanceLabel={formatStoreDistance(distanceKm)}
               isNearest={store.id === nearestId && distanceKm != null && distanceKm < 0.8}
               isDark={isDark}
@@ -345,6 +347,7 @@ export function DillerDokonlarTab({ data, onDataChange }: Props) {
 function StoreGlassCard({
   store,
   stats,
+  orders,
   distanceLabel,
   isNearest,
   isDark,
@@ -353,6 +356,7 @@ function StoreGlassCard({
 }: {
   store: DillerStore;
   stats: ReturnType<typeof getStoreStats>;
+  orders: ReturnType<typeof getStoreOrdersSummary>;
   distanceLabel: string | null;
   isNearest: boolean;
   isDark: boolean;
@@ -447,6 +451,15 @@ function StoreGlassCard({
                   Sotuv yo‘q
                 </span>
               )}
+              {orders.openCount > 0 ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/18 text-violet-300">
+                  {orders.openCount} ochiq buyurtma
+                </span>
+              ) : orders.total > 0 ? (
+                <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-violet-500/12 text-violet-300/80">
+                  {orders.total} buyurtma
+                </span>
+              ) : null}
               {hasDebt ? (
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-amber-500/18 text-amber-400">
                   Qarz qoldi
